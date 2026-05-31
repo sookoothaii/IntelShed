@@ -91,17 +91,35 @@ def _cache_set(key: str, value):
 
 @app.get("/api/aircraft")
 async def get_aircraft(limit: int = 800):
-    """Fetch live aircraft from OpenSky Network (cached 8s)."""
-    cached = _cache_get("aircraft", ttl=8.0)
-    if cached is None:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.get("https://opensky-network.org/api/states/all")
-            r.raise_for_status()
-            cached = r.json()
-        _cache_set("aircraft", cached)
+    """Fetch live aircraft from OpenSky Network (cached 15s).
 
-    states = cached.get("states", [])
-    with_pos = [s for s in states if s[5] is not None and s[6] is not None]
+    OpenSky's anonymous API is heavily rate-limited (HTTP 429). On any upstream
+    failure we serve the last good snapshot (stale cache) instead of erroring,
+    so the globe keeps showing aircraft.
+    """
+    cache_key = "aircraft"
+    cached = _cache_get(cache_key, ttl=15.0)
+    if cached is None:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get("https://opensky-network.org/api/states/all")
+                r.raise_for_status()
+                cached = r.json()
+            _cache_set(cache_key, cached)
+        except Exception as e:
+            stale = _CACHE.get(cache_key)
+            if stale:
+                cached = stale[1]
+            else:
+                return {
+                    "count": 0,
+                    "timestamp": None,
+                    "states": [],
+                    "error": f"OpenSky unavailable ({e.__class__.__name__}); no cached data yet.",
+                }
+
+    states = cached.get("states", []) or []
+    with_pos = [s for s in states if len(s) > 6 and s[5] is not None and s[6] is not None]
     return {
         "count": len(with_pos),
         "timestamp": cached.get("time"),
