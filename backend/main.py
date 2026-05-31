@@ -11,6 +11,23 @@ from fastapi.middleware.cors import CORSMiddleware
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
 
+
+def _load_env():
+    """Minimal .env loader (no extra dependency). Does not override real env vars."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(env_path):
+        return
+    with open(env_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
+
+
+_load_env()
+
 app = FastAPI(title="WorldBase API", version="0.1.0")
 
 app.add_middleware(
@@ -89,6 +106,40 @@ def _cache_set(key: str, value):
     _CACHE[key] = (time.time(), value)
 
 
+# OpenSky OAuth2 (client credentials) — optional, enables real aircraft data
+_OPENSKY_TOKEN: dict = {"token": None, "exp": 0.0}
+_OPENSKY_TOKEN_URL = (
+    "https://auth.opensky-network.org/auth/realms/opensky-network/"
+    "protocol/openid-connect/token"
+)
+
+
+async def _opensky_token():
+    """Return a cached OpenSky bearer token, or None if not configured."""
+    import time
+    cid = os.environ.get("OPENSKY_CLIENT_ID")
+    secret = os.environ.get("OPENSKY_CLIENT_SECRET")
+    if not cid or not secret:
+        return None
+    now = time.time()
+    if _OPENSKY_TOKEN["token"] and now < _OPENSKY_TOKEN["exp"] - 60:
+        return _OPENSKY_TOKEN["token"]
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.post(
+            _OPENSKY_TOKEN_URL,
+            data={
+                "grant_type": "client_credentials",
+                "client_id": cid,
+                "client_secret": secret,
+            },
+        )
+        r.raise_for_status()
+        tok = r.json()
+    _OPENSKY_TOKEN["token"] = tok["access_token"]
+    _OPENSKY_TOKEN["exp"] = now + float(tok.get("expires_in", 1800))
+    return _OPENSKY_TOKEN["token"]
+
+
 @app.get("/api/aircraft")
 async def get_aircraft(limit: int = 800):
     """Fetch live aircraft from OpenSky Network (cached 15s).
@@ -101,8 +152,14 @@ async def get_aircraft(limit: int = 800):
     cached = _cache_get(cache_key, ttl=15.0)
     if cached is None:
         try:
+            headers = {}
+            token = await _opensky_token()
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
             async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.get("https://opensky-network.org/api/states/all")
+                r = await client.get(
+                    "https://opensky-network.org/api/states/all", headers=headers
+                )
                 r.raise_for_status()
                 cached = r.json()
             _cache_set(cache_key, cached)
