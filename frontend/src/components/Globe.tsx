@@ -37,8 +37,10 @@ import {
 import { POIS } from '../lib/pois'
 import type { FocusTarget } from '../lib/focus'
 
-Ion.defaultAccessToken =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJjNGU5ZGZkNC1kNzEwLTQ0ODQtYWU3NC1kNTUxZTAyODRkM2EiLCJpZCI6NDM4NjY0LCJpc3MiOiJodHRwczovL2FwaS5jZXNpdW0uY29tIiwiYXVkIjoidW5kZWZpbmVkX2RlZmF1bHQiLCJpYXQiOjE3ODAyNDc0ODF9.84FpZq183HJOrsv93gwhDA8pvcCX4FsuaiI40mM1MXI'
+Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? ''
+if (!Ion.defaultAccessToken) {
+  console.warn('[WorldBase] VITE_CESIUM_ION_TOKEN is not set. Copy frontend/.env.example to frontend/.env and add your Cesium Ion token.')
+}
 
 const SAT_GROUPS = [
   { id: 'starlink', label: 'STARLINK' },

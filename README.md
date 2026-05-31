@@ -1,27 +1,56 @@
-# WorldBase — Spatial Intelligence Workstation (Windows, Docker-free)
+# WORLDBASE — Spatial Intelligence Workstation
 
-A Windows-native, Docker-free personal data-fusion dashboard inspired by Bilawal Sidhu's WorldView and the offgrid-raspi stack.
+A Windows-native, Docker-free data-fusion dashboard: a CesiumJS 3D globe overlaid with live
+real-world feeds (aircraft, satellites, earthquakes, natural events, the ISS), tactical vision
+modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React + Vite frontend.
+
+> Inspired by Bilawal Sidhu's WorldView and the offgrid-raspi stack.
+
+---
+
+## Features
+
+- **3D Globe** — Cesium World Terrain with lighting, atmosphere, and fog.
+- **Live feeds** (auto-refreshing):
+  - Aircraft positions (OpenSky Network)
+  - Satellite constellations + orbits (CelesTrak TLE, propagated with `satellite.js`)
+  - Earthquakes, magnitude-colored (USGS)
+  - Natural events — wildfires, storms, volcanoes, ice (NASA EONET)
+  - Live ISS telemetry (wheretheiss.at)
+- **DATA panel** — searchable, filterable tables per feed with satellite-group selector.
+- **Click-to-locate** — click any event or earthquake in the DATA panel to fly to it on the
+  globe with a pulsing marker and a TARGET LOCK info card (incl. source links).
+- **Vision modes** — Normal, NVG (night vision), Thermal/FLIR, CRT scanlines, Night — GLSL
+  post-processing shaders.
+- **Local AI chat** — talks to Ollama on `:11434`, model picker included. Fully offline.
+- **HUD aesthetic** — animated boot sequence, live UTC clock, system-status pips,
+  glassmorphism, neon glow.
+
+---
 
 ## Quick Start (no Docker)
 
-### 1. Prerequisites
-- **Python 3.11+** (python.org)
-- **Node.js 20+** (nodejs.org)
-- **Ollama** (ollama.com/download) — native Windows installer, runs as service on `:11434`
+### Prerequisites
+- **Python 3.11+**
+- **Node.js 20+**
+- **Ollama** (optional, for the AI panel) — runs as a service on `:11434`
+- A free **Cesium Ion token** — <https://ion.cesium.com/tokens>
 
-### 2. One-Command Start
+### 1. Configure the Cesium token
+```powershell
+copy frontend\.env.example frontend\.env
+# then edit frontend\.env and set VITE_CESIUM_ION_TOKEN=<your token>
+```
+
+### 2. One-command start
 ```powershell
 .\start.ps1
 ```
+Launches the backend (`uvicorn` on `:8000`) and frontend (`vite` on `:5173`).
 
-This launches:
-- Backend (`uvicorn`) on http://localhost:8000
-- Frontend (`vite`) on http://localhost:5173
-- API docs at http://localhost:8000/docs
+### 3. Manual start
 
-### 3. Manual Start (if preferred)
-
-**Backend:**
+**Backend**
 ```powershell
 cd backend
 python -m venv venv
@@ -30,66 +59,81 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-**Frontend:**
+**Frontend**
 ```powershell
 cd frontend
 npm install
 npm run dev
 ```
 
+Open <http://localhost:5173>. API docs live at <http://localhost:8000/docs>.
+
+---
+
 ## Architecture
 
 ```
 Frontend (Vite + React + CesiumJS)
-  └─ Globe view (Cesium World Terrain)
-  └─ HUD overlay (aircraft, satellites, market feeds)
-  └─ Local AI chat (Ollama :11434)
+  |- Globe        3D terrain, live entity layers, vision shaders, click-to-locate
+  |- DATA panel   searchable tables for every feed
+  '- AI chat      local Ollama (:11434)
 
-Backend (FastAPI + SQLite)
-  └─ /api/aircraft      → OpenSky Network (live ADS-B)
-  └─ /api/satellites    → CelesTrak TLE (orbital data)
-  └─ /api/world         → Cached world.json (markets, geo)
-  └─ /api/chat          → Proxy to local Ollama
+Backend (FastAPI + SQLite, async httpx with TTL caching)
+  |- /api/health        service heartbeat
+  |- /api/aircraft      OpenSky live ADS-B states
+  |- /api/satellites    CelesTrak TLE (group + limit params)
+  |- /api/earthquakes   USGS feed (period + magnitude params)
+  |- /api/events        NASA EONET natural events (+ source links)
+  |- /api/iss           live ISS position/velocity
+  |- /api/world         cached aggregate stub
+  |- /api/models        list local Ollama models
+  '- /api/chat          proxy to local Ollama
 
-Data Store (SQLite)
-  └─ aircraft_snapshots
-  └─ tle_entries
-  └─ feed_cache
+Data store (SQLite): feed_cache, aircraft_snapshots, tle_entries
 ```
+
+---
 
 ## Ports
 
-| Service | Port | Note |
-|---------|------|------|
-| Frontend | 5173 | Vite dev server |
-| Backend API | 8000 | FastAPI + auto docs |
-| Ollama | 11434 | Local LLM inference (separate install) |
+| Service     | Port  | Note                          |
+|-------------|-------|-------------------------------|
+| Frontend    | 5173  | Vite dev server               |
+| Backend API | 8000  | FastAPI + auto docs (`/docs`) |
+| Ollama      | 11434 | Local LLM (separate install)  |
 
-## Ollama Models
+---
 
-After installing Ollama:
+## Ollama models
+
 ```powershell
 ollama pull llama3.2
 ollama pull qwen2.5
 ollama list
 ```
+The AI panel auto-discovers installed models via `/api/models`.
 
-The frontend chat connects to `http://localhost:11434` automatically.
+---
 
-## Data Sources (no API key required)
+## Data sources (no API key required)
 
 - **OpenSky Network** — live aircraft positions
 - **CelesTrak** — satellite TLE orbital data
-- **Open-Meteo** — weather (optional expansion)
+- **USGS** — earthquake feeds
+- **NASA EONET** — natural events
+- **wheretheiss.at** — ISS telemetry
 
-## Vision Modes (planned)
+The only credential you need is a Cesium Ion token (for terrain/imagery).
 
-- NVG (Night Vision)
-- FLIR (Thermal)
-- CRT (Scanlines)
-- Anime (Cel-shading)
+---
 
-The shader pipeline is stubbed in `frontend/src/styles/hud.css`.
+## Security note
+
+The Cesium Ion token is read from `frontend/.env` (git-ignored) via `VITE_CESIUM_ION_TOKEN`.
+It is a client-side token (shipped in the built JS), so restrict it to your domains using the
+URL allowlist in the Ion console. Never commit your real `.env`.
+
+---
 
 ## License
 
