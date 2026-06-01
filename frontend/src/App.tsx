@@ -421,7 +421,7 @@ function ChatPanel() {
     let searchCtx = ''
     if (webSearch) {
       try {
-        const sr = await fetch(`/api/search?q=${encodeURIComponent(userMsg)}&n=3`)
+        const sr = await fetch(`/api/search?q=${encodeURIComponent(userMsg)}&n=5`)
         const sd = await sr.json()
         if (sd.results && sd.results.length > 0) {
           searchCtx = sd.results.map((r: any, i: number) =>
