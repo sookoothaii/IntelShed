@@ -55,6 +55,7 @@ type Stats = {
   satellites: number
   quakes: number
   events: number
+  nodes: number
   fps: number
 }
 
@@ -75,7 +76,7 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, fps: 0 })
   const [target, setTarget] = useState<Target>(null)
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
   const [layers, setLayers] = useState({
@@ -84,6 +85,7 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
     orbits: true,
     quakes: true,
     events: true,
+    nodes: true,
   })
 
   useEffect(() => {
@@ -122,7 +124,8 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
       const quakeSrc = new CustomDataSource('quakes')
       const eventSrc = new CustomDataSource('events')
       const focusSrc = new CustomDataSource('focus')
-      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc].forEach((s) => viewer!.dataSources.add(s))
+      const nodesSrc = new CustomDataSource('nodes')
+      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc].forEach((s) => viewer!.dataSources.add(s))
 
       const acMap = new Map<string, Entity>()
       const satMap = new Map<string, Entity>()
@@ -383,6 +386,115 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
         }
       }
 
+      // ---------- NODES (Pi + mesh) ----------
+      const nodeMap = new Map<string, Entity>()
+      const tempToColor = (t: number) => {
+        // Green (40°C) → Yellow (55°C) → Red (70°C)
+        const norm = Math.max(0, Math.min(1, (t - 40) / 30))
+        return Color.fromHsl(0.35 * (1 - norm), 1.0, 0.5, 0.95)
+      }
+      const fetchNodes = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/nodes')
+          const d = await r.json()
+          const nodes: any[] = d.nodes || []
+          const seen = new Set<string>()
+          for (const n of nodes) {
+            if (n.lon == null || n.lat == null) continue
+            const id = n.node_id
+            seen.add(id)
+            const temp = n.health?.cpu_temp_c ?? 0
+            const isOnline = n.online === true
+            const pos = Cartesian3.fromDegrees(n.lon, n.lat, 0)
+            let e = nodeMap.get(id)
+            if (e) {
+              ;(e.position as ConstantPositionProperty).setValue(pos)
+            } else {
+              e = nodesSrc.entities.add({
+                id: 'node-' + id,
+                position: new ConstantPositionProperty(pos),
+                point: {
+                  pixelSize: 14,
+                  color: tempToColor(temp),
+                  outlineColor: Color.BLACK,
+                  outlineWidth: 2,
+                  scaleByDistance: new NearFarScalar(1e4, 1.8, 1e7, 0.6),
+                },
+                label: {
+                  text: n.name || id,
+                  font: '600 11px "Courier New"',
+                  fillColor: Color.fromCssColorString('#00e5a0'),
+                  outlineColor: Color.BLACK,
+                  outlineWidth: 2,
+                  style: LabelStyle.FILL_AND_OUTLINE,
+                  verticalOrigin: VerticalOrigin.BOTTOM,
+                  horizontalOrigin: HorizontalOrigin.CENTER,
+                  pixelOffset: new Cartesian2(0, -14),
+                  distanceDisplayCondition: new DistanceDisplayCondition(0, 2e6),
+                },
+                properties: {
+                  kind: 'node',
+                  node_id: id,
+                  name: n.name || id,
+                  temp,
+                  online: isOnline,
+                  services: n.health?.services || {},
+                  sensors: n.sensors || {},
+                  mesh_count: (n.mesh || []).length,
+                  pihole: n.pihole || {},
+                  age_seconds: n.age_seconds ?? 0,
+                } as any,
+              })
+              // Pulsing ring for online nodes
+              if (isOnline) {
+                const t0 = Date.now()
+                ;(e as any).ellipse = {
+                  semiMajorAxis: new CallbackProperty(() => {
+                    const ph = ((Date.now() - t0) % 2000) / 2000
+                    return 15000 + ph * 40000
+                  }, false),
+                  semiMinorAxis: new CallbackProperty(() => {
+                    const ph = ((Date.now() - t0) % 2000) / 2000
+                    return (15000 + ph * 40000) * 0.97
+                  }, false),
+                  material: new ColorMaterialProperty(
+                    new CallbackProperty(() => {
+                      const ph = ((Date.now() - t0) % 2000) / 2000
+                      return tempToColor(temp).withAlpha(0.35 * (1 - ph))
+                    }, false)
+                  ),
+                  height: 0,
+                }
+              }
+              nodeMap.set(id, e)
+            }
+            // Mesh connection lines
+            for (const m of n.mesh || []) {
+              if (m.lon != null && m.lat != null) {
+                nodesSrc.entities.add({
+                  id: `link-${id}-${m.id}`,
+                  polyline: {
+                    positions: [pos, Cartesian3.fromDegrees(m.lon, m.lat, 0)],
+                    width: 1.5,
+                    material: new PolylineGlowMaterialProperty({
+                      glowPower: 0.35,
+                      color: Color.fromCssColorString('#00e5a0').withAlpha(0.45),
+                    }),
+                  },
+                })
+              }
+            }
+          }
+          for (const [id, e] of nodeMap) {
+            if (!seen.has(id)) { nodesSrc.entities.remove(e); nodeMap.delete(id) }
+          }
+          if (!cancelled) setStats((p) => ({ ...p, nodes: nodeMap.size }))
+        } catch (e) {
+          console.error('nodes fetch failed', e)
+        }
+      }
+
       // ---------- Interaction ----------
       const handler = new ScreenSpaceEventHandler(scene.canvas)
       handler.setInputAction((m: any) => {
@@ -435,6 +547,25 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
           setTarget({
             kind, title: `⚠ ${props.category?.getValue?.()}`,
             lines: [`${props.title?.getValue?.()}`, `DATE: ${new Date(props.date?.getValue?.()).toLocaleString()}`],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'node') {
+          const svcs = props.services?.getValue?.() || {}
+          const svcLines = Object.entries(svcs).map(([k, v]) => `  ${k}: ${v}`)
+          const s = props.sensors?.getValue?.() || {}
+          const sensorLines = Object.entries(s).map(([k, v]) => `  ${k}: ${v}`)
+          const ph = props.pihole?.getValue?.() || {}
+          setTarget({
+            kind, title: `📡 ${props.name?.getValue?.()}`,
+            lines: [
+              `CPU TEMP: ${props.temp?.getValue?.()}°C`,
+              `STATUS: ${props.online?.getValue?.() ? 'ONLINE' : 'OFFLINE'}`,
+              `AGE: ${Math.round(props.age_seconds?.getValue?.() ?? 0)}s`,
+              `MESH NODES: ${props.mesh_count?.getValue?.() ?? 0}`,
+              ...(ph.blocked ? [`PI-HOLE: ${ph.blocked} blocked (${ph.percent}%)`] : []),
+              ...(sensorLines.length ? ['SENSORS:', ...sensorLines] : []),
+              ...(svcLines.length ? ['SERVICES:', ...svcLines] : []),
+            ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         }
@@ -531,6 +662,7 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
           orbitSrc.show = l.satellites && l.orbits
           quakeSrc.show = l.quakes
           eventSrc.show = l.events
+          nodesSrc.show = l.nodes
         },
       }
 
@@ -539,6 +671,7 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
       fetchAircraft()
       fetchQuakes()
       fetchEvents()
+      fetchNodes()
 
       if (focusRef.current) apiRef.current.focusOn(focusRef.current)
 
@@ -546,6 +679,7 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
       timers.push(setInterval(propagateSats, 3000))
       timers.push(setInterval(fetchQuakes, 300000))
       timers.push(setInterval(fetchEvents, 600000))
+      timers.push(setInterval(fetchNodes, 30000))
     })()
 
     return () => {
@@ -583,6 +717,7 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
         <div className="hud-row"><span className="hud-dot cyan" />SATELLITES<span className="hud-val">{stats.satellites}</span></div>
         <div className="hud-row"><span className="hud-dot red" />SEISMIC<span className="hud-val">{stats.quakes}</span></div>
         <div className="hud-row"><span className="hud-dot orange" />EVENTS<span className="hud-val">{stats.events}</span></div>
+        <div className="hud-row"><span className="hud-dot green" />NODES<span className="hud-val">{stats.nodes}</span></div>
         <div className="hud-divider" />
         <div className="hud-row">RENDER<span className="hud-val">{stats.fps} FPS</span></div>
         <div className="hud-row sub">LON {cursor.lon}  LAT {cursor.lat}</div>
@@ -610,7 +745,7 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
 
         <div className="ctl-block">
           <div className="hud-title">LAYERS</div>
-          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events'] as const).map((k) => (
+          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes'] as const).map((k) => (
             <label key={k} className={layers[k] ? 'on' : ''}>
               <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
             </label>
