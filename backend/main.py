@@ -1,6 +1,7 @@
 """WorldBase API — FastAPI backend, SQLite cache, no Docker."""
 
 import asyncio
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
