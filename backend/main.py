@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from contextlib import contextmanager
@@ -193,6 +194,58 @@ async def build_chat_context() -> str:
             parts.append(f"  Earthquakes(24h): {len(qu.get('features', []) or [])}")
         if ev:
             parts.append(f"  Natural events: {len(ev.get('events', []) or [])}")
+
+    # ReliefWeb humanitarian crises
+    try:
+        rw = _cache_get("reliefweb", ttl=999999)
+        if not rw:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.get(
+                    "https://api.reliefweb.int/v1/disasters",
+                    params={"appname": "worldbase", "profile": "list", "preset": "latest", "limit": 10},
+                )
+                rw = r.json()
+                _cache_set("reliefweb", rw)
+        disasters = rw.get("data", [])
+        if disasters:
+            parts.append("\nACTIVE CRISES (ReliefWeb):")
+            for d in disasters[:5]:
+                f = d.get("fields", {})
+                parts.append(f"  {f.get('name', 'Unknown')} — {f.get('status', 'unknown')}")
+    except Exception:
+        pass
+
+    # RSS news headlines
+    try:
+        news = _cache_get("rss_news", ttl=999999)
+        if not news:
+            headlines = []
+            feeds = [
+                ("BBC World", "http://feeds.bbci.co.uk/news/world/rss.xml"),
+                ("Reuters", "https://www.reutersagency.com/feed/?best-topics=business-finance"),
+                ("Tagesschau", "https://www.tagesschau.de/xml/rss2/"),
+            ]
+            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                for name, url in feeds:
+                    try:
+                        r = await client.get(url, headers={"User-Agent": "WorldBase/1.0"})
+                        text = r.text
+                        # Simple regex extraction for <title> inside <item>
+                        titles = re.findall(r'<item>.*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>.*?</item>', text, re.DOTALL)[:3]
+                        for t in titles:
+                            clean = re.sub(r'<[^>]+>', '', t).strip()
+                            if clean and clean not in [h["text"] for h in headlines]:
+                                headlines.append({"source": name, "text": clean})
+                    except Exception:
+                        continue
+            news = headlines[:8]
+            _cache_set("rss_news", news)
+        if news:
+            parts.append("\nHEADLINES:")
+            for h in news:
+                parts.append(f"  [{h['source']}] {h['text']}")
+    except Exception:
+        pass
 
     return "\n".join(parts) if parts else "No live context available."
 
