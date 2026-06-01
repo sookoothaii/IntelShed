@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import Globe from './components/Globe'
 import type { FocusTarget } from './lib/focus'
 
-const NAV_ITEMS: { id: 'globe' | 'data' | 'chat'; label: string; glyph: string }[] = [
+const NAV_ITEMS: { id: 'globe' | 'data' | 'chat' | 'osint'; label: string; glyph: string }[] = [
   { id: 'globe', label: 'GLOBE', glyph: '◎' },
   { id: 'data', label: 'DATA', glyph: '▤' },
   { id: 'chat', label: 'AI', glyph: '✦' },
+  { id: 'osint', label: 'OSINT', glyph: '⌖' },
 ]
 
 function useClock() {
@@ -47,7 +48,7 @@ function SystemStatus() {
 }
 
 export default function App() {
-  const [view, setView] = useState<'globe' | 'data' | 'chat'>('globe')
+  const [view, setView] = useState<'globe' | 'data' | 'chat' | 'osint'>('globe')
   const [booting, setBooting] = useState(true)
   const [focus, setFocus] = useState<FocusTarget | null>(null)
   const now = useClock()
@@ -107,6 +108,7 @@ export default function App() {
           {view === 'globe' && <Globe focus={focus} />}
           {view === 'data' && <DataPanel onFocus={focusOnMap} />}
           {view === 'chat' && <ChatPanel />}
+          {view === 'osint' && <OsintPanel />}
         </div>
       </main>
     </div>
@@ -469,6 +471,47 @@ function ChatPanel() {
           Send
         </button>
       </div>
+    </div>
+  )
+}
+
+function OsintPanel() {
+  const url = (import.meta as any).env?.VITE_OSINT_URL || 'http://localhost:15000'
+  const [reloadKey, setReloadKey] = useState(0)
+
+  return (
+    <div className="panel osint" style={{ padding: '0 14px' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '10px 2px',
+        }}
+      >
+        <h2 style={{ margin: 0 }}>OSINT Console</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#6f8c84' }}>{url}</span>
+          <button onClick={() => setReloadKey((k) => k + 1)}>↻ RELOAD</button>
+          <a href={url} target="_blank" rel="noreferrer">
+            <button>↗ OPEN</button>
+          </a>
+        </div>
+      </div>
+      <iframe
+        key={reloadKey}
+        src={url}
+        title="OSINT Console"
+        className="osint-frame"
+        style={{
+          width: '100%',
+          height: 'calc(100vh - 170px)',
+          border: '1px solid rgba(0,229,160,0.25)',
+          borderRadius: 10,
+          background: '#060a12',
+        }}
+      />
     </div>
   )
 }

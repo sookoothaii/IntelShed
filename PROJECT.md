@@ -337,6 +337,43 @@ Proxies chat requests to local Ollama.
 
 ---
 
+### Extended Feeds (no API key)
+
+Implemented in `backend/feeds_extra.py`. Every feed is fail-soft: on upstream error it
+returns the last good cached value or an empty payload.
+
+| Endpoint | Source | Notes |
+|----------|--------|-------|
+| `GET /api/spaceweather` | NOAA SWPC | Planetary K-index, storm scale, aurora/HF-radio impact flags, 24-sample history. |
+| `GET /api/markets` | CoinGecko + Frankfurter | Crypto (BTC/ETH/XMR/SOL) in USD/EUR with 24h change + ECB forex. |
+| `GET /api/military` | adsb.fi open data | Military/interesting aircraft worldwide, no rate wall. |
+| `GET /api/weather?lat=&lon=` | Open-Meteo | Current conditions + 24h outlook for any coordinate. |
+| `GET /api/geopolitics` | ReliefWeb (UN OCHA) | Active humanitarian disasters/crises worldwide. |
+
+### Node Sync — "One Organism" (PC brain ↔ Pi edge)
+
+Implemented in `backend/node_sync.py`. SQLite tables: `node_state`, `briefings`.
+
+| Endpoint | Direction | Purpose |
+|----------|-----------|---------|
+| `POST /api/node/ingest` | Pi → PC | Upsert a node's live state: `{node_id, name, lat, lon, sensors, mesh[], pihole, health}`. |
+| `GET /api/nodes` | read | Live node registry (online if updated < 300 s ago) for globe entities + UI. |
+| `POST /api/briefing/generate` | PC | Fuse feeds (`_gather_snapshot`) → ranked alerts (`_compile_alerts`) → local LLM writes a ≤150-word situation briefing → store. |
+| `GET /api/briefing` | read | Latest stored briefing + alerts. |
+| `GET /api/node/pull` | PC → Pi | Single payload (briefing + fresh critical alerts) the off-grid Pi displays even without its own upstream internet. |
+
+**Data flow of the organism:** the Pi POSTs edge telemetry → WorldBase renders it as a live
+entity and fuses it with global feeds → the local 14B LLM writes a narrative briefing → the Pi
+pulls that briefing back. The strong PC *thinks*; the small Pi *senses and shows*.
+
+### OSINT integration
+
+The frontend (`frontend/src/App.tsx`) exposes **OSINT** as a peer nav item next to GLOBE / DATA /
+AI. It embeds the OpenOSINT console (running on the Pi) via an `<iframe>`; the URL is configurable
+through `VITE_OSINT_URL` (default `http://localhost:15000`, the SSH tunnel to the Pi).
+
+---
+
 ## Data Sources
 
 | Source | URL | Data | Rate Limit |
@@ -388,6 +425,114 @@ All external APIs are free and do not require paid keys for basic usage. Cesium 
 - [ ] **Electron or Tauri Wrapper**: Standalone `.exe` instead of browser + two terminals.
 - [ ] **System Tray Icon**: Minimize to tray, background data sync.
 - [ ] **Auto-Start**: Launch backend + frontend on Windows boot.
+
+---
+
+## Future Vision & Agent Handoff
+
+> This section is written for the **next AI agent** (or human) who picks up WorldBase. It
+> describes the current reality, the mental model, the exact places to touch, and a deliberately
+> ambitious set of expansion ideas. Read it before writing code. Be bold, but keep the
+> fail-soft, no-key, local-first philosophy intact.
+
+### Current state (as of June 2026)
+
+What is real and tested today:
+
+- **Backend** (`backend/main.py` + `backend/feeds_extra.py` + `backend/node_sync.py`): all feeds
+  in the API reference above are live and fail-soft. SQLite at `backend/worldbase.db`.
+- **Node sync**: `POST /api/node/ingest` accepts Pi telemetry; `GET /api/nodes` returns it;
+  `POST /api/briefing/generate` fuses feeds and calls the local LLM; `GET /api/node/pull` is the
+  Pi's offline payload. Verified end-to-end with a simulated Pi node.
+- **Frontend** (`frontend/src/App.tsx`): GLOBE / DATA / AI / **OSINT** nav. The OSINT tab embeds
+  the OpenOSINT console (`VITE_OSINT_URL`). The Cesium globe lives in `components/Globe.tsx`.
+- **The two machines**: a strong **on-grid PC** runs WorldBase + Ollama (14B). A small
+  **off-grid Raspberry Pi** runs the OpenOSINT stack, Pi-hole, Kiwix, Meshtastic/LoRa, sensors.
+  They are reachable to each other over LAN / SSH tunnel (`localhost:15000` → Pi `:5000`).
+
+### Mental model: one organism
+
+```
+        PC (brain, on-grid)                         Pi (senses, off-grid)
+   ┌───────────────────────────┐             ┌──────────────────────────────┐
+   │ WorldBase globe + feeds    │  ingest →   │ sensors, mesh, Pi-hole, GPS   │
+   │ Ollama 14B (fusion/LLM)    │ ← pull      │ OpenOSINT tools, Kiwix, LoRa  │
+   │ situation briefing writer  │             │ portal (offline display)      │
+   └───────────────────────────┘             └──────────────────────────────┘
+```
+
+The PC has compute and the wide view; the Pi has presence in the physical world and survives
+without grid power or internet. The sync layer is the nervous system between them. **Every new
+feature should ask: does this strengthen the brain, the senses, or the nerve between them?**
+
+### What is NOT done yet (honest gaps)
+
+- The new feeds (`/api/military`, `/api/spaceweather`, `/api/markets`, `/api/geopolitics`,
+  `/api/nodes`) are **not yet rendered on the globe** — only the backend exists. Frontend wiring
+  is the obvious next step (`components/Globe.tsx` + new DATA sub-tabs).
+- There is **no real Pi-push script yet**. `POST /api/node/ingest` was tested with a simulated
+  payload. A small daemon on the Pi (cron/systemd timer) must collect real sensor/Pi-hole/mesh
+  data and POST it every ~30 s.
+- **Briefing generation is manual** (`POST /api/briefing/generate`). It should run on a schedule
+  (APScheduler or a simple asyncio loop) every 10–15 min.
+- The chat proxy in `main.py` is still **non-streaming** (`stream: False`). The OpenOSINT chat we
+  fixed *does* stream; WorldBase's own AI chat does not yet.
+- No auth on `/api/node/ingest` — fine on a trusted LAN, but add a shared token before exposing.
+
+### Expansion ideas (be creative — pick a thread and pull)
+
+**A. Make the globe a living situation display.**
+1. Render `/api/nodes` as pulsing entities at the Pi's real coordinates, with the mesh nodes as
+   linked points and SNR-weighted connection lines (a literal picture of the LoRa network).
+2. Plot `/api/military` aircraft with distinct icons and squawk-based coloring (7500/7600/7700
+   emergency codes glow red). Draw `/api/geopolitics` disasters and `/api/spaceweather` aurora
+   ovals (NOAA OVATION) as overlays.
+3. A **"briefing mode"**: clicking the situation briefing highlights every alert's coordinate on
+   the globe in sequence — a guided tour of the world's current state.
+
+**B. Turn feeds into intelligence, not just dots.**
+4. **Aircraft anomaly detection**: flag no-callsign, military transponders, circling/loitering
+   patterns, sudden altitude changes. Feed candidates to the LLM for a one-line assessment.
+5. **Cross-feed correlation**: earthquake near a nuclear site + ReliefWeb disaster + aircraft
+   surge in the region → a synthesized "developing situation" card.
+6. **RAG over the Pi's Kiwix/Wikipedia dump**: the briefing LLM cites offline encyclopedic
+   context (e.g., what is at the quake's epicenter) without touching the internet.
+
+**C. Deepen the PC↔Pi organism.**
+7. **Bidirectional, signed sync**: HMAC-token on ingest; the Pi mirrors a compressed feed
+   snapshot so its portal shows the globe's data even when its own uplink is down.
+8. **Mesh-relayed briefings**: shrink the situation briefing to <230 bytes and TX it over
+   Meshtastic/LoRa so other field nodes receive world awareness with no internet at all.
+9. **Sensor-driven alerts**: if the Pi's battery voltage drops or a Geiger/AQ sensor spikes, the
+   PC escalates it into the briefing and (optionally) into a push notification.
+10. **Failover roles**: if the PC is offline, the Pi runs a tiny local model (e.g., a 1–3B Ollama
+    model already present) to keep producing a degraded-but-useful briefing.
+
+**D. Make OSINT a first-class, fused capability (not just an iframe).**
+11. Give WorldBase's *own* AI chat the OpenOSINT tools (function-calling) so one chat can both
+    reason and run `search_ip` / `search_username` / `sherlock`. Proxy tools through the backend.
+12. **OSINT → globe**: geolocate IP/WHOIS/EXIF results and drop them as markers with a TARGET
+    LOCK card, unifying the OSINT and spatial views.
+
+**E. New no-key data layers worth adding** (keep the fail-soft pattern in `feeds_extra.py`):
+13. Maritime AIS (free tiers / aishub), submarine cable map (TeleGeography static), internet
+    outages (IODA), air quality (OpenAQ), radiation (Safecast), lightning, NOAA tsunami/cyclone
+    GIS, GDELT geopolitical news volume, APRS amateur-radio positions, aurora oval, FIRMS fires.
+
+**F. Operability (make it boringly reliable).**
+14. systemd units for backend + frontend on the PC and for OpenOSINT + the Pi-push daemon on the
+    Pi; Ollama `keep_alive` so the 14B model never cold-loads mid-query.
+15. Persist feed cache to SQLite with TTL (`feed_cache` table already exists) so a restart keeps
+    the last good world state. Add a `/api/health` that reports each feed's freshness.
+16. Package the PC side as a Tauri/Electron app with a tray icon and auto-start.
+
+### Conventions to preserve
+
+- **No API keys** for data feeds; if a source needs one, make it optional and degrade gracefully.
+- **Fail-soft everywhere**: never let one dead upstream break the globe. Return stale or empty.
+- **Local-first**: nothing should *require* the cloud. The Pi must stay useful fully offline.
+- **HUD aesthetic**: green-on-black, monospace, information density over decoration.
+- Add new feeds as small `APIRouter` modules and `include_router` them in `main.py`.
 
 ---
 

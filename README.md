@@ -17,12 +17,22 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
   - Earthquakes, magnitude-colored (USGS)
   - Natural events — wildfires, storms, volcanoes, ice (NASA EONET)
   - Live ISS telemetry (wheretheiss.at)
+  - Space weather — planetary K-index, aurora/HF-radio impact (NOAA SWPC)
+  - Markets — crypto (CoinGecko) + ECB forex (Frankfurter)
+  - Military / interesting aircraft (adsb.fi open data)
+  - Point weather for any coordinate (Open-Meteo)
+  - Humanitarian disasters worldwide (ReliefWeb / UN OCHA)
 - **DATA panel** — searchable, filterable tables per feed with satellite-group selector.
 - **Click-to-locate** — click any event or earthquake in the DATA panel to fly to it on the
   globe with a pulsing marker and a TARGET LOCK info card (incl. source links).
 - **Vision modes** — Normal, NVG (night vision), Thermal/FLIR, CRT scanlines, Night — GLSL
   post-processing shaders.
 - **Local AI chat** — talks to Ollama on `:11434`, model picker included. Fully offline.
+- **OSINT console** — a peer tab alongside AI that embeds the OpenOSINT toolset
+  (username/email/IP enumeration, etc.) running on the off-grid Pi.
+- **PC ↔ Pi node sync** — the off-grid Pi pushes its edge telemetry (sensors, mesh nodes,
+  Pi-hole, health) into WorldBase; the PC fuses all feeds with the local LLM into a
+  world-situation briefing the Pi pulls back for offline display. One organism.
 - **HUD aesthetic** — animated boot sequence, live UTC clock, system-status pips,
   glassmorphism, neon glow.
 
@@ -85,11 +95,23 @@ Backend (FastAPI + SQLite, async httpx with TTL caching)
   |- /api/earthquakes   USGS feed (period + magnitude params)
   |- /api/events        NASA EONET natural events (+ source links)
   |- /api/iss           live ISS position/velocity
+  |- /api/spaceweather  NOAA SWPC planetary K-index + impact flags
+  |- /api/markets       crypto (CoinGecko) + forex (Frankfurter/ECB)
+  |- /api/military      military/interesting aircraft (adsb.fi)
+  |- /api/weather       point weather for any lat/lon (Open-Meteo)
+  |- /api/geopolitics   active disasters worldwide (ReliefWeb)
   |- /api/world         cached aggregate stub
   |- /api/models        list local Ollama models
-  '- /api/chat          proxy to local Ollama
+  |- /api/chat          proxy to local Ollama
+  |
+  |  -- node sync (PC brain <-> Pi edge) --
+  |- /api/node/ingest   (POST) Pi pushes sensors/mesh/pihole/health/GPS
+  |- /api/nodes         live node registry for globe entities
+  |- /api/briefing      latest fused LLM world-situation briefing
+  |- /api/briefing/generate  (POST) fuse feeds + write briefing via LLM
+  '- /api/node/pull     Pi pulls briefing + critical alerts (offline display)
 
-Data store (SQLite): feed_cache, aircraft_snapshots, tle_entries
+Data store (SQLite): feed_cache, aircraft_snapshots, tle_entries, node_state, briefings
 ```
 
 ---
@@ -122,6 +144,12 @@ The AI panel auto-discovers installed models via `/api/models`.
 - **USGS** — earthquake feeds
 - **NASA EONET** — natural events
 - **wheretheiss.at** — ISS telemetry
+- **NOAA SWPC** — space weather (planetary K-index)
+- **CoinGecko** — crypto prices
+- **Frankfurter / ECB** — forex rates
+- **adsb.fi** — military / interesting aircraft (open data, no rate wall)
+- **Open-Meteo** — point weather forecast
+- **ReliefWeb (UN OCHA)** — active humanitarian disasters
 
 The only credential you need is a Cesium Ion token (for terrain/imagery).
 
