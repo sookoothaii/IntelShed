@@ -449,6 +449,43 @@ import os
 OLLAMA_HOSTS = os.getenv("OLLAMA_HOST", "localhost:11434").split(",")
 
 
+@app.get("/api/search")
+async def search_web(q: str, n: int = 5):
+    """Web search via DuckDuckGo HTML (no API key required).
+
+    Returns top-n results with title, url, and snippet.
+    """
+    from bs4 import BeautifulSoup
+    url = "https://html.duckduckgo.com/html/"
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            r = await client.post(
+                url,
+                data={"q": q, "b": ""},
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.0",
+                    "Accept": "text/html",
+                },
+            )
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, "html.parser")
+    except Exception as e:
+        return {"query": q, "count": 0, "results": [], "error": str(e)}
+
+    results = []
+    for row in soup.select(".result")[:n]:
+        a = row.select_one(".result__a")
+        snippet = row.select_one(".result__snippet")
+        if a:
+            results.append({
+                "title": a.get_text(strip=True),
+                "url": a.get("href", ""),
+                "snippet": snippet.get_text(strip=True) if snippet else "",
+            })
+
+    return {"query": q, "count": len(results), "results": results}
+
+
 @app.get("/api/models")
 async def list_models():
     """List available Ollama models."""

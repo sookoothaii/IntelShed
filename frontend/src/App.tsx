@@ -382,6 +382,7 @@ function ChatPanel() {
   const [model, setModel] = useState('')
   const [busy, setBusy] = useState(false)
   const [modelErr, setModelErr] = useState<string | null>(null)
+  const [webSearch, setWebSearch] = useState(false)
 
   useEffect(() => {
     fetch('/api/models')
@@ -416,13 +417,38 @@ function ChatPanel() {
     // Add placeholder assistant message that we will stream into
     setHistory((h) => [...h, { role: 'assistant', content: '' }])
 
+    // Optional web search: fetch results and prepend as context
+    let searchCtx = ''
+    if (webSearch) {
+      try {
+        const sr = await fetch(`/api/search?q=${encodeURIComponent(userMsg)}&n=3`)
+        const sd = await sr.json()
+        if (sd.results && sd.results.length > 0) {
+          searchCtx = sd.results.map((r: any, i: number) =>
+            `[${i + 1}] ${r.title}\n${r.snippet}\nURL: ${r.url}`
+          ).join('\n\n')
+        }
+      } catch {
+        // search failed silently, continue without context
+      }
+    }
+
+    const messages: any[] = []
+    if (searchCtx) {
+      messages.push({
+        role: 'system',
+        content: 'Web search results for this query (use these alongside your internal data):\n\n' + searchCtx,
+      })
+    }
+    messages.push({ role: 'user', content: userMsg })
+
     try {
       const r = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({
           model: activeModel,
-          messages: [{ role: 'user', content: userMsg }],
+          messages,
           stream: true,
           context: true,
         }),
@@ -504,6 +530,13 @@ function ChatPanel() {
         {models.length > 0 && (
           <span className="model-count">{models.length} available</span>
         )}
+        <button
+          className={webSearch ? 'web-search on' : 'web-search'}
+          onClick={() => setWebSearch((v) => !v)}
+          title="Toggle web search (injects DuckDuckGo results as context)"
+        >
+          {webSearch ? '🔍 ON' : '🔍 OFF'}
+        </button>
       </div>
 
       <div className="chat-history">
