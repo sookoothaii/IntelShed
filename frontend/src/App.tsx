@@ -424,6 +424,7 @@ function ChatPanel() {
           model: activeModel,
           messages: [{ role: 'user', content: userMsg }],
           stream: true,
+          context: true,
         }),
       })
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)

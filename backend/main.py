@@ -144,6 +144,59 @@ def _cache_set(key: str, value):
     _CACHE[key] = (time.time(), value)
 
 
+# ---------------------------------------------------------------------------
+# Chat context: inject live world state into LLM prompts
+# ---------------------------------------------------------------------------
+async def build_chat_context() -> str:
+    """Fuse briefing + nodes + feed counts into a concise system context."""
+    parts = []
+
+    # Briefing
+    try:
+        brief = node_sync.latest_briefing()
+        if brief and brief.get("text"):
+            parts.append(f"SITUATION BRIEFING ({brief.get('created_at', 'unknown')}):")
+            parts.append(brief["text"][:500])
+    except Exception:
+        pass
+
+    # Nodes (Pi status)
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT node_id, name, lat, lon, updated_at, payload FROM node_state"
+            ).fetchall()
+        if rows:
+            parts.append("\nNODES:")
+            for r in rows:
+                p = json.loads(r["payload"] or "{}")
+                h = p.get("health", {})
+                parts.append(
+                    f"  {r['name']} ({r['node_id']}): "
+                    f"lat={r['lat']}, lon={r['lon']}, "
+                    f"temp={h.get('cpu_temp_c', '?')}C, "
+                    f"services={len(h.get('services', {}))}, "
+                    f"mesh={len(p.get('mesh', []))}"
+                )
+    except Exception:
+        pass
+
+    # Feed counts (from cache if available)
+    ac = _cache_get("aircraft", ttl=999999)
+    qu = _cache_get("quakes:day:2.5", ttl=999999)
+    ev = _cache_get("eonet", ttl=999999)
+    if ac or qu or ev:
+        parts.append("\nFEEDS:")
+        if ac:
+            parts.append(f"  Aircraft: {len(ac.get('states', []) or [])}")
+        if qu:
+            parts.append(f"  Earthquakes(24h): {len(qu.get('features', []) or [])}")
+        if ev:
+            parts.append(f"  Natural events: {len(ev.get('events', []) or [])}")
+
+    return "\n".join(parts) if parts else "No live context available."
+
+
 # OpenSky OAuth2 (client credentials) — optional, enables real aircraft data
 _OPENSKY_TOKEN: dict = {"token": None, "exp": 0.0}
 _OPENSKY_TOKEN_URL = (
@@ -422,9 +475,28 @@ async def list_models():
 
 @app.post("/api/chat")
 async def chat_proxy(payload: dict):
-    """Proxy chat requests to local Ollama. Supports SSE streaming."""
+    """Proxy chat requests to local Ollama. Supports SSE streaming.
+
+    Set payload['context'] = True to inject live WorldBase state as a system message.
+    """
     model = payload.get("model", "qwen2.5:14b")
     use_stream = payload.get("stream", False)
+
+    # Build messages, optionally injecting live context
+    messages = list(payload.get("messages", []))
+    if payload.get("context"):
+        ctx = await build_chat_context()
+        if ctx:
+            system_msg = {
+                "role": "system",
+                "content": (
+                    "You are WorldBase AI, the situational-awareness officer of an off-grid "
+                    "intelligence node. You have access to live telemetry from the following "
+                    "sources. Base your answers ONLY on this data. Do not hallucinate.\n\n"
+                    f"{ctx}"
+                ),
+            }
+            messages = [system_msg] + messages
 
     if use_stream:
         async def ollama_stream():
@@ -439,7 +511,7 @@ async def chat_proxy(payload: dict):
                             url,
                             json={
                                 "model": model,
-                                "messages": payload.get("messages", []),
+                                "messages": messages,
                                 "stream": True,
                             },
                         ) as r:
@@ -479,7 +551,7 @@ async def chat_proxy(payload: dict):
                     url,
                     json={
                         "model": model,
-                        "messages": payload.get("messages", []),
+                        "messages": messages,
                         "stream": False,
                     },
                 )
