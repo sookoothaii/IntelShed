@@ -441,9 +441,10 @@ What is real and tested today:
 
 - **Backend** (`backend/main.py` + `backend/feeds_extra.py` + `backend/node_sync.py`): all feeds
   in the API reference above are live and fail-soft. SQLite at `backend/worldbase.db`.
-- **Node sync**: `POST /api/node/ingest` accepts Pi telemetry; `GET /api/nodes` returns it;
+- **Node sync**: `POST /api/node/ingest` accepts Pi telemetry from the live push daemon;
+  `GET /api/nodes` returns it (Pi currently online, 49°C, 7 services reporting);
   `POST /api/briefing/generate` fuses feeds and calls the local LLM; `GET /api/node/pull` is the
-  Pi's offline payload. Verified end-to-end with a simulated Pi node.
+  Pi's offline payload. Verified end-to-end with a **live** Pi node.
 - **Frontend** (`frontend/src/App.tsx`): GLOBE / DATA / AI / **OSINT** nav. The OSINT tab embeds
   the OpenOSINT console (`VITE_OSINT_URL`). The Cesium globe lives in `components/Globe.tsx`.
 - **The two machines**: a strong **on-grid PC** runs WorldBase + Ollama (14B). A small
@@ -470,11 +471,10 @@ feature should ask: does this strengthen the brain, the senses, or the nerve bet
 - The new feeds (`/api/military`, `/api/spaceweather`, `/api/markets`, `/api/geopolitics`,
   `/api/nodes`) are **not yet rendered on the globe** — only the backend exists. Frontend wiring
   is the obvious next step (`components/Globe.tsx` + new DATA sub-tabs).
-- There is **no real Pi-push script yet**. `POST /api/node/ingest` was tested with a simulated
-  payload. A small daemon on the Pi (cron/systemd timer) must collect real sensor/Pi-hole/mesh
-  data and POST it every ~30 s.
+- ~~There is no real Pi-push script yet.~~ **DONE**: `worldbase_push.py` + `worldbase_pull.py`
+  are installed as systemd services on the Pi. Push every 45 s; pull every 5 min.
 - **Briefing generation is manual** (`POST /api/briefing/generate`). It should run on a schedule
-  (APScheduler or a simple asyncio loop) every 10–15 min.
+  (APScheduler or a simple asyncio loop) every 10–15 min so the Pi always has fresh data.
 - The chat proxy in `main.py` is still **non-streaming** (`stream: False`). The OpenOSINT chat we
   fixed *does* stream; WorldBase's own AI chat does not yet.
 - No auth on `/api/node/ingest` — fine on a trusted LAN, but add a shared token before exposing.
@@ -520,8 +520,9 @@ feature should ask: does this strengthen the brain, the senses, or the nerve bet
     GIS, GDELT geopolitical news volume, APRS amateur-radio positions, aurora oval, FIRMS fires.
 
 **F. Operability (make it boringly reliable).**
-14. systemd units for backend + frontend on the PC and for OpenOSINT + the Pi-push daemon on the
-    Pi; Ollama `keep_alive` so the 14B model never cold-loads mid-query.
+14. ~~systemd units for Pi-push/pull daemons on the Pi~~ **DONE**.
+    systemd units for backend + frontend on the PC; Ollama `keep_alive` so the 14B model
+    never cold-loads mid-query.
 15. Persist feed cache to SQLite with TTL (`feed_cache` table already exists) so a restart keeps
     the last good world state. Add a `/api/health` that reports each feed's freshness.
 16. Package the PC side as a Tauri/Electron app with a tray icon and auto-start.

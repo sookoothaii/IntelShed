@@ -30,9 +30,10 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
 - **Local AI chat** — talks to Ollama on `:11434`, model picker included. Fully offline.
 - **OSINT console** — a peer tab alongside AI that embeds the OpenOSINT toolset
   (username/email/IP enumeration, etc.) running on the off-grid Pi.
-- **PC ↔ Pi node sync** — the off-grid Pi pushes its edge telemetry (sensors, mesh nodes,
-  Pi-hole, health) into WorldBase; the PC fuses all feeds with the local LLM into a
-  world-situation briefing the Pi pulls back for offline display. One organism.
+- **PC ↔ Pi node sync** — the off-grid Pi pushes its edge telemetry (CPU temp, sensors,
+  mesh nodes, Pi-hole, systemd health) into WorldBase every 45 s via a systemd daemon;
+  the PC fuses all feeds with the local LLM into a world-situation briefing the Pi pulls
+  back every 5 min for offline display. One organism.
 - **HUD aesthetic** — animated boot sequence, live UTC clock, system-status pips,
   glassmorphism, neon glow.
 
