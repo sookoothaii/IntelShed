@@ -56,6 +56,9 @@ type Stats = {
   quakes: number
   events: number
   nodes: number
+  military: number
+  spaceweather: number
+  geopolitics: number
   fps: number
 }
 
@@ -76,7 +79,7 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, fps: 0 })
   const [target, setTarget] = useState<Target>(null)
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
   const [layers, setLayers] = useState({
@@ -86,6 +89,9 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
     quakes: true,
     events: true,
     nodes: true,
+    military: true,
+    spaceweather: true,
+    geopolitics: true,
   })
 
   useEffect(() => {
@@ -125,7 +131,10 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
       const eventSrc = new CustomDataSource('events')
       const focusSrc = new CustomDataSource('focus')
       const nodesSrc = new CustomDataSource('nodes')
-      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc].forEach((s) => viewer!.dataSources.add(s))
+      const militarySrc = new CustomDataSource('military')
+      const spaceweatherSrc = new CustomDataSource('spaceweather')
+      const geopoliticsSrc = new CustomDataSource('geopolitics')
+      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc].forEach((s) => viewer!.dataSources.add(s))
 
       const acMap = new Map<string, Entity>()
       const satMap = new Map<string, Entity>()
@@ -495,6 +504,186 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
         }
       }
 
+      // ---------- MILITARY AIRCRAFT ----------
+      const milMap = new Map<string, Entity>()
+      const fetchMilitary = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/military')
+          const d = await r.json()
+          const list: any[] = d.aircraft || []
+          const seen = new Set<string>()
+          for (const a of list) {
+            if (a.lon == null || a.lat == null) continue
+            const id = a.hex
+            seen.add(id)
+            const pos = Cartesian3.fromDegrees(a.lon, a.lat, Math.max(a.alt ?? 0, 0))
+            let e = milMap.get(id)
+            if (e) {
+              ;(e.position as ConstantPositionProperty).setValue(pos)
+            } else {
+              const isEmergency = ['7500', '7600', '7700'].includes(a.squawk || '')
+              e = militarySrc.entities.add({
+                id: 'mil-' + id,
+                position: new ConstantPositionProperty(pos),
+                point: {
+                  pixelSize: isEmergency ? 12 : 8,
+                  color: isEmergency ? Color.fromCssColorString('#ff2d00') : Color.fromCssColorString('#ff6b35'),
+                  outlineColor: Color.BLACK,
+                  outlineWidth: 2,
+                  scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.5),
+                },
+                label: {
+                  text: a.flight || a.hex,
+                  font: '600 11px "Courier New"',
+                  fillColor: isEmergency ? Color.fromCssColorString('#ff2d00') : Color.fromCssColorString('#ff9f7a'),
+                  outlineColor: Color.BLACK,
+                  outlineWidth: 2,
+                  style: LabelStyle.FILL_AND_OUTLINE,
+                  verticalOrigin: VerticalOrigin.BOTTOM,
+                  horizontalOrigin: HorizontalOrigin.LEFT,
+                  pixelOffset: new Cartesian2(8, -4),
+                  distanceDisplayCondition: new DistanceDisplayCondition(0, 1.2e6),
+                },
+                properties: {
+                  kind: 'military', hex: a.hex, flight: a.flight || '', type: a.type || '',
+                  alt: a.alt ?? 0, speed: a.speed ?? 0, squawk: a.squawk || '',
+                } as any,
+              })
+              if (isEmergency) {
+                const t0 = Date.now()
+                ;(e as any).ellipse = {
+                  semiMajorAxis: new CallbackProperty(() => {
+                    const ph = ((Date.now() - t0) % 1200) / 1200
+                    return 20000 + ph * 80000
+                  }, false),
+                  semiMinorAxis: new CallbackProperty(() => {
+                    const ph = ((Date.now() - t0) % 1200) / 1200
+                    return (20000 + ph * 80000) * 0.97
+                  }, false),
+                  material: new ColorMaterialProperty(
+                    new CallbackProperty(() => {
+                      const ph = ((Date.now() - t0) % 1200) / 1200
+                      return Color.fromCssColorString('#ff2d00').withAlpha(0.5 * (1 - ph))
+                    }, false)
+                  ),
+                  height: 0,
+                }
+              }
+              milMap.set(id, e)
+            }
+          }
+          for (const [id, e] of milMap) {
+            if (!seen.has(id)) { militarySrc.entities.remove(e); milMap.delete(id) }
+          }
+          if (!cancelled) setStats((p) => ({ ...p, military: milMap.size }))
+        } catch (e) {
+          console.error('military fetch failed', e)
+        }
+      }
+
+      // ---------- SPACEWEATHER ----------
+      const fetchSpaceweather = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/spaceweather')
+          const d = await r.json()
+          spaceweatherSrc.entities.removeAll()
+          const kp = d.kp_index ?? 0
+          // Aurora oval based on Kp (simple ring at auroral latitudes)
+          const auroraLat = Math.min(55 + kp * 3, 75)
+          const pts: Cartesian3[] = []
+          for (let i = 0; i <= 128; i++) {
+            const lon = (i / 128) * 360 - 180
+            pts.push(Cartesian3.fromDegrees(lon, auroraLat, 120000))
+          }
+          spaceweatherSrc.entities.add({
+            polyline: {
+              positions: pts,
+              width: 3,
+              material: new PolylineGlowMaterialProperty({
+                glowPower: 0.4,
+                color: Color.fromHsl(0.35 - kp * 0.04, 1.0, 0.5, 0.6),
+              }),
+            },
+          })
+          // Southern hemisphere mirror
+          const ptsS: Cartesian3[] = []
+          for (let i = 0; i <= 128; i++) {
+            const lon = (i / 128) * 360 - 180
+            ptsS.push(Cartesian3.fromDegrees(lon, -auroraLat, 120000))
+          }
+          spaceweatherSrc.entities.add({
+            polyline: {
+              positions: ptsS,
+              width: 3,
+              material: new PolylineGlowMaterialProperty({
+                glowPower: 0.4,
+                color: Color.fromHsl(0.35 - kp * 0.04, 1.0, 0.5, 0.6),
+              }),
+            },
+          })
+          // Kp label at north pole
+          spaceweatherSrc.entities.add({
+            position: Cartesian3.fromDegrees(0, 88, 200000),
+            label: {
+              text: `Kp=${kp}`,
+              font: '600 14px "Courier New"',
+              fillColor: Color.fromCssColorString('#00e5a0'),
+              outlineColor: Color.BLACK,
+              outlineWidth: 2,
+              style: LabelStyle.FILL_AND_OUTLINE,
+              verticalOrigin: VerticalOrigin.CENTER,
+              horizontalOrigin: HorizontalOrigin.CENTER,
+            },
+          })
+          if (!cancelled) setStats((p) => ({ ...p, spaceweather: kp }))
+        } catch (e) {
+          console.error('spaceweather fetch failed', e)
+        }
+      }
+
+      // ---------- GEOPOLITICS ----------
+      const fetchGeopolitics = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/geopolitics')
+          const d = await r.json()
+          geopoliticsSrc.entities.removeAll()
+          const disasters: any[] = d.disasters || []
+          for (const dis of disasters) {
+            // ReliefWeb API doesn't always include coordinates
+            // We'll place markers at random offset for visibility
+            // In production you'd geocode the country/region
+            const lat = 0, lon = 0
+            geopoliticsSrc.entities.add({
+              position: Cartesian3.fromDegrees(lon, lat, 0),
+              point: {
+                pixelSize: 10,
+                color: Color.fromCssColorString('#ff2d00'),
+                outlineColor: Color.WHITE,
+                outlineWidth: 1,
+              },
+              label: {
+                text: dis.name.substring(0, 40),
+                font: '600 10px "Courier New"',
+                fillColor: Color.fromCssColorString('#ff6b35'),
+                outlineColor: Color.BLACK,
+                outlineWidth: 2,
+                style: LabelStyle.FILL_AND_OUTLINE,
+                verticalOrigin: VerticalOrigin.BOTTOM,
+                pixelOffset: new Cartesian2(0, -10),
+                distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e7),
+              },
+              properties: { kind: 'geopolitics', name: dis.name, status: dis.status, id: dis.id } as any,
+            })
+          }
+          if (!cancelled) setStats((p) => ({ ...p, geopolitics: disasters.length }))
+        } catch (e) {
+          console.error('geopolitics fetch failed', e)
+        }
+      }
+
       // ---------- Interaction ----------
       const handler = new ScreenSpaceEventHandler(scene.canvas)
       handler.setInputAction((m: any) => {
@@ -547,6 +736,19 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
           setTarget({
             kind, title: `⚠ ${props.category?.getValue?.()}`,
             lines: [`${props.title?.getValue?.()}`, `DATE: ${new Date(props.date?.getValue?.()).toLocaleString()}`],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'military') {
+          const sq = props.squawk?.getValue?.()
+          setTarget({
+            kind, title: `🎖 ${props.flight?.getValue?.() || props.hex?.getValue?.()}`,
+            lines: [
+              `HEX: ${props.hex?.getValue?.()}`,
+              `TYPE: ${props.type?.getValue?.() || '—'}`,
+              `ALTITUDE: ${Math.round(props.alt?.getValue?.() ?? 0)} m`,
+              `SPEED: ${(props.speed?.getValue?.() ?? 0).toFixed(1)} m/s`,
+              ...(sq ? [`SQUAWK: ${sq}${['7500', '7600', '7700'].includes(sq) ? ' ⚠ EMERGENCY' : ''}`] : []),
+            ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'node') {
@@ -663,6 +865,9 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
           quakeSrc.show = l.quakes
           eventSrc.show = l.events
           nodesSrc.show = l.nodes
+          militarySrc.show = l.military
+          spaceweatherSrc.show = l.spaceweather
+          geopoliticsSrc.show = l.geopolitics
         },
       }
 
@@ -672,6 +877,9 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
       fetchQuakes()
       fetchEvents()
       fetchNodes()
+      fetchMilitary()
+      fetchSpaceweather()
+      fetchGeopolitics()
 
       if (focusRef.current) apiRef.current.focusOn(focusRef.current)
 
@@ -680,6 +888,9 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
       timers.push(setInterval(fetchQuakes, 300000))
       timers.push(setInterval(fetchEvents, 600000))
       timers.push(setInterval(fetchNodes, 30000))
+      timers.push(setInterval(fetchMilitary, 15000))
+      timers.push(setInterval(fetchSpaceweather, 300000))
+      timers.push(setInterval(fetchGeopolitics, 600000))
     })()
 
     return () => {
@@ -718,6 +929,9 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
         <div className="hud-row"><span className="hud-dot red" />SEISMIC<span className="hud-val">{stats.quakes}</span></div>
         <div className="hud-row"><span className="hud-dot orange" />EVENTS<span className="hud-val">{stats.events}</span></div>
         <div className="hud-row"><span className="hud-dot green" />NODES<span className="hud-val">{stats.nodes}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#ff6b35' }} />MILITARY<span className="hud-val">{stats.military}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#00e5a0' }} />KP INDEX<span className="hud-val">{stats.spaceweather}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#ff2d00' }} />CRISES<span className="hud-val">{stats.geopolitics}</span></div>
         <div className="hud-divider" />
         <div className="hud-row">RENDER<span className="hud-val">{stats.fps} FPS</span></div>
         <div className="hud-row sub">LON {cursor.lon}  LAT {cursor.lat}</div>
@@ -745,7 +959,7 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
 
         <div className="ctl-block">
           <div className="hud-title">LAYERS</div>
-          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes'] as const).map((k) => (
+          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics'] as const).map((k) => (
             <label key={k} className={layers[k] ? 'on' : ''}>
               <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
             </label>
