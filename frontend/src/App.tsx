@@ -407,24 +407,72 @@ function ChatPanel() {
     setHistory((h) => [...h, { role: 'user', content: userMsg }])
     setBusy(true)
 
+    // Add placeholder assistant message that we will stream into
+    setHistory((h) => [...h, { role: 'assistant', content: '' }])
+
     try {
       const r = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({
           model: model,
           messages: [{ role: 'user', content: userMsg }],
+          stream: true,
         }),
       })
-      const d = await r.json()
-      if (d.error) {
-        setHistory((h) => [...h, { role: 'assistant', content: 'Error: ' + d.error }])
-      } else {
-        const text = d.message?.content || d.response || JSON.stringify(d)
-        setHistory((h) => [...h, { role: 'assistant', content: text }])
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
+      if (!r.body) throw new Error('No response body')
+
+      const reader = r.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        // Parse SSE lines: data: {...}
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() || ''  // keep incomplete chunk
+
+        for (const chunk of lines) {
+          const m = chunk.match(/^data: (.+)$/m)
+          if (!m) continue
+          try {
+            const data = JSON.parse(m[1])
+            if (data.error) {
+              setHistory((h) => {
+                const copy = [...h]
+                copy[copy.length - 1] = { role: 'assistant', content: 'Error: ' + data.error }
+                return copy
+              })
+              break
+            }
+            if (data.done) {
+              break
+            }
+            if (data.token) {
+              setHistory((h) => {
+                const copy = [...h]
+                copy[copy.length - 1] = {
+                  role: 'assistant',
+                  content: copy[copy.length - 1].content + data.token,
+                }
+                return copy
+              })
+            }
+          } catch {
+            // ignore malformed SSE
+          }
+        }
       }
     } catch (e) {
-      setHistory((h) => [...h, { role: 'assistant', content: 'Error: ' + (e as Error).message }])
+      setHistory((h) => {
+        const copy = [...h]
+        copy[copy.length - 1] = { role: 'assistant', content: 'Error: ' + (e as Error).message }
+        return copy
+      })
     } finally {
       setBusy(false)
     }

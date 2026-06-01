@@ -9,6 +9,7 @@ from contextlib import contextmanager
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 import feeds_extra
 import node_sync
@@ -420,10 +421,54 @@ async def list_models():
 
 @app.post("/api/chat")
 async def chat_proxy(payload: dict):
-    """Proxy chat requests to local Ollama."""
+    """Proxy chat requests to local Ollama. Supports SSE streaming."""
     model = payload.get("model", "llama3.2")
-    last_err = None
+    use_stream = payload.get("stream", False)
 
+    if use_stream:
+        async def ollama_stream():
+            last_err = None
+            for host in OLLAMA_HOSTS:
+                host = host.strip()
+                url = f"http://{host}/api/chat"
+                try:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        async with client.stream(
+                            "POST",
+                            url,
+                            json={
+                                "model": model,
+                                "messages": payload.get("messages", []),
+                                "stream": True,
+                            },
+                        ) as r:
+                            r.raise_for_status()
+                            async for line in r.aiter_lines():
+                                if not line.strip():
+                                    continue
+                                try:
+                                    data = json.loads(line)
+                                except json.JSONDecodeError:
+                                    continue
+                                if data.get("done"):
+                                    yield f"data: {json.dumps({'done': True})}\n\n"
+                                    break
+                                content = data.get("message", {}).get("content", "")
+                                if content:
+                                    yield f"data: {json.dumps({'token': content})}\n\n"
+                    return
+                except httpx.ConnectError:
+                    last_err = f"Ollama not reachable at {host}"
+                    continue
+                except Exception as e:
+                    last_err = str(e)
+                    continue
+            yield f"data: {json.dumps({'error': last_err or 'Ollama not reachable'})}\n\n"
+
+        return StreamingResponse(ollama_stream(), media_type="text/event-stream")
+
+    # Non-streaming fallback
+    last_err = None
     for host in OLLAMA_HOSTS:
         host = host.strip()
         url = f"http://{host}/api/chat"
