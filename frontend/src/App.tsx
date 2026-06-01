@@ -433,24 +433,16 @@ function ChatPanel() {
       }
     }
 
-    const messages: any[] = []
-    if (searchCtx) {
-      messages.push({
-        role: 'system',
-        content: 'Web search results for this query (use these alongside your internal data):\n\n' + searchCtx,
-      })
-    }
-    messages.push({ role: 'user', content: userMsg })
-
     try {
       const r = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({
           model: activeModel,
-          messages,
+          messages: [{ role: 'user', content: userMsg }],
           stream: true,
           context: true,
+          search_results: searchCtx || undefined,
         }),
       })
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)

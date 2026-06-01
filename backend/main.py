@@ -519,18 +519,26 @@ async def chat_proxy(payload: dict):
     model = payload.get("model", "qwen2.5:14b")
     use_stream = payload.get("stream", False)
 
-    # Build messages, optionally injecting live context
+    # Build messages, optionally injecting live context + web search results
     messages = list(payload.get("messages", []))
     if payload.get("context"):
         ctx = await build_chat_context()
+        search_results = payload.get("search_results", "")
+        parts = []
         if ctx:
+            parts.append("=== INTERNAL TELEMETRY ===\n" + ctx)
+        if search_results:
+            parts.append("=== WEB SEARCH RESULTS ===\n" + search_results)
+        if parts:
             system_msg = {
                 "role": "system",
                 "content": (
                     "You are WorldBase AI, the situational-awareness officer of an off-grid "
-                    "intelligence node. You have access to live telemetry from the following "
-                    "sources. Base your answers ONLY on this data. Do not hallucinate.\n\n"
-                    f"{ctx}"
+                    "intelligence node. You have TWO data sources below. Synthesize BOTH into "
+                    "a coherent answer. Internal telemetry shows your node's live state. "
+                    "Web search results provide external context. Cite which source you use. "
+                    "Do not hallucinate facts not present in either source.\n\n"
+                    + "\n\n".join(parts)
                 ),
             }
             messages = [system_msg] + messages
