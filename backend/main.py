@@ -125,7 +125,33 @@ def on_shutdown():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+    now = datetime.now(timezone.utc)
+    feeds = {}
+    try:
+        import sqlite3
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT key, cached_at FROM feed_cache ORDER BY key")
+        for row in c.fetchall():
+            key, cached_at = row
+            try:
+                age = (now - datetime.fromisoformat(cached_at)).total_seconds()
+                feeds[key] = {
+                    "cached_at": cached_at,
+                    "age_sec": round(age, 1),
+                    "fresh": age < 600,
+                }
+            except Exception:
+                feeds[key] = {"cached_at": cached_at, "age_sec": None, "fresh": None}
+        conn.close()
+    except Exception:
+        pass
+    return {
+        "status": "ok",
+        "time": now.isoformat(),
+        "feeds": feeds,
+        "feed_count": len(feeds),
+    }
 
 
 # Simple in-memory TTL cache to avoid upstream rate limits

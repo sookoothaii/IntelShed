@@ -9,11 +9,13 @@ plus critical alerts, so the off-grid portal shows global awareness offline.
 import os
 import json
 import sqlite3
+import hmac
+import hashlib
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, HTTPException
 
 router = APIRouter(prefix="/api", tags=["node-sync"])
 
@@ -21,6 +23,20 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db
 SELF_URL = os.getenv("WORLDBASE_SELF", "http://localhost:8000").rstrip("/")
 OLLAMA_HOSTS = os.getenv("OLLAMA_HOST", "localhost:11434").split(",")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
+
+# ---------------------------------------------------------------------------
+# Alert thresholds (positive prepper mindset: protect, not attack)
+# ---------------------------------------------------------------------------
+SENSOR_THRESHOLDS = {
+    "cpu_temp_c": {"warn": 55, "critical": 70, "message": "CPU temperature elevated — consider ventilation"},
+    "battery_v": {"warn": 3.5, "critical": 3.3, "message": "Battery voltage low — consider charging or solar input", "invert": True},
+    "battery_pct": {"warn": 30, "critical": 15, "message": "Battery capacity low — conserve power", "invert": False},
+    "co2_ppm": {"warn": 1000, "critical": 2000, "message": "CO2 level elevated — improve ventilation"},
+    "radiation_usv_h": {"warn": 0.5, "critical": 1.0, "message": "Radiation level above baseline — check sensor placement"},
+    "pm25_ug_m3": {"warn": 35, "critical": 75, "message": "Air quality degraded — consider filter or seal"},
+}
+
+INGEST_TOKEN = os.getenv("NODE_INGEST_TOKEN", "")
 
 
 @contextmanager
@@ -50,6 +66,16 @@ def init_node_db():
                 text TEXT,
                 sources TEXT
             );
+            CREATE TABLE IF NOT EXISTS sensor_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                node_id TEXT,
+                sensor TEXT,
+                severity TEXT,
+                value REAL,
+                threshold REAL,
+                message TEXT,
+                created_at TEXT
+            );
         """)
         conn.commit()
 
@@ -58,8 +84,11 @@ def init_node_db():
 # Pi -> PC : ingest edge telemetry
 # ---------------------------------------------------------------------------
 @router.post("/node/ingest")
-async def node_ingest(payload: dict):
+async def node_ingest(payload: dict, x_node_token: str = Header(default="")):
     """Upsert a node's live state. The Pi POSTs this periodically.
+
+    Optional HMAC: set NODE_INGEST_TOKEN env var. Pi sends SHA-256 HMAC
+    of the JSON body as X-Node-Token header.
 
     Expected (all optional except node_id):
       { "node_id": "offgrid-pi", "name": "Off-Grid Pi", "lat": ..., "lon": ...,
@@ -68,9 +97,57 @@ async def node_ingest(payload: dict):
         "pihole": {"queries":..,"blocked":..,"percent":..},
         "health": {"cpu_temp":..,"disk_pct":..,"services":{...}} }
     """
+    # HMAC verification (optional — off by default)
+    if INGEST_TOKEN:
+        body_bytes = json.dumps(payload, separators=(',', ':')).encode()
+        expected = hmac.new(INGEST_TOKEN.encode(), body_bytes, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, (x_node_token or "")):
+            raise HTTPException(status_code=403, detail="Invalid node token")
+
     node_id = (payload.get("node_id") or "unknown").strip()
     now = datetime.now(timezone.utc).isoformat()
+
+    # Sensor alert detection
+    sensors = payload.get("sensors") or {}
+    health = payload.get("health") or {}
+    all_sensors = {**sensors}
+    if "cpu_temp" in health:
+        all_sensors["cpu_temp_c"] = health["cpu_temp"]
+    if "cpu_temp_c" in sensors:
+        all_sensors["cpu_temp_c"] = sensors["cpu_temp_c"]
+
+    alerts_generated = []
     with _db() as conn:
+        for sensor_name, cfg in SENSOR_THRESHOLDS.items():
+            val = all_sensors.get(sensor_name)
+            if val is None:
+                continue
+            threshold = None
+            severity = None
+            invert = cfg.get("invert", False)
+            if invert:
+                # Lower is worse (battery voltage)
+                if val <= cfg["critical"]:
+                    severity = "critical"
+                    threshold = cfg["critical"]
+                elif val <= cfg["warn"]:
+                    severity = "warning"
+                    threshold = cfg["warn"]
+            else:
+                # Higher is worse (temperature, radiation)
+                if val >= cfg["critical"]:
+                    severity = "critical"
+                    threshold = cfg["critical"]
+                elif val >= cfg["warn"]:
+                    severity = "warning"
+                    threshold = cfg["warn"]
+            if severity:
+                conn.execute(
+                    "INSERT INTO sensor_alerts (node_id, sensor, severity, value, threshold, message, created_at) VALUES (?,?,?,?,?,?,?)",
+                    (node_id, sensor_name, severity, val, threshold, cfg["message"], now),
+                )
+                alerts_generated.append({"sensor": sensor_name, "severity": severity, "value": val})
+
         conn.execute(
             """INSERT INTO node_state (node_id, name, lat, lon, updated_at, payload)
                VALUES (?,?,?,?,?,?)
@@ -87,7 +164,7 @@ async def node_ingest(payload: dict):
             ),
         )
         conn.commit()
-    return {"status": "ok", "node_id": node_id, "updated_at": now}
+    return {"status": "ok", "node_id": node_id, "updated_at": now, "alerts": alerts_generated}
 
 
 @router.get("/nodes")
@@ -123,6 +200,35 @@ async def list_nodes():
             "health": payload.get("health", {}),
         })
     return {"count": len(nodes), "nodes": nodes}
+
+
+@router.get("/alerts")
+async def list_sensor_alerts(node_id: str = "", limit: int = 50):
+    """Latest sensor alerts from all nodes or a specific node."""
+    with _db() as conn:
+        if node_id:
+            rows = conn.execute(
+                "SELECT * FROM sensor_alerts WHERE node_id = ? ORDER BY id DESC LIMIT ?",
+                (node_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM sensor_alerts ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+    alerts = []
+    for r in rows:
+        alerts.append({
+            "id": r["id"],
+            "node_id": r["node_id"],
+            "sensor": r["sensor"],
+            "severity": r["severity"],
+            "value": r["value"],
+            "threshold": r["threshold"],
+            "message": r["message"],
+            "created_at": r["created_at"],
+        })
+    return {"count": len(alerts), "alerts": alerts}
 
 
 # ---------------------------------------------------------------------------
@@ -270,23 +376,54 @@ async def latest_briefing():
     return {"created_at": row["created_at"], "text": row["text"], "alerts": sources.get("alerts", [])}
 
 
+def _compress_briefing(text: str, alerts: list) -> str:
+    """Shrink briefing to <230 bytes for Meshtastic/LoRa TX.
+    Format: [SEV]alert1|[SEV]alert2|...|brief_snippet
+    """
+    parts = []
+    for a in alerts[:3]:
+        sev = a.get("severity", "low")[0].upper()
+        txt = a.get("text", "")[:40]
+        parts.append(f"[{sev}]{txt}")
+    alert_str = "|".join(parts)
+    remaining = 230 - len(alert_str) - 2
+    brief_snippet = text[:max(remaining, 60)] if remaining > 0 else ""
+    return f"{alert_str}|{brief_snippet}" if brief_snippet else alert_str
+
+
 @router.get("/node/pull")
-async def node_pull():
+async def node_pull(mesh: bool = False):
     """Single payload the Pi pulls: latest briefing + live critical alerts.
 
     Designed so the off-grid portal can show global situational awareness even
     when the Pi itself has no upstream internet — the PC did the heavy lifting.
+    Set ?mesh=1 for a <230 byte payload suitable for Meshtastic/LoRa relay.
     """
     brief = await latest_briefing()
-    # also recompute fresh alerts if feeds are reachable (best-effort)
     try:
         snap = await _gather_snapshot()
         alerts = _compile_alerts(snap)
     except Exception:
         alerts = brief.get("alerts", [])
+
+    if mesh:
+        compressed = _compress_briefing(brief.get("text", ""), alerts)
+        return {
+            "t": datetime.now(timezone.utc).strftime("%H:%M"),
+            "b": compressed,
+            "a": len(alerts),
+            "s": len(compressed),
+        }
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "briefing": brief.get("text"),
         "briefing_at": brief.get("created_at"),
         "alerts": alerts,
     }
+
+
+@router.get("/node/pull/mesh")
+async def node_pull_mesh():
+    """Dedicated endpoint: always returns compressed <230 byte briefing for LoRa."""
+    return await node_pull(mesh=True)

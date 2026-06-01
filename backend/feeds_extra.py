@@ -523,3 +523,90 @@ async def cross_feed_correlations():
 
     situations.sort(key=lambda s: 0 if s["severity"] == "high" else 1)
     return {"situations": situations, "count": len(situations)}
+
+
+# ---------------------------------------------------------------------------
+# Air quality — Open-Meteo (no key)
+# ---------------------------------------------------------------------------
+@router.get("/airquality")
+async def air_quality():
+    """Global air quality PM2.5 + PM10 from Open-Meteo. Cached 1h. No key."""
+    key = "airquality"
+    cached = _get(key, ttl=3600.0)
+    if cached is not None:
+        return cached
+    try:
+        # Use a few representative cities for global snapshot
+        cities = [
+            ("Bangkok", 13.75, 100.5), ("Delhi", 28.6, 77.2), ("Beijing", 39.9, 116.4),
+            ("London", 51.5, -0.1), ("New York", 40.7, -74.0), ("Sao Paulo", -23.5, -46.6),
+        ]
+        results = []
+        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
+            for name, lat, lon in cities:
+                try:
+                    r = await client.get(
+                        f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=pm10,pm2_5"
+                    )
+                    d = r.json()
+                    cur = d.get("current", {})
+                    results.append({
+                        "city": name,
+                        "lat": lat,
+                        "lon": lon,
+                        "pm25": cur.get("pm2_5"),
+                        "pm10": cur.get("pm10"),
+                        "time": cur.get("time"),
+                    })
+                except Exception:
+                    continue
+        out = {"cities": results, "updated": datetime.now(timezone.utc).isoformat()}
+        _set(key, out)
+        return out
+    except Exception as e:
+        stale = _stale(key)
+        if stale:
+            return stale
+        return {"cities": [], "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Tsunami / Cyclone — GDACS RSS (no key)
+# ---------------------------------------------------------------------------
+@router.get("/gdacs")
+async def gdacs_alerts():
+    """GDACS humanitarian alerts (tsunami, cyclone, flood, earthquake). Cached 15m. No key."""
+    key = "gdacs"
+    cached = _get(key, ttl=900.0)
+    if cached is not None:
+        return cached
+    try:
+        import xml.etree.ElementTree as ET
+        async with httpx.AsyncClient(timeout=20.0, headers=_UA) as client:
+            r = await client.get("https://www.gdacs.org/xml/rss.xml")
+            r.raise_for_status()
+            root = ET.fromstring(r.text)
+        items = []
+        ns = {"content": "http://purl.org/rss/1.0/modules/content/"}
+        for item in root.findall(".//item")[:20]:
+            title = item.findtext("title", "")
+            link = item.findtext("link", "")
+            desc = item.findtext("description", "")
+            pub = item.findtext("pubDate", "")
+            # Extract lat/lon from description if present
+            lat = None
+            lon = None
+            import re
+            m = re.search(r"Lat=([\d.+-]+)\s+Lon=([\d.+-]+)", desc)
+            if m:
+                lat = float(m.group(1))
+                lon = float(m.group(2))
+            items.append({"title": title, "link": link, "description": desc, "published": pub, "lat": lat, "lon": lon})
+        out = {"count": len(items), "alerts": items}
+        _set(key, out)
+        return out
+    except Exception as e:
+        stale = _stale(key)
+        if stale:
+            return stale
+        return {"count": 0, "alerts": [], "error": str(e)}
