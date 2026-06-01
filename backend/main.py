@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 
 import feeds_extra
 import node_sync
+import osint_tools
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
 
@@ -88,6 +89,7 @@ def init_db():
 
 app.include_router(feeds_extra.router)
 app.include_router(node_sync.router)
+app.include_router(osint_tools.router)
 
 
 # ---------------------------------------------------------------------------

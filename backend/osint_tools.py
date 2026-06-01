@@ -1,0 +1,174 @@
+"""WorldBase — OSINT tool proxy for AI chat.
+
+The AI chat can call these tools through the backend (no direct Pi exposure).
+All tools are passive reconnaissance only — no active scanning, no exploitation.
+No API keys required where possible.
+"""
+
+import os
+import json
+import socket
+import re
+from datetime import datetime, timezone
+
+import httpx
+from fastapi import APIRouter
+
+router = APIRouter(prefix="/api/osint", tags=["osint-tools"])
+
+_UA = {"User-Agent": "WorldBase-OSINT/1.0 (research only)"}
+
+# ---------------------------------------------------------------------------
+# IP geolocation + basic info (ip-api.com — free, no key, 45 req/min)
+# ---------------------------------------------------------------------------
+@router.get("/ip/{ip}")
+async def ip_lookup(ip: str):
+    """Geolocate an IP address. No key. Rate-limited."""
+    try:
+        # Validate IP
+        socket.inet_aton(ip)
+    except OSError:
+        return {"error": "Invalid IPv4 address"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0, headers=_UA) as client:
+            r = await client.get(f"http://ip-api.com/json/{ip}?fields=status,message,country,regionName,city,zip,lat,lon,isp,org,as,mobile,proxy,hosting")
+            d = r.json()
+        if d.get("status") != "success":
+            return {"error": d.get("message", "lookup failed")}
+        return {
+            "ip": ip,
+            "country": d.get("country"),
+            "region": d.get("regionName"),
+            "city": d.get("city"),
+            "zip": d.get("zip"),
+            "lat": d.get("lat"),
+            "lon": d.get("lon"),
+            "isp": d.get("isp"),
+            "org": d.get("org"),
+            "asn": d.get("as"),
+            "mobile": d.get("mobile"),
+            "proxy": d.get("proxy"),
+            "hosting": d.get("hosting"),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Domain WHOIS (whoisjsonapi.com — free tier, no key required for basic)
+# Fallback: simple DNS resolution
+# ---------------------------------------------------------------------------
+@router.get("/domain/{domain}")
+async def domain_lookup(domain: str):
+    """Basic domain info: DNS resolution + IP. No key."""
+    # Sanitize domain
+    domain = re.sub(r"[^a-zA-Z0-9.-]", "", domain).lower()
+    if not domain or "." not in domain:
+        return {"error": "Invalid domain"}
+    try:
+        import dns.resolver
+        answers = dns.resolver.resolve(domain, "A")
+        ips = [str(r) for r in answers]
+    except Exception:
+        ips = []
+    try:
+        answers = dns.resolver.resolve(domain, "MX")
+        mx = [str(r.exchange) for r in answers]
+    except Exception:
+        mx = []
+    try:
+        import socket
+        host_ip = socket.gethostbyname(domain)
+    except Exception:
+        host_ip = None
+    return {
+        "domain": domain,
+        "resolved_ips": ips,
+        "mx_records": mx,
+        "host_ip": host_ip,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Username reconnaissance (simple: check if username exists on platforms)
+# ---------------------------------------------------------------------------
+@router.get("/username/{username}")
+async def username_lookup(username: str):
+    """Check username availability on major platforms. No key. Passive only."""
+    username = re.sub(r"[^a-zA-Z0-9_.-]", "", username)
+    if not username:
+        return {"error": "Invalid username"}
+    results = {}
+    async with httpx.AsyncClient(timeout=8.0, headers=_UA) as client:
+        # GitHub
+        try:
+            r = await client.get(f"https://api.github.com/users/{username}")
+            results["github"] = {"exists": r.status_code == 200, "url": f"https://github.com/{username}"}
+        except Exception:
+            results["github"] = {"exists": None}
+        # Reddit (check user profile)
+        try:
+            r = await client.get(f"https://www.reddit.com/user/{username}/about.json", headers={**_UA, "Accept": "application/json"})
+            results["reddit"] = {"exists": r.status_code == 200, "url": f"https://reddit.com/u/{username}"}
+        except Exception:
+            results["reddit"] = {"exists": None}
+    return {"username": username, "platforms": results}
+
+
+# ---------------------------------------------------------------------------
+# Email reputation (simple MX check + disposable domain check)
+# ---------------------------------------------------------------------------
+DISPOSABLE_DOMAINS = {
+    "tempmail.com", "10minutemail.com", "guerrillamail.com", "mailinator.com",
+    "throwawaymail.com", "yopmail.com", "getairmail.com", "sharklasers.com",
+}
+
+@router.get("/email/{email}")
+async def email_check(email: str):
+    """Basic email validation + disposable domain detection. No key."""
+    email = email.lower().strip()
+    if "@" not in email:
+        return {"error": "Invalid email"}
+    domain = email.split("@")[1]
+    is_disposable = domain in DISPOSABLE_DOMAINS
+    # MX check
+    has_mx = False
+    try:
+        import dns.resolver
+        answers = dns.resolver.resolve(domain, "MX")
+        has_mx = len(answers) > 0
+    except Exception:
+        pass
+    return {
+        "email": email,
+        "domain": domain,
+        "valid_format": True,
+        "has_mx": has_mx,
+        "disposable": is_disposable,
+        "suspicious": is_disposable or not has_mx,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Geo lookup for EXIF-like coordinates (reverse geocoding)
+# ---------------------------------------------------------------------------
+@router.get("/reverse-geocode")
+async def reverse_geocode(lat: float, lon: float):
+    """Reverse geocode coordinates to location name. No key."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0, headers=_UA) as client:
+            r = await client.get(
+                f"https://api.bigdatacloud.net/data/reverse-geocode-client?latitude={lat}&longitude={lon}&localityLanguage=en"
+            )
+            d = r.json()
+        return {
+            "lat": lat,
+            "lon": lon,
+            "locality": d.get("locality"),
+            "city": d.get("city"),
+            "region": d.get("principalSubdivision"),
+            "country": d.get("countryName"),
+            "country_code": d.get("countryCode"),
+        }
+    except Exception as e:
+        return {"error": str(e)}
