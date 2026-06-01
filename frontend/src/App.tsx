@@ -401,7 +401,13 @@ function ChatPanel() {
   }, [])
 
   async function send() {
-    if (!msg.trim() || busy || !model) return
+    if (!msg.trim() || busy) return
+    let activeModel = model
+    if (!activeModel && models.length > 0) {
+      activeModel = models[0].name
+      setModel(activeModel)
+    }
+    if (!activeModel) return
     const userMsg = msg.trim()
     setMsg('')
     setHistory((h) => [...h, { role: 'user', content: userMsg }])
@@ -415,7 +421,7 @@ function ChatPanel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({
-          model: model,
+          model: activeModel,
           messages: [{ role: 'user', content: userMsg }],
           stream: true,
         }),
@@ -512,10 +518,10 @@ function ChatPanel() {
           value={msg}
           onChange={(e) => setMsg(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && send()}
-          placeholder={model ? `Ask ${model}…` : 'Select a model first…'}
-          disabled={!model}
+          placeholder={model ? `Ask ${model}…` : models.length > 0 ? `Ask ${models[0].name}…` : 'Select a model first…'}
+          disabled={models.length === 0 && !model}
         />
-        <button onClick={send} disabled={busy || !model}>
+        <button onClick={send} disabled={busy || (models.length === 0 && !model)}>
           Send
         </button>
       </div>

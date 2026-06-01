@@ -422,7 +422,7 @@ async def list_models():
 @app.post("/api/chat")
 async def chat_proxy(payload: dict):
     """Proxy chat requests to local Ollama. Supports SSE streaming."""
-    model = payload.get("model", "llama3.2")
+    model = payload.get("model", "qwen2.5:14b")
     use_stream = payload.get("stream", False)
 
     if use_stream:
