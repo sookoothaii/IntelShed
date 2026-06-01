@@ -9,6 +9,9 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import feeds_extra
+import node_sync
+
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
 
 
@@ -79,9 +82,14 @@ def init_db():
         conn.commit()
 
 
+app.include_router(feeds_extra.router)
+app.include_router(node_sync.router)
+
+
 @app.on_event("startup")
 def on_startup():
     init_db()
+    node_sync.init_node_db()
 
 
 @app.get("/api/health")
