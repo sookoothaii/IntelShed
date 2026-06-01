@@ -71,7 +71,7 @@ type Target = {
 
 type Cursor = { lon: string; lat: string; alt: string }
 
-export default function Globe({ focus }: { focus?: FocusTarget | null }) {
+export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; onAskAI?: (title: string, lines: string[]) => void }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
   const apiRef = useRef<any>({})
@@ -988,6 +988,9 @@ export default function Globe({ focus }: { focus?: FocusTarget | null }) {
           {target.lines.map((l, i) => <div key={i} className="tp-line">{l}</div>)}
           {target.link && (
             <a className="tp-link" href={target.link} target="_blank" rel="noreferrer">OPEN SOURCE ↗</a>
+          )}
+          {onAskAI && (
+            <button className="tp-ask-ai" onClick={() => onAskAI(target.title, target.lines)}>✦ ASK AI</button>
           )}
         </div>
       )}

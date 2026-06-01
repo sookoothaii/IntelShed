@@ -51,11 +51,19 @@ export default function App() {
   const [view, setView] = useState<'globe' | 'data' | 'chat' | 'osint'>('globe')
   const [booting, setBooting] = useState(true)
   const [focus, setFocus] = useState<FocusTarget | null>(null)
+  const [askAI, setAskAI] = useState<{ question: string; context: string } | null>(null)
   const now = useClock()
 
   const focusOnMap = (f: Omit<FocusTarget, 'ts'>) => {
     setFocus({ ...f, ts: Date.now() })
     setView('globe')
+  }
+
+  const handleAskAI = (title: string, lines: string[]) => {
+    const context = `Entity: ${title}\n${lines.join('\n')}`
+    const question = `Analyze this target and tell me what it means for the current world situation:\n${context}`
+    setAskAI({ question, context })
+    setView('chat')
   }
 
   useEffect(() => {
@@ -105,9 +113,9 @@ export default function App() {
 
       <main className="hud-main">
         <div key={view} className="view-fade">
-          {view === 'globe' && <Globe focus={focus} />}
+          {view === 'globe' && <Globe focus={focus} onAskAI={handleAskAI} />}
           {view === 'data' && <DataPanel onFocus={focusOnMap} />}
-          {view === 'chat' && <ChatPanel />}
+          {view === 'chat' && <ChatPanel askAI={askAI} onClearAsk={() => setAskAI(null)} />}
           {view === 'osint' && <OsintPanel />}
         </div>
       </main>
@@ -490,7 +498,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   )
 }
 
-function ChatPanel() {
+function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context: string } | null; onClearAsk?: () => void }) {
   const [msg, setMsg] = useState('')
   const [history, setHistory] = useState<{ role: string; content: string }[]>([
     { role: 'system', content: 'Select a model and start chatting.' },
@@ -518,15 +526,28 @@ function ChatPanel() {
       .catch(() => setModelErr('Could not reach backend for model list'))
   }, [])
 
-  async function send() {
-    if (!msg.trim() || busy) return
+  // Auto-send when askAI is provided (from globe target click)
+  useEffect(() => {
+    if (askAI && !busy) {
+      setMsg(askAI.question)
+      // Small delay to let React render before sending
+      const t = setTimeout(() => {
+        sendWithMessage(askAI.question, askAI.context)
+        onClearAsk?.()
+      }, 100)
+      return () => clearTimeout(t)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askAI])
+
+  async function sendWithMessage(userMsg: string, entityCtx?: string) {
+    if (busy) return
     let activeModel = model
     if (!activeModel && models.length > 0) {
       activeModel = models[0].name
       setModel(activeModel)
     }
     if (!activeModel) return
-    const userMsg = msg.trim()
     setMsg('')
     setHistory((h) => [...h, { role: 'user', content: userMsg }])
     setBusy(true)
@@ -550,6 +571,11 @@ function ChatPanel() {
       }
     }
 
+    // If entity context provided, prepend it to search results
+    const combinedSearchResults = entityCtx
+      ? (searchCtx ? entityCtx + '\n\n' + searchCtx : entityCtx)
+      : (searchCtx || undefined)
+
     try {
       const r = await fetch('/api/chat', {
         method: 'POST',
@@ -559,7 +585,7 @@ function ChatPanel() {
           messages: [{ role: 'user', content: userMsg }],
           stream: true,
           context: true,
-          search_results: searchCtx || undefined,
+          search_results: combinedSearchResults,
         }),
       })
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
@@ -660,11 +686,11 @@ function ChatPanel() {
         <input
           value={msg}
           onChange={(e) => setMsg(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && send()}
+          onKeyDown={(e) => e.key === 'Enter' && sendWithMessage(msg.trim())}
           placeholder={model ? `Ask ${model}…` : models.length > 0 ? `Ask ${models[0].name}…` : 'Select a model first…'}
           disabled={models.length === 0 && !model}
         />
-        <button onClick={send} disabled={busy || (models.length === 0 && !model)}>
+        <button onClick={() => sendWithMessage(msg.trim())} disabled={busy || (models.length === 0 && !model)}>
           Send
         </button>
       </div>

@@ -275,3 +275,78 @@ async def geopolitics(limit: int = 40):
         if stale:
             return stale
         return {"count": 0, "disasters": [], "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Aircraft anomaly detection — flags unusual patterns in real-time ADS-B data
+# ---------------------------------------------------------------------------
+@router.get("/anomalies")
+async def aircraft_anomalies():
+    """Scan current ADS-B traffic for unusual patterns. No key."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
+            r = await client.get("https://opensky-network.org/api/states/all")
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return {"analyzed": 0, "anomalies": [], "error": "OpenSky unavailable"}
+
+    states = data.get("states") or []
+    anomalies = []
+    MILITARY_PREFIXES = ("ae", "ad", "af", "a1", "a2", "a3", "a4", "a5")
+
+    for s in states:
+        if not s or len(s) < 17:
+            continue
+        icao = (s[0] or "").lower()
+        callsign = (s[1] or "").strip()
+        lon = s[5]
+        lat = s[6]
+        alt = s[7]       # barometric altitude (m)
+        geo_alt = s[13]  # geometric altitude (m)
+        vel = s[9]       # velocity (m/s)
+        vert = s[11]     # vertical rate (m/s)
+        squawk = s[14]   # squawk code
+
+        if lon is None or lat is None:
+            continue
+
+        reasons = []
+
+        # 1. Military hex prefix
+        if any(icao.startswith(p) for p in MILITARY_PREFIXES):
+            reasons.append("military_hex")
+
+        # 2. No callsign (anon / dark)
+        if not callsign:
+            reasons.append("no_callsign")
+
+        # 3. Emergency squawk
+        if squawk in ("7500", "7600", "7700"):
+            reasons.append(f"emergency_squawk_{squawk}")
+
+        # 4. Very low altitude (possible surveillance / ground hover)
+        if alt is not None and alt < 300 and alt > -50:
+            reasons.append("very_low_altitude")
+
+        # 5. Rapid descent (> 10 m/s)
+        if vert is not None and vert < -10:
+            reasons.append("rapid_descent")
+
+        # 6. Unusually high speed for altitude (possible intercept)
+        if vel is not None and vel > 150 and alt is not None and alt < 2000:
+            reasons.append("high_speed_low_alt")
+
+        if reasons:
+            anomalies.append({
+                "icao24": icao,
+                "callsign": callsign or None,
+                "lat": lat,
+                "lon": lon,
+                "alt_m": alt,
+                "vel_ms": vel,
+                "squawk": squawk,
+                "reasons": reasons,
+            })
+
+    return {"analyzed": len(states), "anomalies": anomalies, "count": len(anomalies)}
