@@ -1,5 +1,6 @@
 """WorldBase API — FastAPI backend, SQLite cache, no Docker."""
 
+import asyncio
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -86,10 +87,37 @@ app.include_router(feeds_extra.router)
 app.include_router(node_sync.router)
 
 
+# ---------------------------------------------------------------------------
+# Autopilot: generate LLM briefing every 10 min in the background
+# ---------------------------------------------------------------------------
+_BRIEFING_AUTOPILOT_TASK = None
+_BRIEFING_INTERVAL = int(os.getenv("WORLDBASE_BRIEFING_INTERVAL", "600"))  # 10 min default
+
+
+async def _briefing_autopilot():
+    """Background loop that fuses feeds + LLM into a new briefing periodically."""
+    await asyncio.sleep(30)  # Let the server warm up on first boot
+    while True:
+        try:
+            await node_sync.generate_briefing()
+            print(f"[AUTOPILOT] Briefing generated at {datetime.now(timezone.utc).isoformat()}")
+        except Exception as e:
+            print(f"[AUTOPILOT] Briefing generation failed: {e}")
+        await asyncio.sleep(_BRIEFING_INTERVAL)
+
+
 @app.on_event("startup")
 def on_startup():
     init_db()
     node_sync.init_node_db()
+    global _BRIEFING_AUTOPILOT_TASK
+    _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    if _BRIEFING_AUTOPILOT_TASK:
+        _BRIEFING_AUTOPILOT_TASK.cancel()
 
 
 @app.get("/api/health")
