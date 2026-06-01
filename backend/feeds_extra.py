@@ -5,6 +5,7 @@ Every feed is fail-soft: on any upstream error it serves the last good value
 required for any source here.
 """
 
+import os
 import time
 from datetime import datetime, timezone
 
@@ -15,22 +16,69 @@ router = APIRouter(prefix="/api", tags=["feeds-extra"])
 
 # Module-local TTL cache (independent of main.py)
 _CACHE: dict = {}
+_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
 
 
 def _get(key: str, ttl: float):
+    # 1. Check in-memory cache first
     item = _CACHE.get(key)
     if item and (time.time() - item[0]) < ttl:
         return item[1]
+    # 2. Fall back to SQLite cache
+    try:
+        import sqlite3
+        conn = sqlite3.connect(_DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT value, cached_at FROM feed_cache WHERE key = ?", (key,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            cached_at = datetime.fromisoformat(row[1])
+            age = (datetime.now(timezone.utc) - cached_at.replace(tzinfo=timezone.utc)).total_seconds()
+            if age < ttl:
+                import json
+                val = json.loads(row[0])
+                _CACHE[key] = (time.time(), val)  # warm memory cache
+                return val
+    except Exception:
+        pass
     return None
 
 
 def _set(key: str, value):
     _CACHE[key] = (time.time(), value)
+    # Persist to SQLite
+    try:
+        import sqlite3, json
+        conn = sqlite3.connect(_DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR REPLACE INTO feed_cache (key, value, cached_at) VALUES (?, ?, ?)",
+            (key, json.dumps(value), datetime.now(timezone.utc).isoformat()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def _stale(key: str):
     item = _CACHE.get(key)
-    return item[1] if item else None
+    if item:
+        return item[1]
+    # Fall back to SQLite
+    try:
+        import sqlite3, json
+        conn = sqlite3.connect(_DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT value FROM feed_cache WHERE key = ?", (key,))
+        row = c.fetchone()
+        conn.close()
+        if row:
+            return json.loads(row[0])
+    except Exception:
+        pass
+    return None
 
 
 _UA = {"User-Agent": "WorldBase/1.0 (spatial intelligence dashboard)"}
