@@ -144,8 +144,12 @@ type Quake = { id: string; place: string; mag: number; depth: number; time: numb
 type WEvent = { id: string; title: string; category: string; categories?: string[]; date: string; lon: number; lat: number; magnitude?: number | null; unit?: string | null; closed?: string | null; link?: string; sources?: string[]; points?: number }
 type Sat = { name: string; tle1: string; tle2: string }
 
-const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'health'] as const
+const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'health'] as const
 type DataTab = typeof DATA_TABS[number]
+
+type NodeInfo = { node_id: string; name: string; lat: number; lon: number; updated_at: string; payload?: any }
+type MilitaryAircraft = { hex: string; flight: string | null; type: string | null; lat: number | null; lon: number | null; alt: number | null; speed: number | null; squawk: string | null }
+type Disaster = { id: string; name: string; status: string; url?: string }
 
 const SAT_GROUPS = ['starlink', 'stations', 'gps-ops', 'weather']
 
@@ -157,6 +161,11 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const [quakes, setQuakes] = useState<Quake[]>([])
   const [events, setEvents] = useState<WEvent[]>([])
   const [iss, setIss] = useState<any>(null)
+  const [spaceweather, setSpaceweather] = useState<any>(null)
+  const [geopolitics, setGeopolitics] = useState<{ count: number; disasters: Disaster[]; error?: string } | null>(null)
+  const [markets, setMarkets] = useState<any>(null)
+  const [nodes, setNodes] = useState<NodeInfo[]>([])
+  const [military, setMilitary] = useState<MilitaryAircraft[]>([])
   const [health, setHealth] = useState<{ status: string; time: string } | null>(null)
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
@@ -181,6 +190,11 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const loadQuakes = () => fetchFeed('seismic', '/api/earthquakes?period=day&magnitude=2.5', (d: any) => setQuakes(d.earthquakes || []))
   const loadEvents = () => fetchFeed('events', '/api/events?limit=120', (d: any) => setEvents(d.events || []))
   const loadIss = () => fetchFeed('iss', '/api/iss', (d: any) => setIss(d))
+  const loadSpaceweather = () => fetchFeed('spaceweather', '/api/spaceweather', (d: any) => setSpaceweather(d))
+  const loadGeopolitics = () => fetchFeed('geopolitics', '/api/geopolitics', (d: any) => setGeopolitics(d))
+  const loadMarkets = () => fetchFeed('markets', '/api/markets', (d: any) => setMarkets(d))
+  const loadNodes = () => fetchFeed('nodes', '/api/nodes', (d: any) => setNodes(d.nodes || []))
+  const loadMilitary = () => fetchFeed('military', '/api/military', (d: any) => setMilitary(d.aircraft || []))
   const loadHealth = () => fetchFeed('health', '/api/health', (d: any) => setHealth(d))
 
   // Auto-load on tab switch
@@ -191,6 +205,11 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
     else if (tab === 'seismic') loadQuakes()
     else if (tab === 'events') loadEvents()
     else if (tab === 'iss') loadIss()
+    else if (tab === 'spaceweather') loadSpaceweather()
+    else if (tab === 'geopolitics') loadGeopolitics()
+    else if (tab === 'markets') loadMarkets()
+    else if (tab === 'nodes') loadNodes()
+    else if (tab === 'military') loadMilitary()
     else if (tab === 'health') loadHealth()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
@@ -356,6 +375,104 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
               <div className="iss-card"><span>FOOTPRINT</span><strong>{Number(iss.footprint).toFixed(0)} km</strong></div>
             </div>
           ) : <div className="health-status pending">NO DATA</div>}
+        </section>
+      )}
+
+      {tab === 'spaceweather' && (
+        <section>
+          <button onClick={loadSpaceweather} disabled={loading['spaceweather']}>{loading['spaceweather'] ? 'Loading…' : '↻ Refresh'}</button>
+          {spaceweather ? (
+            <div className="iss-grid">
+              <div className="iss-card"><span>KP INDEX</span><strong>{spaceweather.kp_index ?? '—'}</strong></div>
+              <div className="iss-card"><span>SCALE</span><strong>{spaceweather.scale ?? '—'}</strong></div>
+              <div className="iss-card"><span>SOLAR WIND</span><strong>{spaceweather.solar_wind_speed ? spaceweather.solar_wind_speed + ' km/s' : '—'}</strong></div>
+              <div className="iss-card"><span>BT</span><strong>{spaceweather.bt ?? '—'} nT</strong></div>
+              <div className="iss-card"><span>DST</span><strong>{spaceweather.dst ?? '—'} nT</strong></div>
+              <div className="iss-card"><span>AURORA</span><strong>{spaceweather.aurora_probability ? Math.round(spaceweather.aurora_probability * 100) + '%' : '—'}</strong></div>
+            </div>
+          ) : <div className="health-status pending">NO DATA</div>}
+        </section>
+      )}
+
+      {tab === 'geopolitics' && (
+        <section>
+          <button onClick={loadGeopolitics} disabled={loading['geopolitics']}>{loading['geopolitics'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{geopolitics?.count ?? 0} disasters</span>
+          {geopolitics?.error && <div className="data-error">{geopolitics.error}</div>}
+          <table className="data-table">
+            <thead><tr><th>Name</th><th>Status</th></tr></thead>
+            <tbody>
+              {(geopolitics?.disasters || []).map((d: Disaster) => (
+                <tr key={d.id}>
+                  <td>{d.name}</td>
+                  <td>{d.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {tab === 'markets' && (
+        <section>
+          <button onClick={loadMarkets} disabled={loading['markets']}>{loading['markets'] ? 'Loading…' : '↻ Refresh'}</button>
+          {markets?.crypto ? (
+            <div className="iss-grid">
+              {Object.entries(markets.crypto).map(([k, v]: [string, any]) => (
+                <div className="iss-card" key={k}>
+                  <span>{k.toUpperCase()}</span>
+                  <strong>${v.usd?.toLocaleString?.() ?? v.usd}</strong>
+                  <small style={{ color: (v.change_24h ?? 0) >= 0 ? '#00e5a0' : '#ff6b35' }}>
+                    {v.change_24h != null ? (v.change_24h >= 0 ? '+' : '') + v.change_24h.toFixed(2) + '%' : ''}
+                  </small>
+                </div>
+              ))}
+            </div>
+          ) : <div className="health-status pending">NO DATA</div>}
+          <div style={{ marginTop: 8, fontSize: 12, color: '#6f8c84' }}>Updated: {markets?.updated ?? '—'}</div>
+        </section>
+      )}
+
+      {tab === 'nodes' && (
+        <section>
+          <button onClick={loadNodes} disabled={loading['nodes']}>{loading['nodes'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{nodes.length} nodes</span>
+          <table className="data-table clickable">
+            <thead><tr><th>Name</th><th>ID</th><th>Lat</th><th>Lon</th><th>Updated</th><th></th></tr></thead>
+            <tbody>
+              {nodes.map((n: NodeInfo) => (
+                <tr key={n.node_id} onClick={() => onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 500000, title: n.name, lines: [`NODE: ${n.node_id}`, `UPDATED: ${n.updated_at}`] })}>
+                  <td>{n.name}</td><td>{n.node_id}</td>
+                  <td>{n.lat?.toFixed(4)}</td><td>{n.lon?.toFixed(4)}</td>
+                  <td>{new Date(n.updated_at).toLocaleString()}</td>
+                  <td className="locate-cell">◎ LOCATE</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {tab === 'military' && (
+        <section>
+          <button onClick={loadMilitary} disabled={loading['military']}>{loading['military'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{military.length} military aircraft</span>
+          <table className="data-table clickable">
+            <thead><tr><th>Hex</th><th>Flight</th><th>Type</th><th>Lat</th><th>Lon</th><th>Alt (m)</th><th>Speed</th><th>Squawk</th><th></th></tr></thead>
+            <tbody>
+              {military.map((a: MilitaryAircraft, i: number) => (
+                <tr key={i} onClick={() => a.lat && a.lon && onFocus({ kind: 'aircraft', lon: a.lon, lat: a.lat, height: 300000, title: a.flight || a.hex, lines: [`TYPE: ${a.type || '—'}`, `ALT: ${a.alt ?? '—'} m`, `SPEED: ${a.speed ?? '—'} m/s`, `SQUAWK: ${a.squawk || '—'}`] })}>
+                  <td>{a.hex}</td><td>{a.flight || '—'}</td><td>{a.type || '—'}</td>
+                  <td>{a.lat != null ? a.lat.toFixed(2) : '—'}</td>
+                  <td>{a.lon != null ? a.lon.toFixed(2) : '—'}</td>
+                  <td>{a.alt != null ? Math.round(a.alt) : '—'}</td>
+                  <td>{a.speed != null ? a.speed.toFixed(1) : '—'}</td>
+                  <td style={{ color: ['7500', '7600', '7700'].includes(a.squawk || '') ? '#ff2d00' : 'inherit', fontWeight: ['7500', '7600', '7700'].includes(a.squawk || '') ? 'bold' : 'normal' }}>{a.squawk || '—'}</td>
+                  <td className="locate-cell">◎ LOCATE</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
       )}
 
