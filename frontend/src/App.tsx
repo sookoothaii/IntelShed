@@ -152,12 +152,13 @@ type Quake = { id: string; place: string; mag: number; depth: number; time: numb
 type WEvent = { id: string; title: string; category: string; categories?: string[]; date: string; lon: number; lat: number; magnitude?: number | null; unit?: string | null; closed?: string | null; link?: string; sources?: string[]; points?: number }
 type Sat = { name: string; tle1: string; tle2: string }
 
-const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'health'] as const
+const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health'] as const
 type DataTab = typeof DATA_TABS[number]
 
 type NodeInfo = { node_id: string; name: string; lat: number; lon: number; updated_at: string; payload?: any }
 type MilitaryAircraft = { hex: string; flight: string | null; type: string | null; lat: number | null; lon: number | null; alt: number | null; speed: number | null; squawk: string | null }
 type Disaster = { id: string; name: string; status: string; url?: string }
+type Situation = { severity: string; type: string; title: string; location: any; details: any }
 
 const SAT_GROUPS = ['starlink', 'stations', 'gps-ops', 'weather']
 
@@ -174,6 +175,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const [markets, setMarkets] = useState<any>(null)
   const [nodes, setNodes] = useState<NodeInfo[]>([])
   const [military, setMilitary] = useState<MilitaryAircraft[]>([])
+  const [situations, setSituations] = useState<Situation[]>([])
   const [health, setHealth] = useState<{ status: string; time: string } | null>(null)
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
@@ -203,6 +205,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const loadMarkets = () => fetchFeed('markets', '/api/markets', (d: any) => setMarkets(d))
   const loadNodes = () => fetchFeed('nodes', '/api/nodes', (d: any) => setNodes(d.nodes || []))
   const loadMilitary = () => fetchFeed('military', '/api/military', (d: any) => setMilitary(d.aircraft || []))
+  const loadSituations = () => fetchFeed('situations', '/api/correlations', (d: any) => setSituations(d.situations || []))
   const loadHealth = () => fetchFeed('health', '/api/health', (d: any) => setHealth(d))
 
   // Auto-load on tab switch
@@ -218,6 +221,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
     else if (tab === 'markets') loadMarkets()
     else if (tab === 'nodes') loadNodes()
     else if (tab === 'military') loadMilitary()
+    else if (tab === 'situations') loadSituations()
     else if (tab === 'health') loadHealth()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
@@ -481,6 +485,23 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
               ))}
             </tbody>
           </table>
+        </section>
+      )}
+
+      {tab === 'situations' && (
+        <section>
+          <button onClick={loadSituations} disabled={loading['situations']}>{loading['situations'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{situations.length} developing situations</span>
+          {situations.length === 0 && <div className="health-status pending">No active correlations detected</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {situations.map((s: Situation, i: number) => (
+              <div key={i} className="iss-card" style={{ cursor: 'pointer', borderLeft: `3px solid ${s.severity === 'high' ? '#ff2d00' : '#ff6b35'}` }} onClick={() => s.location?.lon && s.location?.lat && onFocus({ kind: 'situation', lon: s.location.lon, lat: s.location.lat, height: 400000, title: s.title, lines: [`TYPE: ${s.type}`, `SEVERITY: ${s.severity.toUpperCase()}`] })}>
+                <span style={{ color: s.severity === 'high' ? '#ff2d00' : '#ff6b35', fontWeight: 'bold' }}>{s.severity.toUpperCase()}</span>
+                <strong>{s.title}</strong>
+                <small style={{ color: '#6f8c84' }}>{s.type}</small>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 

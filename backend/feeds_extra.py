@@ -350,3 +350,128 @@ async def aircraft_anomalies():
             })
 
     return {"analyzed": len(states), "anomalies": anomalies, "count": len(anomalies)}
+
+
+# ---------------------------------------------------------------------------
+# Cross-feed correlation — detects developing situations from multiple sources
+# ---------------------------------------------------------------------------
+import math
+
+NUCLEAR_SITES = [
+    # Format: (name, lon, lat, radius_km)
+    ("Fukushima", 140.9, 37.3, 50),
+    ("Chernobyl", 30.1, 51.4, 80),
+    ("Zaporizhzhia", 34.6, 47.5, 60),
+    ("Hanford", -119.6, 46.5, 40),
+    ("Sellafield", -3.5, 54.4, 30),
+]
+
+
+def _haversine(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    R = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+@router.get("/correlations")
+async def cross_feed_correlations():
+    """Scan feeds for spatial-temporal correlations. No key."""
+    situations = []
+
+    # 1. Earthquake near nuclear site
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
+            r = await client.get("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson")
+            quakes = r.json().get("features", [])
+    except Exception:
+        quakes = []
+
+    for q in quakes:
+        props = q.get("properties", {})
+        geo = q.get("geometry", {})
+        coords = geo.get("coordinates", [0, 0])
+        lon, lat = coords[0], coords[1]
+        mag = props.get("mag", 0)
+        for site_name, site_lon, site_lat, radius in NUCLEAR_SITES:
+            dist = _haversine(lon, lat, site_lon, site_lat)
+            if dist < radius and mag >= 3.0:
+                situations.append({
+                    "severity": "high" if mag >= 5 else "medium",
+                    "type": "quake_near_nuclear",
+                    "title": f"M{mag:.1f} earthquake {dist:.0f} km from {site_name}",
+                    "location": {"lon": lon, "lat": lat, "place": props.get("place", "")},
+                    "details": {"distance_km": round(dist, 1), "site": site_name, "magnitude": mag},
+                })
+
+    # 2. Military aircraft surge near disaster zone ( ReliefWeb )
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
+            r = await client.get("https://api.reliefweb.int/v1/disasters?appname=worldbase&profile=list&preset=latest&limit=20")
+            disasters = r.json().get("data", [])
+    except Exception:
+        disasters = []
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
+            r = await client.get("https://opensky-network.org/api/states/all")
+            states = r.json().get("states", [])
+    except Exception:
+        states = []
+
+    MIL_HEX = tuple("ae ad af a1 a2 a3 a4 a5".split())
+    for d in disasters:
+        fields = d.get("fields", {})
+        dis_name = fields.get("name", "")
+        # Rough: place at 0,0 if no coords; in production geocode country name
+        dlon, dlat = 0, 0
+        mil_count = 0
+        for s in states:
+            if not s or len(s) < 17:
+                continue
+            icao = (s[0] or "").lower()
+            if not any(icao.startswith(p) for p in MIL_HEX):
+                continue
+            alon, alat = s[5], s[6]
+            if alon is None or alat is None:
+                continue
+            dist = _haversine(alon, alat, dlon, dlat)
+            if dist < 500:
+                mil_count += 1
+        if mil_count >= 3:
+            situations.append({
+                "severity": "medium",
+                "type": "military_presence_disaster_zone",
+                "title": f"{mil_count} military aircraft near {dis_name}",
+                "location": {"lon": dlon, "lat": dlat, "place": dis_name},
+                "details": {"military_count": mil_count, "disaster": dis_name},
+            })
+
+    # 3. High seismic activity cluster (>3 quakes M4+ within 2h in same region)
+    recent = [q for q in quakes if q.get("properties", {}).get("mag", 0) >= 4.0]
+    if len(recent) >= 3:
+        # Check if clustered within 500km
+        for i, q1 in enumerate(recent[:5]):
+            c1 = q1.get("geometry", {}).get("coordinates", [0, 0])
+            cluster = [q1]
+            for q2 in recent[i + 1:]:
+                c2 = q2.get("geometry", {}).get("coordinates", [0, 0])
+                if _haversine(c1[0], c1[1], c2[0], c2[1]) < 500:
+                    cluster.append(q2)
+            if len(cluster) >= 3:
+                avg_lon = sum(c.get("geometry", {}).get("coordinates", [0, 0])[0] for c in cluster) / len(cluster)
+                avg_lat = sum(c.get("geometry", {}).get("coordinates", [0, 0])[1] for c in cluster) / len(cluster)
+                situations.append({
+                    "severity": "high",
+                    "type": "seismic_cluster",
+                    "title": f"{len(cluster)} M4+ earthquakes in cluster",
+                    "location": {"lon": avg_lon, "lat": avg_lat, "place": "cluster region"},
+                    "details": {"quake_count": len(cluster), "max_mag": max(c.get("properties", {}).get("mag", 0) for c in cluster)},
+                })
+                break
+
+    situations.sort(key=lambda s: 0 if s["severity"] == "high" else 1)
+    return {"situations": situations, "count": len(situations)}
