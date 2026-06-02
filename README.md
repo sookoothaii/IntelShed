@@ -21,6 +21,7 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
   - Wildfire thermal anomalies, confidence-colored (NASA FIRMS MODIS + VIIRS)
   - Lightning strikes worldwide, 10-minute fade (Blitzortung.org)
   - German power grid — generation mix, CO₂ intensity, day-ahead price (SMARD / Bundesnetzagentur)
+  - EU electricity — Day Ahead prices + generation mix by source (ENTSO-E Transparency Platform, 14 bidding zones)
   - Stock markets — DAX, S&P 500, NASDAQ, Nikkei, Gold, Oil, BTC, ETH (Yahoo Finance)
   - GTFS-Realtime public transit — live vehicle positions (Helsinki HSL, Boston MBTA, Berlin VBB, Hamburg HVV, Munich MVV)
   - Maritime AIS — live vessel positions by type, port-region tracking (MyShipTracking / AISHub)
@@ -114,6 +115,8 @@ Backend (FastAPI + SQLite, async httpx with TTL caching)
   |- /api/wildfires     NASA FIRMS thermal anomalies with confidence
   |- /api/lightning     Blitzortung.org live strikes (~10 min window)
   |- /api/energy/de     German power generation mix + CO₂ + price (SMARD)
+  |- /api/eu-energy/price/{country}   EU Day Ahead electricity prices (ENTSO-E)
+  |- /api/eu-energy/generation/{country}   EU generation mix by source (ENTSO-E)
   |- /api/stocks        Stock indices + commodities + crypto (Yahoo Finance)
   |- /api/transit/{city} GTFS-Realtime vehicle positions
   |- /api/maritime      AIS vessel positions (port regions + demo fallback)
@@ -163,6 +166,7 @@ The AI panel auto-discovers installed models via `/api/models`.
 - **NASA FIRMS** — wildfire thermal anomalies (MODIS + VIIRS)
 - **Blitzortung.org** — real-time lightning strikes
 - **SMARD (Bundesnetzagentur)** — German power grid data
+- **ENTSO-E Transparency Platform** — EU Day Ahead prices + generation mix (free registration)
 - **Yahoo Finance** — stock indices, commodities, crypto
 - **GTFS-Realtime** — public transit vehicle positions ( TransitFeeds / agency feeds )
 - **MyShipTracking / AISHub** — AIS vessel positions (free tier, port regions)
