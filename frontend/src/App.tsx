@@ -278,10 +278,9 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                   <div className="analysis-row">
                     <span>Kp: <strong>{results.spaceweather.kp_index ?? '—'}</strong></span>
                     <span>Scale: {results.spaceweather.scale ?? '—'}</span>
-                    <span>BT: {results.spaceweather.bt != null ? results.spaceweather.bt + ' nT' : '—'}</span>
-                    <span>Aurora: {results.spaceweather.aurora_probability != null ? results.spaceweather.aurora_probability + '%' : '—'}</span>
-                    <span style={{ color: '#6f8c84' }}>Speed: {results.spaceweather.speed ?? '—'} km/s</span>
-                    <span style={{ color: '#6f8c84' }}>Density: {results.spaceweather.density ?? '—'} p/cm³</span>
+                    <span style={{ color: results.spaceweather.aurora_visible_midlat ? '#ff6b35' : '#6f8c84' }}>Aurora: {results.spaceweather.aurora_visible_midlat ? 'VISIBLE' : 'none'}</span>
+                    <span style={{ color: results.spaceweather.hf_radio_impact ? '#ff6b35' : '#6f8c84' }}>HF: {results.spaceweather.hf_radio_impact ? 'IMPACTED' : 'OK'}</span>
+                    <span style={{ color: '#6f8c84' }}>History: {results.spaceweather.history?.length ?? 0} pts</span>
                   </div>
                 </div>
               )}
@@ -327,8 +326,8 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                     <div key={i} className="analysis-row" style={{ borderLeft: ['7500', '7600', '7700'].includes(a.squawk) ? '3px solid #ff2d00' : '3px solid #ff6b35' }}>
                       <span style={{ fontWeight: 'bold', minWidth: 80 }}>{a.flight || a.hex}</span>
                       <span style={{ minWidth: 50 }}>{a.type || '—'}</span>
-                      <span style={{ color: '#6f8c84', minWidth: 90 }}>Alt: {a.alt != null ? Number(a.alt).toFixed(0) + ' m' : '—'}</span>
-                      <span style={{ color: '#6f8c84', minWidth: 90 }}>Spd: {a.speed != null ? Number(a.speed).toFixed(0) + ' m/s' : '—'}</span>
+                      <span style={{ color: '#6f8c84', minWidth: 90 }}>Alt: {a.alt != null && !isNaN(Number(a.alt)) ? Number(a.alt).toFixed(0) + ' m' : '—'}</span>
+                      <span style={{ color: '#6f8c84', minWidth: 90 }}>Spd: {a.speed != null && !isNaN(Number(a.speed)) ? Number(a.speed).toFixed(0) + ' m/s' : '—'}</span>
                       {a.squawk && <span style={{ color: '#ff2d00', fontWeight: 'bold', minWidth: 80 }}>SQ {a.squawk}</span>}
                       <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'military', lon: a.lon, lat: a.lat, height: 400000, title: a.flight || a.hex, lines: [`Type: ${a.type || '—'}`, `Alt: ${a.alt} m`, `Speed: ${a.speed} m/s`, `Squawk: ${a.squawk || '—'}`] }) }}>◎</button>
                     </div>
@@ -374,13 +373,17 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                 <div className="analysis-section">
                   <h3>📈 CRYPTO MARKETS</h3>
                   <div className="analysis-grid">
-                    {Object.entries(results.markets.crypto).map(([k, v]: [string, any]) => (
-                      <div key={k} className="analysis-card">
-                        <strong>{k.toUpperCase()}</strong>
-                        <span>${v.price != null ? v.price.toLocaleString() : '—'}</span>
-                        <span style={{ color: (v.change_24h ?? 0) >= 0 ? '#00e5a0' : '#ff2d00' }}>{v.change_24h != null ? v.change_24h.toFixed(2) : '—'}%</span>
-                      </div>
-                    ))}
+                    {Object.entries(results.markets.crypto).map(([k, v]: [string, any]) => {
+                      const price = v.usd ?? v.price ?? null
+                      const change = v.usd_24h_change ?? v.change_24h ?? null
+                      return (
+                        <div key={k} className="analysis-card">
+                          <strong>{k.toUpperCase()}</strong>
+                          <span>${price != null ? price.toLocaleString() : '—'}</span>
+                          <span style={{ color: (change ?? 0) >= 0 ? '#00e5a0' : '#ff2d00' }}>{change != null ? change.toFixed(2) : '—'}%</span>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -393,8 +396,8 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       <span style={{ fontWeight: 'bold' }}>{n.name}</span>
                       <span style={{ color: n.online ? '#00e5a0' : '#ff2d00' }}>{n.online ? 'ONLINE' : 'OFFLINE'}</span>
                       <span style={{ color: '#6f8c84' }}>{Math.round(n.age_seconds || 0)}s ago</span>
-                      <span style={{ color: '#6f8c84' }}>CPU: {(n.sensors?.cpu_temp_c ?? n.health?.cpu_temp) != null ? (n.sensors?.cpu_temp_c ?? n.health?.cpu_temp) + '°C' : '—'}</span>
-                      <span style={{ color: '#6f8c84' }}>Bat: {n.sensors?.battery_v != null ? n.sensors.battery_v + 'V' : '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>CPU: {(n.sensors?.cpu_temp_c ?? n.health?.cpu_temp ?? n.payload?.sensors?.cpu_temp_c ?? n.payload?.health?.cpu_temp) != null ? (n.sensors?.cpu_temp_c ?? n.health?.cpu_temp ?? n.payload?.sensors?.cpu_temp_c ?? n.payload?.health?.cpu_temp) + '°C' : '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>Bat: {(n.sensors?.battery_v ?? n.payload?.sensors?.battery_v) != null ? (n.sensors?.battery_v ?? n.payload?.sensors?.battery_v) + 'V' : '—'}</span>
                       {n.lat && (
                         <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 400000, title: n.name, lines: [`Node: ${n.node_id}`, `CPU: ${n.sensors?.cpu_temp_c ?? '—'}°C`] }) }}>◎</button>
                       )}
