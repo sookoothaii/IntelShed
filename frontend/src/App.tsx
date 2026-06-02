@@ -1232,6 +1232,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
   const [busy, setBusy] = useState(false)
   const [modelErr, setModelErr] = useState<string | null>(null)
   const [webSearch, setWebSearch] = useState(false)
+  const [firewall, setFirewall] = useState(false)
 
   useEffect(() => {
     fetch('/api/models')
@@ -1310,6 +1311,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
           stream: true,
           context: true,
           search_results: combinedSearchResults,
+          firewall,
         }),
       })
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
@@ -1337,6 +1339,14 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
               setHistory((h) => {
                 const copy = [...h]
                 copy[copy.length - 1] = { role: 'assistant', content: 'Error: ' + data.error }
+                return copy
+              })
+              break
+            }
+            if (data.firewall_blocked) {
+              setHistory((h) => {
+                const copy = [...h]
+                copy[copy.length - 1] = { role: 'assistant', content: data.message?.content || 'Blocked by firewall.' }
                 return copy
               })
               break
@@ -1395,6 +1405,14 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
           title="Toggle web search (injects DuckDuckGo results as context)"
         >
           {webSearch ? '🔍 ON' : '🔍 OFF'}
+        </button>
+        <button
+          className={firewall ? 'web-search on' : 'web-search'}
+          onClick={() => setFirewall((v) => !v)}
+          title="Toggle LLM-Security-Firewall (scans prompts via external HAK_GAL service)"
+          style={{ marginLeft: 6, color: firewall ? '#ff2d00' : '#6f8c84' }}
+        >
+          {firewall ? '🛡️ ON' : '🛡️ OFF'}
         </button>
       </div>
 

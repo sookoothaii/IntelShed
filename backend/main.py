@@ -23,6 +23,7 @@ import stock_bridge
 import gtfs_ingestor
 import ais_bridge
 import entsoe_bridge
+import firewall_bridge
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
 
@@ -104,6 +105,7 @@ app.include_router(stock_bridge.router)
 app.include_router(gtfs_ingestor.router)
 app.include_router(ais_bridge.router)
 app.include_router(entsoe_bridge.router)
+app.include_router(firewall_bridge.router)
 
 
 # ---------------------------------------------------------------------------
@@ -610,9 +612,39 @@ async def chat_proxy(payload: dict):
     """Proxy chat requests to local Ollama. Supports SSE streaming.
 
     Set payload['context'] = True to inject live WorldBase state as a system message.
+    Set payload['firewall'] = True to route user messages through the LLM-Security-Firewall.
     """
     model = payload.get("model", "qwen2.5:14b")
     use_stream = payload.get("stream", False)
+
+    # Optional: LLM-Security-Firewall scan (only if explicitly requested)
+    if payload.get("firewall"):
+        from firewall_bridge import firewall_scan, _extract_user_text
+        user_text = _extract_user_text(payload.get("messages", []))
+        if user_text:
+            scan = await firewall_scan(user_text)
+            if scan.get("data", {}).get("should_block") or (scan.get("data", {}).get("risk_score", 0) > 0.7):
+                block_msg = {
+                    "message": {
+                        "role": "assistant",
+                        "content": (
+                            "⚠️ **FIREWALL BLOCK**\n\n"
+                            "This message was flagged by the LLM-Security-Firewall.\n"
+                            f"Risk Score: {scan.get('data', {}).get('risk_score', '—')}\n"
+                            f"Matched: {', '.join(scan.get('data', {}).get('matched_patterns', [])[:3]) or '—'}\n\n"
+                            "Set `firewall: false` to bypass (not recommended)."
+                        ),
+                    },
+                    "done": True,
+                    "firewall_blocked": True,
+                    "firewall_meta": scan.get("data", {}),
+                }
+                if use_stream:
+                    return StreamingResponse(
+                        (f"data: {json.dumps(block_msg)}\n\n" async for _ in [1]),
+                        media_type="text/event-stream",
+                    )
+                return block_msg
 
     # Build messages, optionally injecting live context + web search results
     messages = list(payload.get("messages", []))
