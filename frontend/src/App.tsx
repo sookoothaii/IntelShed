@@ -861,19 +861,77 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
         <section>
           <button onClick={loadNodes} disabled={loading['nodes']}>{loading['nodes'] ? 'Loading…' : '↻ Refresh'}</button>
           <span className="data-count">{nodes.length} nodes</span>
-          <table className="data-table clickable">
-            <thead><tr><th>Name</th><th>ID</th><th>Lat</th><th>Lon</th><th>Updated</th><th></th></tr></thead>
-            <tbody>
-              {nodes.map((n: NodeInfo) => (
-                <tr key={n.node_id} onClick={() => onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 500000, title: n.name, lines: [`NODE: ${n.node_id}`, `UPDATED: ${n.updated_at}`] })}>
-                  <td>{n.name}</td><td>{n.node_id}</td>
-                  <td>{n.lat?.toFixed(4)}</td><td>{n.lon?.toFixed(4)}</td>
-                  <td>{new Date(n.updated_at).toLocaleString()}</td>
-                  <td className="locate-cell">◎ LOCATE</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {!nodes.length && <div className="health-status pending">No nodes — ensure a Pi is pushing to /api/node/ingest</div>}
+          {nodes.map((n: any) => {
+            const h = n.health || {}
+            const svcs = h.services || {}
+            const sensors = n.sensors || {}
+            const mesh = n.mesh || []
+            const ph = n.pihole || {}
+            const online = n.online === true
+            return (
+              <div key={n.node_id} className="iss-card" style={{ marginBottom: 8, padding: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <strong style={{ fontSize: 14 }}>
+                    {online ? '🟢' : '🔴'} {n.name || n.node_id}
+                  </strong>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 500000, title: n.name, lines: [`NODE: ${n.node_id}`] })}
+                      style={{ fontSize: 11, padding: '2px 8px' }}
+                    >
+                      ◎ LOCATE
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const cmd = prompt(`Send command to ${n.node_id}:\nCommands: reboot, shutdown, restart_service, exec`)
+                        if (!cmd) return
+                        const args = prompt('Args (JSON, optional):') || '{}'
+                        try {
+                          const r = await fetch(`/api/node/${n.node_id}/command`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ command: cmd, args: JSON.parse(args) }),
+                          })
+                          const d = await r.json()
+                          alert(`Queued: ${d.status} (ID: ${d.command_id})`)
+                        } catch (e) {
+                          alert('Failed: ' + (e as Error).message)
+                        }
+                      }}
+                      style={{ fontSize: 11, padding: '2px 8px' }}
+                    >
+                      ⚡ CMD
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '4px 12px', fontSize: 11, color: '#8fb7a9' }}>
+                  <span>CPU: {h.cpu_temp_c != null ? `${h.cpu_temp_c}°C` : '—'}</span>
+                  <span>RAM: {h.ram_pct != null ? `${h.ram_pct}%` : '—'}</span>
+                  <span>Disk: {h.disk_pct != null ? `${h.disk_pct}%` : '—'}</span>
+                  <span>Load: {h.load_1m != null ? h.load_1m.toFixed(2) : '—'}</span>
+                  <span>Age: {n.age_seconds != null ? `${Math.round(n.age_seconds)}s` : '—'}</span>
+                  <span>Mesh: {mesh.length}</span>
+                  {ph.blocked != null && <span>Pi-hole: {ph.blocked} ({ph.percent}%)</span>}
+                </div>
+                {Object.keys(svcs).length > 0 && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: '#6f8c84' }}>
+                    Services: {Object.entries(svcs).map(([k, v]) => `${k}=${v}`).join(', ')}
+                  </div>
+                )}
+                {Object.keys(sensors).length > 0 && (
+                  <div style={{ marginTop: 4, fontSize: 10, color: '#6f8c84' }}>
+                    Sensors: {Object.entries(sensors).map(([k, v]) => `${k}=${v}`).join(', ')}
+                  </div>
+                )}
+                {mesh.length > 0 && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: '#ffd23f' }}>
+                    Mesh nodes: {mesh.map((m: any) => m.name || m.id).join(', ')}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </section>
       )}
 

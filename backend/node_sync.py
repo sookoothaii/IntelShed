@@ -164,6 +164,10 @@ async def node_ingest(payload: dict, x_node_token: str = Header(default="")):
             ),
         )
         conn.commit()
+
+    # Store sensor history for time-series graphs
+    _store_sensors(node_id, all_sensors)
+
     return {"status": "ok", "node_id": node_id, "updated_at": now, "alerts": alerts_generated}
 
 
@@ -427,3 +431,192 @@ async def node_pull(mesh: bool = False):
 async def node_pull_mesh():
     """Dedicated endpoint: always returns compressed <230 byte briefing for LoRa."""
     return await node_pull(mesh=True)
+
+
+# ---------------------------------------------------------------------------
+# COMMAND QUEUE — PC -> Pi bidirectional control
+# ---------------------------------------------------------------------------
+
+def init_command_db():
+    with _db() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS node_commands (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                node_id TEXT NOT NULL,
+                command TEXT NOT NULL,
+                args TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TEXT,
+                acked_at TEXT,
+                result TEXT
+            );
+            CREATE TABLE IF NOT EXISTS sensor_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                node_id TEXT NOT NULL,
+                sensor TEXT NOT NULL,
+                value REAL,
+                recorded_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_sensor_history_node_sensor ON sensor_history(node_id, sensor);
+            CREATE INDEX IF NOT EXISTS idx_sensor_history_time ON sensor_history(recorded_at);
+        """)
+        conn.commit()
+
+
+@router.post("/node/{node_id}/command")
+async def queue_command(node_id: str, payload: dict):
+    """Queue a command for a specific Pi node. PC calls this to control the Pi.
+
+    Commands: reboot, shutdown, restart_service, update_config, exec
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    with _db() as conn:
+        conn.execute(
+            "INSERT INTO node_commands (node_id, command, args, status, created_at) VALUES (?,?,?,?,?)",
+            (node_id, payload.get("command"), json.dumps(payload.get("args", {})), "pending", now),
+        )
+        conn.commit()
+        cmd_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    return {"status": "queued", "command_id": cmd_id, "node_id": node_id}
+
+
+@router.get("/node/{node_id}/commands")
+async def poll_commands(node_id: str, limit: int = 10):
+    """Pi polls this to fetch pending commands."""
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT id, command, args, created_at FROM node_commands WHERE node_id = ? AND status = 'pending' ORDER BY id LIMIT ?",
+            (node_id, limit),
+        ).fetchall()
+    commands = []
+    for r in rows:
+        try:
+            args = json.loads(r["args"]) if r["args"] else {}
+        except Exception:
+            args = {}
+        commands.append({"id": r["id"], "command": r["command"], "args": args, "created_at": r["created_at"]})
+    return {"node_id": node_id, "pending": len(commands), "commands": commands}
+
+
+@router.post("/node/command/{command_id}/ack")
+async def ack_command(command_id: int, payload: dict):
+    """Pi acks a command after execution."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _db() as conn:
+        conn.execute(
+            "UPDATE node_commands SET status = ?, acked_at = ?, result = ? WHERE id = ?",
+            (payload.get("status", "done"), now, payload.get("result"), command_id),
+        )
+        conn.commit()
+    return {"status": "acknowledged", "command_id": command_id}
+
+
+@router.get("/node/{node_id}/command-history")
+async def command_history(node_id: str, limit: int = 20):
+    """Show recent commands for a node (PC-side view)."""
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT id, command, status, created_at, acked_at, result FROM node_commands WHERE node_id = ? ORDER BY id DESC LIMIT ?",
+            (node_id, limit),
+        ).fetchall()
+    return {
+        "node_id": node_id,
+        "commands": [
+            {
+                "id": r["id"],
+                "command": r["command"],
+                "status": r["status"],
+                "created_at": r["created_at"],
+                "acked_at": r["acked_at"],
+                "result": r["result"],
+            }
+            for r in rows
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# SENSOR HISTORY — time-series storage for graphs
+# ---------------------------------------------------------------------------
+
+def _store_sensors(node_id: str, sensors: dict):
+    """Store sensor readings as time-series. Called during ingest."""
+    if not sensors:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    with _db() as conn:
+        for key, val in sensors.items():
+            if isinstance(val, (int, float)):
+                conn.execute(
+                    "INSERT INTO sensor_history (node_id, sensor, value, recorded_at) VALUES (?,?,?,?)",
+                    (node_id, key, float(val), now),
+                )
+        conn.commit()
+
+
+@router.get("/node/{node_id}/sensors/history")
+async def sensor_history(node_id: str, sensor: str = "", hours: int = 24):
+    """Return sensor time-series for plotting."""
+    from datetime import timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    with _db() as conn:
+        if sensor:
+            rows = conn.execute(
+                "SELECT sensor, value, recorded_at FROM sensor_history WHERE node_id = ? AND sensor = ? AND recorded_at > ? ORDER BY recorded_at",
+                (node_id, sensor, cutoff),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT sensor, value, recorded_at FROM sensor_history WHERE node_id = ? AND recorded_at > ? ORDER BY recorded_at",
+                (node_id, cutoff),
+            ).fetchall()
+    data: dict = {}
+    for r in rows:
+        key = r["sensor"]
+        if key not in data:
+            data[key] = []
+        data[key].append({"t": r["recorded_at"], "v": r["value"]})
+    return {"node_id": node_id, "sensor": sensor or "all", "hours": hours, "series": data}
+
+
+@router.get("/node/{node_id}/sensors/latest")
+async def latest_sensors(node_id: str):
+    """Latest value for each sensor."""
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT sensor, value, recorded_at FROM sensor_history WHERE node_id = ? AND recorded_at = (SELECT MAX(recorded_at) FROM sensor_history WHERE node_id = ? AND sensor = s.sensor)",
+            (node_id, node_id),
+        ).fetchall()
+    return {"node_id": node_id, "sensors": {r["sensor"]: {"value": r["value"], "at": r["recorded_at"]} for r in rows}}
+
+
+# ---------------------------------------------------------------------------
+# MESH NODES — globe endpoint
+# ---------------------------------------------------------------------------
+
+@router.get("/mesh/nodes")
+async def mesh_nodes():
+    """Return all mesh nodes from all Pis for globe rendering."""
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT node_id, payload FROM node_state"
+        ).fetchall()
+    all_nodes = []
+    for r in rows:
+        try:
+            payload = json.loads(r["payload"]) if r["payload"] else {}
+        except Exception:
+            continue
+        mesh = payload.get("mesh", [])
+        for n in mesh:
+            if n.get("lat") is not None and n.get("lon") is not None:
+                all_nodes.append({
+                    "pi_node": r["node_id"],
+                    "id": n.get("id", "?"),
+                    "name": n.get("name", "?"),
+                    "lat": n.get("lat"),
+                    "lon": n.get("lon"),
+                    "snr": n.get("snr"),
+                    "last_seen": n.get("last_seen"),
+                })
+    return {"count": len(all_nodes), "nodes": all_nodes}

@@ -490,13 +490,15 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
               }
               nodeMap.set(id, e)
             }
-            // Mesh connection lines
+            // Mesh node points + connection lines
             for (const m of n.mesh || []) {
               if (m.lon != null && m.lat != null) {
+                const mPos = Cartesian3.fromDegrees(m.lon, m.lat, 0)
+                // Connection line
                 nodesSrc.entities.add({
                   id: `link-${id}-${m.id}`,
                   polyline: {
-                    positions: [pos, Cartesian3.fromDegrees(m.lon, m.lat, 0)],
+                    positions: [pos, mPos],
                     width: 1.5,
                     material: new PolylineGlowMaterialProperty({
                       glowPower: 0.35,
@@ -504,11 +506,61 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
                     }),
                   },
                 })
+                // Mesh node point
+                const meshKey = `mesh-${id}-${m.id}`
+                seen.add(meshKey)
+                const meshEnt = nodesSrc.entities.getById(meshKey)
+                if (!meshEnt) {
+                  nodesSrc.entities.add({
+                    id: meshKey,
+                    position: mPos,
+                    point: {
+                      pixelSize: 6,
+                      color: Color.fromCssColorString('#ffd23f'),
+                      outlineColor: Color.BLACK,
+                      outlineWidth: 1,
+                    },
+                    label: {
+                      text: m.name || m.id || '?',
+                      font: '500 9px "Courier New"',
+                      fillColor: Color.fromCssColorString('#ffd23f'),
+                      outlineColor: Color.BLACK,
+                      outlineWidth: 1,
+                      style: LabelStyle.FILL_AND_OUTLINE,
+                      verticalOrigin: VerticalOrigin.BOTTOM,
+                      horizontalOrigin: HorizontalOrigin.CENTER,
+                      pixelOffset: new Cartesian2(0, -6),
+                      distanceDisplayCondition: new DistanceDisplayCondition(0, 5e5),
+                    },
+                    properties: {
+                      kind: 'mesh_node',
+                      id: m.id,
+                      name: m.name || m.id,
+                      snr: m.snr,
+                      last_seen: m.last_seen,
+                      pi_node: id,
+                    } as any,
+                  })
+                }
               }
             }
           }
           for (const [id, e] of nodeMap) {
             if (!seen.has(id)) { nodesSrc.entities.remove(e); nodeMap.delete(id) }
+          }
+          // Cleanup stale mesh nodes
+          const allMeshKeys = new Set<string>()
+          nodesSrc.entities.values.forEach((ent: any) => {
+            const eid = ent.id
+            if (typeof eid === 'string' && eid.startsWith('mesh-')) {
+              allMeshKeys.add(eid)
+            }
+          })
+          for (const mk of allMeshKeys) {
+            if (!seen.has(mk)) {
+              const ent = nodesSrc.entities.getById(mk)
+              if (ent) nodesSrc.entities.remove(ent)
+            }
           }
           if (!cancelled) setStats((p) => ({ ...p, nodes: nodeMap.size }))
         } catch (e) {
@@ -1060,6 +1112,17 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
               ...(ph.blocked ? [`PI-HOLE: ${ph.blocked} blocked (${ph.percent}%)`] : []),
               ...(sensorLines.length ? ['SENSORS:', ...sensorLines] : []),
               ...(svcLines.length ? ['SERVICES:', ...svcLines] : []),
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'mesh_node') {
+          setTarget({
+            kind, title: `📻 MESH ${props.name?.getValue?.() || 'Node'}`,
+            lines: [
+              `ID: ${props.id?.getValue?.() ?? '—'}`,
+              `SNR: ${props.snr?.getValue?.() ?? '—'} dB`,
+              `LAST SEEN: ${props.last_seen?.getValue?.() ?? '—'}`,
+              `PI GATEWAY: ${props.pi_node?.getValue?.() ?? '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })

@@ -133,6 +133,7 @@ async def _briefing_autopilot():
 def on_startup():
     init_db()
     node_sync.init_node_db()
+    node_sync.init_command_db()
     global _BRIEFING_AUTOPILOT_TASK
     _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
 
