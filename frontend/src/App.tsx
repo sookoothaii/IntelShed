@@ -504,7 +504,7 @@ type Quake = { id: string; place: string; mag: number; depth: number; time: numb
 type WEvent = { id: string; title: string; category: string; categories?: string[]; date: string; lon: number; lat: number; magnitude?: number | null; unit?: string | null; closed?: string | null; link?: string; sources?: string[]; points?: number }
 type Sat = { name: string; tle1: string; tle2: string }
 
-const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'weather', 'wildfires', 'lightning', 'energy', 'stocks', 'transit', 'maritime'] as const
+const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime'] as const
 type DataTab = typeof DATA_TABS[number]
 
 type NodeInfo = { node_id: string; name: string; lat: number; lon: number; updated_at: string; payload?: any }
@@ -542,6 +542,8 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const [transit, setTransit] = useState<{ city: string; count: number; vehicles: any[]; cached_at: string; error?: string } | null>(null)
   const [transitCity, setTransitCity] = useState('helsinki')
   const [maritime, setMaritime] = useState<{ count: number; vessels: any[]; demo_mode?: boolean; cached_at: string; error?: string } | null>(null)
+  const [euEnergy, setEuEnergy] = useState<{ country: string; prices: any[]; generation_by_source?: Record<string, number>; total_mw?: number; demo_mode?: boolean; error?: string } | null>(null)
+  const [euCountry, setEuCountry] = useState('de')
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -581,6 +583,25 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const loadStocks = () => fetchFeed('stocks', '/api/stocks', (d: any) => setStocks(d))
   const loadTransit = () => fetchFeed('transit', `/api/transit/${transitCity}`, (d: any) => setTransit(d))
   const loadMaritime = () => fetchFeed('maritime', '/api/maritime', (d: any) => setMaritime(d))
+  const loadEuEnergy = async () => {
+    setLoading((l) => ({ ...l, 'eu-energy': true }))
+    setError(null)
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch(`/api/eu-energy/price/${euCountry}`),
+        fetch(`/api/eu-energy/generation/${euCountry}`),
+      ])
+      if (!r1.ok) throw new Error(`${r1.status} ${r1.statusText}`)
+      if (!r2.ok) throw new Error(`${r2.status} ${r2.statusText}`)
+      const priceData = await r1.json()
+      const genData = await r2.json()
+      setEuEnergy({ ...priceData, generation_by_source: genData.generation_by_source, total_mw: genData.total_mw })
+    } catch (e) {
+      setError(`eu-energy: ${(e as Error).message}`)
+    } finally {
+      setLoading((l) => ({ ...l, 'eu-energy': false }))
+    }
+  }
 
   // Auto-load on tab switch
   useEffect(() => {
@@ -606,8 +627,9 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
     else if (tab === 'stocks') loadStocks()
     else if (tab === 'transit') loadTransit()
     else if (tab === 'maritime') loadMaritime()
+    else if (tab === 'eu-energy') loadEuEnergy()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, transitCity])
+  }, [tab, transitCity, euCountry])
 
   const q = query.toLowerCase()
   const fAircraft = aircraft.filter((a) => !q || `${a[0]} ${a[1]} ${a[2]}`.toLowerCase().includes(q))
@@ -1117,6 +1139,81 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
               ))}
             </tbody>
           </table>
+        </section>
+      )}
+
+      {tab === 'eu-energy' && (
+        <section>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <select className="poi-select" value={euCountry} onChange={(e) => setEuCountry(e.target.value)}>
+              <option value="de">Germany</option>
+              <option value="fr">France</option>
+              <option value="nl">Netherlands</option>
+              <option value="at">Austria</option>
+              <option value="pl">Poland</option>
+              <option value="es">Spain</option>
+              <option value="it">Italy</option>
+              <option value="se">Sweden</option>
+              <option value="dk">Denmark</option>
+              <option value="no">Norway</option>
+              <option value="be">Belgium</option>
+              <option value="ch">Switzerland</option>
+              <option value="cz">Czechia</option>
+              <option value="fi">Finland</option>
+            </select>
+            <button onClick={loadEuEnergy} disabled={loading['eu-energy']}>{loading['eu-energy'] ? 'Loading…' : '↻ Refresh'}</button>
+          </div>
+          {euEnergy?.demo_mode && <div className="health-status pending">⚠ DEMO MODE — set ENTSOE_SECURITY_TOKEN for live data</div>}
+          {euEnergy?.error && !euEnergy.demo_mode && <div className="data-error">{euEnergy.error}</div>}
+          {euEnergy?.prices && (
+            <>
+              <div className="iss-card" style={{ marginBottom: 8 }}>
+                <strong>{euCountry.toUpperCase()} — Day Ahead Prices (EUR/MWh)</strong>
+                <div style={{ marginTop: 4, fontSize: 12, color: '#6f8c84' }}>
+                  {euEnergy.prices.length} hourly slots
+                </div>
+              </div>
+              <table className="data-table">
+                <thead><tr><th>Hour</th><th>Price</th><th>Status</th></tr></thead>
+                <tbody>
+                  {euEnergy.prices.slice(0, 24).map((p: any, i: number) => {
+                    const price = p.price_eur_mwh ?? 0
+                    const color = price < 0 ? '#22d3ee' : price < 50 ? '#00e5a0' : price < 100 ? '#ffd23f' : price < 200 ? '#ff6b35' : '#ff2d00'
+                    const label = price < 0 ? 'NEGATIVE' : price < 50 ? 'Low' : price < 100 ? 'Normal' : price < 200 ? 'High' : 'Extreme'
+                    return (
+                      <tr key={i}>
+                        <td>{p.position}</td>
+                        <td style={{ color, fontWeight: 'bold' }}>{price.toFixed(2)}</td>
+                        <td style={{ color }}>{label}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </>
+          )}
+          {euEnergy?.generation_by_source && (
+            <div style={{ marginTop: 12 }}>
+              <div className="iss-card"><strong>Generation Mix — Latest Hour</strong></div>
+              <table className="data-table">
+                <thead><tr><th>Source</th><th>MW</th><th>Share</th></tr></thead>
+                <tbody>
+                  {Object.entries(euEnergy.generation_by_source).map(([key, val]: [string, any]) => {
+                    const share = euEnergy.total_mw ? ((val / euEnergy.total_mw) * 100).toFixed(1) : '—'
+                    const color = ['Solar', 'Wind Offshore', 'Wind Onshore', 'Hydro Run-of-river', 'Hydro Water Reservoir', 'Biomass', 'Geothermal'].includes(key) ? '#00e5a0' : ['Nuclear'].includes(key) ? '#ffd23f' : '#ff6b35'
+                    return (
+                      <tr key={key}>
+                        <td style={{ color }}>{key}</td>
+                        <td>{val.toLocaleString()}</td>
+                        <td>{share}%</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!euEnergy?.prices?.length && !euEnergy?.error && <div className="health-status pending">No EU energy data</div>}
         </section>
       )}
 

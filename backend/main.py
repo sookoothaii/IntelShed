@@ -22,6 +22,7 @@ import smard_bridge
 import stock_bridge
 import gtfs_ingestor
 import ais_bridge
+import entsoe_bridge
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
 
@@ -102,6 +103,7 @@ app.include_router(smard_bridge.router)
 app.include_router(stock_bridge.router)
 app.include_router(gtfs_ingestor.router)
 app.include_router(ais_bridge.router)
+app.include_router(entsoe_bridge.router)
 
 
 # ---------------------------------------------------------------------------
