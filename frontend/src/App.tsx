@@ -396,10 +396,12 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       <span style={{ fontWeight: 'bold' }}>{n.name}</span>
                       <span style={{ color: n.online ? '#00e5a0' : '#ff2d00' }}>{n.online ? 'ONLINE' : 'OFFLINE'}</span>
                       <span style={{ color: '#6f8c84' }}>{Math.round(n.age_seconds || 0)}s ago</span>
-                      <span style={{ color: '#6f8c84' }}>CPU: {(n.sensors?.temp_c ?? n.health?.cpu_temp) != null ? (n.sensors?.temp_c ?? n.health?.cpu_temp) + '°C' : '—'}</span>
-                      <span style={{ color: '#6f8c84' }}>Bat: {n.sensors?.battery_v != null ? n.sensors.battery_v + 'V' : '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>CPU: {n.health?.cpu_temp_c != null ? n.health.cpu_temp_c + '°C' : '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>Load: {n.health?.load_1m != null ? n.health.load_1m : '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>RAM: {n.health?.ram_pct != null ? n.health.ram_pct + '%' : '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>Disk: {n.health?.disk_pct != null ? n.health.disk_pct + '%' : '—'}</span>
                       {n.lat && (
-                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 400000, title: n.name, lines: [`Node: ${n.node_id}`, `CPU: ${n.sensors?.temp_c ?? n.health?.cpu_temp ?? '—'}°C`] }) }}>◎</button>
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 400000, title: n.name, lines: [`Node: ${n.node_id}`, `CPU: ${n.health?.cpu_temp_c ?? '—'}°C`, `RAM: ${n.health?.ram_pct ?? '—'}%`] }) }}>◎</button>
                       )}
                     </div>
                   ))}
