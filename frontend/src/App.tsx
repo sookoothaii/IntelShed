@@ -379,7 +379,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       return (
                         <div key={k} className="analysis-card">
                           <strong>{k.toUpperCase()}</strong>
-                          <span>${price != null ? price.toLocaleString() : '—'}</span>
+                          <span>${price != null ? price.toLocaleString('en-US') : '—'}</span>
                           <span style={{ color: (change ?? 0) >= 0 ? '#00e5a0' : '#ff2d00' }}>{change != null ? change.toFixed(2) : '—'}%</span>
                         </div>
                       )
@@ -396,10 +396,10 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       <span style={{ fontWeight: 'bold' }}>{n.name}</span>
                       <span style={{ color: n.online ? '#00e5a0' : '#ff2d00' }}>{n.online ? 'ONLINE' : 'OFFLINE'}</span>
                       <span style={{ color: '#6f8c84' }}>{Math.round(n.age_seconds || 0)}s ago</span>
-                      <span style={{ color: '#6f8c84' }}>CPU: {(n.sensors?.cpu_temp_c ?? n.health?.cpu_temp ?? n.payload?.sensors?.cpu_temp_c ?? n.payload?.health?.cpu_temp) != null ? (n.sensors?.cpu_temp_c ?? n.health?.cpu_temp ?? n.payload?.sensors?.cpu_temp_c ?? n.payload?.health?.cpu_temp) + '°C' : '—'}</span>
-                      <span style={{ color: '#6f8c84' }}>Bat: {(n.sensors?.battery_v ?? n.payload?.sensors?.battery_v) != null ? (n.sensors?.battery_v ?? n.payload?.sensors?.battery_v) + 'V' : '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>CPU: {(n.sensors?.temp_c ?? n.health?.cpu_temp) != null ? (n.sensors?.temp_c ?? n.health?.cpu_temp) + '°C' : '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>Bat: {n.sensors?.battery_v != null ? n.sensors.battery_v + 'V' : '—'}</span>
                       {n.lat && (
-                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 400000, title: n.name, lines: [`Node: ${n.node_id}`, `CPU: ${n.sensors?.cpu_temp_c ?? '—'}°C`] }) }}>◎</button>
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 400000, title: n.name, lines: [`Node: ${n.node_id}`, `CPU: ${n.sensors?.temp_c ?? n.health?.cpu_temp ?? '—'}°C`] }) }}>◎</button>
                       )}
                     </div>
                   ))}
