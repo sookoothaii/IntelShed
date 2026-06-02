@@ -609,11 +609,13 @@ async def list_models():
 
 @app.post("/api/chat")
 async def chat_proxy(payload: dict):
-    """Proxy chat requests to local Ollama. Supports SSE streaming.
+    """Proxy chat requests to LLM providers. Supports SSE streaming.
 
+    Providers: ollama (default), openai, anthropic, groq, openrouter.
     Set payload['context'] = True to inject live WorldBase state as a system message.
     Set payload['firewall'] = True to route user messages through the LLM-Security-Firewall.
     """
+    provider = payload.get("provider", "ollama")
     model = payload.get("model", "qwen2.5:14b")
     use_stream = payload.get("stream", False)
 
@@ -673,95 +675,307 @@ async def chat_proxy(payload: dict):
             }
             messages = [system_msg] + messages
 
-    if use_stream:
-        async def ollama_stream():
-            last_err = None
-            for host in OLLAMA_HOSTS:
-                host = host.strip()
-                url = f"http://{host}/api/chat"
+    # ------------------------------------------------------------------
+    # OLLAMA (local, default)
+    # ------------------------------------------------------------------
+    if provider == "ollama":
+        if use_stream:
+            async def ollama_stream():
+                last_err = None
+                for host in OLLAMA_HOSTS:
+                    host = host.strip()
+                    url = f"http://{host}/api/chat"
+                    try:
+                        async with httpx.AsyncClient(timeout=60.0) as client:
+                            async with client.stream(
+                                "POST",
+                                url,
+                                json={
+                                    "model": model,
+                                    "messages": messages,
+                                    "stream": True,
+                                    "keep_alive": "5m",
+                                },
+                            ) as r:
+                                r.raise_for_status()
+                                async for line in r.aiter_lines():
+                                    if not line.strip():
+                                        continue
+                                    try:
+                                        data = json.loads(line)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    if data.get("done"):
+                                        yield f"data: {json.dumps({'done': True})}\n\n"
+                                        break
+                                    content = data.get("message", {}).get("content", "")
+                                    if content:
+                                        yield f"data: {json.dumps({'token': content})}\n\n"
+                        return
+                    except httpx.ConnectError:
+                        last_err = f"Ollama not reachable at {host}"
+                        continue
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
+                yield f"data: {json.dumps({'error': last_err or 'Ollama not reachable'})}\n\n"
+
+            return StreamingResponse(ollama_stream(), media_type="text/event-stream")
+
+        last_err = None
+        for host in OLLAMA_HOSTS:
+            host = host.strip()
+            url = f"http://{host}/api/chat"
+            try:
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    r = await client.post(
+                        url,
+                        json={
+                            "model": model,
+                            "messages": messages,
+                            "stream": False,
+                            "keep_alive": "5m",
+                        },
+                    )
+                    r.raise_for_status()
+                    return r.json()
+            except httpx.ConnectError:
+                last_err = f"Ollama not reachable at {host}"
+                continue
+            except httpx.HTTPStatusError as e:
+                detail = ""
+                try:
+                    detail = e.response.text[:200]
+                except Exception:
+                    pass
+                status = e.response.status_code
+                if status == 404:
+                    return {
+                        "error": f"Model '{model}' not found. Run: ollama pull {model}",
+                        "host": host,
+                        "status": status,
+                    }
+                return {
+                    "error": f"Ollama HTTP {status} at {host}",
+                    "detail": detail,
+                }
+            except Exception as e:
+                last_err = str(e)
+                continue
+
+        return {
+            "error": last_err or "Ollama not running. Install from ollama.com",
+            "hosts_tried": OLLAMA_HOSTS,
+        }
+
+    # ------------------------------------------------------------------
+    # EXTERNAL PROVIDERS (OpenAI-compatible or Anthropic)
+    # ------------------------------------------------------------------
+    PROVIDER_CONFIG = {
+        "openai": {
+            "url": "https://api.openai.com/v1/chat/completions",
+            "key": os.getenv("OPENAI_API_KEY"),
+            "header": "Authorization",
+            "prefix": "Bearer ",
+        },
+        "groq": {
+            "url": "https://api.groq.com/openai/v1/chat/completions",
+            "key": os.getenv("GROQ_API_KEY"),
+            "header": "Authorization",
+            "prefix": "Bearer ",
+        },
+        "openrouter": {
+            "url": "https://openrouter.ai/api/v1/chat/completions",
+            "key": os.getenv("OPENROUTER_API_KEY"),
+            "header": "Authorization",
+            "prefix": "Bearer ",
+        },
+    }
+
+    if provider in PROVIDER_CONFIG:
+        cfg = PROVIDER_CONFIG[provider]
+        api_key = cfg["key"]
+        if not api_key:
+            return {
+                "error": f"No API key for {provider}. Set {provider.upper()}_API_KEY in .env",
+                "provider": provider,
+            }
+
+        headers = {
+            "Content-Type": "application/json",
+            cfg["header"]: cfg["prefix"] + api_key,
+        }
+        if provider == "openrouter":
+            headers["HTTP-Referer"] = "https://worldbase.local"
+            headers["X-Title"] = "WorldBase"
+
+        body = {
+            "model": model,
+            "messages": messages,
+            "stream": use_stream,
+            "temperature": 0.7,
+        }
+
+        if use_stream:
+            async def openai_stream():
                 try:
                     async with httpx.AsyncClient(timeout=60.0) as client:
-                        async with client.stream(
-                            "POST",
-                            url,
-                            json={
-                                "model": model,
-                                "messages": messages,
-                                "stream": True,
-                                "keep_alive": "5m",
-                            },
-                        ) as r:
+                        async with client.stream("POST", cfg["url"], headers=headers, json=body) as r:
                             r.raise_for_status()
                             async for line in r.aiter_lines():
                                 if not line.strip():
                                     continue
-                                try:
-                                    data = json.loads(line)
-                                except json.JSONDecodeError:
-                                    continue
-                                if data.get("done"):
-                                    yield f"data: {json.dumps({'done': True})}\n\n"
-                                    break
-                                content = data.get("message", {}).get("content", "")
-                                if content:
-                                    yield f"data: {json.dumps({'token': content})}\n\n"
-                    return
-                except httpx.ConnectError:
-                    last_err = f"Ollama not reachable at {host}"
-                    continue
+                                if line.startswith("data: "):
+                                    payload_text = line[6:]
+                                    if payload_text.strip() == "[DONE]":
+                                        yield f"data: {json.dumps({'done': True})}\n\n"
+                                        break
+                                    try:
+                                        chunk = json.loads(payload_text)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                    content = delta.get("content", "")
+                                    if content:
+                                        yield f"data: {json.dumps({'token': content})}\n\n"
+                            yield f"data: {json.dumps({'done': True})}\n\n"
                 except Exception as e:
-                    last_err = str(e)
-                    continue
-            yield f"data: {json.dumps({'error': last_err or 'Ollama not reachable'})}\n\n"
+                    yield f"data: {json.dumps({'error': f'{provider} stream error: {e}'})}\n\n"
 
-        return StreamingResponse(ollama_stream(), media_type="text/event-stream")
+            return StreamingResponse(openai_stream(), media_type="text/event-stream")
 
-    # Non-streaming fallback
-    last_err = None
-    for host in OLLAMA_HOSTS:
-        host = host.strip()
-        url = f"http://{host}/api/chat"
+        # Non-streaming
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
-                r = await client.post(
-                    url,
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "stream": False,
-                        "keep_alive": "5m",
-                    },
-                )
+                r = await client.post(cfg["url"], headers=headers, json=body)
                 r.raise_for_status()
-                return r.json()
-        except httpx.ConnectError:
-            last_err = f"Ollama not reachable at {host}"
-            continue
-        except httpx.HTTPStatusError as e:
-            detail = ""
-            try:
-                detail = e.response.text[:200]
-            except Exception:
-                pass
-            status = e.response.status_code
-            if status == 404:
+                data = r.json()
+                choice = data.get("choices", [{}])[0]
                 return {
-                    "error": f"Model '{model}' not found. Run: ollama pull {model}",
-                    "host": host,
-                    "status": status,
+                    "message": {
+                        "role": "assistant",
+                        "content": choice.get("message", {}).get("content", "") or choice.get("text", ""),
+                    },
+                    "done": True,
+                    "provider": provider,
+                    "model": data.get("model"),
                 }
+        except httpx.HTTPStatusError as e:
             return {
-                "error": f"Ollama HTTP {status} at {host}",
-                "detail": detail,
+                "error": f"{provider} HTTP {e.response.status_code}",
+                "detail": e.response.text[:300],
+                "provider": provider,
             }
         except Exception as e:
-            last_err = str(e)
-            continue
+            return {"error": f"{provider} request failed: {e}", "provider": provider}
 
-    return {
-        "error": last_err or "Ollama not running. Install from ollama.com",
-        "hosts_tried": OLLAMA_HOSTS,
-    }
+    # ------------------------------------------------------------------
+    # ANTHROPIC (Messages API, non-OpenAI format)
+    # ------------------------------------------------------------------
+    if provider == "anthropic":
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return {
+                "error": "No API key for anthropic. Set ANTHROPIC_API_KEY in .env",
+                "provider": provider,
+            }
+
+        url = "https://api.anthropic.com/v1/messages"
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        }
+
+        # Extract system message if present
+        system_text = ""
+        chat_messages = []
+        for m in messages:
+            if m.get("role") == "system":
+                system_text = m.get("content", "")
+            else:
+                chat_messages.append({"role": m["role"], "content": m["content"]})
+
+        body = {
+            "model": model,
+            "messages": chat_messages,
+            "max_tokens": 4096,
+            "stream": use_stream,
+        }
+        if system_text:
+            body["system"] = system_text
+
+        if use_stream:
+            async def anthropic_stream():
+                try:
+                    async with httpx.AsyncClient(timeout=60.0) as client:
+                        async with client.stream("POST", url, headers=headers, json=body) as r:
+                            r.raise_for_status()
+                            async for line in r.aiter_lines():
+                                if not line.strip():
+                                    continue
+                                if line.startswith("data: "):
+                                    payload_text = line[6:]
+                                    try:
+                                        chunk = json.loads(payload_text)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    t = chunk.get("type", "")
+                                    if t == "content_block_delta":
+                                        text = chunk.get("delta", {}).get("text", "")
+                                        if text:
+                                            yield f"data: {json.dumps({'token': text})}\n\n"
+                                    elif t == "message_stop":
+                                        yield f"data: {json.dumps({'done': True})}\n\n"
+                                        break
+                            yield f"data: {json.dumps({'done': True})}\n\n"
+                except Exception as e:
+                    yield f"data: {json.dumps({'error': f'anthropic stream error: {e}'})}\n\n"
+
+            return StreamingResponse(anthropic_stream(), media_type="text/event-stream")
+
+        # Non-streaming
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.post(url, headers=headers, json=body)
+                r.raise_for_status()
+                data = r.json()
+                content_blocks = data.get("content", [])
+                text = ""
+                for block in content_blocks:
+                    if block.get("type") == "text":
+                        text += block.get("text", "")
+                return {
+                    "message": {"role": "assistant", "content": text},
+                    "done": True,
+                    "provider": provider,
+                    "model": data.get("model"),
+                }
+        except httpx.HTTPStatusError as e:
+            return {
+                "error": f"anthropic HTTP {e.response.status_code}",
+                "detail": e.response.text[:300],
+                "provider": provider,
+            }
+        except Exception as e:
+            return {"error": f"anthropic request failed: {e}", "provider": provider}
+
+    return {"error": f"Unknown provider '{provider}'", "available": ["ollama", "openai", "anthropic", "groq", "openrouter"]}
+
+
+@app.get("/api/providers")
+def list_providers():
+    """Return available LLM providers based on configured API keys."""
+    providers = [{"id": "ollama", "name": "Ollama (Local)", "models": [], "requires_key": False}]
+    if os.getenv("OPENAI_API_KEY"):
+        providers.append({"id": "openai", "name": "OpenAI", "models": ["gpt-4o", "gpt-4o-mini", "o3-mini"], "requires_key": True})
+    if os.getenv("ANTHROPIC_API_KEY"):
+        providers.append({"id": "anthropic", "name": "Anthropic", "models": ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-haiku-20240307"], "requires_key": True})
+    if os.getenv("GROQ_API_KEY"):
+        providers.append({"id": "groq", "name": "Groq", "models": ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"], "requires_key": True})
+    if os.getenv("OPENROUTER_API_KEY"):
+        providers.append({"id": "openrouter", "name": "OpenRouter", "models": ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.3-70b-instruct"], "requires_key": True})
+    return {"providers": providers}
 
 
 if __name__ == "__main__":

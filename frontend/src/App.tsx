@@ -1227,6 +1227,8 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
   const [history, setHistory] = useState<{ role: string; content: string }[]>([
     { role: 'system', content: 'Select a model and start chatting.' },
   ])
+  const [providers, setProviders] = useState<{ id: string; name: string; models: string[]; requires_key: boolean }[]>([])
+  const [provider, setProvider] = useState('ollama')
   const [models, setModels] = useState<{ name: string; parameter_size?: string }[]>([])
   const [model, setModel] = useState('')
   const [busy, setBusy] = useState(false)
@@ -1249,6 +1251,14 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
         }
       })
       .catch(() => setModelErr('Could not reach backend for model list'))
+
+    fetch('/api/providers')
+      .then((r) => r.json())
+      .then((d) => {
+        const list = d.providers || []
+        setProviders(list)
+      })
+      .catch(() => {})
   }, [])
 
   // Auto-send when askAI is provided (from globe target click)
@@ -1310,6 +1320,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
           messages: [{ role: 'user', content: userMsg }],
           stream: true,
           context: true,
+          provider,
           search_results: combinedSearchResults,
           firewall,
         }),
@@ -1380,25 +1391,61 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
     }
   }
 
+  const isOllama = provider === 'ollama'
+  const providerModels = providers.find((p) => p.id === provider)?.models || []
+
   return (
     <div className="panel chat">
-      <h2>Local AI (Ollama)</h2>
+      <h2>WorldBase AI</h2>
 
       {modelErr && <div className="data-error">{modelErr}</div>}
 
       <div className="model-select">
-        <label>Model:</label>
-        <select value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0}>
-          {models.length === 0 && <option value="">No models found</option>}
-          {models.map((m) => (
-            <option key={m.name} value={m.name}>
-              {m.name} {m.parameter_size ? `(${m.parameter_size})` : ''}
-            </option>
+        <select
+          value={provider}
+          onChange={(e) => {
+            const pid = e.target.value
+            setProvider(pid)
+            const p = providers.find((x) => x.id === pid)
+            if (p && p.models.length > 0) {
+              setModel(p.models[0])
+            } else if (pid === 'ollama' && models.length > 0) {
+              setModel(models[0].name)
+            }
+          }}
+          style={{ marginRight: 6 }}
+        >
+          {providers.map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
-        {models.length > 0 && (
-          <span className="model-count">{models.length} available</span>
+
+        {isOllama ? (
+          <select value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0}>
+            {models.length === 0 && <option value="">No models found</option>}
+            {models.map((m) => (
+              <option key={m.name} value={m.name}>
+                {m.name} {m.parameter_size ? `(${m.parameter_size})` : ''}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <>
+            <input
+              list={`models-${provider}`}
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="model name"
+              style={{ width: 180, fontSize: 12 }}
+            />
+            <datalist id={`models-${provider}`}>
+              {providerModels.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          </>
         )}
+
         <button
           className={webSearch ? 'web-search on' : 'web-search'}
           onClick={() => setWebSearch((v) => !v)}
@@ -1429,10 +1476,10 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
           value={msg}
           onChange={(e) => setMsg(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && sendWithMessage(msg.trim())}
-          placeholder={model ? `Ask ${model}…` : models.length > 0 ? `Ask ${models[0].name}…` : 'Select a model first…'}
-          disabled={models.length === 0 && !model}
+          placeholder={model ? `Ask ${model} (${provider})…` : 'Select a model first…'}
+          disabled={!model}
         />
-        <button onClick={() => sendWithMessage(msg.trim())} disabled={busy || (models.length === 0 && !model)}>
+        <button onClick={() => sendWithMessage(msg.trim())} disabled={busy || !model}>
           Send
         </button>
       </div>
