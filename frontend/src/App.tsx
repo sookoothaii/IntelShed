@@ -327,8 +327,8 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                     <div key={i} className="analysis-row" style={{ borderLeft: ['7500', '7600', '7700'].includes(a.squawk) ? '3px solid #ff2d00' : '3px solid #ff6b35' }}>
                       <span style={{ fontWeight: 'bold', minWidth: 80 }}>{a.flight || a.hex}</span>
                       <span style={{ minWidth: 50 }}>{a.type || '—'}</span>
-                      <span style={{ color: '#6f8c84', minWidth: 90 }}>Alt: {a.alt != null ? a.alt.toFixed(0) + ' m' : '—'}</span>
-                      <span style={{ color: '#6f8c84', minWidth: 90 }}>Spd: {a.speed != null ? a.speed.toFixed(0) + ' m/s' : '—'}</span>
+                      <span style={{ color: '#6f8c84', minWidth: 90 }}>Alt: {a.alt != null ? Number(a.alt).toFixed(0) + ' m' : '—'}</span>
+                      <span style={{ color: '#6f8c84', minWidth: 90 }}>Spd: {a.speed != null ? Number(a.speed).toFixed(0) + ' m/s' : '—'}</span>
                       {a.squawk && <span style={{ color: '#ff2d00', fontWeight: 'bold', minWidth: 80 }}>SQ {a.squawk}</span>}
                       <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'military', lon: a.lon, lat: a.lat, height: 400000, title: a.flight || a.hex, lines: [`Type: ${a.type || '—'}`, `Alt: ${a.alt} m`, `Speed: ${a.speed} m/s`, `Squawk: ${a.squawk || '—'}`] }) }}>◎</button>
                     </div>
