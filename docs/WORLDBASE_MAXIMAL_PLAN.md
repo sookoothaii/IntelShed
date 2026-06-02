@@ -434,7 +434,7 @@
 ### 🟡 P1 — Kurzfristig (Monat 2-3)
 | Feature | Aufwand | Impact |
 |---------|---------|--------|
-| AIS Schifffahrt | 2 Tage | Mittel — Maritime Awareness |
+| AIS Schifffahrt | 2 Tage | Mittel — Maritime Awareness ✅ |
 | ENTSO-E EU-Strom | 3 Tage | Mittel — grenzüberschreitend |
 | Wetterradar | 4 Tage | Hoch — visuell, aber komplex |
 | Wahlkarte | 2 Tage | Mittel — politisches Interesse |

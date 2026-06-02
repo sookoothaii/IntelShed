@@ -504,7 +504,7 @@ type Quake = { id: string; place: string; mag: number; depth: number; time: numb
 type WEvent = { id: string; title: string; category: string; categories?: string[]; date: string; lon: number; lat: number; magnitude?: number | null; unit?: string | null; closed?: string | null; link?: string; sources?: string[]; points?: number }
 type Sat = { name: string; tle1: string; tle2: string }
 
-const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'weather', 'wildfires', 'lightning', 'energy', 'stocks', 'transit'] as const
+const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'weather', 'wildfires', 'lightning', 'energy', 'stocks', 'transit', 'maritime'] as const
 type DataTab = typeof DATA_TABS[number]
 
 type NodeInfo = { node_id: string; name: string; lat: number; lon: number; updated_at: string; payload?: any }
@@ -541,6 +541,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const [stocks, setStocks] = useState<{ count: number; quotes: any[]; updated: string } | null>(null)
   const [transit, setTransit] = useState<{ city: string; count: number; vehicles: any[]; cached_at: string; error?: string } | null>(null)
   const [transitCity, setTransitCity] = useState('helsinki')
+  const [maritime, setMaritime] = useState<{ count: number; vessels: any[]; demo_mode?: boolean; cached_at: string; error?: string } | null>(null)
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -579,6 +580,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const loadEnergy = () => fetchFeed('energy', '/api/energy/de', (d: any) => setEnergy(d))
   const loadStocks = () => fetchFeed('stocks', '/api/stocks', (d: any) => setStocks(d))
   const loadTransit = () => fetchFeed('transit', `/api/transit/${transitCity}`, (d: any) => setTransit(d))
+  const loadMaritime = () => fetchFeed('maritime', '/api/maritime', (d: any) => setMaritime(d))
 
   // Auto-load on tab switch
   useEffect(() => {
@@ -603,6 +605,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
     else if (tab === 'energy') loadEnergy()
     else if (tab === 'stocks') loadStocks()
     else if (tab === 'transit') loadTransit()
+    else if (tab === 'maritime') loadMaritime()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, transitCity])
 
@@ -1082,6 +1085,33 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
                   <td>{v.lon?.toFixed(4) ?? '—'}</td>
                   <td>{v.bearing != null ? v.bearing + '°' : '—'}</td>
                   <td>{v.speed != null ? v.speed + ' m/s' : '—'}</td>
+                  <td className="locate-cell">◎ LOCATE</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {tab === 'maritime' && (
+        <section>
+          <button onClick={loadMaritime} disabled={loading['maritime']}>{loading['maritime'] ? 'Loading…' : '↻ Refresh'}</button>
+          {maritime?.demo_mode && <div className="health-status pending" style={{ marginTop: 8 }}>⚠ DEMO MODE — live AIS sources unavailable</div>}
+          {maritime?.error && !maritime.demo_mode && <div className="data-error">{maritime.error}</div>}
+          <span className="data-count">{maritime?.count ?? 0} vessels</span>
+          {!maritime?.vessels?.length && <div className="health-status pending">No vessel data</div>}
+          <table className="data-table clickable">
+            <thead><tr><th>Name</th><th>Type</th><th>Lat</th><th>Lon</th><th>Course</th><th>Speed</th><th>Destination</th><th></th></tr></thead>
+            <tbody>
+              {(maritime?.vessels || []).slice(0, 100).map((v: any, i: number) => (
+                <tr key={i} onClick={() => v.lon != null && v.lat != null && onFocus({ kind: 'maritime', lon: v.lon, lat: v.lat, height: 200000, title: v.name || 'Vessel', lines: [`MMSI: ${v.mmsi || '—'}`, `Type: ${v.type || '—'}`, `Course: ${v.course ?? '—'}°`, `Speed: ${v.speed != null ? v.speed + ' kn' : '—'}`, `Destination: ${v.destination || '—'}`, `Flag: ${v.flag || '—'}`, `Length: ${v.length != null ? v.length + ' m' : '—'}`] })}>
+                  <td><strong>{v.name || '—'}</strong></td>
+                  <td>{v.type || '—'}</td>
+                  <td>{v.lat?.toFixed(4) ?? '—'}</td>
+                  <td>{v.lon?.toFixed(4) ?? '—'}</td>
+                  <td>{v.course != null ? v.course + '°' : '—'}</td>
+                  <td>{v.speed != null ? v.speed + ' kn' : '—'}</td>
+                  <td>{v.destination || '—'}</td>
                   <td className="locate-cell">◎ LOCATE</td>
                 </tr>
               ))}

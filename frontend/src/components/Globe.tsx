@@ -62,6 +62,7 @@ type Stats = {
   wildfires: number
   lightning: number
   transit: number
+  maritime: number
   fps: number
 }
 
@@ -82,7 +83,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, maritime: 0, fps: 0 })
   const [target, setTarget] = useState<Target>(null)
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
   const [layers, setLayers] = useState({
@@ -98,6 +99,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
     wildfires: true,
     lightning: true,
     transit: true,
+    maritime: true,
   })
 
   useEffect(() => {
@@ -143,7 +145,8 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const wildfireSrc = new CustomDataSource('wildfires')
       const lightningSrc = new CustomDataSource('lightning')
       const transitSrc = new CustomDataSource('transit')
-      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc, wildfireSrc, lightningSrc, transitSrc].forEach((s) => viewer!.dataSources.add(s))
+      const maritimeSrc = new CustomDataSource('maritime')
+      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc, wildfireSrc, lightningSrc, transitSrc, maritimeSrc].forEach((s) => viewer!.dataSources.add(s))
 
       const acMap = new Map<string, Entity>()
       const satMap = new Map<string, Entity>()
@@ -815,6 +818,76 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
         }
       }
 
+      // ---------- MARITIME ----------
+      const vesselMap = new Map<string, Entity>()
+      const fetchMaritime = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/maritime')
+          const d = await r.json()
+          if (d.error) {
+            for (const [id, e] of vesselMap) { maritimeSrc.entities.remove(e); vesselMap.delete(id) }
+            if (!cancelled) setStats((p) => ({ ...p, maritime: 0 }))
+            return
+          }
+          const vessels: any[] = d.vessels || []
+          const seen = new Set<string>()
+          for (const v of vessels) {
+            if (v.lon == null || v.lat == null) continue
+            const id = v.mmsi || `${v.lat},${v.lon}`
+            seen.add(id)
+            const pos = Cartesian3.fromDegrees(v.lon, v.lat, 0)
+            let e = vesselMap.get(id)
+            if (e) {
+              ;(e.position as ConstantPositionProperty).setValue(pos)
+            } else {
+              const typeColor = v.type === 'Cargo' ? '#8B4513' : v.type === 'Tanker' ? '#000080' : v.type === 'Passenger' ? '#FF69B4' : v.type === 'Fishing' ? '#32CD32' : '#00e5ff'
+              e = maritimeSrc.entities.add({
+                id: 'vs-' + id,
+                position: new ConstantPositionProperty(pos),
+                point: {
+                  pixelSize: 10,
+                  color: Color.fromCssColorString(typeColor).withAlpha(0.9),
+                  outlineColor: Color.WHITE,
+                  outlineWidth: 1,
+                  scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.5),
+                },
+                label: {
+                  text: v.name?.substring(0, 12) || v.type || 'Vessel',
+                  font: '600 9px "Courier New"',
+                  fillColor: Color.fromCssColorString(typeColor),
+                  outlineColor: Color.BLACK,
+                  outlineWidth: 2,
+                  style: LabelStyle.FILL_AND_OUTLINE,
+                  verticalOrigin: VerticalOrigin.BOTTOM,
+                  horizontalOrigin: HorizontalOrigin.CENTER,
+                  pixelOffset: new Cartesian2(0, -10),
+                  distanceDisplayCondition: new DistanceDisplayCondition(0, 2e6),
+                },
+                properties: {
+                  kind: 'maritime',
+                  name: v.name,
+                  mmsi: v.mmsi,
+                  type: v.type,
+                  course: v.course,
+                  speed: v.speed,
+                  destination: v.destination,
+                  flag: v.flag,
+                  length: v.length,
+                } as any,
+              })
+              vesselMap.set(id, e)
+            }
+          }
+          for (const [id, e] of vesselMap) {
+            if (!seen.has(id)) { maritimeSrc.entities.remove(e); vesselMap.delete(id) }
+          }
+          if (!cancelled) setStats((p) => ({ ...p, maritime: vesselMap.size }))
+        } catch (e) {
+          console.error('maritime fetch failed', e)
+        }
+      }
+
       // ---------- GEOPOLITICS ----------
       const fetchGeopolitics = async () => {
         if (cancelled) return
@@ -932,6 +1005,20 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
               `BEARING: ${props.bearing?.getValue?.() ?? '—'}°`,
               `SPEED: ${props.speed?.getValue?.() != null ? props.speed.getValue() + ' m/s' : '—'}`,
               `LABEL: ${props.label?.getValue?.() ?? '—'}`,
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'maritime') {
+          setTarget({
+            kind, title: `🚢 ${props.name?.getValue?.() || 'Vessel'}`,
+            lines: [
+              `MMSI: ${props.mmsi?.getValue?.() ?? '—'}`,
+              `TYPE: ${props.type?.getValue?.() ?? '—'}`,
+              `COURSE: ${props.course?.getValue?.() ?? '—'}°`,
+              `SPEED: ${props.speed?.getValue?.() != null ? props.speed.getValue() + ' kn' : '—'}`,
+              `DESTINATION: ${props.destination?.getValue?.() ?? '—'}`,
+              `FLAG: ${props.flag?.getValue?.() ?? '—'}`,
+              `LENGTH: ${props.length?.getValue?.() != null ? props.length.getValue() + ' m' : '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
@@ -1077,6 +1164,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
           wildfireSrc.show = l.wildfires
           lightningSrc.show = l.lightning
           transitSrc.show = l.transit
+          maritimeSrc.show = l.maritime
         },
       }
 
@@ -1092,6 +1180,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       fetchWildfires()
       fetchLightning()
       fetchTransit()
+      fetchMaritime()
 
       if (focusRef.current) apiRef.current.focusOn(focusRef.current)
 
@@ -1106,6 +1195,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       timers.push(setInterval(fetchWildfires, 300000))
       timers.push(setInterval(fetchLightning, 60000))
       timers.push(setInterval(fetchTransit, 30000))
+      timers.push(setInterval(fetchMaritime, 45000))
     })()
 
     return () => {
@@ -1150,6 +1240,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
         <div className="hud-row"><span className="hud-dot" style={{ background: '#ff6b35' }} />WILDFIRES<span className="hud-val">{stats.wildfires}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#22d3ee' }} />LIGHTNING<span className="hud-val">{stats.lightning}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#ffd23f' }} />TRANSIT<span className="hud-val">{stats.transit}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#00e5ff' }} />MARITIME<span className="hud-val">{stats.maritime}</span></div>
         <div className="hud-divider" />
         <div className="hud-row">RENDER<span className="hud-val">{stats.fps} FPS</span></div>
         <div className="hud-row sub">LON {cursor.lon}  LAT {cursor.lat}</div>
@@ -1177,7 +1268,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
 
         <div className="ctl-block">
           <div className="hud-title">LAYERS</div>
-          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit'] as const).map((k) => (
+          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'maritime'] as const).map((k) => (
             <label key={k} className={layers[k] ? 'on' : ''}>
               <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
             </label>
