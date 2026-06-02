@@ -130,8 +130,10 @@ export default function App() {
 function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
   const [loading, setLoading] = useState(true)
   const [results, setResults] = useState<any>({})
+  const [autoRefresh, setAutoRefresh] = useState(false)
 
   useEffect(() => {
+    let interval: any
     const fetchAll = async () => {
       setLoading(true)
       const endpoints = [
@@ -139,7 +141,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
         { key: 'nodes', url: '/api/nodes' },
         { key: 'spaceweather', url: '/api/spaceweather' },
         { key: 'earthquakes', url: '/api/earthquakes?period=day&magnitude=2.5' },
-        { key: 'events', url: '/api/events?limit=40' },
+        { key: 'events', url: '/api/events?limit=80' },
         { key: 'military', url: '/api/military' },
         { key: 'geopolitics', url: '/api/geopolitics?limit=20' },
         { key: 'markets', url: '/api/markets' },
@@ -162,22 +164,44 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
       setLoading(false)
     }
     fetchAll()
-  }, [])
+    if (autoRefresh) interval = setInterval(fetchAll, 30000)
+    return () => { if (interval) clearInterval(interval) }
+  }, [autoRefresh])
 
   const health = results.health
   const correlations = results.correlations
   const briefing = results.briefing
-  const quakes = (results.earthquakes?.earthquakes || []).slice(0, 5)
+  const quakes = (results.earthquakes?.earthquakes || []).slice(0, 15)
+  const wildfires = (results.events?.events || []).filter((e: any) => (e.category || '').toLowerCase().includes('fire') || (e.title || '').toLowerCase().includes('fire')).slice(0, 8)
+  const allEvents = (results.events?.events || []).filter((e: any) => !((e.category || '').toLowerCase().includes('fire') || (e.title || '').toLowerCase().includes('fire'))).slice(0, 10)
   const military = results.military
-  const gdacs = (results.gdacs?.alerts || []).slice(0, 5)
+  const gdacs = (results.gdacs?.alerts || []).slice(0, 15)
   const anomalies = results.anomalies
   const air = results.airquality
   const nodes = results.nodes
 
   const severityColor = (s: string) => {
+    if (!s) return '#00e5a0'
     if (s === 'critical' || s === 'high') return '#ff2d00'
     if (s === 'warning' || s === 'medium') return '#ff6b35'
     return '#00e5a0'
+  }
+  const aqColor = (pm25: number | null) => {
+    if (pm25 == null) return '#6f8c84'
+    if (pm25 <= 12) return '#00e5a0'
+    if (pm25 <= 35) return '#ffd23f'
+    if (pm25 <= 55) return '#ff6b35'
+    return '#ff2d00'
+  }
+  const gdacsType = (title: string) => {
+    const t = (title || '').toLowerCase()
+    if (t.includes('earthquake')) return { label: 'EQ', color: '#ff6b35' }
+    if (t.includes('flood')) return { label: 'FLD', color: '#22d3ee' }
+    if (t.includes('cyclone') || t.includes('typhoon') || t.includes('hurricane')) return { label: 'CY', color: '#ffd23f' }
+    if (t.includes('tsunami')) return { label: 'TSU', color: '#ff2d00' }
+    if (t.includes('drought')) return { label: 'DR', color: '#6f8c84' }
+    if (t.includes('volcano')) return { label: 'VOL', color: '#ff4d5e' }
+    return { label: 'ALR', color: '#ff6b35' }
   }
 
   return (
@@ -185,7 +209,13 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
       <div className="analysis-panel" onClick={(e) => e.stopPropagation()}>
         <div className="analysis-head">
           <h2>🌍 FULL SITUATION ANALYSIS</h2>
-          <button onClick={onClose}>✕</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#6f8c84', cursor: 'pointer' }}>
+              <input type="checkbox" checked={autoRefresh} onChange={(e) => setAutoRefresh(e.target.checked)} />
+              AUTO-REFRESH 30s
+            </label>
+            <button onClick={onClose}>✕</button>
+          </div>
         </div>
 
         {loading ? (
@@ -195,162 +225,199 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
           </div>
         ) : (
           <div className="analysis-body">
+            <div className="analysis-col">
 
-            {/* CRITICAL ALERTS */}
-            {(correlations?.situations?.length || anomalies?.count) && (
-              <div className="analysis-section critical">
-                <h3>🚨 CRITICAL ALERTS</h3>
-                {correlations?.situations?.map((s: any, i: number) => (
-                  <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${severityColor(s.severity)}` }}>
-                    <span style={{ color: severityColor(s.severity), fontWeight: 'bold' }}>{s.severity.toUpperCase()}</span>
-                    <span>{s.title}</span>
-                    {s.location?.lon && (
-                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'situation', lon: s.location.lon, lat: s.location.lat, height: 400000, title: s.title, lines: [`TYPE: ${s.type}`, `SEVERITY: ${s.severity}`] }) }}>◎</button>
-                    )}
-                  </div>
-                ))}
-                {anomalies?.anomalies?.slice(0, 5).map((a: any, i: number) => (
-                  <div key={i} className="analysis-row" style={{ borderLeft: '3px solid #ff2d00' }}>
-                    <span style={{ color: '#ff2d00', fontWeight: 'bold' }}>ANOMALY</span>
-                    <span>{a.callsign || a.icao24} — {a.reasons?.join(', ')}</span>
-                    <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'anomaly', lon: a.lon, lat: a.lat, height: 400000, title: `Anomaly ${a.icao24}`, lines: a.reasons || [] }) }}>◎</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* SITUATION BRIEFING */}
-            {briefing?.text && (
-              <div className="analysis-section">
-                <h3>📋 SITUATION BRIEFING</h3>
-                <div className="analysis-briefing">{briefing.text}</div>
-              </div>
-            )}
-
-            {/* SEISMIC */}
-            {quakes.length > 0 && (
-              <div className="analysis-section">
-                <h3>🌋 LATEST SEISMIC ({quakes.length})</h3>
-                {quakes.map((q: any, i: number) => (
-                  <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${q.mag >= 5 ? '#ff2d00' : q.mag >= 3.5 ? '#ff6b35' : '#00e5a0'}` }}>
-                    <span style={{ fontWeight: 'bold' }}>M{q.mag.toFixed(1)}</span>
-                    <span>{q.place}</span>
-                    <span style={{ color: '#6f8c84' }}>{q.depth?.toFixed(1)} km</span>
-                    <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'quake', lon: q.lon, lat: q.lat, height: 400000, title: `M${q.mag} ${q.place}`, lines: [`Depth: ${q.depth} km`, `Time: ${new Date(q.time).toLocaleString()}`] }) }}>◎</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* SPACE WEATHER */}
-            {results.spaceweather?.kp_index !== undefined && (
-              <div className="analysis-section">
-                <h3>☀️ SPACE WEATHER</h3>
-                <div className="analysis-row">
-                  <span>Kp Index: <strong>{results.spaceweather.kp_index}</strong></span>
-                  <span>Scale: {results.spaceweather.scale}</span>
-                  <span>BT: {results.spaceweather.bt} nT</span>
-                  <span>Aurora: {results.spaceweather.aurora_probability}%</span>
-                </div>
-              </div>
-            )}
-
-            {/* MILITARY */}
-            {military?.count > 0 && (
-              <div className="analysis-section">
-                <h3>✈️ MILITARY AIRCRAFT ({military.count})</h3>
-                {military.aircraft?.slice(0, 5).map((a: any, i: number) => (
-                  <div key={i} className="analysis-row" style={{ borderLeft: a.squawk ? '3px solid #ff2d00' : '3px solid #ff6b35' }}>
-                    <span>{a.flight || a.hex}</span>
-                    <span>{a.type || '—'}</span>
-                    <span>Alt: {a.alt?.toFixed(0) || '—'} m</span>
-                    {a.squawk && <span style={{ color: '#ff2d00', fontWeight: 'bold' }}>SQUAWK {a.squawk}</span>}
-                    <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'military', lon: a.lon, lat: a.lat, height: 400000, title: a.flight || a.hex, lines: [`Type: ${a.type || '—'}`, `Alt: ${a.alt} m`, `Speed: ${a.speed} m/s`, `Squawk: ${a.squawk || '—'}`] }) }}>◎</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* GDACS */}
-            {gdacs.length > 0 && (
-              <div className="analysis-section">
-                <h3>🌊 HUMANITARIAN ALERTS ({gdacs.length})</h3>
-                {gdacs.map((a: any, i: number) => (
-                  <div key={i} className="analysis-row" style={{ borderLeft: '3px solid #ff6b35' }}>
-                    <span>{a.title}</span>
-                    {a.lat && (
-                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'gdacs', lon: a.lon, lat: a.lat, height: 400000, title: a.title, lines: [a.description?.substring(0, 100) || ''] }) }}>◎</button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* AIR QUALITY */}
-            {air?.cities?.length > 0 && (
-              <div className="analysis-section">
-                <h3>💨 AIR QUALITY SNAPSHOT</h3>
-                <div className="analysis-grid">
-                  {air.cities.map((c: any, i: number) => (
-                    <div key={i} className="analysis-card">
-                      <strong>{c.city}</strong>
-                      <span>PM2.5: {c.pm25 ?? '—'}</span>
-                      <span>PM10: {c.pm10 ?? '—'}</span>
+              {/* CRITICAL ALERTS */}
+              {(correlations?.situations?.length > 0 || anomalies?.count > 0) && (
+                <div className="analysis-section critical">
+                  <h3>🚨 CRITICAL ALERTS ({(correlations?.situations?.length || 0) + (anomalies?.count || 0)})</h3>
+                  {correlations?.situations?.map((s: any, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${severityColor(s.severity)}` }}>
+                      <span style={{ color: severityColor(s.severity), fontWeight: 'bold', minWidth: 70 }}>{s.severity?.toUpperCase()}</span>
+                      <span>{s.title}</span>
+                      {s.location?.lon != null && (
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'situation', lon: s.location.lon, lat: s.location.lat, height: 400000, title: s.title, lines: [`TYPE: ${s.type}`, `SEVERITY: ${s.severity}`] }) }}>◎</button>
+                      )}
+                    </div>
+                  ))}
+                  {anomalies?.anomalies?.slice(0, 8).map((a: any, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: '3px solid #ff2d00' }}>
+                      <span style={{ color: '#ff2d00', fontWeight: 'bold', minWidth: 70 }}>ANOMALY</span>
+                      <span>{a.callsign || a.icao24} — {a.reasons?.join(', ')}</span>
+                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'anomaly', lon: a.lon, lat: a.lat, height: 400000, title: `Anomaly ${a.icao24}`, lines: a.reasons || [] }) }}>◎</button>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* MARKETS */}
-            {results.markets?.crypto && (
-              <div className="analysis-section">
-                <h3>📈 CRYPTO MARKETS</h3>
-                <div className="analysis-grid">
-                  {Object.entries(results.markets.crypto).map(([k, v]: [string, any]) => (
-                    <div key={k} className="analysis-card">
-                      <strong>{k.toUpperCase()}</strong>
-                      <span>${v.price?.toLocaleString()}</span>
-                      <span style={{ color: v.change_24h >= 0 ? '#00e5a0' : '#ff2d00' }}>{v.change_24h?.toFixed(2)}%</span>
+              {briefing?.text && (
+                <div className="analysis-section">
+                  <h3>📋 SITUATION BRIEFING</h3>
+                  <div className="analysis-briefing">{briefing.text}</div>
+                </div>
+              )}
+
+              {quakes.length > 0 && (
+                <div className="analysis-section">
+                  <h3>🌋 SEISMIC ({quakes.length} today)</h3>
+                  {quakes.map((q: any, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${q.mag >= 5 ? '#ff2d00' : q.mag >= 3.5 ? '#ff6b35' : '#00e5a0'}` }}>
+                      <span style={{ fontWeight: 'bold', minWidth: 50 }}>M{q.mag?.toFixed(1) ?? '—'}</span>
+                      <span style={{ flex: 1 }}>{q.place || '—'}</span>
+                      <span style={{ color: '#6f8c84', minWidth: 70 }}>{q.depth != null ? q.depth.toFixed(1) + ' km' : '—'}</span>
+                      <span style={{ color: '#6f8c84', minWidth: 50 }}>{q.tsunami ? 'TSU' : ''}</span>
+                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'quake', lon: q.lon, lat: q.lat, height: 400000, title: `M${q.mag} ${q.place}`, lines: [`Depth: ${q.depth} km`, `Time: ${new Date(q.time).toLocaleString()}`, `Tsunami: ${q.tsunami ? 'YES' : 'no'}`] }) }}>◎</button>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* NODES */}
-            {nodes?.nodes?.length > 0 && (
-              <div className="analysis-section">
-                <h3>📡 NODES ({nodes.count} online)</h3>
-                {nodes.nodes.map((n: any, i: number) => (
-                  <div key={i} className="analysis-row" style={{ borderLeft: n.online ? '3px solid #00e5a0' : '3px solid #ff2d00' }}>
-                    <span>{n.name}</span>
-                    <span style={{ color: n.online ? '#00e5a0' : '#ff2d00' }}>{n.online ? 'ONLINE' : 'OFFLINE'}</span>
-                    <span>{Math.round(n.age_seconds)}s ago</span>
-                    <span>CPU: {n.sensors?.cpu_temp_c ?? n.health?.cpu_temp ?? '—'}°C</span>
-                    {n.lat && (
-                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 400000, title: n.name, lines: [`Node: ${n.node_id}`, `CPU: ${n.sensors?.cpu_temp_c ?? '—'}°C`] }) }}>◎</button>
-                    )}
+              {results.spaceweather && (
+                <div className="analysis-section">
+                  <h3>☀️ SPACE WEATHER</h3>
+                  <div className="analysis-row">
+                    <span>Kp: <strong>{results.spaceweather.kp_index ?? '—'}</strong></span>
+                    <span>Scale: {results.spaceweather.scale ?? '—'}</span>
+                    <span>BT: {results.spaceweather.bt != null ? results.spaceweather.bt + ' nT' : '—'}</span>
+                    <span>Aurora: {results.spaceweather.aurora_probability != null ? results.spaceweather.aurora_probability + '%' : '—'}</span>
+                    <span style={{ color: '#6f8c84' }}>Speed: {results.spaceweather.speed ?? '—'} km/s</span>
+                    <span style={{ color: '#6f8c84' }}>Density: {results.spaceweather.density ?? '—'} p/cm³</span>
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              )}
 
-            {/* FEED HEALTH */}
-            {health?.feeds && (
-              <div className="analysis-section">
-                <h3>🔌 FEED HEALTH</h3>
-                <div className="analysis-grid">
-                  {Object.entries(health.feeds).map(([k, v]: [string, any]) => (
-                    <div key={k} className="analysis-card" style={{ borderLeft: v.fresh ? '3px solid #00e5a0' : '3px solid #ff6b35' }}>
-                      <strong>{k}</strong>
-                      <span style={{ color: v.fresh ? '#00e5a0' : '#ff6b35' }}>{v.fresh ? 'FRESH' : `${Math.round(v.age_sec)}s old`}</span>
+              {allEvents.length > 0 && (
+                <div className="analysis-section">
+                  <h3>🔔 EVENTS ({allEvents.length})</h3>
+                  {allEvents.map((e: any, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${(e.magnitude || 0) > 6 ? '#ff2d00' : '#ff6b35'}` }}>
+                      <span style={{ minWidth: 90, fontWeight: 'bold' }}>{e.category || 'EVENT'}</span>
+                      <span style={{ flex: 1 }}>{e.title || '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>{e.date ? new Date(e.date).toLocaleDateString() : '—'}</span>
+                      {e.lon != null && (
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'event', lon: e.lon, lat: e.lat, height: 400000, title: e.title, lines: [`Category: ${e.category}`, `Date: ${e.date}`] }) }}>◎</button>
+                      )}
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
 
+              {wildfires.length > 0 && (
+                <div className="analysis-section">
+                  <h3>🔥 WILDFIRES ({wildfires.length})</h3>
+                  {wildfires.map((e: any, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: '3px solid #ff2d00' }}>
+                      <span style={{ flex: 1 }}>{e.title || '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>{e.date ? new Date(e.date).toLocaleDateString() : '—'}</span>
+                      {e.lon != null && (
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'wildfire', lon: e.lon, lat: e.lat, height: 400000, title: e.title, lines: [`Category: ${e.category}`, `Date: ${e.date}`] }) }}>◎</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+            </div>
+            <div className="analysis-col">
+
+              {military?.count > 0 && (
+                <div className="analysis-section">
+                  <h3>✈️ MILITARY AIRCRAFT ({military.count})</h3>
+                  {military.aircraft?.slice(0, 12).map((a: any, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: ['7500', '7600', '7700'].includes(a.squawk) ? '3px solid #ff2d00' : '3px solid #ff6b35' }}>
+                      <span style={{ fontWeight: 'bold', minWidth: 80 }}>{a.flight || a.hex}</span>
+                      <span style={{ minWidth: 50 }}>{a.type || '—'}</span>
+                      <span style={{ color: '#6f8c84', minWidth: 90 }}>Alt: {a.alt != null ? a.alt.toFixed(0) + ' m' : '—'}</span>
+                      <span style={{ color: '#6f8c84', minWidth: 90 }}>Spd: {a.speed != null ? a.speed.toFixed(0) + ' m/s' : '—'}</span>
+                      {a.squawk && <span style={{ color: '#ff2d00', fontWeight: 'bold', minWidth: 80 }}>SQ {a.squawk}</span>}
+                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'military', lon: a.lon, lat: a.lat, height: 400000, title: a.flight || a.hex, lines: [`Type: ${a.type || '—'}`, `Alt: ${a.alt} m`, `Speed: ${a.speed} m/s`, `Squawk: ${a.squawk || '—'}`] }) }}>◎</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {gdacs.length > 0 && (
+                <div className="analysis-section">
+                  <h3>🌊 HUMANITARIAN ALERTS ({gdacs.length})</h3>
+                  {gdacs.map((a: any, i: number) => {
+                    const gt = gdacsType(a.title)
+                    return (
+                      <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${gt.color}` }}>
+                        <span style={{ color: gt.color, fontWeight: 'bold', minWidth: 40 }}>{gt.label}</span>
+                        <span style={{ flex: 1 }}>{a.title || '—'}</span>
+                        <span style={{ color: '#6f8c84', fontSize: 10 }}>{a.published ? new Date(a.published).toLocaleDateString() : '—'}</span>
+                        {a.lat != null && (
+                          <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'gdacs', lon: a.lon, lat: a.lat, height: 400000, title: a.title, lines: [a.description?.substring(0, 100) || ''] }) }}>◎</button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {air?.cities?.length > 0 && (
+                <div className="analysis-section">
+                  <h3>💨 AIR QUALITY ({air.cities.length} cities)</h3>
+                  <div className="analysis-grid">
+                    {air.cities.map((c: any, i: number) => (
+                      <div key={i} className="analysis-card" style={{ borderLeft: `3px solid ${aqColor(c.pm25)}` }}>
+                        <strong>{c.city}</strong>
+                        <span style={{ color: aqColor(c.pm25) }}>PM2.5: {c.pm25 != null ? c.pm25.toFixed(1) : '—'}</span>
+                        <span>PM10: {c.pm10 != null ? c.pm10.toFixed(1) : '—'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {results.markets?.crypto && (
+                <div className="analysis-section">
+                  <h3>📈 CRYPTO MARKETS</h3>
+                  <div className="analysis-grid">
+                    {Object.entries(results.markets.crypto).map(([k, v]: [string, any]) => (
+                      <div key={k} className="analysis-card">
+                        <strong>{k.toUpperCase()}</strong>
+                        <span>${v.price != null ? v.price.toLocaleString() : '—'}</span>
+                        <span style={{ color: (v.change_24h ?? 0) >= 0 ? '#00e5a0' : '#ff2d00' }}>{v.change_24h != null ? v.change_24h.toFixed(2) : '—'}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {nodes?.nodes?.length > 0 && (
+                <div className="analysis-section">
+                  <h3>📡 NODES ({nodes.count})</h3>
+                  {nodes.nodes.map((n: any, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: n.online ? '3px solid #00e5a0' : '3px solid #ff2d00' }}>
+                      <span style={{ fontWeight: 'bold' }}>{n.name}</span>
+                      <span style={{ color: n.online ? '#00e5a0' : '#ff2d00' }}>{n.online ? 'ONLINE' : 'OFFLINE'}</span>
+                      <span style={{ color: '#6f8c84' }}>{Math.round(n.age_seconds || 0)}s ago</span>
+                      <span style={{ color: '#6f8c84' }}>CPU: {(n.sensors?.cpu_temp_c ?? n.health?.cpu_temp) != null ? (n.sensors?.cpu_temp_c ?? n.health?.cpu_temp) + '°C' : '—'}</span>
+                      <span style={{ color: '#6f8c84' }}>Bat: {n.sensors?.battery_v != null ? n.sensors.battery_v + 'V' : '—'}</span>
+                      {n.lat && (
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 400000, title: n.name, lines: [`Node: ${n.node_id}`, `CPU: ${n.sensors?.cpu_temp_c ?? '—'}°C`] }) }}>◎</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {health?.feeds && (
+                <div className="analysis-section">
+                  <h3>🔌 FEED HEALTH</h3>
+                  <div className="analysis-grid">
+                    {Object.entries(health.feeds).map(([k, v]: [string, any]) => (
+                      <div key={k} className="analysis-card" style={{ borderLeft: v.fresh ? '3px solid #00e5a0' : '3px solid #ff6b35' }}>
+                        <strong>{k}</strong>
+                        <span style={{ color: v.fresh ? '#00e5a0' : '#ff6b35' }}>{v.fresh ? 'FRESH' : `${Math.round(v.age_sec || 0)}s old`}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            </div>
           </div>
         )}
       </div>

@@ -1116,8 +1116,21 @@ html, body, #root {
   overflow-y: auto;
   padding: 18px 22px;
   display: flex;
+  flex-direction: row;
+  gap: 16px;
+}
+
+.analysis-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .analysis-body { flex-direction: column; }
+  .analysis-col { width: 100%; }
 }
 
 .analysis-loading {
