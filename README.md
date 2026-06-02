@@ -36,13 +36,23 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
   globe with a pulsing marker and a TARGET LOCK info card (incl. source links).
 - **Vision modes** — Normal, NVG (night vision), Thermal/FLIR, CRT scanlines, Night — GLSL
   post-processing shaders.
-- **Local AI chat** — talks to Ollama on `:11434`, model picker included. Fully offline.
+- **Multi-Provider AI chat** — primary: local Ollama (`:11434`). Optional: OpenAI,
+  Anthropic, Groq, OpenRouter — switchable via provider dropdown. Streaming for all.
+  Zuschaltbare LLM-Security-Firewall integration (HAK_GAL) scans prompts before
+  reaching any provider.
+- **Public webcam feeds** — curated traffic, nature, space, and city webcams
+  (NASA ISS HDEV, traffic cams, weather stations, cityscapes). Grid view + fullscreen.
 - **OSINT console** — a peer tab alongside AI that embeds the OpenOSINT toolset
   (username/email/IP enumeration, etc.) running on the off-grid Pi.
 - **PC ↔ Pi node sync** — the off-grid Pi pushes its edge telemetry (CPU temp, sensors,
   mesh nodes, Pi-hole, systemd health) into WorldBase every 45 s via a systemd daemon;
   the PC fuses all feeds with the local LLM into a world-situation briefing the Pi pulls
   back every 5 min for offline display. One organism.
+- **Bidirectional Pi control** — send commands from WorldBase UI to any Pi node:
+  reboot, shutdown, restart service, custom exec. Command queue with ACK tracking.
+- **Sensor time-series** — historical sensor data stored per Pi node for graphing.
+- **Mesh node visualization** — Meshtastic mesh nodes rendered on globe with
+  connection lines and SNR info.
 - **HUD aesthetic** — animated boot sequence, live UTC clock, system-status pips,
   glassmorphism, neon glow.
 
@@ -122,14 +132,28 @@ Backend (FastAPI + SQLite, async httpx with TTL caching)
   |- /api/maritime      AIS vessel positions (port regions + demo fallback)
   |- /api/world         cached aggregate stub
   |- /api/models        list local Ollama models
-  |- /api/chat          proxy to local Ollama
+  |- /api/chat          proxy to Ollama / OpenAI / Anthropic / Groq / OpenRouter
+  |- /api/providers     available LLM providers based on configured API keys
+  |- /api/models        list local Ollama models
+  |
+  |- /api/webcams         public webcam feeds (traffic, nature, space, city)
+  |- /api/webcams/categories
+  |
+  |- /api/firewall/status  LLM-Security-Firewall health check
   |
   |  -- node sync (PC brain <-> Pi edge) --
   |- /api/node/ingest   (POST) Pi pushes sensors/mesh/pihole/health/GPS
   |- /api/nodes         live node registry for globe entities
   |- /api/briefing      latest fused LLM world-situation briefing
   |- /api/briefing/generate  (POST) fuse feeds + write briefing via LLM
-  '- /api/node/pull     Pi pulls briefing + critical alerts (offline display)
+  |- /api/node/pull     Pi pulls briefing + critical alerts (offline display)
+  |- /api/node/{id}/command       queue command for Pi
+  |- /api/node/{id}/commands      Pi polls pending commands
+  |- /api/node/command/{id}/ack   Pi acks command execution
+  |- /api/node/{id}/command-history  view command log
+  |- /api/node/{id}/sensors/history  time-series sensor data (24h)
+  |- /api/node/{id}/sensors/latest   latest sensor values
+  |- /api/mesh/nodes    all mesh nodes from all Pis for globe rendering
 
 Data store (SQLite): feed_cache, aircraft_snapshots, tle_entries, node_state, briefings
 ```
@@ -178,6 +202,8 @@ The AI panel auto-discovers installed models via `/api/models`.
 - **Open-Meteo** — point weather + air quality forecast
 - **GDACS** — global disaster alert and coordination system
 - **ReliefWeb (UN OCHA)** — active humanitarian disasters
+- **Public webcam feeds** — traffic agencies, weather services, NASA, city tourism
+- **OpenAI / Anthropic / Groq / OpenRouter** — optional cloud LLM providers
 
 The only credential you need is a Cesium Ion token (for terrain/imagery).
 

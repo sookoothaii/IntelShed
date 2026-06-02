@@ -422,26 +422,26 @@
 ## Priorisierungsmatrix
 
 ### 🔴 P0 — Sofort (nächste 2 Wochen)
-| Feature | Aufwand | Impact |
-|---------|---------|--------|
-| GTFS-Realtime (Berlin/HH/M) | 3 Tage | Sehr hoch — sofort sichtbar |
-| SMARD Stromdaten | 2 Tage | Hoch — DE-relevant, Energiekrise |
-| NASA FIRMS Waldbrände | 0.5 Tage | Mittel — ergänzt Naturkatastrophen |
-| Blitzortung | 0.5 Tage | Mittel — visuell beeindruckend |
-| Yahoo Finance Aktien | 0.5 Tage | Mittel — Finanztab-Erweiterung |
-| CVE-Ticker | 0.5 Tage | Mittel — IT-Security |
+| Feature | Aufwand | Impact | Status |
+|---------|---------|--------|--------|
+| GTFS-Realtime (Berlin/HH/M) | 3 Tage | Sehr hoch — sofort sichtbar | ✅ IMPLEMENTIERT |
+| SMARD Stromdaten | 2 Tage | Hoch — DE-relevant, Energiekrise | ✅ IMPLEMENTIERT |
+| NASA FIRMS Waldbrände | 0.5 Tage | Mittel — ergänzt Naturkatastrophen | ✅ IMPLEMENTIERT |
+| Blitzortung | 0.5 Tage | Mittel — visuell beeindruckend | ✅ IMPLEMENTIERT |
+| Yahoo Finance Aktien | 0.5 Tage | Mittel — Finanztab-Erweiterung | ✅ IMPLEMENTIERT |
+| CVE-Ticker | 0.5 Tage | Mittel — IT-Security | 🔄 PENDING |
 
 ### 🟡 P1 — Kurzfristig (Monat 2-3)
-| Feature | Aufwand | Impact |
-|---------|---------|--------|
-| AIS Schifffahrt | 2 Tage | Mittel — Maritime Awareness ✅ |
-| ENTSO-E EU-Strom | 3 Tage | Mittel — grenzüberschreitend ✅ |
-| Wetterradar | 4 Tage | Hoch — visuell, aber komplex |
-| Wahlkarte | 2 Tage | Mittel — politisches Interesse |
-| Pegelstände | 1 Tag | Mittel — Hochwasser |
-| APRS + Radiosonden | 1.5 Tage | Niedrig — Hobby-Funk |
-| Safecast Strahlung | 0.5 Tage | Niedrig — Nische |
-| OpenCorporates | 1 Tag | Mittel — Wirtschaftstransparenz |
+| Feature | Aufwand | Impact | Status |
+|---------|---------|--------|--------|
+| AIS Schifffahrt | 2 Tage | Mittel — Maritime Awareness | ✅ IMPLEMENTIERT |
+| ENTSO-E EU-Strom | 3 Tage | Mittel — grenzüberschreitend | ✅ IMPLEMENTIERT |
+| Wetterradar | 4 Tage | Hoch — visuell, aber komplex | 🔄 PENDING |
+| Wahlkarte | 2 Tage | Mittel — politisches Interesse | 🔄 PENDING |
+| Pegelstände | 1 Tag | Mittel — Hochwasser | 🔄 PENDING |
+| APRS + Radiosonden | 1.5 Tage | Niedrig — Hobby-Funk | 🔄 PENDING |
+| Safecast Strahlung | 0.5 Tage | Niedrig — Nische | 🔄 PENDING |
+| OpenCorporates | 1 Tag | Mittel — Wirtschaftstransparenz | 🔄 PENDING |
 
 ### 🟢 P2 — Mittelfristig (Monat 4-6)
 | Feature | Aufwand | Impact |
@@ -457,24 +457,35 @@
 
 ---
 
+## Ergänzend implementiert (außerhalb des ursprünglichen Plans)
+
+| Feature | Status | Beschreibung |
+|---------|--------|-------------|
+| **Multi-Provider LLM** | ✅ | Ollama (lokal) + OpenAI / Anthropic / Groq / OpenRouter — umschaltbar per Dropdown |
+| **LLM-Security-Firewall** | ✅ | Optionale Prompt-Scanning via HAK_GAL Firewall vor jedem Provider |
+| **Öffentliche Webcams** | ✅ | 23+ Webcams (Traffic, Natur, Space, City) — Grid + Fullscreen Overlay |
+| **Bidirektionale Pi-Steuerung** | ✅ | Command Queue: PC → Pi (reboot, shutdown, restart_service, exec) mit ACK |
+| **Sensor-Zeitreihen** | ✅ | SQLite-basierte History pro Pi-Node für Graphen |
+| **Mesh-Node-Globe** | ✅ | Meshtastic Mesh-Nodes als gelbe Punkte mit Verbindungslinien auf Globe |
+
 ## Konkrete nächste Schritte (was jetzt gebaut wird)
 
-1. **`gtfs_ingestor.py`** — GTFS-Realtime für Berlin VBB, Hamburg HVV, München MVV
+1. **`gtfs_ingestor.py`** — GTFS-Realtime für Berlin VBB, Hamburg HVV, München MVV ✅
    - protobuf-python Paket zu requirements.txt
    - REST-Endpunkte: `/api/transit/{city}`
    - Frontend: DATA-Tab "TRANSIT"
 
-2. **`smard_bridge.py`** — Bundesnetzagentur Stromdaten
+2. **`smard_bridge.py`** — Bundesnetzagentur Stromdaten ✅
    - REST-Endpunkt: `/api/energy/de`
    - Frontend: DATA-Tab "ENERGY"
    - Alert: Push bei negativen Day-Ahead-Preisen
 
-3. **`nasa_firms.py`** — Waldbrand-Feed
+3. **`nasa_firms.py`** — Waldbrand-Feed ✅
    - REST-Endpunkt: `/api/wildfires`
    - Globe-Layer mit Confidence-Farben
    - Einfacher als GTFS/SMARD, schneller Erfolg
 
-4. **`blitzortung_bridge.py`** — Blitzortung
+4. **`blitzortung_bridge.py`** — Blitzortung ✅
    - REST-Endpunkt: `/api/lightning`
    - Cesium-Layer mit pulsierenden Punkten
 
