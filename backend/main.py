@@ -49,7 +49,7 @@ app = FastAPI(title="WorldBase API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5176", "http://127.0.0.1:5176"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -109,6 +109,10 @@ app.include_router(entsoe_bridge.router)
 app.include_router(firewall_bridge.router)
 app.include_router(webcam_bridge.router)
 
+# Disable trailing-slash redirects globally (prevents CORS errors on 307 redirects)
+for r in app.routes:
+    if hasattr(r, "redirect_slashes"):
+        r.redirect_slashes = False
 
 # ---------------------------------------------------------------------------
 # Autopilot: generate LLM briefing every 10 min in the background

@@ -155,7 +155,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchAircraft = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/aircraft')
+          const r = await fetch('/api/aircraft/')
           const d = await r.json()
           const states: any[] = d.states || []
           const seen = new Set<string>()
@@ -417,7 +417,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchNodes = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/nodes')
+          const r = await fetch('/api/nodes/')
           const d = await r.json()
           const nodes: any[] = d.nodes || []
           const seen = new Set<string>()
@@ -573,7 +573,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchMilitary = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/military')
+          const r = await fetch('/api/military/')
           const d = await r.json()
           const list: any[] = d.aircraft || []
           const seen = new Set<string>()
@@ -650,7 +650,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchSpaceweather = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/spaceweather')
+          const r = await fetch('/api/spaceweather/')
           const d = await r.json()
           spaceweatherSrc.entities.removeAll()
           const kp = d.kp_index ?? 0
@@ -711,7 +711,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchWildfires = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/wildfires')
+          const r = await fetch('/api/wildfires/')
           const d = await r.json()
           wildfireSrc.entities.removeAll()
           const fires: any[] = d.fires || []
@@ -761,7 +761,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchLightning = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/lightning')
+          const r = await fetch('/api/lightning/')
           const d = await r.json()
           const strikes: any[] = d.strikes || []
           const now = Date.now()
@@ -875,7 +875,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchMaritime = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/maritime')
+          const r = await fetch('/api/maritime/')
           const d = await r.json()
           if (d.error) {
             for (const [id, e] of vesselMap) { maritimeSrc.entities.remove(e); vesselMap.delete(id) }
@@ -944,7 +944,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchGeopolitics = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/geopolitics')
+          const r = await fetch('/api/geopolitics/')
           const d = await r.json()
           geopoliticsSrc.entities.removeAll()
           const disasters: any[] = d.disasters || []

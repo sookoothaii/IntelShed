@@ -23,8 +23,8 @@ function useAlertNotifications() {
       if (Notification.permission !== 'granted') return
       try {
         const [corrRes, anomRes] = await Promise.all([
-          fetch('/api/correlations').then(r => r.ok ? r.json() : null),
-          fetch('/api/anomalies').then(r => r.ok ? r.json() : null),
+          fetch('/api/correlations/').then(r => r.ok ? r.json() : null),
+          fetch('/api/anomalies/').then(r => r.ok ? r.json() : null),
         ])
         const now = Date.now()
         if (now - lastNotified < 300000) return // 5 min cooldown
@@ -69,11 +69,11 @@ function SystemStatus() {
   useEffect(() => {
     const ping = async () => {
       try {
-        const r = await fetch('/api/health')
+        const r = await fetch('/api/health/')
         setBackend(r.ok ? 'online' : 'offline')
       } catch { setBackend('offline') }
       try {
-        const r = await fetch('/api/models')
+        const r = await fetch('/api/models/')
         const d = await r.json()
         setOllama(d.error ? 'offline' : 'online')
       } catch { setOllama('offline') }
@@ -1464,7 +1464,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
   const [firewall, setFirewall] = useState(false)
 
   useEffect(() => {
-    fetch('/api/models')
+    fetch('/api/models/')
       .then((r) => r.json())
       .then((d) => {
         if (d.error) {
@@ -1479,7 +1479,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
       })
       .catch(() => setModelErr('Could not reach backend for model list'))
 
-    fetch('/api/providers')
+    fetch('/api/providers/')
       .then((r) => r.json())
       .then((d) => {
         const list = d.providers || []
@@ -1539,7 +1539,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
       : (searchCtx || undefined)
 
     try {
-      const r = await fetch('/api/chat', {
+      const r = await fetch('/api/chat/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({
