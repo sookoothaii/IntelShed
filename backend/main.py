@@ -24,6 +24,7 @@ import gtfs_ingestor
 import ais_bridge
 import entsoe_bridge
 import firewall_bridge
+import webcam_bridge
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
 
@@ -106,6 +107,7 @@ app.include_router(gtfs_ingestor.router)
 app.include_router(ais_bridge.router)
 app.include_router(entsoe_bridge.router)
 app.include_router(firewall_bridge.router)
+app.include_router(webcam_bridge.router)
 
 
 # ---------------------------------------------------------------------------

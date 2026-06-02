@@ -504,7 +504,7 @@ type Quake = { id: string; place: string; mag: number; depth: number; time: numb
 type WEvent = { id: string; title: string; category: string; categories?: string[]; date: string; lon: number; lat: number; magnitude?: number | null; unit?: string | null; closed?: string | null; link?: string; sources?: string[]; points?: number }
 type Sat = { name: string; tle1: string; tle2: string }
 
-const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime'] as const
+const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams'] as const
 type DataTab = typeof DATA_TABS[number]
 
 type NodeInfo = { node_id: string; name: string; lat: number; lon: number; updated_at: string; payload?: any }
@@ -544,6 +544,8 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const [maritime, setMaritime] = useState<{ count: number; vessels: any[]; demo_mode?: boolean; cached_at: string; error?: string } | null>(null)
   const [euEnergy, setEuEnergy] = useState<{ country: string; prices: any[]; generation_by_source?: Record<string, number>; total_mw?: number; demo_mode?: boolean; error?: string } | null>(null)
   const [euCountry, setEuCountry] = useState('de')
+  const [webcams, setWebcams] = useState<{ count: number; categories: string[]; webcams: any[]; cached_at: string } | null>(null)
+  const [webcamCategory, setWebcamCategory] = useState('')
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -602,6 +604,10 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
       setLoading((l) => ({ ...l, 'eu-energy': false }))
     }
   }
+  const loadWebcams = () => {
+    const url = webcamCategory ? `/api/webcams?category=${webcamCategory}` : '/api/webcams'
+    fetchFeed('webcams', url, (d: any) => setWebcams(d))
+  }
 
   // Auto-load on tab switch
   useEffect(() => {
@@ -628,8 +634,9 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
     else if (tab === 'transit') loadTransit()
     else if (tab === 'maritime') loadMaritime()
     else if (tab === 'eu-energy') loadEuEnergy()
+    else if (tab === 'webcams') loadWebcams()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, transitCity, euCountry])
+  }, [tab, transitCity, euCountry, webcamCategory])
 
   const q = query.toLowerCase()
   const fAircraft = aircraft.filter((a) => !q || `${a[0]} ${a[1]} ${a[2]}`.toLowerCase().includes(q))
@@ -1217,9 +1224,171 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
         </section>
       )}
 
+      {tab === 'webcams' && (
+        <WebcamSection
+          webcams={webcams}
+          webcamCategory={webcamCategory}
+          setWebcamCategory={setWebcamCategory}
+          onLoad={loadWebcams}
+          loading={loading['webcams']}
+          onFocus={onFocus}
+        />
+      )}
+
     </div>
   )
 
+}
+
+function WebcamSection({
+  webcams,
+  webcamCategory,
+  setWebcamCategory,
+  onLoad,
+  loading,
+  onFocus,
+}: {
+  webcams: { count: number; categories: string[]; webcams: any[]; cached_at: string } | null
+  webcamCategory: string
+  setWebcamCategory: (c: string) => void
+  onLoad: () => void
+  loading: boolean | undefined
+  onFocus: (f: Omit<FocusTarget, 'ts'>) => void
+}) {
+  const [activeCam, setActiveCam] = useState<any>(null)
+  const cats = ['all', ...(webcams?.categories || [])]
+
+  return (
+    <section>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button onClick={onLoad} disabled={loading}>{loading ? 'Loading…' : '↻ Refresh'}</button>
+        {cats.map((c) => (
+          <button
+            key={c}
+            className={c === 'all' ? (webcamCategory ? '' : 'web-search on') : webcamCategory === c ? 'web-search on' : 'web-search'}
+            onClick={() => setWebcamCategory(c === 'all' ? '' : c)}
+            style={{ textTransform: 'capitalize', fontSize: 11 }}
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+      <span className="data-count">{webcams?.count ?? 0} public webcams</span>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+          gap: 12,
+          marginTop: 12,
+        }}
+      >
+        {(webcams?.webcams || []).map((w: any) => (
+          <div
+            key={w.id}
+            className="iss-card"
+            style={{ cursor: 'pointer', padding: 8, position: 'relative' }}
+            onClick={() => setActiveCam(w)}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', color: '#8fb7a9' }}>
+              {w.category} · {w.country}
+            </div>
+            <div
+              style={{
+                width: '100%',
+                height: 140,
+                background: '#050a0e',
+                borderRadius: 4,
+                overflow: 'hidden',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {w.embed ? (
+                <div style={{ color: '#6f8c84', fontSize: 12 }}>▶ Video</div>
+              ) : w.url ? (
+                <img
+                  src={w.url}
+                  alt={w.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  loading="lazy"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none'
+                    const parent = (e.target as HTMLImageElement).parentElement
+                    if (parent) parent.innerHTML = '<span style="color:#6f8c84;font-size:12px">📷 Offline</span>'
+                  }}
+                />
+              ) : (
+                <div style={{ color: '#6f8c84', fontSize: 12 }}>📷 No image</div>
+              )}
+            </div>
+            <div style={{ fontSize: 12, marginTop: 6, fontWeight: 600 }}>{w.name}</div>
+            <div style={{ fontSize: 10, color: '#6f8c84', marginTop: 2 }}>
+              {w.lat != null && w.lon != null && (
+                <span
+                  style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onFocus({ kind: 'webcam', lon: w.lon, lat: w.lat, height: 500000, title: w.name, lines: [`Country: ${w.country}`, `Category: ${w.category}`] })
+                  }}
+                >
+                  ◎ LOCATE
+                </span>
+              )}
+              {w.refresh ? ` · refresh ${w.refresh}s` : ''}
+            </div>
+          </div>
+        ))}
+      </div>
+      {!webcams?.webcams?.length && <div className="health-status pending">No webcams — click Refresh</div>}
+
+      {/* Fullscreen overlay */}
+      {activeCam && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(2,6,10,0.95)',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+          onClick={() => setActiveCam(null)}
+        >
+          <div style={{ position: 'absolute', top: 16, right: 24, fontSize: 32, cursor: 'pointer', color: '#8fb7a9' }}>✕</div>
+          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: '#8fb7a9' }}>
+            {activeCam.name} · {activeCam.country}
+          </div>
+          {activeCam.embed ? (
+            <iframe
+              src={activeCam.embed}
+              style={{ width: '80vw', height: '60vh', border: '1px solid #1a2e33', borderRadius: 8 }}
+              allow="autoplay; encrypted-media"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : activeCam.url ? (
+            <img
+              src={activeCam.url}
+              alt={activeCam.name}
+              style={{ maxWidth: '80vw', maxHeight: '70vh', border: '1px solid #1a2e33', borderRadius: 8 }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <div className="health-status pending">No image available</div>
+          )}
+          <div style={{ marginTop: 12, fontSize: 12, color: '#6f8c84' }}>
+            {activeCam.category} · refresh every {activeCam.refresh ?? '?'}s · click outside to close
+          </div>
+        </div>
+      )}
+    </section>
+  )
 }
 
 function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context: string } | null; onClearAsk?: () => void }) {
