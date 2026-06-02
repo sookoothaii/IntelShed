@@ -59,6 +59,9 @@ type Stats = {
   military: number
   spaceweather: number
   geopolitics: number
+  wildfires: number
+  lightning: number
+  transit: number
   fps: number
 }
 
@@ -79,7 +82,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, fps: 0 })
   const [target, setTarget] = useState<Target>(null)
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
   const [layers, setLayers] = useState({
@@ -92,6 +95,9 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
     military: true,
     spaceweather: true,
     geopolitics: true,
+    wildfires: true,
+    lightning: true,
+    transit: true,
   })
 
   useEffect(() => {
@@ -134,7 +140,10 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const militarySrc = new CustomDataSource('military')
       const spaceweatherSrc = new CustomDataSource('spaceweather')
       const geopoliticsSrc = new CustomDataSource('geopolitics')
-      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc].forEach((s) => viewer!.dataSources.add(s))
+      const wildfireSrc = new CustomDataSource('wildfires')
+      const lightningSrc = new CustomDataSource('lightning')
+      const transitSrc = new CustomDataSource('transit')
+      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc, wildfireSrc, lightningSrc, transitSrc].forEach((s) => viewer!.dataSources.add(s))
 
       const acMap = new Map<string, Entity>()
       const satMap = new Map<string, Entity>()
@@ -643,6 +652,169 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
         }
       }
 
+      // ---------- WILDFIRES ----------
+      const fetchWildfires = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/wildfires')
+          const d = await r.json()
+          wildfireSrc.entities.removeAll()
+          const fires: any[] = d.fires || []
+          for (const f of fires) {
+            if (f.lon == null || f.lat == null) continue
+            const conf = f.confidence ?? 0
+            const color = conf >= 80 ? '#ff2d00' : conf >= 50 ? '#ff6b35' : '#ffd23f'
+            wildfireSrc.entities.add({
+              position: Cartesian3.fromDegrees(f.lon, f.lat, 0),
+              point: {
+                pixelSize: conf >= 80 ? 10 : conf >= 50 ? 8 : 6,
+                color: Color.fromCssColorString(color).withAlpha(0.9),
+                outlineColor: Color.WHITE,
+                outlineWidth: 1,
+                scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.6),
+              },
+              label: {
+                text: `${f.confidence_label || 'fire'} ${f.confidence ?? '?'}%`,
+                font: '600 9px "Courier New"',
+                fillColor: Color.fromCssColorString(color),
+                outlineColor: Color.BLACK,
+                outlineWidth: 2,
+                style: LabelStyle.FILL_AND_OUTLINE,
+                verticalOrigin: VerticalOrigin.BOTTOM,
+                pixelOffset: new Cartesian2(0, -8),
+                distanceDisplayCondition: new DistanceDisplayCondition(0, 2e6),
+              },
+              properties: {
+                kind: 'wildfire',
+                confidence: f.confidence,
+                confidence_label: f.confidence_label,
+                brightness: f.brightness,
+                frp: f.frp,
+                satellite: f.satellite,
+                acq_date: f.acq_date,
+              } as any,
+            })
+          }
+          if (!cancelled) setStats((p) => ({ ...p, wildfires: fires.length }))
+        } catch (e) {
+          console.error('wildfires fetch failed', e)
+        }
+      }
+
+      // ---------- LIGHTNING ----------
+      const lightningMap = new Map<string, any>()
+      const fetchLightning = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/lightning')
+          const d = await r.json()
+          const strikes: any[] = d.strikes || []
+          const now = Date.now()
+          // Remove strikes older than 10 minutes
+          for (const [id, data] of lightningMap) {
+            if (now - data.ts > 600000) {
+              const e = data.entity
+              if (e) lightningSrc.entities.remove(e)
+              lightningMap.delete(id)
+            }
+          }
+          for (const s of strikes) {
+            if (s.lon == null || s.lat == null || !s.time) continue
+            const ts = new Date(s.time).getTime()
+            if (now - ts > 600000) continue
+            const id = `${s.lat.toFixed(3)},${s.lon.toFixed(3)}`
+            if (lightningMap.has(id)) continue
+            const ageSec = (now - ts) / 1000
+            const alpha = Math.max(0.2, 1 - ageSec / 600)
+            const e = lightningSrc.entities.add({
+              position: Cartesian3.fromDegrees(s.lon, s.lat, 0),
+              point: {
+                pixelSize: 10,
+                color: Color.fromCssColorString('#22d3ee').withAlpha(alpha),
+                outlineColor: Color.WHITE,
+                outlineWidth: 1,
+              },
+              properties: {
+                kind: 'lightning',
+                time: s.time,
+                stations: s.stations,
+                participants: s.participants,
+              } as any,
+            })
+            lightningMap.set(id, { entity: e, ts })
+          }
+          if (!cancelled) setStats((p) => ({ ...p, lightning: lightningMap.size }))
+        } catch (e) {
+          console.error('lightning fetch failed', e)
+        }
+      }
+
+      // ---------- TRANSIT ----------
+      const transitMap = new Map<string, Entity>()
+      const fetchTransit = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/transit/helsinki')
+          const d = await r.json()
+          if (d.error) {
+            for (const [id, e] of transitMap) { transitSrc.entities.remove(e); transitMap.delete(id) }
+            if (!cancelled) setStats((p) => ({ ...p, transit: 0 }))
+            return
+          }
+          const vehicles: any[] = d.vehicles || []
+          const seen = new Set<string>()
+          for (const v of vehicles) {
+            if (v.lon == null || v.lat == null) continue
+            const id = v.id || `${v.lat},${v.lon}`
+            seen.add(id)
+            const pos = Cartesian3.fromDegrees(v.lon, v.lat, 0)
+            let e = transitMap.get(id)
+            if (e) {
+              ;(e.position as ConstantPositionProperty).setValue(pos)
+            } else {
+              e = transitSrc.entities.add({
+                id: 'tr-' + id,
+                position: new ConstantPositionProperty(pos),
+                point: {
+                  pixelSize: 9,
+                  color: Color.fromCssColorString('#ffd23f').withAlpha(0.9),
+                  outlineColor: Color.BLACK,
+                  outlineWidth: 1,
+                  scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.5),
+                },
+                label: {
+                  text: v.route_id || 'BUS',
+                  font: '600 9px "Courier New"',
+                  fillColor: Color.fromCssColorString('#ffd23f'),
+                  outlineColor: Color.BLACK,
+                  outlineWidth: 2,
+                  style: LabelStyle.FILL_AND_OUTLINE,
+                  verticalOrigin: VerticalOrigin.BOTTOM,
+                  horizontalOrigin: HorizontalOrigin.CENTER,
+                  pixelOffset: new Cartesian2(0, -8),
+                  distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e6),
+                },
+                properties: {
+                  kind: 'transit',
+                  id: v.id,
+                  route_id: v.route_id,
+                  bearing: v.bearing,
+                  speed: v.speed,
+                  label: v.label,
+                } as any,
+              })
+              transitMap.set(id, e)
+            }
+          }
+          for (const [id, e] of transitMap) {
+            if (!seen.has(id)) { transitSrc.entities.remove(e); transitMap.delete(id) }
+          }
+          if (!cancelled) setStats((p) => ({ ...p, transit: transitMap.size }))
+        } catch (e) {
+          console.error('transit fetch failed', e)
+        }
+      }
+
       // ---------- GEOPOLITICS ----------
       const fetchGeopolitics = async () => {
         if (cancelled) return
@@ -748,6 +920,40 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
               `ALTITUDE: ${Math.round(props.alt?.getValue?.() ?? 0)} m`,
               `SPEED: ${(props.speed?.getValue?.() ?? 0).toFixed(1)} m/s`,
               ...(sq ? [`SQUAWK: ${sq}${['7500', '7600', '7700'].includes(sq) ? ' ⚠ EMERGENCY' : ''}`] : []),
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'transit') {
+          setTarget({
+            kind, title: `🚌 TRANSIT ${props.route_id?.getValue?.() || '—'}`,
+            lines: [
+              `ID: ${props.id?.getValue?.() ?? '—'}`,
+              `ROUTE: ${props.route_id?.getValue?.() ?? '—'}`,
+              `BEARING: ${props.bearing?.getValue?.() ?? '—'}°`,
+              `SPEED: ${props.speed?.getValue?.() != null ? props.speed.getValue() + ' m/s' : '—'}`,
+              `LABEL: ${props.label?.getValue?.() ?? '—'}`,
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'wildfire') {
+          setTarget({
+            kind, title: `🔥 WILDFIRE (${props.confidence_label?.getValue?.() || 'unknown'})`,
+            lines: [
+              `CONFIDENCE: ${props.confidence?.getValue?.() ?? '—'}%`,
+              `BRIGHTNESS: ${props.brightness?.getValue?.() ?? '—'}K`,
+              `FRP: ${props.frp?.getValue?.() ?? '—'} MW`,
+              `SATELLITE: ${props.satellite?.getValue?.() ?? '—'}`,
+              `DATE: ${props.acq_date?.getValue?.() ?? '—'}`,
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'lightning') {
+          setTarget({
+            kind, title: `⚡ LIGHTNING STRIKE`,
+            lines: [
+              `TIME: ${props.time?.getValue?.() ?? '—'}`,
+              `STATIONS: ${props.stations?.getValue?.() ?? '—'}`,
+              `PARTICIPANTS: ${props.participants?.getValue?.() ?? '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
@@ -868,6 +1074,9 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
           militarySrc.show = l.military
           spaceweatherSrc.show = l.spaceweather
           geopoliticsSrc.show = l.geopolitics
+          wildfireSrc.show = l.wildfires
+          lightningSrc.show = l.lightning
+          transitSrc.show = l.transit
         },
       }
 
@@ -880,6 +1089,9 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       fetchMilitary()
       fetchSpaceweather()
       fetchGeopolitics()
+      fetchWildfires()
+      fetchLightning()
+      fetchTransit()
 
       if (focusRef.current) apiRef.current.focusOn(focusRef.current)
 
@@ -891,6 +1103,9 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       timers.push(setInterval(fetchMilitary, 15000))
       timers.push(setInterval(fetchSpaceweather, 300000))
       timers.push(setInterval(fetchGeopolitics, 600000))
+      timers.push(setInterval(fetchWildfires, 300000))
+      timers.push(setInterval(fetchLightning, 60000))
+      timers.push(setInterval(fetchTransit, 30000))
     })()
 
     return () => {
@@ -932,6 +1147,9 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
         <div className="hud-row"><span className="hud-dot" style={{ background: '#ff6b35' }} />MILITARY<span className="hud-val">{stats.military}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#00e5a0' }} />KP INDEX<span className="hud-val">{stats.spaceweather}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#ff2d00' }} />CRISES<span className="hud-val">{stats.geopolitics}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#ff6b35' }} />WILDFIRES<span className="hud-val">{stats.wildfires}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#22d3ee' }} />LIGHTNING<span className="hud-val">{stats.lightning}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#ffd23f' }} />TRANSIT<span className="hud-val">{stats.transit}</span></div>
         <div className="hud-divider" />
         <div className="hud-row">RENDER<span className="hud-val">{stats.fps} FPS</span></div>
         <div className="hud-row sub">LON {cursor.lon}  LAT {cursor.lat}</div>
@@ -959,7 +1177,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
 
         <div className="ctl-block">
           <div className="hud-title">LAYERS</div>
-          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics'] as const).map((k) => (
+          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit'] as const).map((k) => (
             <label key={k} className={layers[k] ? 'on' : ''}>
               <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
             </label>

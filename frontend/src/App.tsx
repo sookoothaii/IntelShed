@@ -9,6 +9,50 @@ const NAV_ITEMS: { id: 'globe' | 'data' | 'chat' | 'osint'; label: string; glyph
   { id: 'osint', label: 'OSINT', glyph: '⌖' },
 ]
 
+
+function useAlertNotifications() {
+  const [lastNotified, setLastNotified] = useState<number>(0)
+
+  useEffect(() => {
+    if (!('Notification' in window)) return
+    if (Notification.permission === 'default') {
+      Notification.requestPermission()
+    }
+
+    const check = async () => {
+      if (Notification.permission !== 'granted') return
+      try {
+        const [corrRes, anomRes] = await Promise.all([
+          fetch('/api/correlations').then(r => r.ok ? r.json() : null),
+          fetch('/api/anomalies').then(r => r.ok ? r.json() : null),
+        ])
+        const now = Date.now()
+        if (now - lastNotified < 300000) return // 5 min cooldown
+        const situations = corrRes?.situations || []
+        const anomalies = anomRes?.anomalies || []
+        if (situations.length > 0 || anomalies.length > 0) {
+          const titles = [
+            ...situations.map((s: any) => s.title),
+            ...anomalies.slice(0, 3).map((a: any) => `Anomaly ${a.callsign || a.icao24}`),
+          ]
+          new Notification('WorldBase Alert', {
+            body: titles.join(' | '),
+            icon: '/favicon.ico',
+            tag: 'worldbase-alert',
+          })
+          setLastNotified(now)
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    check()
+    const t = setInterval(check, 60000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+}
 function useClock() {
   const [now, setNow] = useState(new Date())
   useEffect(() => {
@@ -53,6 +97,7 @@ export default function App() {
   const [focus, setFocus] = useState<FocusTarget | null>(null)
   const [askAI, setAskAI] = useState<{ question: string; context: string } | null>(null)
   const [analysisOpen, setAnalysisOpen] = useState(false)
+  useAlertNotifications()
   const now = useClock()
 
   const focusOnMap = (f: Omit<FocusTarget, 'ts'>) => {
@@ -120,7 +165,7 @@ export default function App() {
           {view === 'globe' && <Globe focus={focus} onAskAI={handleAskAI} />}
           {view === 'data' && <DataPanel onFocus={focusOnMap} />}
           {view === 'chat' && <ChatPanel askAI={askAI} onClearAsk={() => setAskAI(null)} />}
-          {view === 'osint' && <OsintPanel />}
+          {view === 'osint' && <OsintPanel onFocus={focusOnMap} />}
         </div>
       </main>
     </div>
@@ -459,13 +504,16 @@ type Quake = { id: string; place: string; mag: number; depth: number; time: numb
 type WEvent = { id: string; title: string; category: string; categories?: string[]; date: string; lon: number; lat: number; magnitude?: number | null; unit?: string | null; closed?: string | null; link?: string; sources?: string[]; points?: number }
 type Sat = { name: string; tle1: string; tle2: string }
 
-const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health'] as const
+const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'weather', 'wildfires', 'lightning', 'energy', 'stocks', 'transit'] as const
 type DataTab = typeof DATA_TABS[number]
 
 type NodeInfo = { node_id: string; name: string; lat: number; lon: number; updated_at: string; payload?: any }
 type MilitaryAircraft = { hex: string; flight: string | null; type: string | null; lat: number | null; lon: number | null; alt: number | null; speed: number | null; squawk: string | null }
 type Disaster = { id: string; name: string; status: string; url?: string }
 type Situation = { severity: string; type: string; title: string; location: any; details: any }
+type AirQualityCity = { city: string; lat: number; lon: number; pm25: number | null; pm10: number | null; time: string | null }
+type GDACSAlert = { title: string; link: string; description: string; published: string; lat: number | null; lon: number | null }
+type WeatherPoint = { lat: number; lon: number; current: any; units: any; timezone: string }
 
 const SAT_GROUPS = ['starlink', 'stations', 'gps-ops', 'weather']
 
@@ -484,6 +532,15 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const [military, setMilitary] = useState<MilitaryAircraft[]>([])
   const [situations, setSituations] = useState<Situation[]>([])
   const [health, setHealth] = useState<{ status: string; time: string } | null>(null)
+  const [airquality, setAirquality] = useState<{ cities: AirQualityCity[]; updated: string; error?: string } | null>(null)
+  const [gdacs, setGdacs] = useState<{ count: number; alerts: GDACSAlert[]; error?: string } | null>(null)
+  const [weather, setWeather] = useState<WeatherPoint | null>(null)
+  const [wildfires, setWildfires] = useState<{ count: number; fires: any[]; updated: string } | null>(null)
+  const [lightning, setLightning] = useState<{ count: number; strikes: any[]; updated: string } | null>(null)
+  const [energy, setEnergy] = useState<any>(null)
+  const [stocks, setStocks] = useState<{ count: number; quotes: any[]; updated: string } | null>(null)
+  const [transit, setTransit] = useState<{ city: string; count: number; vehicles: any[]; cached_at: string; error?: string } | null>(null)
+  const [transitCity, setTransitCity] = useState('helsinki')
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -514,6 +571,14 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const loadMilitary = () => fetchFeed('military', '/api/military', (d: any) => setMilitary(d.aircraft || []))
   const loadSituations = () => fetchFeed('situations', '/api/correlations', (d: any) => setSituations(d.situations || []))
   const loadHealth = () => fetchFeed('health', '/api/health', (d: any) => setHealth(d))
+  const loadAirquality = () => fetchFeed('airquality', '/api/airquality', (d: any) => setAirquality(d))
+  const loadGdacs = () => fetchFeed('gdacs', '/api/gdacs', (d: any) => setGdacs(d))
+  const loadWeather = () => fetchFeed('weather', '/api/weather?lat=13.75&lon=100.5', (d: any) => setWeather(d))
+  const loadWildfires = () => fetchFeed('wildfires', '/api/wildfires', (d: any) => setWildfires(d))
+  const loadLightning = () => fetchFeed('lightning', '/api/lightning', (d: any) => setLightning(d))
+  const loadEnergy = () => fetchFeed('energy', '/api/energy/de', (d: any) => setEnergy(d))
+  const loadStocks = () => fetchFeed('stocks', '/api/stocks', (d: any) => setStocks(d))
+  const loadTransit = () => fetchFeed('transit', `/api/transit/${transitCity}`, (d: any) => setTransit(d))
 
   // Auto-load on tab switch
   useEffect(() => {
@@ -530,8 +595,16 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
     else if (tab === 'military') loadMilitary()
     else if (tab === 'situations') loadSituations()
     else if (tab === 'health') loadHealth()
+    else if (tab === 'airquality') loadAirquality()
+    else if (tab === 'gdacs') loadGdacs()
+    else if (tab === 'weather') loadWeather()
+    else if (tab === 'wildfires') loadWildfires()
+    else if (tab === 'lightning') loadLightning()
+    else if (tab === 'energy') loadEnergy()
+    else if (tab === 'stocks') loadStocks()
+    else if (tab === 'transit') loadTransit()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab])
+  }, [tab, transitCity])
 
   const q = query.toLowerCase()
   const fAircraft = aircraft.filter((a) => !q || `${a[0]} ${a[1]} ${a[2]}`.toLowerCase().includes(q))
@@ -822,8 +895,204 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
           </div>
         </section>
       )}
+      {tab === 'airquality' && (
+        <section>
+          <button onClick={loadAirquality} disabled={loading['airquality']}>{loading['airquality'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{airquality?.cities?.length || 0} cities monitored</span>
+          {!airquality?.cities?.length && <div className="health-status pending">No air quality data</div>}
+          <table className="data-table">
+            <thead><tr><th>City</th><th>PM2.5</th><th>PM10</th><th>Status</th></tr></thead>
+            <tbody>
+              {(airquality?.cities || []).map((c: AirQualityCity, i: number) => {
+                const pm25 = c.pm25 ?? null
+                const color = pm25 == null ? '#6f8c84' : pm25 <= 12 ? '#00e5a0' : pm25 <= 35 ? '#ffd23f' : pm25 <= 55 ? '#ff6b35' : '#ff2d00'
+                const label = pm25 == null ? '—' : pm25 <= 12 ? 'Good' : pm25 <= 35 ? 'Moderate' : pm25 <= 55 ? 'Unhealthy' : 'Hazardous'
+                return (
+                  <tr key={i}>
+                    <td>{c.city}</td>
+                    <td style={{ color }}>{pm25 ?? '—'} µg/m³</td>
+                    <td>{c.pm10 ?? '—'} µg/m³</td>
+                    <td style={{ color, fontWeight: 'bold' }}>{label}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {tab === 'gdacs' && (
+        <section>
+          <button onClick={loadGdacs} disabled={loading['gdacs']}>{loading['gdacs'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{gdacs?.alerts?.length || 0} alerts</span>
+          {!gdacs?.alerts?.length && <div className="health-status pending">No GDACS alerts</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {(gdacs?.alerts || []).map((a: GDACSAlert, i: number) => {
+              const t = (a.title || '').toLowerCase()
+              const type = t.includes('earthquake') ? { label: 'EQ', color: '#ff6b35' } : t.includes('flood') ? { label: 'FLD', color: '#22d3ee' } : t.includes('cyclone') || t.includes('typhoon') || t.includes('hurricane') ? { label: 'CY', color: '#ffd23f' } : t.includes('tsunami') ? { label: 'TSU', color: '#ff2d00' } : t.includes('drought') ? { label: 'DR', color: '#6f8c84' } : t.includes('volcano') ? { label: 'VOL', color: '#ff4d5e' } : { label: 'ALR', color: '#ff6b35' }
+              return (
+                <div key={i} className="iss-card" style={{ cursor: 'pointer', borderLeft: `3px solid ${type.color}` }} onClick={() => a.lon != null && a.lat != null && onFocus({ kind: 'gdacs', lon: a.lon, lat: a.lat, height: 400000, title: a.title, lines: [a.description?.slice(0, 120) || ''] })}>
+                  <span style={{ color: type.color, fontWeight: 'bold' }}>{type.label}</span>
+                  <strong>{a.title}</strong>
+                  <small style={{ color: '#6f8c84' }}>{a.published?.slice(0, 16) || ''}</small>
+                  {a.link && <a className="tp-link" href={a.link} target="_blank" rel="noreferrer">OPEN SOURCE ↗</a>}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {tab === 'weather' && (
+        <section>
+          <button onClick={loadWeather} disabled={loading['weather']}>{loading['weather'] ? 'Loading…' : '↻ Refresh'}</button>
+          {!weather && <div className="health-status pending">No weather data</div>}
+          {weather && (
+            <div className="iss-card">
+              <strong>Point Weather ({weather.lat?.toFixed(2)}, {weather.lon?.toFixed(2)})</strong>
+              <div>Timezone: {weather.timezone || '—'}</div>
+              {weather.current && (
+                <>
+                  <div>Temperature: {weather.current.temperature_2m}{weather.units?.temperature_2m || '°C'}</div>
+                  <div>Humidity: {weather.current.relative_humidity_2m}{weather.units?.relative_humidity_2m || '%'}</div>
+                  <div>Wind: {weather.current.wind_speed_10m}{weather.units?.wind_speed_10m || 'km/h'} {weather.current.wind_direction_10m}°</div>
+                  <div>Pressure: {weather.current.pressure_msl}{weather.units?.pressure_msl || 'hPa'}</div>
+                </>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === 'wildfires' && (
+        <section>
+          <button onClick={loadWildfires} disabled={loading['wildfires']}>{loading['wildfires'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{wildfires?.count || 0} thermal anomalies</span>
+          {wildfires?.fires?.length === 0 && <div className="health-status pending">No active fires detected</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {(wildfires?.fires || []).slice(0, 50).map((f: any, i: number) => {
+              const color = f.confidence >= 80 ? '#ff2d00' : f.confidence >= 50 ? '#ff6b35' : '#ffd23f'
+              return (
+                <div key={i} className="iss-card" style={{ cursor: 'pointer', borderLeft: `3px solid ${color}` }} onClick={() => f.lon != null && f.lat != null && onFocus({ kind: 'wildfire', lon: f.lon, lat: f.lat, height: 400000, title: `Wildfire (${f.confidence_label})`, lines: [`Confidence: ${f.confidence}%`, `Brightness: ${f.brightness}K`, `FRP: ${f.frp} MW`, `Satellite: ${f.satellite}`, `Date: ${f.acq_date}`] })}>
+                  <span style={{ color, fontWeight: 'bold' }}>{f.confidence_label?.toUpperCase()}</span>
+                  <strong>Fire #{i + 1}</strong>
+                  <small style={{ color: '#6f8c84' }}>{f.lat?.toFixed(2)}, {f.lon?.toFixed(2)} | {f.acq_date}</small>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {tab === 'lightning' && (
+        <section>
+          <button onClick={loadLightning} disabled={loading['lightning']}>{loading['lightning'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{lightning?.count || 0} strikes (last ~10min)</span>
+          {lightning?.strikes?.length === 0 && <div className="health-status pending">No recent lightning</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {(lightning?.strikes || []).slice(0, 30).map((s: any, i: number) => (
+              <div key={i} className="iss-card" style={{ borderLeft: '3px solid #22d3ee' }} onClick={() => s.lon != null && s.lat != null && onFocus({ kind: 'lightning', lon: s.lon, lat: s.lat, height: 400000, title: 'Lightning Strike', lines: [`Time: ${s.time}`, `Stations: ${s.stations}`, `Participants: ${s.participants}`] })}>
+                <span style={{ color: '#22d3ee', fontWeight: 'bold' }}>⚡</span>
+                <strong>{s.lat?.toFixed(2)}, {s.lon?.toFixed(2)}</strong>
+                <small style={{ color: '#6f8c84' }}>{s.time}</small>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {tab === 'energy' && (
+        <section>
+          <button onClick={loadEnergy} disabled={loading['energy']}>{loading['energy'] ? 'Loading…' : '↻ Refresh'}</button>
+          {!energy && <div className="health-status pending">No energy data</div>}
+          {energy && (
+            <>
+              <div className="iss-card">
+                <strong>Germany — Live Generation</strong>
+                <div>Total: {energy.total_generation_mw?.toLocaleString()} MW</div>
+                <div>CO₂: {energy.co2_g_per_kwh} g/kWh</div>
+                <div>Load: {energy.load?.latest_mw?.toLocaleString()} MW</div>
+                <div>Price: {energy.day_ahead_price?.latest_eur_mwh} EUR/MWh</div>
+              </div>
+              <table className="data-table">
+                <thead><tr><th>Source</th><th>MW</th><th>Share</th></tr></thead>
+                <tbody>
+                  {Object.entries(energy.generation || {}).map(([key, val]: [string, any]) => {
+                    const share = energy.total_generation_mw ? ((val.latest_mw / energy.total_generation_mw) * 100).toFixed(1) : '—'
+                    const color = ['solar', 'wind_onshore', 'wind_offshore', 'hydro', 'biomass'].includes(key) ? '#00e5a0' : ['natural_gas'].includes(key) ? '#ffd23f' : '#ff6b35'
+                    return (
+                      <tr key={key}>
+                        <td style={{ textTransform: 'capitalize', color }}>{key.replace(/_/g, ' ')}</td>
+                        <td>{val.latest_mw?.toLocaleString()}</td>
+                        <td>{share}%</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </>
+          )}
+        </section>
+      )}
+
+      {tab === 'stocks' && (
+        <section>
+          <button onClick={loadStocks} disabled={loading['stocks']}>{loading['stocks'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{stocks?.count || 0} quotes</span>
+          {!stocks?.quotes?.length && <div className="health-status pending">No market data</div>}
+          <table className="data-table">
+            <thead><tr><th>Asset</th><th>Price</th><th>Change</th><th>%</th></tr></thead>
+            <tbody>
+              {(stocks?.quotes || []).map((q: any, i: number) => (
+                <tr key={i}>
+                  <td><strong>{q.label}</strong><br/><small>{q.name}</small></td>
+                  <td>{q.price} {q.currency}</td>
+                  <td style={{ color: q.change >= 0 ? '#00e5a0' : '#ff2d00' }}>{q.change >= 0 ? '+' : ''}{q.change}</td>
+                  <td style={{ color: q.change_pct >= 0 ? '#00e5a0' : '#ff2d00' }}>{q.change_pct >= 0 ? '+' : ''}{q.change_pct}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {tab === 'transit' && (
+        <section>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <select className="poi-select" value={transitCity} onChange={(e) => setTransitCity(e.target.value)}>
+              <option value="helsinki">Helsinki (HSL)</option>
+              <option value="boston">Boston (MBTA)</option>
+              <option value="berlin">Berlin (VBB)</option>
+              <option value="hamburg">Hamburg (HVV)</option>
+              <option value="munich">Munich (MVV)</option>
+            </select>
+            <button onClick={loadTransit} disabled={loading['transit']}>{loading['transit'] ? 'Loading…' : '↻ Refresh'}</button>
+          </div>
+          {transit?.error && <div className="data-error">{transit.error}</div>}
+          <span className="data-count">{transit?.count ?? 0} vehicles · {transitCity.toUpperCase()}</span>
+          {!transit?.vehicles?.length && !transit?.error && <div className="health-status pending">No transit data — select a city with configured GTFS-Realtime endpoint</div>}
+          <table className="data-table clickable">
+            <thead><tr><th>Route</th><th>ID</th><th>Lat</th><th>Lon</th><th>Bearing</th><th>Speed</th><th></th></tr></thead>
+            <tbody>
+              {(transit?.vehicles || []).slice(0, 100).map((v: any, i: number) => (
+                <tr key={i} onClick={() => v.lon != null && v.lat != null && onFocus({ kind: 'transit', lon: v.lon, lat: v.lat, height: 200000, title: `Transit ${v.route_id || '—'}`, lines: [`ID: ${v.id || '—'}`, `Route: ${v.route_id || '—'}`, `Bearing: ${v.bearing ?? '—'}°`, `Speed: ${v.speed != null ? v.speed + ' m/s' : '—'}`, `Label: ${v.label || '—'}`] })}>
+                  <td><strong>{v.route_id || '—'}</strong></td>
+                  <td>{v.id?.slice(0, 20) || '—'}</td>
+                  <td>{v.lat?.toFixed(4) ?? '—'}</td>
+                  <td>{v.lon?.toFixed(4) ?? '—'}</td>
+                  <td>{v.bearing != null ? v.bearing + '°' : '—'}</td>
+                  <td>{v.speed != null ? v.speed + ' m/s' : '—'}</td>
+                  <td className="locate-cell">◎ LOCATE</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
     </div>
   )
+
 }
 
 function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context: string } | null; onClearAsk?: () => void }) {
@@ -1026,43 +1295,136 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
   )
 }
 
-function OsintPanel() {
-  const url = (import.meta as any).env?.VITE_OSINT_URL || 'http://localhost:15000'
-  const [reloadKey, setReloadKey] = useState(0)
+function OsintPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
+  const [tool, setTool] = useState<'ip' | 'domain' | 'username' | 'email' | 'reverse'>('ip')
+  const [query, setQuery] = useState('')
+  const [latInput, setLatInput] = useState('')
+  const [lonInput, setLonInput] = useState('')
+  const [result, setResult] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function runLookup() {
+    setBusy(true)
+    setResult(null)
+    try {
+      let url = ''
+      if (tool === 'ip') url = `/api/osint/ip/${encodeURIComponent(query)}`
+      else if (tool === 'domain') url = `/api/osint/domain/${encodeURIComponent(query)}`
+      else if (tool === 'username') url = `/api/osint/username/${encodeURIComponent(query)}`
+      else if (tool === 'email') url = `/api/osint/email/${encodeURIComponent(query)}`
+      else if (tool === 'reverse') url = `/api/osint/reverse-geocode?lat=${latInput}&lon=${lonInput}`
+      const r = await fetch(url)
+      const d = await r.json()
+      setResult(d)
+    } catch (e) {
+      setResult({ error: String(e) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const showOnGlobe = (lat: number, lon: number, title: string, lines: string[]) => {
+    onFocus({ kind: 'osint', lat, lon, height: 400000, title, lines })
+  }
+
+  const tools = [
+    { id: 'ip' as const, label: 'IP' },
+    { id: 'domain' as const, label: 'DOMAIN' },
+    { id: 'username' as const, label: 'USERNAME' },
+    { id: 'email' as const, label: 'EMAIL' },
+    { id: 'reverse' as const, label: 'REVERSE GEO' },
+  ]
 
   return (
-    <div className="panel osint" style={{ padding: '0 14px' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          padding: '10px 2px',
-        }}
-      >
-        <h2 style={{ margin: 0 }}>OSINT Console</h2>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#6f8c84' }}>{url}</span>
-          <button onClick={() => setReloadKey((k) => k + 1)}>↻ RELOAD</button>
-          <a href={url} target="_blank" rel="noreferrer">
-            <button>↗ OPEN</button>
-          </a>
-        </div>
+    <div className="panel osint" style={{ padding: '0 18px' }}>
+      <h2>OSINT Reconnaissance</h2>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {tools.map(t => (
+          <button
+            key={t.id}
+            className={tool === t.id ? 'active' : ''}
+            style={{
+              padding: '6px 14px',
+              fontSize: 11,
+              fontFamily: 'monospace',
+              background: tool === t.id ? 'rgba(0,229,160,0.2)' : 'rgba(0,229,160,0.05)',
+              border: tool === t.id ? '1px solid #00e5a0' : '1px solid rgba(0,229,160,0.2)',
+              color: tool === t.id ? '#00e5a0' : '#6f8c84',
+              cursor: 'pointer',
+            }}
+            onClick={() => { setTool(t.id); setResult(null) }}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
-      <iframe
-        key={reloadKey}
-        src={url}
-        title="OSINT Console"
-        className="osint-frame"
-        style={{
-          width: '100%',
-          height: 'calc(100vh - 170px)',
-          border: '1px solid rgba(0,229,160,0.25)',
-          borderRadius: 10,
-          background: '#060a12',
-        }}
-      />
+
+      {tool === 'reverse' ? (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input
+            style={{ flex: 1 }}
+            placeholder="lat"
+            value={latInput}
+            onChange={e => setLatInput(e.target.value)}
+          />
+          <input
+            style={{ flex: 1 }}
+            placeholder="lon"
+            value={lonInput}
+            onChange={e => setLonInput(e.target.value)}
+          />
+          <button onClick={runLookup} disabled={busy}>{busy ? '…' : 'SEARCH'}</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <input
+            style={{ flex: 1 }}
+            placeholder={`Enter ${tool}…`}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && runLookup()}
+          />
+          <button onClick={runLookup} disabled={busy}>{busy ? '…' : 'SEARCH'}</button>
+        </div>
+      )}
+
+      {busy && <div style={{ color: '#6f8c84', fontSize: 12 }}>Querying…</div>}
+      {result?.error && <div className="data-error">{result.error}</div>}
+
+      {result && !result.error && (
+        <div className="osint-result" style={{ marginTop: 10 }}>
+          {tool === 'ip' && result.lat != null && result.lon != null && (
+            <button
+              className="locate-mini"
+              onClick={() => showOnGlobe(result.lat, result.lon, `IP ${result.ip}`, [
+                `Country: ${result.country || '—'}`,
+                `Region: ${result.region || '—'}`,
+                `City: ${result.city || '—'}`,
+                `ISP: ${result.isp || '—'}`,
+                `ASN: ${result.asn || '—'}`,
+              ])}
+            >
+              ◎ SHOW ON GLOBE
+            </button>
+          )}
+          {tool === 'reverse' && result.locality && (
+            <button
+              className="locate-mini"
+              onClick={() => showOnGlobe(result.lat, result.lon, result.locality, [
+                `City: ${result.city || '—'}`,
+                `Region: ${result.region || '—'}`,
+                `Country: ${result.country || '—'}`,
+              ])}
+            >
+              ◎ SHOW ON GLOBE
+            </button>
+          )}
+
+          <pre style={{ fontSize: 11, color: '#b0c4b1', background: 'rgba(0,0,0,0.3)', padding: 10, borderRadius: 6, overflowX: 'auto', maxHeight: 'calc(100vh - 300px)', overflowY: 'auto' }}>
+            {JSON.stringify(result, null, 2)}
+          </pre>
+        </div>
+      )}
     </div>
   )
 }

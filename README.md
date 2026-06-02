@@ -18,6 +18,13 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
   - Natural events — wildfires, storms, volcanoes, ice (NASA EONET)
   - Live ISS telemetry (wheretheiss.at)
   - Space weather — planetary K-index, aurora/HF-radio impact (NOAA SWPC)
+  - Wildfire thermal anomalies, confidence-colored (NASA FIRMS MODIS + VIIRS)
+  - Lightning strikes worldwide, 10-minute fade (Blitzortung.org)
+  - German power grid — generation mix, CO₂ intensity, day-ahead price (SMARD / Bundesnetzagentur)
+  - Stock markets — DAX, S&P 500, NASDAQ, Nikkei, Gold, Oil, BTC, ETH (Yahoo Finance)
+  - GTFS-Realtime public transit — live vehicle positions (Helsinki HSL, Boston MBTA, Berlin VBB, Hamburg HVV, Munich MVV)
+  - Air quality — PM2.5 / PM10 for major cities (Open-Meteo)
+  - GDACS alerts — tsunami, cyclone, flood, drought, volcano (GDACS / UN)
   - Markets — crypto (CoinGecko) + ECB forex (Frankfurter)
   - Military / interesting aircraft (adsb.fi open data)
   - Point weather for any coordinate (Open-Meteo)
@@ -100,7 +107,14 @@ Backend (FastAPI + SQLite, async httpx with TTL caching)
   |- /api/markets       crypto (CoinGecko) + forex (Frankfurter/ECB)
   |- /api/military      military/interesting aircraft (adsb.fi)
   |- /api/weather       point weather for any lat/lon (Open-Meteo)
+  |- /api/airquality    PM2.5 / PM10 for monitored cities (Open-Meteo)
+  |- /api/gdacs         GDACS disaster alerts with geo coordinates
   |- /api/geopolitics   active disasters worldwide (ReliefWeb)
+  |- /api/wildfires     NASA FIRMS thermal anomalies with confidence
+  |- /api/lightning     Blitzortung.org live strikes (~10 min window)
+  |- /api/energy/de     German power generation mix + CO₂ + price (SMARD)
+  |- /api/stocks        Stock indices + commodities + crypto (Yahoo Finance)
+  |- /api/transit/{city} GTFS-Realtime vehicle positions
   |- /api/world         cached aggregate stub
   |- /api/models        list local Ollama models
   |- /api/chat          proxy to local Ollama
@@ -144,12 +158,18 @@ The AI panel auto-discovers installed models via `/api/models`.
 - **CelesTrak** — satellite TLE orbital data
 - **USGS** — earthquake feeds
 - **NASA EONET** — natural events
+- **NASA FIRMS** — wildfire thermal anomalies (MODIS + VIIRS)
+- **Blitzortung.org** — real-time lightning strikes
+- **SMARD (Bundesnetzagentur)** — German power grid data
+- **Yahoo Finance** — stock indices, commodities, crypto
+- **GTFS-Realtime** — public transit vehicle positions ( TransitFeeds / agency feeds )
 - **wheretheiss.at** — ISS telemetry
 - **NOAA SWPC** — space weather (planetary K-index)
 - **CoinGecko** — crypto prices
 - **Frankfurter / ECB** — forex rates
 - **adsb.fi** — military / interesting aircraft (open data, no rate wall)
-- **Open-Meteo** — point weather forecast
+- **Open-Meteo** — point weather + air quality forecast
+- **GDACS** — global disaster alert and coordination system
 - **ReliefWeb (UN OCHA)** — active humanitarian disasters
 
 The only credential you need is a Cesium Ion token (for terrain/imagery).
