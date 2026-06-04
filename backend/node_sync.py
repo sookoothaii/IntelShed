@@ -20,7 +20,7 @@ from fastapi import APIRouter, Header, HTTPException
 router = APIRouter(prefix="/api", tags=["node-sync"])
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
-SELF_URL = os.getenv("WORLDBASE_SELF", "http://localhost:8000").rstrip("/")
+SELF_URL = os.getenv("WORLDBASE_SELF", "http://localhost:8002").rstrip("/")
 OLLAMA_HOSTS = os.getenv("OLLAMA_HOST", "localhost:11434").split(",")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
 
@@ -34,9 +34,40 @@ SENSOR_THRESHOLDS = {
     "co2_ppm": {"warn": 1000, "critical": 2000, "message": "CO2 level elevated — improve ventilation"},
     "radiation_usv_h": {"warn": 0.5, "critical": 1.0, "message": "Radiation level above baseline — check sensor placement"},
     "pm25_ug_m3": {"warn": 35, "critical": 75, "message": "Air quality degraded — consider filter or seal"},
+    "disk_pct": {"warn": 85, "critical": 92, "message": "Root disk nearly full — run: sudo bash pi-disk-maintenance.sh"},
+    "ram_pct": {"warn": 88, "critical": 95, "message": "RAM usage high — close heavy processes"},
 }
 
 INGEST_TOKEN = os.getenv("NODE_INGEST_TOKEN", "")
+ADMIN_TOKEN = os.getenv("NODE_ADMIN_TOKEN", "") or INGEST_TOKEN
+
+
+def _node_hmac(body: dict) -> str:
+    body_bytes = json.dumps(body, separators=(",", ":")).encode()
+    return hmac.new(INGEST_TOKEN.encode(), body_bytes, hashlib.sha256).hexdigest()
+
+
+def _verify_node_hmac(payload: dict, x_node_token: str) -> None:
+    if not INGEST_TOKEN:
+        return
+    expected = _node_hmac(payload)
+    if not hmac.compare_digest(expected, (x_node_token or "")):
+        raise HTTPException(status_code=403, detail="Invalid node token")
+
+
+def _verify_node_secret(x_node_token: str = "") -> None:
+    """Shared secret for GET/pull/poll (header X-Node-Token)."""
+    if not INGEST_TOKEN:
+        return
+    if not hmac.compare_digest(INGEST_TOKEN, (x_node_token or "")):
+        raise HTTPException(status_code=403, detail="Invalid or missing node token")
+
+
+def _verify_admin_secret(x_admin_token: str = "") -> None:
+    if not ADMIN_TOKEN:
+        return
+    if not hmac.compare_digest(ADMIN_TOKEN, (x_admin_token or "")):
+        raise HTTPException(status_code=403, detail="Invalid or missing admin token")
 
 
 @contextmanager
@@ -97,12 +128,7 @@ async def node_ingest(payload: dict, x_node_token: str = Header(default="")):
         "pihole": {"queries":..,"blocked":..,"percent":..},
         "health": {"cpu_temp":..,"disk_pct":..,"services":{...}} }
     """
-    # HMAC verification (optional — off by default)
-    if INGEST_TOKEN:
-        body_bytes = json.dumps(payload, separators=(',', ':')).encode()
-        expected = hmac.new(INGEST_TOKEN.encode(), body_bytes, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, (x_node_token or "")):
-            raise HTTPException(status_code=403, detail="Invalid node token")
+    _verify_node_hmac(payload, x_node_token)
 
     node_id = (payload.get("node_id") or "unknown").strip()
     now = datetime.now(timezone.utc).isoformat()
@@ -115,6 +141,10 @@ async def node_ingest(payload: dict, x_node_token: str = Header(default="")):
         all_sensors["cpu_temp_c"] = health["cpu_temp"]
     if "cpu_temp_c" in sensors:
         all_sensors["cpu_temp_c"] = sensors["cpu_temp_c"]
+    if health.get("disk_pct") is not None:
+        all_sensors["disk_pct"] = health["disk_pct"]
+    if health.get("ram_pct") is not None:
+        all_sensors["ram_pct"] = health["ram_pct"]
 
     alerts_generated = []
     with _db() as conn:
@@ -255,6 +285,9 @@ async def _gather_snapshot() -> dict:
         await grab("markets", "/api/markets")
         await grab("geopolitics", "/api/geopolitics?limit=20")
         await grab("military", "/api/military")
+        await grab("gdacs", "/api/gdacs")
+        await grab("cve", "/api/cve?limit=15")
+        await grab("nodes", "/api/nodes")
     return snap
 
 
@@ -301,6 +334,44 @@ def _compile_alerts(snap: dict) -> list:
             "text": f"{mil} military/interesting aircraft currently tracked.",
         })
 
+    gdacs_n = (snap.get("gdacs", {}) or {}).get("count") or 0
+    if gdacs_n:
+        alerts.append({
+            "severity": "medium",
+            "kind": "gdacs",
+            "text": f"{gdacs_n} GDACS humanitarian alerts active.",
+        })
+
+    cve_items = (snap.get("cve", {}) or {}).get("vulnerabilities", [])[:5]
+    for v in cve_items:
+        sev = "high" if v.get("ransomware") == "Known" else "medium"
+        alerts.append({
+            "severity": sev,
+            "kind": "cve",
+            "text": f"KEV {v.get('cve_id')}: {v.get('vendor')} {v.get('product')}",
+        })
+
+    nodes = (snap.get("nodes", {}) or {}).get("nodes", [])
+    for n in nodes:
+        disk = (n.get("health") or {}).get("disk_pct")
+        if disk is not None and disk >= 85:
+            alerts.append({
+                "severity": "critical" if disk >= 92 else "warning",
+                "kind": "disk_space",
+                "text": f"{n.get('name', n.get('node_id'))}: root disk {disk}% full — run pi-disk-maintenance.sh on Pi",
+                "lat": n.get("lat"),
+                "lon": n.get("lon"),
+            })
+    offline = [n for n in nodes if not n.get("online")]
+    for n in offline[:2]:
+        alerts.append({
+            "severity": "medium",
+            "kind": "node_offline",
+            "text": f"Edge node {n.get('name', n.get('node_id'))} offline ({int(n.get('age_seconds') or 0)}s stale).",
+            "lat": n.get("lat"),
+            "lon": n.get("lon"),
+        })
+
     return alerts
 
 
@@ -339,6 +410,15 @@ async def generate_briefing():
     alert_lines = "\n".join(f"- {a['text']}" for a in alerts) or "- No critical alerts."
     sw = snap.get("spaceweather", {})
     mk = snap.get("markets", {}).get("crypto", {})
+    cve_lines = "\n".join(
+        f"- {v.get('cve_id')}: {v.get('vendor')} {v.get('product')} (due {v.get('due_date', '?')})"
+        for v in (snap.get("cve", {}) or {}).get("vulnerabilities", [])[:5]
+    ) or "- none"
+    nodes = (snap.get("nodes", {}) or {}).get("nodes", [])
+    node_lines = "\n".join(
+        f"- {n.get('name')}: {'online' if n.get('online') else 'OFFLINE'}, CPU {n.get('health', {}).get('cpu_temp_c', '?')}C"
+        for n in nodes[:3]
+    ) or "- none"
     prompt = (
         "You are the situational-awareness officer of a small off-grid intelligence "
         "node. Write a concise (max 150 words) world-situation briefing in plain text "
@@ -346,6 +426,8 @@ async def generate_briefing():
         "Use only the data below.\n\n"
         f"Space weather: Kp={sw.get('kp_index')} ({sw.get('scale')}).\n"
         f"Crypto (USD): {json.dumps(mk)[:300]}\n"
+        f"Edge nodes:\n{node_lines}\n"
+        f"CISA KEV (exploited CVEs):\n{cve_lines}\n"
         f"Critical alerts:\n{alert_lines}\n\n"
         "Briefing:"
     )
@@ -396,13 +478,16 @@ def _compress_briefing(text: str, alerts: list) -> str:
 
 
 @router.get("/node/pull")
-async def node_pull(mesh: bool = False):
+async def node_pull(mesh: bool = False, x_node_token: str = Header(default="")):
     """Single payload the Pi pulls: latest briefing + live critical alerts.
 
     Designed so the off-grid portal can show global situational awareness even
     when the Pi itself has no upstream internet — the PC did the heavy lifting.
     Set ?mesh=1 for a <230 byte payload suitable for Meshtastic/LoRa relay.
+
+    When NODE_INGEST_TOKEN is set, send the same value as header X-Node-Token.
     """
+    _verify_node_secret(x_node_token)
     brief = await latest_briefing()
     try:
         snap = await _gather_snapshot()
@@ -428,9 +513,9 @@ async def node_pull(mesh: bool = False):
 
 
 @router.get("/node/pull/mesh")
-async def node_pull_mesh():
+async def node_pull_mesh(x_node_token: str = Header(default="")):
     """Dedicated endpoint: always returns compressed <230 byte briefing for LoRa."""
-    return await node_pull(mesh=True)
+    return await node_pull(mesh=True, x_node_token=x_node_token)
 
 
 # ---------------------------------------------------------------------------
@@ -464,11 +549,18 @@ def init_command_db():
 
 
 @router.post("/node/{node_id}/command")
-async def queue_command(node_id: str, payload: dict):
+async def queue_command(
+    node_id: str,
+    payload: dict,
+    x_admin_token: str = Header(default=""),
+):
     """Queue a command for a specific Pi node. PC calls this to control the Pi.
 
     Commands: reboot, shutdown, restart_service, update_config, exec
+
+    When NODE_ADMIN_TOKEN or NODE_INGEST_TOKEN is set, require header X-Admin-Token.
     """
+    _verify_admin_secret(x_admin_token)
     now = datetime.now(timezone.utc).isoformat()
     with _db() as conn:
         conn.execute(
@@ -481,8 +573,13 @@ async def queue_command(node_id: str, payload: dict):
 
 
 @router.get("/node/{node_id}/commands")
-async def poll_commands(node_id: str, limit: int = 10):
+async def poll_commands(
+    node_id: str,
+    limit: int = 10,
+    x_node_token: str = Header(default=""),
+):
     """Pi polls this to fetch pending commands."""
+    _verify_node_secret(x_node_token)
     with _db() as conn:
         rows = conn.execute(
             "SELECT id, command, args, created_at FROM node_commands WHERE node_id = ? AND status = 'pending' ORDER BY id LIMIT ?",
@@ -499,8 +596,13 @@ async def poll_commands(node_id: str, limit: int = 10):
 
 
 @router.post("/node/command/{command_id}/ack")
-async def ack_command(command_id: int, payload: dict):
+async def ack_command(
+    command_id: int,
+    payload: dict,
+    x_node_token: str = Header(default=""),
+):
     """Pi acks a command after execution."""
+    _verify_node_secret(x_node_token)
     now = datetime.now(timezone.utc).isoformat()
     with _db() as conn:
         conn.execute(

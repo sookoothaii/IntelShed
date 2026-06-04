@@ -5,12 +5,11 @@ import cesium from 'vite-plugin-cesium'
 export default defineConfig({
   plugins: [react(), cesium()],
   server: {
-    port: 5173,
+    port: 5176,
     proxy: {
       '/api': {
-        target: 'http://localhost:8001',
+        target: 'http://localhost:8002',
         changeOrigin: true,
-        rewrite: (path: string) => path.replace(/\/$/, ''),
       },
     },
   },

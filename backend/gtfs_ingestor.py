@@ -22,33 +22,58 @@ router = APIRouter(prefix="/api/transit", tags=["transit"])
 # ---------------------------------------------------------------------------
 # Configurable endpoints (override via env var)
 # ---------------------------------------------------------------------------
+# Aggregated DE feed (gtfs.de) — filter by bbox per city when not using dedicated agency URL
+_GTFS_DE_AGG = os.getenv(
+    "GTFS_DE_AGGREGATE_URL",
+    "https://realtime.gtfs.de/realtime-free.pb",
+)
+
+# (min_lat, max_lat, min_lon, max_lon)
+CITY_BBOX: dict[str, tuple[float, float, float, float]] = {
+    "berlin": (52.34, 52.62, 13.09, 13.76),
+    "hamburg": (53.46, 53.70, 9.75, 10.35),
+    "munich": (48.06, 48.22, 11.35, 11.72),
+}
+
 CITY_CONFIG: dict[str, dict] = {
     "berlin": {
-        "url": os.getenv("GTFS_BERLIN_URL", ""),
+        "url": os.getenv("GTFS_BERLIN_URL", "https://production.gtfsrt.vbb.de/data"),
         "ttl": 30,
+        "bbox": CITY_BBOX["berlin"],
     },
     "hamburg": {
-        "url": os.getenv("GTFS_HAMBURG_URL", ""),
+        "url": os.getenv("GTFS_HAMBURG_URL", _GTFS_DE_AGG),
         "ttl": 30,
+        "bbox": CITY_BBOX["hamburg"],
     },
     "munich": {
-        "url": os.getenv("GTFS_MUNICH_URL", ""),
+        "url": os.getenv("GTFS_MUNICH_URL", _GTFS_DE_AGG),
         "ttl": 30,
+        "bbox": CITY_BBOX["munich"],
     },
     "helsinki": {
         "url": os.getenv("GTFS_HELSINKI_URL", "https://cdn.hsl.fi/gtfs-realtime/vehicle-positions"),
         "ttl": 30,
+        "bbox": None,
     },
     "boston": {
         "url": os.getenv("GTFS_BOSTON_URL", "https://cdn.mbta.com/realtime/VehiclePositions.pb"),
         "ttl": 30,
+        "bbox": None,
     },
 }
+
+
+def _in_bbox(lat: float, lon: float, bbox: tuple[float, float, float, float] | None) -> bool:
+    if not bbox:
+        return True
+    min_lat, max_lat, min_lon, max_lon = bbox
+    return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
 
 _CACHE: dict[str, tuple[float, dict]] = {}
 
 
-@router.get("/")
+@router.get("")
 def list_cities():
     """Return configured cities and their URL status."""
     return {
@@ -114,16 +139,29 @@ async def get_vehicles(city: str):
         return {"error": f"Protobuf parse failed: {exc}", "city": city}
 
     vehicles = []
+    trip_updates = 0
     for entity in feed.entity:
+        if entity.HasField("trip_update"):
+            trip_updates += 1
+            continue
         if not entity.HasField("vehicle"):
             continue
         v = entity.vehicle
-        vp = v.vehicle
-        if vp is None:
-            continue
-        lat = vp.latitude if vp.latitude != 0.0 else None
-        lon = vp.longitude if vp.longitude != 0.0 else None
+        lat = lon = None
+        bearing = speed = None
+        if v.HasField("position"):
+            pos = v.position
+            if pos.latitude != 0.0 and pos.longitude != 0.0:
+                lat, lon = pos.latitude, pos.longitude
+                bearing = pos.bearing if pos.bearing else None
+                speed = pos.speed if pos.speed else None
+        label = None
+        if v.HasField("vehicle"):
+            desc = v.vehicle
+            label = desc.label or desc.license_plate or None
         if lat is None or lon is None:
+            continue
+        if not _in_bbox(lat, lon, cfg.get("bbox")):
             continue
         vehicles.append({
             "id": entity.id,
@@ -131,20 +169,27 @@ async def get_vehicles(city: str):
             "trip_id": v.trip.trip_id if v.trip else None,
             "lat": round(lat, 5),
             "lon": round(lon, 5),
-            "bearing": round(vp.bearing, 1) if vp.bearing else None,
-            "speed": round(vp.speed, 1) if vp.speed else None,
+            "bearing": round(bearing, 1) if bearing else None,
+            "speed": round(speed, 1) if speed else None,
             "timestamp": v.timestamp if v.timestamp else None,
-            "label": v.vehicle.label if v.vehicle else None,
-            "license_plate": v.vehicle.license_plate if v.vehicle else None,
+            "label": label,
         })
 
     result = {
         "city": city,
         "count": len(vehicles),
         "vehicles": vehicles,
+        "trip_updates": trip_updates,
+        "feed_mode": "vehicle_positions" if vehicles else ("trip_updates_only" if trip_updates else "empty"),
         "feed_timestamp": feed.header.timestamp if feed.header else None,
         "cached_at": datetime.now(timezone.utc).isoformat(),
     }
+    if not vehicles and trip_updates:
+        result["hint"] = (
+            f"Feed has {trip_updates} trip updates, 0 vehicle positions right now. "
+            "VBB/gtfs.de often publish delays only (not GPS buses). "
+            "Use Helsinki/Boston to verify transit layer; Berlin icons need a VehiclePosition feed."
+        )
 
     _CACHE[cache_key] = (time.time(), result)
     return result

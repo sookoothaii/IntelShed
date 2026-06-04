@@ -26,12 +26,16 @@ backend/data/**/*.cache
 .env.*
 !.env.example
 *.local
+offgrid-raspi/scripts/pi-node-token.conf
 
 # Editor / OS
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Flowsint (cloned via scripts/setup-flowsint.ps1)
+flowsint/
 
 # Logs
 *.log

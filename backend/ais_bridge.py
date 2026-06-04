@@ -158,7 +158,7 @@ def _demo_fleet() -> list[dict]:
     ]
 
 
-@router.get("/")
+@router.get("")
 async def get_maritime():
     """Return live vessel positions from all tracked regions."""
     cache_key = "maritime:all"

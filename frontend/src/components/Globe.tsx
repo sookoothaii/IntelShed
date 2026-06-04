@@ -36,6 +36,31 @@ import {
 } from '../lib/visionShaders'
 import { POIS } from '../lib/pois'
 import type { FocusTarget } from '../lib/focus'
+import type { OsintPin } from '../lib/osintPins'
+import SensorSparklines from './SensorSparklines'
+
+const TIMELINE_WINDOWS = [6, 12, 24] as const
+
+function parseEventMs(date: string | undefined): number {
+  if (!date) return 0
+  const t = Date.parse(date)
+  return Number.isFinite(t) ? t : 0
+}
+
+function timelineCutoffMs(scrubT: number, hours: number): number {
+  const now = Date.now()
+  const windowMs = hours * 3600 * 1000
+  return now - windowMs + scrubT * windowMs
+}
+
+function fmtTimelineLabel(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 
 Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? ''
 if (!Ion.defaultAccessToken) {
@@ -48,6 +73,14 @@ const SAT_GROUPS = [
   { id: 'gps-ops', label: 'GPS' },
   { id: 'weather', label: 'WEATHER' },
   { id: 'active', label: 'ALL' },
+]
+
+const TRANSIT_CITIES = [
+  { id: 'berlin', label: 'BERLIN' },
+  { id: 'hamburg', label: 'HAMBURG' },
+  { id: 'munich', label: 'MUNICH' },
+  { id: 'helsinki', label: 'HELSINKI' },
+  { id: 'boston', label: 'BOSTON' },
 ]
 
 type Stats = {
@@ -63,6 +96,11 @@ type Stats = {
   lightning: number
   transit: number
   maritime: number
+  gdacs: number
+  airquality: number
+  pegel: number
+  osint: number
+  energy: number
   fps: number
 }
 
@@ -71,21 +109,38 @@ type Target = {
   title: string
   lines: string[]
   link?: string
+  nodeId?: string
 } | null
 
 type Cursor = { lon: string; lat: string; alt: string }
 
-export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; onAskAI?: (title: string, lines: string[]) => void }) {
+export default function Globe({
+  focus,
+  onAskAI,
+  osintPins = [],
+  onClearOsintPins,
+}: {
+  focus?: FocusTarget | null
+  onAskAI?: (title: string, lines: string[]) => void
+  osintPins?: OsintPin[]
+  onClearOsintPins?: () => void
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
   const apiRef = useRef<any>({})
+  const osintSrcRef = useRef<CustomDataSource | null>(null)
   const focusRef = useRef<FocusTarget | null>(focus ?? null)
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, maritime: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, maritime: 0, gdacs: 0, airquality: 0, pegel: 0, osint: 0, energy: 0, fps: 0 })
+  const [transitCity, setTransitCity] = useState('berlin')
   const [target, setTarget] = useState<Target>(null)
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
+  const [scrubT, setScrubT] = useState(1)
+  const [timelineHours, setTimelineHours] = useState<number>(24)
+  const [aircraftSource, setAircraftSource] = useState('')
+  const timelineRef = useRef({ scrubT: 1, hours: 24 })
   const [layers, setLayers] = useState({
     aircraft: true,
     satellites: true,
@@ -100,6 +155,11 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
     lightning: true,
     transit: true,
     maritime: true,
+    gdacs: true,
+    airquality: true,
+    pegel: true,
+    osint: true,
+    energy: true,
   })
 
   useEffect(() => {
@@ -146,7 +206,13 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const lightningSrc = new CustomDataSource('lightning')
       const transitSrc = new CustomDataSource('transit')
       const maritimeSrc = new CustomDataSource('maritime')
-      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc, wildfireSrc, lightningSrc, transitSrc, maritimeSrc].forEach((s) => viewer!.dataSources.add(s))
+      const gdacsSrc = new CustomDataSource('gdacs')
+      const airqualitySrc = new CustomDataSource('airquality')
+      const pegelSrc = new CustomDataSource('pegel')
+      const energySrc = new CustomDataSource('energy')
+      const osintSrc = new CustomDataSource('osint')
+      osintSrcRef.current = osintSrc
+      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc, wildfireSrc, lightningSrc, transitSrc, maritimeSrc, gdacsSrc, airqualitySrc, pegelSrc, energySrc, osintSrc].forEach((s) => viewer!.dataSources.add(s))
 
       const acMap = new Map<string, Entity>()
       const satMap = new Map<string, Entity>()
@@ -155,7 +221,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchAircraft = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/aircraft/')
+          const r = await fetch('/api/aircraft')
           const d = await r.json()
           const states: any[] = d.states || []
           const seen = new Set<string>()
@@ -204,7 +270,10 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
           for (const [id, e] of acMap) {
             if (!seen.has(id)) { aircraftSrc.entities.remove(e); acMap.delete(id) }
           }
-          if (!cancelled) setStats((p) => ({ ...p, aircraft: acMap.size }))
+          if (!cancelled) {
+            setStats((p) => ({ ...p, aircraft: acMap.size }))
+            if (d.source) setAircraftSource(String(d.source))
+          }
         } catch (e) {
           console.error('aircraft fetch failed', e)
         }
@@ -312,55 +381,50 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
         if (!cancelled) setStats((p) => ({ ...p, satellites: satMap.size }))
       }
 
-      // ---------- EARTHQUAKES ----------
-      const fetchQuakes = async () => {
-        if (cancelled) return
-        try {
-          const r = await fetch('/api/earthquakes?period=day&magnitude=2.5')
-          const d = await r.json()
-          quakeSrc.entities.removeAll()
-          for (const q of d.earthquakes || []) {
-            if (q.lon == null || q.lat == null) continue
-            const mag = q.mag ?? 0
-            const sev = Math.min(mag / 8, 1)
-            const ent = quakeSrc.entities.add({
-              position: Cartesian3.fromDegrees(q.lon, q.lat, 0),
-              point: {
-                pixelSize: 4 + mag * 2.5,
-                color: Color.fromHsl(0.02 + 0.08 * (1 - sev), 1.0, 0.5, 0.9),
-                outlineColor: Color.BLACK,
-                outlineWidth: 1,
-              },
-              properties: { kind: 'quake', place: q.place, mag, depth: q.depth, time: q.time } as any,
-            })
-            if (mag >= 4.5) {
-              const t0 = Date.now()
-              ent.ellipse = ({
-                semiMajorAxis: new CallbackProperty(() => {
+      // ---------- EARTHQUAKES + EVENTS (timeline-scrubbed) ----------
+      const quakeRaw: any[] = []
+      const eventRaw: any[] = []
+
+      const renderQuakes = (list: any[]) => {
+        quakeSrc.entities.removeAll()
+        for (const q of list) {
+          if (q.lon == null || q.lat == null) continue
+          const mag = q.mag ?? 0
+          const sev = Math.min(mag / 8, 1)
+          const ent = quakeSrc.entities.add({
+            position: Cartesian3.fromDegrees(q.lon, q.lat, 0),
+            point: {
+              pixelSize: 4 + mag * 2.5,
+              color: Color.fromHsl(0.02 + 0.08 * (1 - sev), 1.0, 0.5, 0.9),
+              outlineColor: Color.BLACK,
+              outlineWidth: 1,
+            },
+            properties: { kind: 'quake', place: q.place, mag, depth: q.depth, time: q.time } as any,
+          })
+          if (mag >= 4.5) {
+            const t0 = Date.now()
+            ent.ellipse = ({
+              semiMajorAxis: new CallbackProperty(() => {
+                const ph = ((Date.now() - t0) % 2000) / 2000
+                return 30000 + ph * mag * 90000
+              }, false) as any,
+              semiMinorAxis: new CallbackProperty(() => {
+                const ph = ((Date.now() - t0) % 2000) / 2000
+                return (30000 + ph * mag * 90000) * 0.95
+              }, false) as any,
+              material: new ColorMaterialProperty(
+                new CallbackProperty(() => {
                   const ph = ((Date.now() - t0) % 2000) / 2000
-                  return 30000 + ph * mag * 90000
-                }, false) as any,
-                semiMinorAxis: new CallbackProperty(() => {
-                  const ph = ((Date.now() - t0) % 2000) / 2000
-                  return (30000 + ph * mag * 90000) * 0.95
-                }, false) as any,
-                material: new ColorMaterialProperty(
-                  new CallbackProperty(() => {
-                    const ph = ((Date.now() - t0) % 2000) / 2000
-                    return Color.fromCssColorString('#ff3b30').withAlpha(0.4 * (1 - ph))
-                  }, false) as any
-                ),
-                height: 0,
-              }) as any
-            }
+                  return Color.fromCssColorString('#ff3b30').withAlpha(0.4 * (1 - ph))
+                }, false) as any
+              ),
+              height: 0,
+            }) as any
           }
-          if (!cancelled) setStats((p) => ({ ...p, quakes: (d.earthquakes || []).length }))
-        } catch (e) {
-          console.error('quakes fetch failed', e)
         }
+        if (!cancelled) setStats((p) => ({ ...p, quakes: list.length }))
       }
 
-      // ---------- NATURAL EVENTS ----------
       const eventColor = (cat: string) => {
         const c = (cat || '').toLowerCase()
         if (c.includes('fire')) return '#ff6b35'
@@ -370,38 +434,67 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
         if (c.includes('flood') || c.includes('water')) return '#4dabf7'
         return '#ffd23f'
       }
+
+      const renderEvents = (list: any[]) => {
+        eventSrc.entities.removeAll()
+        for (const ev of list) {
+          if (ev.lon == null || ev.lat == null) continue
+          const col = Color.fromCssColorString(eventColor(ev.category))
+          eventSrc.entities.add({
+            position: Cartesian3.fromDegrees(ev.lon, ev.lat, 0),
+            point: {
+              pixelSize: 9,
+              color: col.withAlpha(0.9),
+              outlineColor: Color.WHITE,
+              outlineWidth: 1,
+            },
+            label: {
+              text: ev.category,
+              font: '600 10px "Courier New"',
+              fillColor: col,
+              outlineColor: Color.BLACK,
+              outlineWidth: 2,
+              style: LabelStyle.FILL_AND_OUTLINE,
+              verticalOrigin: VerticalOrigin.BOTTOM,
+              pixelOffset: new Cartesian2(0, -10),
+              distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e7),
+            },
+            properties: { kind: 'event', title: ev.title, category: ev.category, date: ev.date } as any,
+          })
+        }
+        if (!cancelled) setStats((p) => ({ ...p, events: list.length }))
+      }
+
+      const applyTimeline = () => {
+        const { scrubT: st, hours } = timelineRef.current
+        const cutoff = timelineCutoffMs(st, hours)
+        const quakes = quakeRaw.filter((q) => (q.time ?? 0) <= cutoff)
+        const events = eventRaw.filter((ev) => parseEventMs(ev.date) <= cutoff)
+        renderQuakes(quakes)
+        renderEvents(events)
+      }
+
+      const fetchQuakes = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/earthquakes?period=day&magnitude=2.5')
+          const d = await r.json()
+          quakeRaw.length = 0
+          quakeRaw.push(...(d.earthquakes || []))
+          applyTimeline()
+        } catch (e) {
+          console.error('quakes fetch failed', e)
+        }
+      }
+
       const fetchEvents = async () => {
         if (cancelled) return
         try {
           const r = await fetch('/api/events?limit=120')
           const d = await r.json()
-          eventSrc.entities.removeAll()
-          for (const ev of d.events || []) {
-            if (ev.lon == null || ev.lat == null) continue
-            const col = Color.fromCssColorString(eventColor(ev.category))
-            eventSrc.entities.add({
-              position: Cartesian3.fromDegrees(ev.lon, ev.lat, 0),
-              point: {
-                pixelSize: 9,
-                color: col.withAlpha(0.9),
-                outlineColor: Color.WHITE,
-                outlineWidth: 1,
-              },
-              label: {
-                text: ev.category,
-                font: '600 10px "Courier New"',
-                fillColor: col,
-                outlineColor: Color.BLACK,
-                outlineWidth: 2,
-                style: LabelStyle.FILL_AND_OUTLINE,
-                verticalOrigin: VerticalOrigin.BOTTOM,
-                pixelOffset: new Cartesian2(0, -10),
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e7),
-              },
-              properties: { kind: 'event', title: ev.title, category: ev.category, date: ev.date } as any,
-            })
-          }
-          if (!cancelled) setStats((p) => ({ ...p, events: (d.events || []).length }))
+          eventRaw.length = 0
+          eventRaw.push(...(d.events || []))
+          applyTimeline()
         } catch (e) {
           console.error('events fetch failed', e)
         }
@@ -417,7 +510,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchNodes = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/nodes/')
+          const r = await fetch('/api/nodes')
           const d = await r.json()
           const nodes: any[] = d.nodes || []
           const seen = new Set<string>()
@@ -573,7 +666,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchMilitary = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/military/')
+          const r = await fetch('/api/military')
           const d = await r.json()
           const list: any[] = d.aircraft || []
           const seen = new Set<string>()
@@ -650,7 +743,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchSpaceweather = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/spaceweather/')
+          const r = await fetch('/api/spaceweather')
           const d = await r.json()
           spaceweatherSrc.entities.removeAll()
           const kp = d.kp_index ?? 0
@@ -711,7 +804,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchWildfires = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/wildfires/')
+          const r = await fetch('/api/wildfires')
           const d = await r.json()
           wildfireSrc.entities.removeAll()
           const fires: any[] = d.fires || []
@@ -761,7 +854,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchLightning = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/lightning/')
+          const r = await fetch('/api/lightning')
           const d = await r.json()
           const strikes: any[] = d.strikes || []
           const now = Date.now()
@@ -809,7 +902,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchTransit = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/transit/helsinki')
+          const r = await fetch(`/api/transit/${transitCity}`)
           const d = await r.json()
           if (d.error) {
             for (const [id, e] of transitMap) { transitSrc.entities.remove(e); transitMap.delete(id) }
@@ -875,7 +968,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchMaritime = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/maritime/')
+          const r = await fetch('/api/maritime')
           const d = await r.json()
           if (d.error) {
             for (const [id, e] of vesselMap) { maritimeSrc.entities.remove(e); vesselMap.delete(id) }
@@ -944,15 +1037,14 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       const fetchGeopolitics = async () => {
         if (cancelled) return
         try {
-          const r = await fetch('/api/geopolitics/')
+          const r = await fetch('/api/geopolitics')
           const d = await r.json()
           geopoliticsSrc.entities.removeAll()
           const disasters: any[] = d.disasters || []
           for (const dis of disasters) {
-            // ReliefWeb API doesn't always include coordinates
-            // We'll place markers at random offset for visibility
-            // In production you'd geocode the country/region
-            const lat = 0, lon = 0
+            const lat = dis.lat
+            const lon = dis.lon
+            if (lat == null || lon == null) continue
             geopoliticsSrc.entities.add({
               position: Cartesian3.fromDegrees(lon, lat, 0),
               point: {
@@ -972,12 +1064,214 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
                 pixelOffset: new Cartesian2(0, -10),
                 distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e7),
               },
-              properties: { kind: 'geopolitics', name: dis.name, status: dis.status, id: dis.id } as any,
+              properties: {
+                kind: 'geopolitics',
+                name: dis.name,
+                status: dis.status,
+                id: dis.id,
+                source: dis.source || 'crisis',
+                url: dis.url || '',
+              } as any,
             })
           }
           if (!cancelled) setStats((p) => ({ ...p, geopolitics: disasters.length }))
         } catch (e) {
           console.error('geopolitics fetch failed', e)
+        }
+      }
+
+      // ---------- GDACS ----------
+      const gdacsTypeColor = (title: string) => {
+        const t = (title || '').toLowerCase()
+        if (t.includes('earthquake')) return '#ff6b35'
+        if (t.includes('flood')) return '#22d3ee'
+        if (t.includes('cyclone') || t.includes('typhoon') || t.includes('hurricane')) return '#ffd23f'
+        if (t.includes('tsunami')) return '#ff2d00'
+        if (t.includes('volcano')) return '#ff4d5e'
+        return '#ff6b35'
+      }
+      const fetchGdacs = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/gdacs')
+          const d = await r.json()
+          gdacsSrc.entities.removeAll()
+          let n = 0
+          for (const a of d.alerts || []) {
+            if (a.lon == null || a.lat == null) continue
+            const col = Color.fromCssColorString(gdacsTypeColor(a.title))
+            gdacsSrc.entities.add({
+              position: Cartesian3.fromDegrees(a.lon, a.lat, 0),
+              point: {
+                pixelSize: 11,
+                color: col.withAlpha(0.95),
+                outlineColor: Color.WHITE,
+                outlineWidth: 1,
+              },
+              properties: {
+                kind: 'gdacs',
+                title: a.title,
+                description: (a.description || '').slice(0, 200),
+                published: a.published,
+                link: a.link,
+              } as any,
+            })
+            n++
+          }
+          if (!cancelled) setStats((p) => ({ ...p, gdacs: n }))
+        } catch (e) {
+          console.error('gdacs fetch failed', e)
+        }
+      }
+
+      // ---------- AIR QUALITY ----------
+      const aqColor = (pm25: number | null) => {
+        if (pm25 == null) return '#6f8c84'
+        if (pm25 <= 12) return '#00e5a0'
+        if (pm25 <= 35) return '#ffd23f'
+        if (pm25 <= 55) return '#ff6b35'
+        return '#ff2d00'
+      }
+      const fetchAirquality = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/airquality')
+          const d = await r.json()
+          airqualitySrc.entities.removeAll()
+          for (const c of d.cities || []) {
+            if (c.lon == null || c.lat == null) continue
+            const col = Color.fromCssColorString(aqColor(c.pm25))
+            airqualitySrc.entities.add({
+              position: Cartesian3.fromDegrees(c.lon, c.lat, 0),
+              point: {
+                pixelSize: 12,
+                color: col.withAlpha(0.9),
+                outlineColor: Color.BLACK,
+                outlineWidth: 1,
+              },
+              label: {
+                text: c.city,
+                font: '600 9px "Courier New"',
+                fillColor: col,
+                outlineColor: Color.BLACK,
+                outlineWidth: 2,
+                style: LabelStyle.FILL_AND_OUTLINE,
+                verticalOrigin: VerticalOrigin.BOTTOM,
+                pixelOffset: new Cartesian2(0, -10),
+                distanceDisplayCondition: new DistanceDisplayCondition(0, 2e7),
+              },
+              properties: {
+                kind: 'airquality',
+                city: c.city,
+                pm25: c.pm25,
+                pm10: c.pm10,
+                time: c.time,
+              } as any,
+            })
+          }
+          if (!cancelled) setStats((p) => ({ ...p, airquality: (d.cities || []).length }))
+        } catch (e) {
+          console.error('airquality fetch failed', e)
+        }
+      }
+
+      const pegelColor = (sev: string) => {
+        if (sev === 'critical') return '#ff2d00'
+        if (sev === 'high') return '#ff6b35'
+        if (sev === 'low') return '#88aaff'
+        return '#4fc3f7'
+      }
+      const fetchEnergy = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/energy/de/globe')
+          const d = await r.json()
+          energySrc.entities.removeAll()
+          const pulse = Date.now() / 1000
+          for (const p of d.points || []) {
+            const col = Color.fromCssColorString(p.color || '#ffd23f')
+            const rpx = p.radius || 12
+            const pulseScale = 1 + 0.15 * Math.sin(pulse * 2 + (p.lon || 0))
+            energySrc.entities.add({
+              position: Cartesian3.fromDegrees(p.lon, p.lat, 0),
+              point: {
+                pixelSize: rpx * pulseScale,
+                color: col.withAlpha(0.92),
+                outlineColor: Color.WHITE.withAlpha(0.6),
+                outlineWidth: 1,
+              },
+              label: {
+                text: `${p.label}\n${p.mw} MW`,
+                font: '600 9px "Courier New"',
+                fillColor: col,
+                outlineColor: Color.BLACK,
+                outlineWidth: 2,
+                style: LabelStyle.FILL_AND_OUTLINE,
+                verticalOrigin: VerticalOrigin.BOTTOM,
+                pixelOffset: new Cartesian2(0, -14),
+                distanceDisplayCondition: new DistanceDisplayCondition(0, 2.5e6),
+              },
+              properties: {
+                kind: 'energy',
+                label: p.label,
+                mw: p.mw,
+                co2_factor: p.co2_factor,
+                price: d.day_ahead_price_eur_mwh,
+                load_mw: d.load_mw,
+                co2_g_per_kwh: d.co2_g_per_kwh,
+              } as any,
+            })
+          }
+          if (!cancelled) setStats((prev) => ({ ...prev, energy: (d.points || []).length }))
+        } catch (e) {
+          console.error('energy fetch failed', e)
+        }
+      }
+
+      const fetchPegel = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/pegel')
+          const d = await r.json()
+          pegelSrc.entities.removeAll()
+          for (const g of d.gauges || []) {
+            if (g.lon == null || g.lat == null) continue
+            const col = Color.fromCssColorString(pegelColor(g.severity))
+            pegelSrc.entities.add({
+              position: Cartesian3.fromDegrees(g.lon, g.lat, 0),
+              point: {
+                pixelSize: g.severity === 'critical' || g.severity === 'high' ? 14 : 10,
+                color: col.withAlpha(0.95),
+                outlineColor: Color.BLACK,
+                outlineWidth: 1,
+              },
+              label: {
+                text: `${g.name}`,
+                font: '600 9px "Courier New"',
+                fillColor: col,
+                outlineColor: Color.BLACK,
+                outlineWidth: 2,
+                style: LabelStyle.FILL_AND_OUTLINE,
+                verticalOrigin: VerticalOrigin.BOTTOM,
+                pixelOffset: new Cartesian2(0, -12),
+                distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e7),
+              },
+              properties: {
+                kind: 'pegel',
+                name: g.name,
+                water: g.water,
+                value: g.value,
+                unit: g.unit,
+                severity: g.severity,
+                state_mnw_mhw: g.state_mnw_mhw,
+                state_nsw_hsw: g.state_nsw_hsw,
+                timestamp: g.timestamp,
+              } as any,
+            })
+          }
+          if (!cancelled) setStats((p) => ({ ...p, pegel: (d.gauges || []).length }))
+        } catch (e) {
+          console.error('pegel fetch failed', e)
         }
       }
 
@@ -1104,6 +1398,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
           const ph = props.pihole?.getValue?.() || {}
           setTarget({
             kind, title: `📡 ${props.name?.getValue?.()}`,
+            nodeId: String(props.node_id?.getValue?.() || ''),
             lines: [
               `CPU TEMP: ${props.temp?.getValue?.()}°C`,
               `STATUS: ${props.online?.getValue?.() ? 'ONLINE' : 'OFFLINE'}`,
@@ -1123,6 +1418,72 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
               `SNR: ${props.snr?.getValue?.() ?? '—'} dB`,
               `LAST SEEN: ${props.last_seen?.getValue?.() ?? '—'}`,
               `PI GATEWAY: ${props.pi_node?.getValue?.() ?? '—'}`,
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'gdacs') {
+          setTarget({
+            kind,
+            title: props.title?.getValue?.() || 'GDACS Alert',
+            lines: [
+              (props.description?.getValue?.() || '').slice(0, 160),
+              `PUBLISHED: ${props.published?.getValue?.() ?? '—'}`,
+            ],
+            link: props.link?.getValue?.(),
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'airquality') {
+          setTarget({
+            kind,
+            title: `💨 ${props.city?.getValue?.()}`,
+            lines: [
+              `PM2.5: ${props.pm25?.getValue?.() ?? '—'} µg/m³`,
+              `PM10: ${props.pm10?.getValue?.() ?? '—'} µg/m³`,
+              `TIME: ${props.time?.getValue?.() ?? '—'}`,
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'energy') {
+          setTarget({
+            kind,
+            title: `⚡ ${props.label?.getValue?.()}`,
+            lines: [
+              `OUTPUT: ${props.mw?.getValue?.() ?? '—'} MW`,
+              `DE LOAD: ${props.load_mw?.getValue?.() ?? '—'} MW`,
+              `PRICE: ${props.price?.getValue?.() ?? '—'} €/MWh`,
+              `CO₂: ${props.co2_g_per_kwh?.getValue?.() ?? '—'} g/kWh`,
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'pegel') {
+          setTarget({
+            kind,
+            title: `🌊 ${props.name?.getValue?.()} (${props.water?.getValue?.()})`,
+            lines: [
+              `LEVEL: ${props.value?.getValue?.() ?? '—'} ${props.unit?.getValue?.() ?? ''}`,
+              `STATUS: ${props.severity?.getValue?.() ?? '—'}`,
+              `${props.state_mnw_mhw?.getValue?.() ?? '—'} / ${props.state_nsw_hsw?.getValue?.() ?? '—'}`,
+              `TIME: ${props.timestamp?.getValue?.() ?? '—'}`,
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'geopolitics') {
+          setTarget({
+            kind,
+            title: props.name?.getValue?.() || 'Crisis',
+            lines: [`STATUS: ${props.status?.getValue?.() ?? '—'}`, `ID: ${props.id?.getValue?.() ?? '—'}`],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'osint') {
+          setTarget({
+            kind,
+            title: props.title?.getValue?.() || 'OSINT',
+            lines: [
+              `TOOL: ${props.tool?.getValue?.() ?? '—'}`,
+              `QUERY: ${props.query?.getValue?.() ?? '—'}`,
+              ...(props.line1?.getValue?.() ? [props.line1.getValue()] : []),
+              ...(props.line2?.getValue?.() ? [props.line2.getValue()] : []),
+              ...(props.line3?.getValue?.() ? [props.line3.getValue()] : []),
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
@@ -1214,6 +1575,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
             } as any,
           })
         },
+        applyTimeline,
         setLayerVisibility: (l: any) => {
           aircraftSrc.show = l.aircraft
           satSrc.show = l.satellites
@@ -1228,6 +1590,11 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
           lightningSrc.show = l.lightning
           transitSrc.show = l.transit
           maritimeSrc.show = l.maritime
+          gdacsSrc.show = l.gdacs
+          airqualitySrc.show = l.airquality
+          pegelSrc.show = l.pegel
+          energySrc.show = l.energy
+          if (osintSrcRef.current) osintSrcRef.current.show = l.osint
         },
       }
 
@@ -1244,6 +1611,10 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       fetchLightning()
       fetchTransit()
       fetchMaritime()
+      fetchGdacs()
+      fetchAirquality()
+      fetchPegel()
+      fetchEnergy()
 
       if (focusRef.current) apiRef.current.focusOn(focusRef.current)
 
@@ -1259,6 +1630,10 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       timers.push(setInterval(fetchLightning, 60000))
       timers.push(setInterval(fetchTransit, 30000))
       timers.push(setInterval(fetchMaritime, 45000))
+      timers.push(setInterval(fetchGdacs, 900000))
+      timers.push(setInterval(fetchAirquality, 3600000))
+      timers.push(setInterval(fetchPegel, 900000))
+      timers.push(setInterval(fetchEnergy, 900000))
     })()
 
     return () => {
@@ -1267,7 +1642,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
       if (viewer) { viewer.destroy(); viewerRef.current = null }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [transitCity])
 
   useEffect(() => {
     focusRef.current = focus ?? null
@@ -1277,6 +1652,55 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
   useEffect(() => { apiRef.current.applyVision?.(vision) }, [vision])
   useEffect(() => { apiRef.current.setSatGroup?.(satGroup) }, [satGroup])
   useEffect(() => { apiRef.current.setLayerVisibility?.(layers) }, [layers])
+
+  useEffect(() => {
+    timelineRef.current = { scrubT, hours: timelineHours }
+    apiRef.current.applyTimeline?.()
+  }, [scrubT, timelineHours])
+
+  const isTimelineLive = scrubT >= 0.995
+  const timelineCutoff = timelineCutoffMs(scrubT, timelineHours)
+
+  useEffect(() => {
+    const src = osintSrcRef.current
+    if (!src) return
+    src.entities.removeAll()
+    for (const p of osintPins) {
+      const lines = p.lines || []
+      src.entities.add({
+        id: `osint-${p.id}`,
+        position: Cartesian3.fromDegrees(p.lon, p.lat, 0),
+        point: {
+          pixelSize: 13,
+          color: Color.fromCssColorString('#00ffa3').withAlpha(0.95),
+          outlineColor: Color.WHITE,
+          outlineWidth: 2,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: {
+          text: p.tool.toUpperCase(),
+          font: '700 9px "Courier New"',
+          fillColor: Color.fromCssColorString('#00ffa3'),
+          outlineColor: Color.BLACK,
+          outlineWidth: 2,
+          style: LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: VerticalOrigin.BOTTOM,
+          pixelOffset: new Cartesian2(0, -12),
+          distanceDisplayCondition: new DistanceDisplayCondition(0, 2e7),
+        },
+        properties: {
+          kind: 'osint',
+          title: p.title,
+          tool: p.tool,
+          query: p.query,
+          line1: lines[0] || '',
+          line2: lines[1] || '',
+          line3: lines[2] || '',
+        } as any,
+      })
+    }
+    setStats((s) => ({ ...s, osint: osintPins.length }))
+  }, [osintPins])
 
   const toggle = (k: keyof typeof layers) => setLayers((l) => ({ ...l, [k]: !l[k] }))
 
@@ -1292,7 +1716,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
 
       <div className="globe-hud">
         <div className="hud-title">LIVE TELEMETRY</div>
-        <div className="hud-row"><span className="hud-dot yellow" />AIRCRAFT<span className="hud-val">{stats.aircraft}</span></div>
+        <div className="hud-row"><span className="hud-dot yellow" />AIRCRAFT<span className="hud-val">{stats.aircraft}{aircraftSource ? ` · ${aircraftSource}` : ''}</span></div>
         <div className="hud-row"><span className="hud-dot cyan" />SATELLITES<span className="hud-val">{stats.satellites}</span></div>
         <div className="hud-row"><span className="hud-dot red" />SEISMIC<span className="hud-val">{stats.quakes}</span></div>
         <div className="hud-row"><span className="hud-dot orange" />EVENTS<span className="hud-val">{stats.events}</span></div>
@@ -1304,6 +1728,11 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
         <div className="hud-row"><span className="hud-dot" style={{ background: '#22d3ee' }} />LIGHTNING<span className="hud-val">{stats.lightning}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#ffd23f' }} />TRANSIT<span className="hud-val">{stats.transit}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#00e5ff' }} />MARITIME<span className="hud-val">{stats.maritime}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#ff6b35' }} />GDACS<span className="hud-val">{stats.gdacs}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#b0c4b1' }} />AIR QUALITY<span className="hud-val">{stats.airquality}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#4fc3f7' }} />PEGEL<span className="hud-val">{stats.pegel}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#ffd23f' }} />ENERGY<span className="hud-val">{stats.energy}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#00ffa3' }} />OSINT<span className="hud-val">{stats.osint}</span></div>
         <div className="hud-divider" />
         <div className="hud-row">RENDER<span className="hud-val">{stats.fps} FPS</span></div>
         <div className="hud-row sub">LON {cursor.lon}  LAT {cursor.lat}</div>
@@ -1321,6 +1750,15 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
         </div>
 
         <div className="ctl-block">
+          <div className="hud-title">TRANSIT ({transitCity.toUpperCase()})</div>
+          <div className="vision-bar">
+            {TRANSIT_CITIES.map((c) => (
+              <button key={c.id} className={transitCity === c.id ? 'on' : ''} onClick={() => setTransitCity(c.id)}>{c.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="ctl-block">
           <div className="hud-title">CONSTELLATION</div>
           <div className="vision-bar">
             {SAT_GROUPS.map((g) => (
@@ -1331,11 +1769,16 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
 
         <div className="ctl-block">
           <div className="hud-title">LAYERS</div>
-          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'maritime'] as const).map((k) => (
+          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'maritime', 'gdacs', 'airquality', 'pegel', 'energy', 'osint'] as const).map((k) => (
             <label key={k} className={layers[k] ? 'on' : ''}>
               <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
             </label>
           ))}
+          {onClearOsintPins && stats.osint > 0 && (
+            <button type="button" className="web-search" style={{ marginTop: 6, fontSize: 10 }} onClick={onClearOsintPins}>
+              CLEAR OSINT PINS
+            </button>
+          )}
         </div>
 
         <div className="ctl-block">
@@ -1350,6 +1793,48 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
         </div>
       </div>
 
+      <div className="globe-timeline">
+        <div className="tl-head">
+          <span>TIMELINE</span>
+          {isTimelineLive ? (
+            <span className="tl-live">● LIVE</span>
+          ) : (
+            <span className="tl-time">{fmtTimelineLabel(timelineCutoff)}</span>
+          )}
+          <button
+            type="button"
+            className="web-search"
+            style={{ fontSize: 9, padding: '2px 6px' }}
+            onClick={() => setScrubT(1)}
+          >
+            LIVE
+          </button>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={1000}
+          value={Math.round(scrubT * 1000)}
+          onChange={(e) => setScrubT(Number(e.target.value) / 1000)}
+          aria-label="Timeline scrub"
+        />
+        <div className="tl-hint">
+          SEISMIC + EVENTS cumulative · {stats.quakes} quakes · {stats.events} events at cursor
+        </div>
+        <div className="tl-window">
+          {TIMELINE_WINDOWS.map((h) => (
+            <button
+              key={h}
+              type="button"
+              className={timelineHours === h ? 'on' : ''}
+              onClick={() => setTimelineHours(h)}
+            >
+              {h}H
+            </button>
+          ))}
+        </div>
+      </div>
+
       {target && (
         <div className={`target-panel ${target.kind}`}>
           <div className="tp-head">
@@ -1358,6 +1843,7 @@ export default function Globe({ focus, onAskAI }: { focus?: FocusTarget | null; 
           </div>
           <div className="tp-title">{target.title}</div>
           {target.lines.map((l, i) => <div key={i} className="tp-line">{l}</div>)}
+          {target.nodeId && <SensorSparklines nodeId={target.nodeId} hours={timelineHours} />}
           {target.link && (
             <a className="tp-link" href={target.link} target="_blank" rel="noreferrer">OPEN SOURCE ↗</a>
           )}

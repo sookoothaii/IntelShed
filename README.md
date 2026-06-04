@@ -12,7 +12,7 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
 
 - **3D Globe** — Cesium World Terrain with lighting, atmosphere, and fog.
 - **Live feeds** (auto-refreshing):
-  - Aircraft positions (OpenSky Network)
+  - Aircraft positions — **OpenSky** (optional OAuth) or **adsb.lol** global grid (free, no key)
   - Satellite constellations + orbits (CelesTrak TLE, propagated with `satellite.js`)
   - Earthquakes, magnitude-colored (USGS)
   - Natural events — wildfires, storms, volcanoes, ice (NASA EONET)
@@ -30,7 +30,10 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
   - Markets — crypto (CoinGecko) + ECB forex (Frankfurter)
   - Military / interesting aircraft (adsb.fi open data)
   - Point weather for any coordinate (Open-Meteo)
-  - Humanitarian disasters worldwide (ReliefWeb / UN OCHA)
+  - Humanitarian crises on globe — **GDACS** alerts (geocoded); optional **ReliefWeb v2** (`RELIEFWEB_APPNAME`)
+  - Timeline scrub — earthquakes + EONET events (6/12/24h window on globe)
+  - Situation Board — fused correlations, anomalies, GDACS, pegel, Pi sensors (`GET /api/situations`)
+  - GDELT news pulse — global headline themes (`GET /api/gdelt/pulse`, no key)
 - **DATA panel** — searchable, filterable tables per feed with satellite-group selector.
 - **Click-to-locate** — click any event or earthquake in the DATA panel to fly to it on the
   globe with a pulsing marker and a TARGET LOCK info card (incl. source links).
@@ -42,8 +45,7 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
   reaching any provider.
 - **Public webcam feeds** — curated traffic, nature, space, and city webcams
   (NASA ISS HDEV, traffic cams, weather stations, cityscapes). Grid view + fullscreen.
-- **OSINT console** — a peer tab alongside AI that embeds the OpenOSINT toolset
-  (username/email/IP enumeration, etc.) running on the off-grid Pi.
+- **OSINT console** — quick lookups (IP, domain, email, …) plus **[Flowsint](https://github.com/reconurge/flowsint)** graph investigations (Docker on PC; see `docs/FLOWSINT_INTEGRATION.md`). OpenOSINT remains on the off-grid Pi.
 - **PC ↔ Pi node sync** — the off-grid Pi pushes its edge telemetry (CPU temp, sensors,
   mesh nodes, Pi-hole, systemd health) into WorldBase every 45 s via a systemd daemon;
   the PC fuses all feeds with the local LLM into a world-situation briefing the Pi pulls
@@ -74,9 +76,10 @@ copy frontend\.env.example frontend\.env
 
 ### 2. One-command start
 ```powershell
+Set-Location -LiteralPath 'D:\MCP Mods\worldbase'   # adjust path
 .\start.ps1
 ```
-Launches the backend (`uvicorn` on `:8000`) and frontend (`vite` on `:5173`).
+Launches the backend (`uvicorn` on **:8002**) and frontend (Vite on **:5176**).
 
 ### 3. Manual start
 
@@ -110,7 +113,10 @@ Frontend (Vite + React + CesiumJS)
 
 Backend (FastAPI + SQLite, async httpx with TTL caching)
   |- /api/health        service heartbeat
-  |- /api/aircraft      OpenSky live ADS-B states
+  |- /api/aircraft      ADS-B states (OpenSky OAuth or adsb.lol fallback; field `source`)
+  |- /api/anomalies     aircraft anomaly scan (same provider)
+  |- /api/situations    fused situation board (correlations, GDACS, pegel, nodes)
+  |- /api/gdelt/pulse   GDELT headline themes (cached, no key)
   |- /api/satellites    CelesTrak TLE (group + limit params)
   |- /api/earthquakes   USGS feed (period + magnitude params)
   |- /api/events        NASA EONET natural events (+ source links)
@@ -121,7 +127,7 @@ Backend (FastAPI + SQLite, async httpx with TTL caching)
   |- /api/weather       point weather for any lat/lon (Open-Meteo)
   |- /api/airquality    PM2.5 / PM10 for monitored cities (Open-Meteo)
   |- /api/gdacs         GDACS disaster alerts with geo coordinates
-  |- /api/geopolitics   active disasters worldwide (ReliefWeb)
+  |- /api/geopolitics   GDACS crises (geocoded) + optional ReliefWeb v2
   |- /api/wildfires     NASA FIRMS thermal anomalies with confidence
   |- /api/lightning     Blitzortung.org live strikes (~10 min window)
   |- /api/energy/de     German power generation mix + CO₂ + price (SMARD)
@@ -164,8 +170,8 @@ Data store (SQLite): feed_cache, aircraft_snapshots, tle_entries, node_state, br
 
 | Service     | Port  | Note                          |
 |-------------|-------|-------------------------------|
-| Frontend    | 5173  | Vite dev server               |
-| Backend API | 8000  | FastAPI + auto docs (`/docs`) |
+| Frontend    | 5176  | Vite dev server (`start.ps1`) |
+| Backend API | 8002  | FastAPI + auto docs (`/docs`) |
 | Ollama      | 11434 | Local LLM (separate install)  |
 
 ---
@@ -183,7 +189,8 @@ The AI panel auto-discovers installed models via `/api/models`.
 
 ## Data sources (no API key required)
 
-- **OpenSky Network** — live aircraft positions
+- **adsb.lol** — global ADS-B grid (free, no key; default when OpenSky not configured)
+- **OpenSky Network** — optional OAuth for higher aircraft rate limits
 - **CelesTrak** — satellite TLE orbital data
 - **USGS** — earthquake feeds
 - **NASA EONET** — natural events
@@ -201,7 +208,8 @@ The AI panel auto-discovers installed models via `/api/models`.
 - **adsb.fi** — military / interesting aircraft (open data, no rate wall)
 - **Open-Meteo** — point weather + air quality forecast
 - **GDACS** — global disaster alert and coordination system
-- **ReliefWeb (UN OCHA)** — active humanitarian disasters
+- **ReliefWeb v2 (UN OCHA)** — optional disasters on CRISES layer (`RELIEFWEB_APPNAME`)
+- **GDELT DOC** — news pulse API (rate-limited; backend caches 10 min)
 - **Public webcam feeds** — traffic agencies, weather services, NASA, city tourism
 - **OpenAI / Anthropic / Groq / OpenRouter** — optional cloud LLM providers
 
@@ -214,6 +222,43 @@ The only credential you need is a Cesium Ion token (for terrain/imagery).
 The Cesium Ion token is read from `frontend/.env` (git-ignored) via `VITE_CESIUM_ION_TOKEN`.
 It is a client-side token (shipped in the built JS), so restrict it to your domains using the
 URL allowlist in the Ion console. Never commit your real `.env`.
+
+**Pi sync:** set `NODE_INGEST_TOKEN` via `.\scripts\setup-node-security.ps1` and deploy to the Pi (`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`).
+
+**Start on Windows** (paths with spaces):
+
+```powershell
+Set-Location -LiteralPath 'D:\MCP Mods\worldbase'
+.\start.ps1
+```
+
+Use `http://localhost:5176` for the UI (Vite may listen on IPv6 `::1` only).
+
+---
+
+## Off-grid Pi (submodule)
+
+Submodule: `offgrid-raspi/`. Edge node at `192.168.1.121`, sync to WorldBase on **port 8002**.
+
+| Topic | Doc |
+|-------|-----|
+| Pi ↔ WorldBase sync + token | [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) |
+| Storage (root vs SD, Borg) | [`offgrid-raspi/docs/pi-storage-layout.md`](offgrid-raspi/docs/pi-storage-layout.md) |
+| Security ops (PC + Pi) | [`docs/SECURITY_OPERATIONS.md`](docs/SECURITY_OPERATIONS.md) |
+| Operator status | [`offgrid-raspi/OFFGRID_STATUS.md`](offgrid-raspi/OFFGRID_STATUS.md) |
+| LLM / WorldBase integration | [`LLM_HANDOFF.md`](LLM_HANDOFF.md) |
+| Next mission / backlog | [`docs/NEXT_LLM_MISSION.md`](docs/NEXT_LLM_MISSION.md) |
+| Flowsint (graph OSINT) | [`docs/FLOWSINT_INTEGRATION.md`](docs/FLOWSINT_INTEGRATION.md) |
+
+SSH from Windows:
+
+```powershell
+& "$env:WINDIR\System32\OpenSSH\ssh.exe" -i "$env:USERPROFILE\.ssh\offgrid-pi" user0@192.168.1.121
+```
+
+**Flowsint on PC:** `.\scripts\setup-flowsint.ps1` then `.\scripts\start-flowsint.ps1 -Build` — embed in WorldBase OSINT tab.
+
+**Security (PC + Pi):** [`docs/SECURITY_OPERATIONS.md`](docs/SECURITY_OPERATIONS.md) — `.\scripts\setup-node-security.ps1`, `.\scripts\pc-security-audit.ps1`
 
 ---
 

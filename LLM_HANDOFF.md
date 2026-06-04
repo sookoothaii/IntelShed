@@ -1,5 +1,5 @@
 # LLM Handoff — WorldBase
-> Last updated: 2026-06-02 | Session: Phase 1+2+3 + FULL SITUATION button
+> Last updated: 2026-06-04 | Pi sync secured, Borg on SD, Flowsint live, security hardening
 
 ## Project Overview
 WorldBase is a spatial intelligence dashboard: React + CesiumJS globe on the frontend, FastAPI backend with 20+ data feeds. No API keys required for any source. All feeds are fail-soft (serve stale cache or empty payload on upstream error).
@@ -67,6 +67,7 @@ worldbase/
 | `/nodes` | Pi node telemetry | DB | Local |
 | `/airquality` | PM2.5/PM10 (6 cities) | 3600s | Open-Meteo |
 | `/gdacs` | Humanitarian alerts | 900s | GDACS RSS |
+| `/pegel` | German river gauges (Pegelonline) | 900s | pegelonline.wsv.de |
 
 ### Intelligence Engine
 | Endpoint | What |
@@ -79,13 +80,26 @@ worldbase/
 ### Pi↔PC Sync (`node_sync.py`)
 | Endpoint | What |
 |----------|------|
-| `/node/ingest` | POST Pi telemetry. Optional HMAC via `X-Node-Token` header |
-| `/nodes` | GET all nodes |
-| `/node/pull` | GET briefing + alerts for Pi. `?mesh=1` for <230 byte payload |
-| `/node/pull/mesh` | Dedicated LoRa endpoint |
+| `/node/ingest` | POST Pi telemetry. **HMAC** body → `X-Node-Token` when `NODE_INGEST_TOKEN` set |
+| `/nodes` | GET all nodes (public read) |
+| `/node/pull` | GET briefing + alerts. Requires `X-Node-Token` when token set |
+| `/node/pull/mesh` | LoRa payload <230 B; same auth as pull |
+| `/node/{id}/command` | POST queue command (PC). Requires `X-Admin-Token` |
+| `/node/{id}/commands` | GET pending commands (Pi). Requires `X-Node-Token` |
 | `/alerts` | GET sensor alerts (threshold-based) |
 
-### OSINT (`osint_tools.py`) — NEW
+**Pi scripts:** `offgrid-raspi/scripts/worldbase_push.py`, `worldbase_pull.py` — deploy + token: `scripts/setup-node-security.ps1`, `offgrid-raspi/scripts/pi-node-token.conf`, `docs/WORLDBASE_PI_SYNC.md`.
+
+### Flowsint (local Docker)
+| Item | Detail |
+|------|--------|
+| Upstream | https://github.com/reconurge/flowsint |
+| Setup | `scripts/setup-flowsint.ps1`, `scripts/start-flowsint.ps1` |
+| UI | http://localhost:5173 (WorldBase Vite stays on **5176**) |
+| Health | `GET /api/flowsint/health` |
+| Doc | `docs/FLOWSINT_INTEGRATION.md` |
+
+### OSINT (`osint_tools.py`)
 | Endpoint | What | Source |
 |----------|------|--------|
 | `/osint/ip/{ip}` | IP geolocation | ip-api.com |
@@ -144,7 +158,7 @@ Frontend uses `v.usd ?? v.price` and `v.usd_24h_change ?? v.change_24h`.
     "cpu_temp_c": 43.8,
     "load_1m": 0.52,
     "ram_pct": 69.0,
-    "disk_pct": 91,
+    "disk_pct": 71,
     "services": {...}
   },
   "sensors": {}  // often empty from Pi
@@ -182,7 +196,9 @@ Frontend uses `v.usd ?? v.price` and `v.usd_24h_change ?? v.change_24h`.
 2. **Node sensors empty**: `n.sensors` is `{}`. Read from `n.health.cpu_temp_c`, `n.health.ram_pct`, etc.
 3. **CoinGecko fields**: Use `v.usd` and `v.usd_24h_change`, not `v.price`/`v.change_24h`.
 4. **Build**: `npm run build` in `frontend/` → outputs to `dist/`. Backend serves `dist/` at `/`.
-5. **Port confusion**: Frontend dev server runs on 5173. Backend API on 8000. User sometimes tries random ports like 56649.
+5. **Port confusion (2026-06-03 audit)**: Canonical dev ports are **Frontend 5176**, **Backend 8002** (`start.ps1`, `vite.config.ts`). Pi `worldbase_push`/`pull` must use **8002** (`fix-worldbase-port-8002.sh`). PC port **8000** is another local service, not WorldBase.
+6. **Pi `/mnt/usb`**: Name suggests USB stick; on this Pi it was **Borg on root** (`/dev/sda2`). Removed 2026-06-03 (~5.4 GB). See `offgrid-raspi/docs/pi-storage-layout.md`. Sneakernet: `mkdir -p /mnt/usb` when needed.
+7. **Stuck `borg`**: `pgrep -a borg` then `kill` before `borg break-lock`; interactive `borg list` without `BORG_PASSPHRASE` can hold the lock for hours.
 
 ---
 
@@ -209,9 +225,12 @@ npm run build                      # outputs dist/
 |-----|---------|---------|
 | `OLLAMA_HOST` | localhost:11434 | Ollama host(s), comma-separated |
 | `OLLAMA_MODEL` | qwen2.5:14b | Default LLM model |
-| `NODE_INGEST_TOKEN` | "" (empty) | HMAC secret for `/node/ingest` |
+| `NODE_INGEST_TOKEN` | "" (empty) | HMAC + shared secret for ingest/pull/commands |
+| `NODE_ADMIN_TOKEN` | (falls back to ingest) | `X-Admin-Token` for `/node/{id}/command` |
+| `WORLDBASE_BIND_HOST` | `127.0.0.1` | Uvicorn bind; `0.0.0.0` when Pi on LAN **with** token |
 | `WORLDBASE_BRIEFING_INTERVAL` | 600 | Autopilot briefing interval (seconds) |
-| `WORLDBASE_SELF` | http://localhost:8000 | Self-referential URL for briefing |
+| `WORLDBASE_SELF` | http://localhost:8002 | Self-referential URL for briefing |
+| `WORLDBASE_PORT` (Pi) | 8002 | Pi push/pull target (was 8000 — root cause of offline node) |
 
 ---
 
@@ -245,17 +264,102 @@ npm run build                      # outputs dist/
 
 ---
 
+## Ecosystem (2026-06-04)
+
+| Component | Location | Status |
+|-----------|----------|--------|
+| WorldBase PC | `192.168.1.111:8002` API, `:5176` UI (`localhost` — Vite may bind `::1`) | Running |
+| Flowsint Docker | `:5173` UI, `:5001` API | Healthy; embed in OSINT tab |
+| Off-Grid Pi | `192.168.1.121`, SSH `~/.ssh/offgrid-pi` | push/pull **Ingest OK**, token deployed |
+| Borg (Pi) | `/mnt/sdcard/borg-repo` | Re-init 2026-06-04; timer enabled; key in `/mnt/sdcard/borg-key-backup/` |
+| Project backup (Pi) | `/mnt/sdcard/offgrid-project-backup/*.tar.gz` | Daily 03:30, timer active |
+| `/mnt/usb` (Pi) | **removed** | No directory — old root Borg gone |
+
+**Pi ops (from Windows PC):**
+```powershell
+& "$env:WINDIR\System32\OpenSSH\ssh.exe" -i "$env:USERPROFILE\.ssh\offgrid-pi" user0@192.168.1.121
+```
+```bash
+sudo offgrid security-harden
+journalctl -u worldbase_push -n 3 --no-pager
+```
+
+**PC fallback (Admin PowerShell):** `scripts/pc-portproxy-for-pi.ps1` forwards `:8000` → `:8002`.
+
+### Pi storage (canonical doc)
+
+Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
+
+| Volume | Mount | 2026-06-03 |
+|--------|-------|------------|
+| USB root SSD | `/` (`sda2` ~28G) | **~71%** used, ~7.9G free (was ~91% before Borg removal) |
+| SD card | `/mnt/sdcard` (`mmcblk0p1` ~30G) | **~83%** used; ZIM/models/maps + daily `offgrid-project-backup` tarballs |
+
+- **ZIM/maps/models** already symlinked to SD — not on root.
+- **Borg** on SD: `/mnt/sdcard/borg-repo` (live 2026-06-04). Old `/mnt/usb` on root **deleted** — `borg list /mnt/usb` → repo does not exist.
+- **Do not** SSH with `offgrid-pi` key *from* the Pi — key is on Windows only.
+
+## 2026-06-03 session (continued)
+
+- Pi port fix verified (`WORLDBASE_PORT=8002`) — push/pull `Ingest OK` / `Pull OK`
+- Pi disk: removed root Borg repo `/mnt/usb` (~5.4G); `offgrid-borg.timer` disabled; docs `pi-storage-layout.md`
+- Globe: transit city selector, GDACS + air quality + **OSINT pins** (mint markers, max 24, clear button)
+- Backend: `/api/cve` (CISA KEV), briefing fusion includes CVE + nodes + GDACS
+- AI chat `build_chat_context` injects CISA KEV list
+- OSINT: IP + reverse-geocode auto-pin on search; counter in OSINT panel header
+- `/api/health`: per-feed `ttl_sec`, `status` (fresh|warn|stale); FULL SITUATION feed grid sorted by age
+- Pi: `disk_pct`/`ram_pct` sensor alerts; briefing alerts if disk >= 85%
+- Pi maintenance: `offgrid-raspi/scripts/pi-disk-maintenance.sh` (warns if Borg returns to `/mnt/usb`)
+- **Pegel:** `backend/pegel_bridge.py`, globe layer + DATA tab `pegel`; OSINT pins persist in `localStorage` (`worldbase_osint_pins_v1`)
+
 ## Next Steps (Ideas)
 
-1. **OSINT → Globe**: Render OSINT results as globe markers with geolocation
-2. **Air Quality + GDACS Tabs**: Add to DATA panel (APIs exist, UI missing)
-3. **Ollama keep_alive**: Send `{"keep_alive": "5m"}` in chat requests to prevent cold-load
-4. **Frontend Tests**: Add Playwright smoke tests
-5. **Offline Mode**: Cache all feeds in IndexedDB for offline globe viewing
-6. **Alert Notifications**: Browser push notifications for critical alerts
-7. **Time Slider**: Scrub through historical feed data on the globe
+**Mission doc:** `docs/NEXT_LLM_MISSION.md` (Phase B–D checklist + copy-paste agent prompt).
+
+**Done (2026-06-04) — Phase A “Positive Palantir”:**
+- `POST /api/osint/pins/import` + Flowsint JSON paste in OSINT tab → `osintPins` / globe
+- Unified **SITUATIONS** board: `GET /api/situations` + overlay (correlations, anomalies, GDACS, pegel, Pi sensors, local pins)
+- Entity graph: `entities` / `entity_links`, `GET /api/entity/{id}/context`
+- Chat tools (Ollama `use_tools`): `osint_ip`, `osint_domain`, `list_correlations`, `list_situations`, `entity_context`, `focus_globe`, `generate_briefing`
+
+**Done (2026-06-04) — Phase B partial:**
+- SMARD API fix (index+timestamp URLs) + `/api/energy/de/globe` + ENERGY layer on globe
+- GTFS defaults (VBB Berlin URL, gtfs.de aggregate HH/MUC with bbox); `gtfs-realtime-bindings` in venv
+- Pegel+rain correlation in `/api/correlations`; situations parallel + 45s cache
+- Browser push for negative DE power price
+
+**Done (2026-06-04) — Phase B close + Phase C start:**
+- **Time slider** on globe (quakes + EONET events, 6/12/24h scrub, cumulative filter)
+- **OpenSky** shared `opensky_client.py` — aircraft, anomalies, correlations use OAuth when `backend/.env` has credentials
+- **Pi sensor sparklines** in globe target panel (`SensorSparklines.tsx`)
+
+**Done (2026-06-04) — Power stack (free feeds, no Palantir budget):**
+- **`aircraft_provider.py`** + **`adsb_client.py`** — `/api/aircraft` uses OpenSky if configured, else **adsb.lol** global grid (ODbL, no key); response includes `source`
+- **`/api/anomalies`** + correlations use same aircraft provider (no more anonymous-OpenSky-only failures)
+- **CRISES layer** — `/api/geopolitics` rebuilt: **GDACS** RSS with `geo_centroids.py` geocoding (ReliefWeb **v1 decommissioned**); optional **ReliefWeb v2** via `RELIEFWEB_APPNAME` in `backend/.env`
+- **`gdelt_bridge.py`** — `GET /api/gdelt/pulse` (GDELT DOC headlines, 10 min cache, rate-limit aware)
+- **`POST /api/flowsint/export-investigation`** — export globe pins for Flowsint workflow
+- Military feed: **adsb.fi** with **adsb.lol `/v2/mil`** fallback
+
+**Backlog:**
+1. **GTFS DE live positions** — VBB feed often trip-updates-only (0 VehiclePosition); Helsinki/Boston verify layer
+2. **OpenSky `.env`** — optional higher rate limits: `OPENSKY_CLIENT_ID` / `SECRET` (see `backend/.env.example`)
+3. **ReliefWeb v2 appname** — request at https://apidoc.reliefweb.int/parameters#appname → `RELIEFWEB_APPNAME`
+4. Pegel history sparklines, aircraft dead-reckoning trails, Situation Board first-load split
+
+**Done (2026-06-03):** Flowsint embed; `/api/flowsint/health`. OSINT pins + localStorage; `/api/pegel`; Ollama `keep_alive: 5m`.
+
+## 2026-06-04 session
+
+- **Security:** `NODE_INGEST_TOKEN` + protected node APIs; `scripts/setup-node-security.ps1`, `pc-security-audit.ps1`; `docs/SECURITY_OPERATIONS.md`
+- **Pi (SSH):** token overrides, HMAC push/pull scripts, `offgrid security-harden`, llama `127.0.0.1`, Borg → `/mnt/sdcard/borg-repo`
+- **Flowsint:** Docker prod stack; CRLF fix in `setup-flowsint.ps1` for `entrypoint.sh`; iframe embed OK in WorldBase
+- **start.ps1:** paths with spaces (`D:\MCP Mods\worldbase`) via `-LiteralPath`
+- **UFW Pi:** admin port **8084** (HAK_GAL), not 8081; passepartout no broad `10.42.0.0/16` allow
+- **Hotspot:** no default PSK in `01_wifi_ap.sh` — generated to `/etc/offgrid/wifi-ap.env`
 
 ---
+
 
 ## Quick Reference: If Something Breaks
 
@@ -265,7 +369,15 @@ npm run build                      # outputs dist/
 | Node shows `CPU: —` | Wrong field path | Use `n.health.cpu_temp_c` |
 | Crypto shows `$—` | Wrong field names | Use `v.usd` / `v.usd_24h_change` |
 | Spaceweather `—` | Fields don't exist | Use `aurora_visible_midlat` / `hf_radio_impact` |
-| Website not reachable | Backend not running | Start `python main.py` on port 8000 |
+| Website not reachable | Backend not running | `.\start.ps1` (use **LiteralPath** if path has spaces) |
+| Frontend only on `localhost:5176` | Vite binds `::1` | Use `http://localhost:5176`, not `127.0.0.1:5176` |
+| Pi `Ingest FAILED` HTTP 403 | Token mismatch | `setup-node-security.ps1` on PC + Pi override from `pi-node-token.conf` |
+| `borg list /mnt/usb` fails | Repo removed 2026-06-03 | Use `/mnt/sdcard/borg-repo`; tar backups on SD |
+| Pi disk alert in UI | Root was >85% | See `offgrid-raspi/docs/pi-storage-layout.md`; run `pi-disk-maintenance.sh` |
+| `borg` lock timeout on Pi | Stuck `borg list`/`check` | `pgrep -a borg`; `kill`; `borg break-lock $BORG_REPO` |
+| AIRCRAFT = 0, OpenSky error | No OAuth + rate limit | Automatic **adsb.lol** fallback; optional credentials in `backend/.env` |
+| CRISES at 0,0 or empty | ReliefWeb v1 dead (410) | Uses **GDACS** + geocoding; set `RELIEFWEB_APPNAME` for v2 |
+| HUD shows `adsb.lol` under AIRCRAFT | Working as designed | OpenSky not configured — free global ADS-B active |
 
 ---
 
@@ -278,4 +390,8 @@ npm run build                      # outputs dist/
 - Node sync: `D:\MCP Mods\worldbase\backend\node_sync.py`
 - OSINT: `D:\MCP Mods\worldbase\backend\osint_tools.py`
 - Main backend: `D:\MCP Mods\worldbase\backend\main.py`
+- Aircraft: `backend/aircraft_provider.py`, `backend/adsb_client.py`, `backend/opensky_client.py`
+- Crises geo: `backend/geo_centroids.py`
+- GDELT pulse: `backend/gdelt_bridge.py`
+- Mission: `docs/NEXT_LLM_MISSION.md`
 - DB: `D:\MCP Mods\worldbase\backend\worldbase.db`

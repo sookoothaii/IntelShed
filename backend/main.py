@@ -25,8 +25,18 @@ import ais_bridge
 import entsoe_bridge
 import firewall_bridge
 import webcam_bridge
+import cve_bridge
+import pegel_bridge
+import flowsint_bridge
+import entity_store
+import situations
+import chat_tools
+import opensky_client
+import aircraft_provider
+import gdelt_bridge
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
+entity_store.set_db_path(DB_PATH)
 
 
 def _load_env():
@@ -45,11 +55,27 @@ def _load_env():
 
 _load_env()
 
-app = FastAPI(title="WorldBase API", version="0.1.0")
+
+def _log_security_startup():
+    ingest = os.getenv("NODE_INGEST_TOKEN", "")
+    if not ingest:
+        print(
+            "[SECURITY] NODE_INGEST_TOKEN not set — /api/node/* is open on the bind address. "
+            "Run scripts/setup-node-security.ps1 (PC) and sync token to the Pi.",
+            flush=True,
+        )
+    else:
+        print("[SECURITY] Node ingest/admin API protected (NODE_INGEST_TOKEN set).", flush=True)
+
+
+_log_security_startup()
+
+app = FastAPI(title="WorldBase API", version="0.1.0", redirect_slashes=False)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5176", "http://127.0.0.1:5176"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -108,6 +134,12 @@ app.include_router(ais_bridge.router)
 app.include_router(entsoe_bridge.router)
 app.include_router(firewall_bridge.router)
 app.include_router(webcam_bridge.router)
+app.include_router(cve_bridge.router)
+app.include_router(pegel_bridge.router)
+app.include_router(flowsint_bridge.router)
+app.include_router(gdelt_bridge.router)
+app.include_router(situations.router)
+
 
 # Disable trailing-slash redirects globally (prevents CORS errors on 307 redirects)
 for r in app.routes:
@@ -136,6 +168,7 @@ async def _briefing_autopilot():
 @app.on_event("startup")
 def on_startup():
     init_db()
+    entity_store.init_entity_db()
     node_sync.init_node_db()
     node_sync.init_command_db()
     global _BRIEFING_AUTOPILOT_TASK
@@ -146,6 +179,41 @@ def on_startup():
 def on_shutdown():
     if _BRIEFING_AUTOPILOT_TASK:
         _BRIEFING_AUTOPILOT_TASK.cancel()
+
+
+# Per-feed max age (seconds) before marked stale in /api/health
+_FEED_TTL_SEC: dict[str, float] = {
+    "airquality": 3600,
+    "gdacs": 900,
+    "pegel": 900,
+    "markets": 120,
+    "military": 60,
+    "spaceweather": 300,
+    "geopolitics": 600,
+    "reliefweb": 600,
+    "eonet": 1800,
+}
+
+
+def _feed_ttl_sec(key: str) -> float:
+    if key in _FEED_TTL_SEC:
+        return _FEED_TTL_SEC[key]
+    if key.startswith("weather:"):
+        return 1800
+    if key.startswith("quakes:"):
+        return 300
+    return 600
+
+
+def _feed_status(age_sec: float | None) -> str:
+    """fresh | warn | stale | unknown"""
+    if age_sec is None:
+        return "unknown"
+    if age_sec < 300:
+        return "fresh"
+    if age_sec < 3600:
+        return "warn"
+    return "stale"
 
 
 @app.get("/api/health")
@@ -161,13 +229,16 @@ def health():
             key, cached_at = row
             try:
                 age = (now - datetime.fromisoformat(cached_at)).total_seconds()
+                ttl = _feed_ttl_sec(key)
                 feeds[key] = {
                     "cached_at": cached_at,
                     "age_sec": round(age, 1),
-                    "fresh": age < 600,
+                    "ttl_sec": ttl,
+                    "fresh": age < ttl,
+                    "status": _feed_status(age),
                 }
             except Exception:
-                feeds[key] = {"cached_at": cached_at, "age_sec": None, "fresh": None}
+                feeds[key] = {"cached_at": cached_at, "age_sec": None, "fresh": None, "status": "unknown"}
         conn.close()
     except Exception:
         pass
@@ -298,83 +369,80 @@ async def build_chat_context() -> str:
     except Exception:
         pass
 
+    # CISA KEV (exploited CVEs)
+    try:
+        base = os.getenv("WORLDBASE_SELF", "http://localhost:8002").rstrip("/")
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(f"{base}/api/cve?limit=8")
+            if r.status_code == 200:
+                cve = r.json()
+                vulns = cve.get("vulnerabilities", [])[:5]
+                if vulns:
+                    parts.append("\nCISA KEV (actively exploited):")
+                    for v in vulns:
+                        parts.append(
+                            f"  {v.get('cve_id')}: {v.get('vendor')} {v.get('product')} "
+                            f"(due {v.get('due_date', '?')})"
+                        )
+    except Exception:
+        pass
+
+    # River gauges (Germany)
+    try:
+        base = os.getenv("WORLDBASE_SELF", "http://localhost:8002").rstrip("/")
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            r = await client.get(f"{base}/api/pegel")
+            if r.status_code == 200:
+                peg = r.json()
+                elevated = [g for g in (peg.get("gauges") or []) if g.get("severity") in ("critical", "high")]
+                if elevated:
+                    parts.append("\nRIVER GAUGES (elevated, DE):")
+                    for g in elevated[:6]:
+                        parts.append(
+                            f"  {g.get('name')} / {g.get('water')}: {g.get('value')} {g.get('unit')} ({g.get('severity')})"
+                        )
+    except Exception:
+        pass
+
     return "\n".join(parts) if parts else "No live context available."
-
-
-# OpenSky OAuth2 (client credentials) — optional, enables real aircraft data
-_OPENSKY_TOKEN: dict = {"token": None, "exp": 0.0}
-_OPENSKY_TOKEN_URL = (
-    "https://auth.opensky-network.org/auth/realms/opensky-network/"
-    "protocol/openid-connect/token"
-)
-
-
-async def _opensky_token():
-    """Return a cached OpenSky bearer token, or None if not configured."""
-    import time
-    cid = os.environ.get("OPENSKY_CLIENT_ID")
-    secret = os.environ.get("OPENSKY_CLIENT_SECRET")
-    if not cid or not secret:
-        return None
-    now = time.time()
-    if _OPENSKY_TOKEN["token"] and now < _OPENSKY_TOKEN["exp"] - 60:
-        return _OPENSKY_TOKEN["token"]
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        r = await client.post(
-            _OPENSKY_TOKEN_URL,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": cid,
-                "client_secret": secret,
-            },
-        )
-        r.raise_for_status()
-        tok = r.json()
-    _OPENSKY_TOKEN["token"] = tok["access_token"]
-    _OPENSKY_TOKEN["exp"] = now + float(tok.get("expires_in", 1800))
-    return _OPENSKY_TOKEN["token"]
 
 
 @app.get("/api/aircraft")
 async def get_aircraft(limit: int = 800):
-    """Fetch live aircraft from OpenSky Network (cached 15s).
-
-    OpenSky's anonymous API is heavily rate-limited (HTTP 429). On any upstream
-    failure we serve the last good snapshot (stale cache) instead of erroring,
-    so the globe keeps showing aircraft.
-    """
+    """Live aircraft: OpenSky (OAuth) when configured, else adsb.lol grid (free, ODbL)."""
     cache_key = "aircraft"
     cached = _cache_get(cache_key, ttl=15.0)
+    source = "cache"
     if cached is None:
         try:
-            headers = {}
-            token = await _opensky_token()
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.get(
-                    "https://opensky-network.org/api/states/all", headers=headers
-                )
-                r.raise_for_status()
-                cached = r.json()
+            cached, source = await aircraft_provider.fetch_live_states()
             _cache_set(cache_key, cached)
         except Exception as e:
             stale = _CACHE.get(cache_key)
             if stale:
                 cached = stale[1]
+                source = cached.get("source", "stale")
             else:
                 return {
                     "count": 0,
                     "timestamp": None,
                     "states": [],
-                    "error": f"OpenSky unavailable ({e.__class__.__name__}); no cached data yet.",
+                    "source": None,
+                    "error": (
+                        f"Aircraft feeds unavailable ({e.__class__.__name__}). "
+                        "Optional: OPENSKY_CLIENT_ID/SECRET in backend/.env; "
+                        "otherwise adsb.lol is used automatically."
+                    ),
                 }
+    else:
+        source = cached.get("source", "cache")
 
     states = cached.get("states", []) or []
     with_pos = [s for s in states if len(s) > 6 and s[5] is not None and s[6] is not None]
     return {
         "count": len(with_pos),
         "timestamp": cached.get("time"),
+        "source": source,
         "states": with_pos[: max(0, min(limit, 5000))],
     }
 
@@ -625,6 +693,7 @@ async def chat_proxy(payload: dict):
     provider = payload.get("provider", "ollama")
     model = payload.get("model", "qwen2.5:14b")
     use_stream = payload.get("stream", False)
+    firewall_meta = None
 
     # Optional: LLM-Security-Firewall scan (only if explicitly requested)
     if payload.get("firewall"):
@@ -632,21 +701,22 @@ async def chat_proxy(payload: dict):
         user_text = _extract_user_text(payload.get("messages", []))
         if user_text:
             scan = await firewall_scan(user_text)
-            if scan.get("data", {}).get("should_block") or (scan.get("data", {}).get("risk_score", 0) > 0.7):
+            firewall_meta = scan.get("data")
+            if firewall_meta and (firewall_meta.get("should_block") or firewall_meta.get("risk_score", 0) > 0.7):
                 block_msg = {
                     "message": {
                         "role": "assistant",
                         "content": (
                             "⚠️ **FIREWALL BLOCK**\n\n"
                             "This message was flagged by the LLM-Security-Firewall.\n"
-                            f"Risk Score: {scan.get('data', {}).get('risk_score', '—')}\n"
-                            f"Matched: {', '.join(scan.get('data', {}).get('matched_patterns', [])[:3]) or '—'}\n\n"
+                            f"Risk Score: {firewall_meta.get('risk_score', '—')}\n"
+                            f"Matched: {', '.join(firewall_meta.get('matched_patterns', [])[:3]) or '—'}\n\n"
                             "Set `firewall: false` to bypass (not recommended)."
                         ),
                     },
                     "done": True,
                     "firewall_blocked": True,
-                    "firewall_meta": scan.get("data", {}),
+                    "firewall_meta": firewall_meta,
                 }
                 if use_stream:
                     return StreamingResponse(
@@ -685,14 +755,31 @@ async def chat_proxy(payload: dict):
     # ------------------------------------------------------------------
     # OLLAMA (local, default)
     # ------------------------------------------------------------------
+    use_tools = payload.get("use_tools", provider == "ollama")
+
     if provider == "ollama":
         if use_stream:
             async def ollama_stream():
+                if firewall_meta:
+                    yield f"data: {json.dumps({'firewall_result': firewall_meta})}\n\n"
                 last_err = None
                 for host in OLLAMA_HOSTS:
                     host = host.strip()
-                    url = f"http://{host}/api/chat"
                     try:
+                        if use_tools:
+                            final_msgs, actions = await chat_tools.run_ollama_with_tools(
+                                host, model, messages, max_rounds=4
+                            )
+                            for act in actions:
+                                yield f"data: {json.dumps({'client_action': act})}\n\n"
+                            text = (final_msgs[-1].get("content") or "") if final_msgs else ""
+                            if text:
+                                chunk = 48
+                                for i in range(0, len(text), chunk):
+                                    yield f"data: {json.dumps({'token': text[i:i + chunk]})}\n\n"
+                            yield f"data: {json.dumps({'done': True})}\n\n"
+                            return
+                        url = f"http://{host}/api/chat"
                         async with httpx.AsyncClient(timeout=60.0) as client:
                             async with client.stream(
                                 "POST",
@@ -732,8 +819,18 @@ async def chat_proxy(payload: dict):
         last_err = None
         for host in OLLAMA_HOSTS:
             host = host.strip()
-            url = f"http://{host}/api/chat"
             try:
+                if use_tools:
+                    final_msgs, actions = await chat_tools.run_ollama_with_tools(
+                        host, model, messages, max_rounds=4
+                    )
+                    text = (final_msgs[-1].get("content") or "") if final_msgs else ""
+                    return {
+                        "message": {"role": "assistant", "content": text},
+                        "client_actions": actions,
+                        "done": True,
+                    }
+                url = f"http://{host}/api/chat"
                 async with httpx.AsyncClient(timeout=60.0) as client:
                     r = await client.post(
                         url,

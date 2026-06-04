@@ -1,11 +1,16 @@
 import { useState, useEffect } from 'react'
 import Globe from './components/Globe'
+import FirewallPanel from './components/FirewallPanel'
+import SituationBoard from './components/SituationBoard'
 import type { FocusTarget } from './lib/focus'
+import type { OsintPin } from './lib/osintPins'
+import { loadOsintPins, saveOsintPins, mergeImportedPins } from './lib/osintPins'
 
-const NAV_ITEMS: { id: 'globe' | 'data' | 'chat' | 'osint'; label: string; glyph: string }[] = [
+const NAV_ITEMS: { id: 'globe' | 'data' | 'chat' | 'firewall' | 'osint'; label: string; glyph: string }[] = [
   { id: 'globe', label: 'GLOBE', glyph: '◎' },
   { id: 'data', label: 'DATA', glyph: '▤' },
   { id: 'chat', label: 'AI', glyph: '✦' },
+  { id: 'firewall', label: 'FIREWALL', glyph: '🛡️' },
   { id: 'osint', label: 'OSINT', glyph: '⌖' },
 ]
 
@@ -22,23 +27,28 @@ function useAlertNotifications() {
     const check = async () => {
       if (Notification.permission !== 'granted') return
       try {
-        const [corrRes, anomRes] = await Promise.all([
-          fetch('/api/correlations/').then(r => r.ok ? r.json() : null),
-          fetch('/api/anomalies/').then(r => r.ok ? r.json() : null),
+        const [corrRes, anomRes, energyRes] = await Promise.all([
+          fetch('/api/correlations').then(r => r.ok ? r.json() : null),
+          fetch('/api/anomalies').then(r => r.ok ? r.json() : null),
+          fetch('/api/energy/de').then(r => r.ok ? r.json() : null),
         ])
         const now = Date.now()
         if (now - lastNotified < 300000) return // 5 min cooldown
         const situations = corrRes?.situations || []
         const anomalies = anomRes?.anomalies || []
-        if (situations.length > 0 || anomalies.length > 0) {
-          const titles = [
-            ...situations.map((s: any) => s.title),
-            ...anomalies.slice(0, 3).map((a: any) => `Anomaly ${a.callsign || a.icao24}`),
-          ]
+        const price = energyRes?.day_ahead_price?.latest_eur_mwh
+        const titles: string[] = [
+          ...situations.map((s: any) => s.title),
+          ...anomalies.slice(0, 3).map((a: any) => `Anomaly ${a.callsign || a.icao24}`),
+        ]
+        if (price != null && price < 0) {
+          titles.unshift(`DE power price negative: ${price.toFixed(1)} €/MWh`)
+        }
+        if (titles.length > 0) {
           new Notification('WorldBase Alert', {
             body: titles.join(' | '),
             icon: '/favicon.ico',
-            tag: 'worldbase-alert',
+            tag: price != null && price < 0 ? 'worldbase-energy' : 'worldbase-alert',
           })
           setLastNotified(now)
         }
@@ -69,11 +79,11 @@ function SystemStatus() {
   useEffect(() => {
     const ping = async () => {
       try {
-        const r = await fetch('/api/health/')
+        const r = await fetch('/api/health')
         setBackend(r.ok ? 'online' : 'offline')
       } catch { setBackend('offline') }
       try {
-        const r = await fetch('/api/models/')
+        const r = await fetch('/api/models')
         const d = await r.json()
         setOllama(d.error ? 'offline' : 'online')
       } catch { setOllama('offline') }
@@ -92,12 +102,28 @@ function SystemStatus() {
 }
 
 export default function App() {
-  const [view, setView] = useState<'globe' | 'data' | 'chat' | 'osint'>('globe')
+  const [view, setView] = useState<'globe' | 'data' | 'chat' | 'firewall' | 'osint'>('globe')
   const [booting, setBooting] = useState(true)
   const [focus, setFocus] = useState<FocusTarget | null>(null)
   const [askAI, setAskAI] = useState<{ question: string; context: string } | null>(null)
   const [analysisOpen, setAnalysisOpen] = useState(false)
+  const [situationOpen, setSituationOpen] = useState(false)
+  const [firewallHistory, setFirewallHistory] = useState<any[]>([])
+  const [osintPins, setOsintPins] = useState<OsintPin[]>(() => loadOsintPins())
   useAlertNotifications()
+
+  useEffect(() => {
+    saveOsintPins(osintPins)
+  }, [osintPins])
+
+  const addOsintPin = (pin: Omit<OsintPin, 'ts'>) => {
+    setOsintPins((prev) => {
+      const next = [...prev.filter((p) => p.id !== pin.id), { ...pin, ts: Date.now() }]
+      return next.slice(-24)
+    })
+  }
+
+  const clearOsintPins = () => setOsintPins([])
   const now = useClock()
 
   const focusOnMap = (f: Omit<FocusTarget, 'ts'>) => {
@@ -149,7 +175,8 @@ export default function App() {
         </nav>
 
         <div className="hud-meta">
-          <button className="mega-analysis-btn" onClick={() => setAnalysisOpen(true)}>FULL SITUATION</button>
+          <button className="mega-analysis-btn" onClick={() => setSituationOpen(true)}>SITUATIONS</button>
+          <button className="mega-analysis-btn secondary" onClick={() => setAnalysisOpen(true)}>FULL SITUATION</button>
           <SystemStatus />
           <div className="hud-clock">
             <span className="clock-time">{utc}</span>
@@ -158,18 +185,68 @@ export default function App() {
         </div>
       </header>
 
+      {situationOpen && (
+        <SituationBoard
+          onClose={() => setSituationOpen(false)}
+          onFocus={focusOnMap}
+          osintPins={osintPins}
+          onAddPin={addOsintPin}
+          onAskAI={handleAskAI}
+        />
+      )}
       {analysisOpen && <FullAnalysisOverlay onClose={() => setAnalysisOpen(false)} onFocus={focusOnMap} />}
 
       <main className="hud-main">
         <div key={view} className="view-fade">
-          {view === 'globe' && <Globe focus={focus} onAskAI={handleAskAI} />}
+          {view === 'globe' && <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} />}
           {view === 'data' && <DataPanel onFocus={focusOnMap} />}
-          {view === 'chat' && <ChatPanel askAI={askAI} onClearAsk={() => setAskAI(null)} />}
-          {view === 'osint' && <OsintPanel onFocus={focusOnMap} />}
+          {view === 'chat' && (
+            <ChatPanel
+              askAI={askAI}
+              onClearAsk={() => setAskAI(null)}
+              onFirewallResult={(r) => setFirewallHistory(h => [r, ...h].slice(0, 100))}
+              onClientAction={(act) => {
+                if (act?.type === 'focus_globe' && act.lat != null && act.lon != null) {
+                  focusOnMap({
+                    kind: act.kind || 'ai_focus',
+                    lat: act.lat,
+                    lon: act.lon,
+                    height: 400000,
+                    title: act.title || 'AI focus',
+                    lines: act.lines || [],
+                  })
+                }
+              }}
+            />
+          )}
+          {view === 'firewall' && <FirewallPanel history={firewallHistory} />}
+          {view === 'osint' && (
+            <OsintPanel
+              onFocus={focusOnMap}
+              onAddPin={addOsintPin}
+              onImportPins={(pins) => setOsintPins((prev) => mergeImportedPins(prev, pins))}
+              pinCount={osintPins.length}
+            />
+          )}
         </div>
       </main>
     </div>
   )
+}
+
+function fmtFeedAge(sec: number | null | undefined): string {
+  if (sec == null || !Number.isFinite(sec)) return '—'
+  if (sec < 60) return `${Math.round(sec)}s`
+  if (sec < 3600) return `${Math.round(sec / 60)}m`
+  return `${(sec / 3600).toFixed(1)}h`
+}
+
+function feedHealthStyle(v: { status?: string; fresh?: boolean; age_sec?: number }) {
+  const st = v.status || (v.fresh ? 'fresh' : 'stale')
+  if (st === 'fresh') return { border: '#00e5a0', color: '#00e5a0', label: 'FRESH' }
+  if (st === 'warn') return { border: '#ffd23f', color: '#ffd23f', label: 'WARN' }
+  if (st === 'stale') return { border: '#ff6b35', color: '#ff6b35', label: 'STALE' }
+  return { border: '#6f8c84', color: '#6f8c84', label: '—' }
 }
 
 function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
@@ -195,6 +272,8 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
         { key: 'airquality', url: '/api/airquality' },
         { key: 'gdacs', url: '/api/gdacs' },
         { key: 'briefing', url: '/api/briefing' },
+        { key: 'cve', url: '/api/cve?limit=15' },
+        { key: 'pegel', url: '/api/pegel' },
       ]
       const out: any = {}
       await Promise.all(endpoints.map(async (ep) => {
@@ -216,6 +295,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   const health = results.health
   const correlations = results.correlations
   const briefing = results.briefing
+  const cveFeed = results.cve
   const quakes = (results.earthquakes?.earthquakes || []).slice(0, 15)
   const wildfires = (results.events?.events || []).filter((e: any) => (e.category || '').toLowerCase().includes('fire') || (e.title || '').toLowerCase().includes('fire')).slice(0, 8)
   const allEvents = (results.events?.events || []).filter((e: any) => !((e.category || '').toLowerCase().includes('fire') || (e.title || '').toLowerCase().includes('fire'))).slice(0, 10)
@@ -223,6 +303,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   const gdacs = (results.gdacs?.alerts || []).slice(0, 15)
   const anomalies = results.anomalies
   const air = results.airquality
+  const pegel = results.pegel
   const nodes = results.nodes
 
   const severityColor = (s: string) => {
@@ -272,6 +353,18 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
           <div className="analysis-body">
             <div className="analysis-col">
 
+              {nodes?.nodes?.some((n: any) => (n.health?.disk_pct ?? 0) >= 85) && (
+                <div className="analysis-section critical">
+                  <h3>⚠ EDGE NODE DISK</h3>
+                  {nodes.nodes.filter((n: any) => (n.health?.disk_pct ?? 0) >= 85).map((n: any, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: '3px solid #ffd23f' }}>
+                      <span style={{ color: '#ffd23f', fontWeight: 'bold' }}>DISK</span>
+                      <span>{n.name}: {n.health?.disk_pct}% — run `sudo bash ~/pi-disk-maintenance.sh` on Pi</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* CRITICAL ALERTS */}
               {(correlations?.situations?.length > 0 || anomalies?.count > 0) && (
                 <div className="analysis-section critical">
@@ -299,6 +392,19 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                 <div className="analysis-section">
                   <h3>📋 SITUATION BRIEFING</h3>
                   <div className="analysis-briefing">{briefing.text}</div>
+                </div>
+              )}
+
+              {(cveFeed?.vulnerabilities?.length ?? 0) > 0 && (
+                <div className="analysis-section">
+                  <h3>🔐 CISA KEV ({cveFeed.vulnerabilities.length})</h3>
+                  {cveFeed.vulnerabilities.slice(0, 8).map((v: any, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${v.ransomware === 'Known' ? '#ff2d00' : '#ff6b35'}` }}>
+                      <span style={{ fontWeight: 'bold', minWidth: 120 }}>{v.cve_id}</span>
+                      <span style={{ flex: 1 }}>{v.vendor} — {v.product}</span>
+                      <span style={{ color: '#6f8c84', fontSize: 10 }}>due {v.due_date || '—'}</span>
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -414,6 +520,29 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                 </div>
               )}
 
+              {(pegel?.gauges?.length ?? 0) > 0 && (
+                <div className="analysis-section">
+                  <h3>🌊 RIVER GAUGES DE ({pegel.gauges.length})</h3>
+                  {pegel.gauges.filter((g: any) => g.severity === 'critical' || g.severity === 'high').map((g: any, i: number) => (
+                    <div key={`a-${i}`} className="analysis-row" style={{ borderLeft: '3px solid #ff6b35' }}>
+                      <span style={{ fontWeight: 'bold', minWidth: 100 }}>{g.name}</span>
+                      <span style={{ minWidth: 60 }}>{g.water}</span>
+                      <span>{g.value} {g.unit}</span>
+                      <span style={{ color: '#ff6b35' }}>{g.severity}</span>
+                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'pegel', lon: g.lon, lat: g.lat, height: 350000, title: `${g.name} (${g.water})`, lines: [`Level: ${g.value} ${g.unit}`, `State: ${g.state_mnw_mhw || '—'} / ${g.state_nsw_hsw || '—'}`] }) }}>◎</button>
+                    </div>
+                  ))}
+                  {pegel.gauges.filter((g: any) => g.severity === 'normal' || g.severity === 'low').slice(0, 6).map((g: any, i: number) => (
+                    <div key={`n-${i}`} className="analysis-row" style={{ borderLeft: '3px solid #4fc3f7' }}>
+                      <span style={{ fontWeight: 'bold', minWidth: 100 }}>{g.name}</span>
+                      <span style={{ minWidth: 60 }}>{g.water}</span>
+                      <span>{g.value} {g.unit}</span>
+                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'pegel', lon: g.lon, lat: g.lat, height: 350000, title: `${g.name} (${g.water})`, lines: [`Level: ${g.value} ${g.unit}`] }) }}>◎</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {results.markets?.crypto && (
                 <div className="analysis-section">
                   <h3>📈 CRYPTO MARKETS</h3>
@@ -436,20 +565,23 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
               {nodes?.nodes?.length > 0 && (
                 <div className="analysis-section">
                   <h3>📡 NODES ({nodes.count})</h3>
-                  {nodes.nodes.map((n: any, i: number) => (
-                    <div key={i} className="analysis-row" style={{ borderLeft: n.online ? '3px solid #00e5a0' : '3px solid #ff2d00' }}>
+                  {nodes.nodes.map((n: any, i: number) => {
+                    const disk = n.health?.disk_pct
+                    const diskWarn = disk != null && disk >= 85
+                    return (
+                    <div key={i} className="analysis-row" style={{ borderLeft: n.online ? (diskWarn ? '3px solid #ffd23f' : '3px solid #00e5a0') : '3px solid #ff2d00' }}>
                       <span style={{ fontWeight: 'bold' }}>{n.name}</span>
                       <span style={{ color: n.online ? '#00e5a0' : '#ff2d00' }}>{n.online ? 'ONLINE' : 'OFFLINE'}</span>
                       <span style={{ color: '#6f8c84' }}>{Math.round(n.age_seconds || 0)}s ago</span>
                       <span style={{ color: '#6f8c84' }}>CPU: {n.health?.cpu_temp_c != null ? n.health.cpu_temp_c + '°C' : '—'}</span>
                       <span style={{ color: '#6f8c84' }}>Load: {n.health?.load_1m != null ? n.health.load_1m : '—'}</span>
                       <span style={{ color: '#6f8c84' }}>RAM: {n.health?.ram_pct != null ? n.health.ram_pct + '%' : '—'}</span>
-                      <span style={{ color: '#6f8c84' }}>Disk: {n.health?.disk_pct != null ? n.health.disk_pct + '%' : '—'}</span>
+                      <span style={{ color: diskWarn ? '#ffd23f' : '#6f8c84', fontWeight: diskWarn ? 'bold' : 'normal' }}>Disk: {disk != null ? disk + '%' : '—'}{diskWarn ? ' ⚠' : ''}</span>
                       {n.lat && (
-                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 400000, title: n.name, lines: [`Node: ${n.node_id}`, `CPU: ${n.health?.cpu_temp_c ?? '—'}°C`, `RAM: ${n.health?.ram_pct ?? '—'}%`] }) }}>◎</button>
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 400000, title: n.name, lines: [`Node: ${n.node_id}`, `CPU: ${n.health?.cpu_temp_c ?? '—'}°C`, `RAM: ${n.health?.ram_pct ?? '—'}%`, `Disk: ${disk ?? '—'}%`] }) }}>◎</button>
                       )}
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
 
@@ -457,12 +589,17 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                 <div className="analysis-section">
                   <h3>🔌 FEED HEALTH</h3>
                   <div className="analysis-grid">
-                    {Object.entries(health.feeds).map(([k, v]: [string, any]) => (
-                      <div key={k} className="analysis-card" style={{ borderLeft: v.fresh ? '3px solid #00e5a0' : '3px solid #ff6b35' }}>
+                    {Object.entries(health.feeds)
+                      .sort(([, a]: [string, any], [, b]: [string, any]) => (b.age_sec || 0) - (a.age_sec || 0))
+                      .map(([k, v]: [string, any]) => {
+                        const st = feedHealthStyle(v)
+                        return (
+                      <div key={k} className="analysis-card" style={{ borderLeft: `3px solid ${st.border}` }}>
                         <strong>{k}</strong>
-                        <span style={{ color: v.fresh ? '#00e5a0' : '#ff6b35' }}>{v.fresh ? 'FRESH' : `${Math.round(v.age_sec || 0)}s old`}</span>
+                        <span style={{ color: st.color }}>{st.label} · {fmtFeedAge(v.age_sec)}</span>
                       </div>
-                    ))}
+                        )
+                      })}
                   </div>
                 </div>
               )}
@@ -504,7 +641,7 @@ type Quake = { id: string; place: string; mag: number; depth: number; time: numb
 type WEvent = { id: string; title: string; category: string; categories?: string[]; date: string; lon: number; lat: number; magnitude?: number | null; unit?: string | null; closed?: string | null; link?: string; sources?: string[]; points?: number }
 type Sat = { name: string; tle1: string; tle2: string }
 
-const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams'] as const
+const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'pegel', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams', 'cve'] as const
 type DataTab = typeof DATA_TABS[number]
 
 type NodeInfo = { node_id: string; name: string; lat: number; lon: number; updated_at: string; payload?: any }
@@ -513,11 +650,16 @@ type Disaster = { id: string; name: string; status: string; url?: string }
 type Situation = { severity: string; type: string; title: string; location: any; details: any }
 type AirQualityCity = { city: string; lat: number; lon: number; pm25: number | null; pm10: number | null; time: string | null }
 type GDACSAlert = { title: string; link: string; description: string; published: string; lat: number | null; lon: number | null }
+type RiverGauge = { uuid: string; name: string; water: string; lon: number; lat: number; series: string; unit: string; value: number; timestamp?: string; severity: string; state_mnw_mhw?: string; state_nsw_hsw?: string }
 type WeatherPoint = { lat: number; lon: number; current: any; units: any; timezone: string }
 
 const SAT_GROUPS = ['starlink', 'stations', 'gps-ops', 'weather']
 
 function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
+  const fmtNum = (n: any, digits = 0): string => {
+    const v = Number(n)
+    return Number.isFinite(v) ? v.toFixed(digits) : '—'
+  }
   const [tab, setTab] = useState<DataTab>('aircraft')
   const [aircraft, setAircraft] = useState<(string | number | null)[][]>([])
   const [satellites, setSatellites] = useState<Sat[]>([])
@@ -534,6 +676,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const [health, setHealth] = useState<{ status: string; time: string } | null>(null)
   const [airquality, setAirquality] = useState<{ cities: AirQualityCity[]; updated: string; error?: string } | null>(null)
   const [gdacs, setGdacs] = useState<{ count: number; alerts: GDACSAlert[]; error?: string } | null>(null)
+  const [pegel, setPegel] = useState<{ count: number; alerts: number; gauges: RiverGauge[]; error?: string } | null>(null)
   const [weather, setWeather] = useState<WeatherPoint | null>(null)
   const [wildfires, setWildfires] = useState<{ count: number; fires: any[]; updated: string } | null>(null)
   const [lightning, setLightning] = useState<{ count: number; strikes: any[]; updated: string } | null>(null)
@@ -546,6 +689,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const [euCountry, setEuCountry] = useState('de')
   const [webcams, setWebcams] = useState<{ count: number; categories: string[]; webcams: any[]; cached_at: string } | null>(null)
   const [webcamCategory, setWebcamCategory] = useState('')
+  const [cve, setCve] = useState<{ count: number; vulnerabilities: any[]; date_released?: string; error?: string } | null>(null)
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -578,6 +722,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
   const loadHealth = () => fetchFeed('health', '/api/health', (d: any) => setHealth(d))
   const loadAirquality = () => fetchFeed('airquality', '/api/airquality', (d: any) => setAirquality(d))
   const loadGdacs = () => fetchFeed('gdacs', '/api/gdacs', (d: any) => setGdacs(d))
+  const loadPegel = () => fetchFeed('pegel', '/api/pegel', (d: any) => setPegel(d))
   const loadWeather = () => fetchFeed('weather', '/api/weather?lat=13.75&lon=100.5', (d: any) => setWeather(d))
   const loadWildfires = () => fetchFeed('wildfires', '/api/wildfires', (d: any) => setWildfires(d))
   const loadLightning = () => fetchFeed('lightning', '/api/lightning', (d: any) => setLightning(d))
@@ -608,6 +753,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
     const url = webcamCategory ? `/api/webcams?category=${webcamCategory}` : '/api/webcams'
     fetchFeed('webcams', url, (d: any) => setWebcams(d))
   }
+  const loadCve = () => fetchFeed('cve', '/api/cve?limit=40', (d: any) => setCve(d))
 
   // Auto-load on tab switch
   useEffect(() => {
@@ -626,6 +772,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
     else if (tab === 'health') loadHealth()
     else if (tab === 'airquality') loadAirquality()
     else if (tab === 'gdacs') loadGdacs()
+    else if (tab === 'pegel') loadPegel()
     else if (tab === 'weather') loadWeather()
     else if (tab === 'wildfires') loadWildfires()
     else if (tab === 'lightning') loadLightning()
@@ -635,6 +782,7 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
     else if (tab === 'maritime') loadMaritime()
     else if (tab === 'eu-energy') loadEuEnergy()
     else if (tab === 'webcams') loadWebcams()
+    else if (tab === 'cve') loadCve()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, transitCity, euCountry, webcamCategory])
 
@@ -809,10 +957,9 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
             <div className="iss-grid">
               <div className="iss-card"><span>KP INDEX</span><strong>{spaceweather.kp_index ?? '—'}</strong></div>
               <div className="iss-card"><span>SCALE</span><strong>{spaceweather.scale ?? '—'}</strong></div>
-              <div className="iss-card"><span>SOLAR WIND</span><strong>{spaceweather.solar_wind_speed ? spaceweather.solar_wind_speed + ' km/s' : '—'}</strong></div>
-              <div className="iss-card"><span>BT</span><strong>{spaceweather.bt ?? '—'} nT</strong></div>
-              <div className="iss-card"><span>DST</span><strong>{spaceweather.dst ?? '—'} nT</strong></div>
-              <div className="iss-card"><span>AURORA</span><strong>{spaceweather.aurora_probability ? Math.round(spaceweather.aurora_probability * 100) + '%' : '—'}</strong></div>
+              <div className="iss-card"><span>AURORA MID-LAT</span><strong>{spaceweather.aurora_visible_midlat ? 'VISIBLE' : 'none'}</strong></div>
+              <div className="iss-card"><span>HF RADIO</span><strong>{spaceweather.hf_radio_impact ? 'IMPACTED' : 'OK'}</strong></div>
+              <div className="iss-card"><span>HISTORY</span><strong>{spaceweather.history?.length ?? 0} pts</strong></div>
             </div>
           ) : <div className="health-status pending">NO DATA</div>}
         </section>
@@ -945,10 +1092,10 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
               {military.map((a: MilitaryAircraft, i: number) => (
                 <tr key={i} onClick={() => a.lat && a.lon && onFocus({ kind: 'aircraft', lon: a.lon, lat: a.lat, height: 300000, title: a.flight || a.hex, lines: [`TYPE: ${a.type || '—'}`, `ALT: ${a.alt ?? '—'} m`, `SPEED: ${a.speed ?? '—'} m/s`, `SQUAWK: ${a.squawk || '—'}`] })}>
                   <td>{a.hex}</td><td>{a.flight || '—'}</td><td>{a.type || '—'}</td>
-                  <td>{a.lat != null ? a.lat.toFixed(2) : '—'}</td>
-                  <td>{a.lon != null ? a.lon.toFixed(2) : '—'}</td>
-                  <td>{a.alt != null ? Math.round(a.alt) : '—'}</td>
-                  <td>{a.speed != null ? a.speed.toFixed(1) : '—'}</td>
+                  <td>{fmtNum(a.lat, 2)}</td>
+                  <td>{fmtNum(a.lon, 2)}</td>
+                  <td>{fmtNum(a.alt, 0)}</td>
+                  <td>{fmtNum(a.speed, 1)}</td>
                   <td style={{ color: ['7500', '7600', '7700'].includes(a.squawk || '') ? '#ff2d00' : 'inherit', fontWeight: ['7500', '7600', '7700'].includes(a.squawk || '') ? 'bold' : 'normal' }}>{a.squawk || '—'}</td>
                   <td className="locate-cell">◎ LOCATE</td>
                 </tr>
@@ -1030,6 +1177,34 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
               )
             })}
           </div>
+        </section>
+      )}
+
+      {tab === 'pegel' && (
+        <section>
+          <button onClick={loadPegel} disabled={loading['pegel']}>{loading['pegel'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{pegel?.count ?? 0} gauges (DE)</span>
+          {(pegel?.alerts ?? 0) > 0 && <span className="data-count" style={{ color: '#ff6b35' }}>{pegel?.alerts} elevated</span>}
+          {pegel?.error && <div className="data-error">{pegel.error}</div>}
+          {!pegel?.gauges?.length && !pegel?.error && <div className="health-status pending">No gauge data</div>}
+          <table className="data-table">
+            <thead><tr><th>Station</th><th>River</th><th>Level</th><th>State</th><th>Status</th></tr></thead>
+            <tbody>
+              {(pegel?.gauges || []).map((g: RiverGauge, i: number) => {
+                const color = g.severity === 'critical' ? '#ff2d00' : g.severity === 'high' ? '#ff6b35' : g.severity === 'low' ? '#88aaff' : '#4fc3f7'
+                return (
+                  <tr key={i} style={{ cursor: 'pointer' }} onClick={() => onFocus({ kind: 'pegel', lon: g.lon, lat: g.lat, height: 350000, title: `${g.name} (${g.water})`, lines: [`${g.value} ${g.unit}`, `${g.state_mnw_mhw || '—'} / ${g.state_nsw_hsw || '—'}`, g.timestamp || ''] })}>
+                    <td><strong>{g.name}</strong></td>
+                    <td>{g.water}</td>
+                    <td style={{ color }}>{g.value} {g.unit}</td>
+                    <td style={{ fontSize: 11 }}>{g.state_mnw_mhw || '—'}</td>
+                    <td style={{ color, fontWeight: 'bold' }}>{g.severity}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 8, fontSize: 11, color: '#6f8c84' }}>Source: Pegelonline (WSV)</div>
         </section>
       )}
 
@@ -1282,6 +1457,30 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
         </section>
       )}
 
+      {tab === 'cve' && (
+        <section>
+          <button onClick={loadCve} disabled={loading['cve']}>{loading['cve'] ? 'Loading…' : '↻ Refresh'}</button>
+          <span className="data-count">{cve?.count ?? 0} CISA KEV entries</span>
+          {cve?.error && <div className="data-error">{cve.error}</div>}
+          {!cve?.vulnerabilities?.length && !cve?.error && <div className="health-status pending">No CVE data</div>}
+          <table className="data-table">
+            <thead><tr><th>CVE</th><th>Vendor</th><th>Product</th><th>Added</th><th>Ransomware</th></tr></thead>
+            <tbody>
+              {(cve?.vulnerabilities || []).map((v: any, i: number) => (
+                <tr key={i}>
+                  <td><strong>{v.cve_id}</strong></td>
+                  <td>{v.vendor || '—'}</td>
+                  <td>{v.product || '—'}</td>
+                  <td>{v.date_added || '—'}</td>
+                  <td style={{ color: v.ransomware === 'Known' ? '#ff2d00' : '#6f8c84' }}>{v.ransomware || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {cve?.date_released && <div style={{ marginTop: 8, fontSize: 11, color: '#6f8c84' }}>Catalog: {cve.date_released}</div>}
+        </section>
+      )}
+
       {tab === 'webcams' && (
         <WebcamSection
           webcams={webcams}
@@ -1449,7 +1648,76 @@ function WebcamSection({
   )
 }
 
-function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context: string } | null; onClearAsk?: () => void }) {
+function FirewallMonitor({ meta }: { meta: any }) {
+  if (!meta) return null
+  const blocked = meta.blocked || meta.should_block
+  const risk = meta.risk_score ?? 0
+  const confidence = meta.confidence ?? 0
+  const evidence = meta.evidence_type || '—'
+  const layer = meta.score_origin?.layer || meta.evidence_type || '—'
+  const primaryCause = meta.score_origin?.primary_cause || '—'
+  const patterns = meta.matched_patterns || []
+  const tags = meta.tags || []
+  const latency = meta.routing_metadata?.zedd_latency_ms
+    ?? meta.routing_metadata?.perimeter_processing_time_ms
+    ?? meta.routing_metadata?.request_queue?.processing_ms
+    ?? null
+
+  const riskColor = risk >= 0.9 ? '#ff2d00' : risk >= 0.7 ? '#ff6b35' : risk >= 0.4 ? '#ffaa00' : '#00c853'
+  const riskLabel = risk >= 0.9 ? 'CRITICAL' : risk >= 0.7 ? 'HIGH' : risk >= 0.4 ? 'MEDIUM' : 'LOW'
+  const statusColor = blocked ? '#ff2d00' : '#00c853'
+
+  return (
+    <div className="firewall-monitor" style={{ marginBottom: 8, border: `1px solid ${blocked ? '#ff2d0033' : '#00c85333'}`, borderRadius: 6, background: blocked ? '#ff2d0008' : '#00c85308', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderBottom: `1px solid ${blocked ? '#ff2d0022' : '#00c85322'}` }}>
+        <span style={{ fontSize: 14 }}>{blocked ? '🛡️' : '✅'}</span>
+        <strong style={{ fontSize: 12, color: statusColor }}>{blocked ? 'BLOCKED' : 'ALLOWED'}</strong>
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#6f8c84', fontFamily: 'monospace' }}>
+          {latency !== null ? `${Math.round(latency)}ms` : ''}
+        </span>
+      </div>
+      <div style={{ padding: '8px 10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: '#8a9a94' }}>RISK</span>
+          <span style={{ fontSize: 11, fontWeight: 'bold', color: riskColor }}>{riskLabel} ({(risk * 100).toFixed(1)}%)</span>
+        </div>
+        <div style={{ width: '100%', height: 4, background: '#1a2a24', borderRadius: 2, overflow: 'hidden', marginBottom: 8 }}>
+          <div style={{ width: `${Math.min(risk * 100, 100)}%`, height: '100%', background: riskColor, borderRadius: 2, transition: 'width 0.3s ease' }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 10, color: '#6f8c84', lineHeight: 1.4 }}>
+          <div>Layer: <span style={{ color: '#c8d4cf' }}>{layer}</span></div>
+          <div>Conf: <span style={{ color: '#c8d4cf' }}>{(confidence * 100).toFixed(0)}%</span></div>
+          {evidence !== '—' && <div>Evid: <span style={{ color: '#c8d4cf' }}>{evidence}</span></div>}
+          {patterns.length > 0 && <div style={{ gridColumn: 'span 2' }}>Patterns: <span style={{ color: '#c8d4cf' }}>{patterns.slice(0, 3).join(', ')}{patterns.length > 3 ? ` +${patterns.length - 3}` : ''}</span></div>}
+        </div>
+        {primaryCause !== '—' && (
+          <div style={{ marginTop: 6, padding: '4px 6px', background: '#0d1a14', borderRadius: 4, fontSize: 10, color: '#8a9a94', fontFamily: 'monospace', wordBreak: 'break-word' }}>
+            {primaryCause}
+          </div>
+        )}
+        {tags.length > 0 && (
+          <div style={{ marginTop: 6, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {tags.map((t: string, i: number) => (
+              <span key={i} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, background: '#1a2a24', color: '#6f8c84' }}>{t}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ChatPanel({
+  askAI,
+  onClearAsk,
+  onFirewallResult,
+  onClientAction,
+}: {
+  askAI?: { question: string; context: string } | null
+  onClearAsk?: () => void
+  onFirewallResult?: (r: any) => void
+  onClientAction?: (act: any) => void
+}) {
   const [msg, setMsg] = useState('')
   const [history, setHistory] = useState<{ role: string; content: string }[]>([
     { role: 'system', content: 'Select a model and start chatting.' },
@@ -1462,9 +1730,10 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
   const [modelErr, setModelErr] = useState<string | null>(null)
   const [webSearch, setWebSearch] = useState(false)
   const [firewall, setFirewall] = useState(false)
+  const [firewallMeta, setFirewallMeta] = useState<any>(null)
 
   useEffect(() => {
-    fetch('/api/models/')
+    fetch('/api/models')
       .then((r) => r.json())
       .then((d) => {
         if (d.error) {
@@ -1479,7 +1748,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
       })
       .catch(() => setModelErr('Could not reach backend for model list'))
 
-    fetch('/api/providers/')
+    fetch('/api/providers')
       .then((r) => r.json())
       .then((d) => {
         const list = d.providers || []
@@ -1511,6 +1780,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
     }
     if (!activeModel) return
     setMsg('')
+    setFirewallMeta(null)
     setHistory((h) => [...h, { role: 'user', content: userMsg }])
     setBusy(true)
 
@@ -1539,7 +1809,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
       : (searchCtx || undefined)
 
     try {
-      const r = await fetch('/api/chat/', {
+      const r = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({
@@ -1550,6 +1820,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
           provider,
           search_results: combinedSearchResults,
           firewall,
+          use_tools: provider === 'ollama',
         }),
       })
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
@@ -1581,7 +1852,26 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
               })
               break
             }
+            if (data.firewall_result) {
+              console.log('[FIREWALL] result:', data.firewall_result)
+              setFirewallMeta(data.firewall_result)
+              onFirewallResult?.({
+                timestamp: Date.now(),
+                query: userMsg,
+                ...data.firewall_result,
+              })
+              continue
+            }
             if (data.firewall_blocked) {
+              console.log('[FIREWALL] blocked meta:', data.firewall_meta)
+              if (data.firewall_meta) {
+                setFirewallMeta(data.firewall_meta)
+                onFirewallResult?.({
+                  timestamp: Date.now(),
+                  query: userMsg,
+                  ...data.firewall_meta,
+                })
+              }
               setHistory((h) => {
                 const copy = [...h]
                 copy[copy.length - 1] = { role: 'assistant', content: data.message?.content || 'Blocked by firewall.' }
@@ -1591,6 +1881,9 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
             }
             if (data.done) {
               break
+            }
+            if (data.client_action) {
+              onClientAction?.(data.client_action)
             }
             if (data.token) {
               setHistory((h) => {
@@ -1623,7 +1916,7 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
 
   return (
     <div className="panel chat">
-      <h2>WorldBase AI</h2>
+      <h2>WorldBase AI <span style={{ color: '#ff2d00', fontSize: 10 }}>[FIREWALL UI v1.0]</span></h2>
 
       {modelErr && <div className="data-error">{modelErr}</div>}
 
@@ -1690,6 +1983,24 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
         </button>
       </div>
 
+      {firewall && (
+        <div style={{ background: '#ff2d00', color: '#fff', padding: '6px 10px', fontSize: 11, borderRadius: 4, marginBottom: 8, fontFamily: 'monospace', fontWeight: 'bold' }}>
+          🛡️ FIREWALL ACTIVE | Status: {busy ? 'SCANNING...' : (firewallMeta ? 'RESULT RECEIVED' : 'IDLE')}
+        </div>
+      )}
+
+      {firewall && (
+        <div style={{ border: '1px solid #333', borderRadius: 6, padding: 10, marginBottom: 8, background: '#0a0f0d', minHeight: 60 }}>
+          {firewallMeta ? (
+            <FirewallMonitor meta={firewallMeta} />
+          ) : (
+            <div style={{ color: '#6f8c84', fontSize: 11, textAlign: 'center', padding: '20px 0' }}>
+              {busy ? '⏳ Scanning through HAK_GAL firewall...' : 'Send a message to see firewall analysis'}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="chat-history">
         {history.map((m, i) => (
           <div key={i} className={`chat-msg ${m.role}`}>
@@ -1714,13 +2025,89 @@ function ChatPanel({ askAI, onClearAsk }: { askAI?: { question: string; context:
   )
 }
 
-function OsintPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
+const FLOWSINT_URL = (import.meta.env.VITE_FLOWSINT_URL as string | undefined)?.replace(/\/$/, '') || 'http://localhost:5173'
+
+function OsintPanel({
+  onFocus,
+  onAddPin,
+  onImportPins,
+  pinCount,
+}: {
+  onFocus: (f: Omit<FocusTarget, 'ts'>) => void
+  onAddPin: (pin: Omit<OsintPin, 'ts'>) => void
+  onImportPins: (pins: OsintPin[]) => void
+  pinCount: number
+}) {
+  const [mode, setMode] = useState<'tools' | 'flowsint'>('tools')
+  const [flowsintOk, setFlowsintOk] = useState<boolean | null>(null)
   const [tool, setTool] = useState<'ip' | 'domain' | 'username' | 'email' | 'reverse'>('ip')
   const [query, setQuery] = useState('')
   const [latInput, setLatInput] = useState('')
   const [lonInput, setLonInput] = useState('')
   const [result, setResult] = useState<any>(null)
   const [busy, setBusy] = useState(false)
+  const [importJson, setImportJson] = useState('')
+  const [importMsg, setImportMsg] = useState('')
+
+  async function importFlowsintPins() {
+    setImportMsg('')
+    let body: unknown
+    try {
+      body = JSON.parse(importJson)
+    } catch {
+      setImportMsg('Invalid JSON')
+      return
+    }
+    setBusy(true)
+    try {
+      const r = await fetch('/api/osint/pins/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.detail || r.statusText)
+      const pins = (d.pins || []) as OsintPin[]
+      onImportPins(pins)
+      setImportMsg(`Imported ${pins.length} pin(s) → globe`)
+      setViewGlobeAfterImport(pins)
+    } catch (e) {
+      setImportMsg(String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function setViewGlobeAfterImport(pins: OsintPin[]) {
+    const first = pins[0]
+    if (first) {
+      onFocus({
+        kind: 'osint',
+        lat: first.lat,
+        lon: first.lon,
+        height: 400000,
+        title: first.title,
+        lines: first.lines,
+      })
+    }
+  }
+
+  useEffect(() => {
+    if (mode !== 'flowsint') return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/flowsint/health')
+        const d = await r.json()
+        if (!cancelled) setFlowsintOk(!!d.ok)
+      } catch {
+        if (!cancelled) setFlowsintOk(false)
+      }
+    }
+    poll()
+    const t = setInterval(poll, 15000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [mode])
 
   async function runLookup() {
     setBusy(true)
@@ -1735,6 +2122,40 @@ function OsintPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void
       const r = await fetch(url)
       const d = await r.json()
       setResult(d)
+      if (!d.error) {
+        if (tool === 'ip' && d.lat != null && d.lon != null) {
+          const lines = [
+            `Country: ${d.country || '—'}`,
+            `Region: ${d.region || '—'}`,
+            `City: ${d.city || '—'}`,
+            `ISP: ${d.isp || '—'}`,
+            `ASN: ${d.asn || '—'}`,
+          ]
+          onAddPin({
+            id: `ip:${d.ip || query}`,
+            tool: 'ip',
+            query: d.ip || query,
+            lat: d.lat,
+            lon: d.lon,
+            title: `IP ${d.ip || query}`,
+            lines,
+          })
+        } else if (tool === 'reverse' && d.lat != null && d.lon != null) {
+          onAddPin({
+            id: `geo:${d.lat},${d.lon}`,
+            tool: 'reverse',
+            query: `${d.lat},${d.lon}`,
+            lat: d.lat,
+            lon: d.lon,
+            title: d.locality || 'Reverse geocode',
+            lines: [
+              `City: ${d.city || '—'}`,
+              `Region: ${d.region || '—'}`,
+              `Country: ${d.country || '—'}`,
+            ],
+          })
+        }
+      }
     } catch (e) {
       setResult({ error: String(e) })
     } finally {
@@ -1755,8 +2176,99 @@ function OsintPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void
   ]
 
   return (
-    <div className="panel osint" style={{ padding: '0 18px' }}>
-      <h2>OSINT Reconnaissance</h2>
+    <div className="panel osint" style={{ padding: mode === 'flowsint' ? 0 : '0 18px', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div style={{ padding: '0 18px', flexShrink: 0 }}>
+        <h2>OSINT Reconnaissance {pinCount > 0 && <span style={{ fontSize: 11, color: '#00e5a0' }}>({pinCount} on globe)</span>}</h2>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className={mode === 'tools' ? 'active' : ''}
+            style={{
+              padding: '6px 14px', fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
+              background: mode === 'tools' ? 'rgba(0,229,160,0.2)' : 'rgba(0,229,160,0.05)',
+              border: mode === 'tools' ? '1px solid #00e5a0' : '1px solid rgba(0,229,160,0.2)',
+              color: mode === 'tools' ? '#00e5a0' : '#6f8c84',
+            }}
+            onClick={() => setMode('tools')}
+          >
+            QUICK TOOLS
+          </button>
+          <button
+            type="button"
+            className={mode === 'flowsint' ? 'active' : ''}
+            style={{
+              padding: '6px 14px', fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
+              background: mode === 'flowsint' ? 'rgba(79,195,247,0.2)' : 'rgba(79,195,247,0.05)',
+              border: mode === 'flowsint' ? '1px solid #4fc3f7' : '1px solid rgba(79,195,247,0.2)',
+              color: mode === 'flowsint' ? '#4fc3f7' : '#6f8c84',
+            }}
+            onClick={() => setMode('flowsint')}
+          >
+            FLOWSINT GRAPH
+            {flowsintOk === true && <span style={{ marginLeft: 6, color: '#00e5a0' }}>●</span>}
+            {flowsintOk === false && <span style={{ marginLeft: 6, color: '#ff6b35' }}>○</span>}
+          </button>
+          {mode === 'flowsint' && (
+            <a href={FLOWSINT_URL} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#6f8c84', alignSelf: 'center' }}>
+              Open in tab ↗
+            </a>
+          )}
+        </div>
+      </div>
+
+      {mode === 'flowsint' && (
+        <div style={{ flex: 1, minHeight: 320, display: 'flex', flexDirection: 'column', padding: '0 12px 12px' }}>
+          <div style={{ marginBottom: 8, flexShrink: 0 }}>
+            <div style={{ fontSize: 11, color: '#6f8c84', marginBottom: 6 }}>
+              Paste Flowsint export JSON → <code>POST /api/osint/pins/import</code> → globe pins
+            </div>
+            <textarea
+              value={importJson}
+              onChange={(e) => setImportJson(e.target.value)}
+              placeholder='{"pins":[{"lat":52.5,"lon":13.4,"label":"Node A","type":"ip","investigation_id":"inv-1"}]}'
+              style={{
+                width: '100%',
+                minHeight: 56,
+                fontSize: 11,
+                fontFamily: 'monospace',
+                background: 'rgba(0,0,0,0.35)',
+                border: '1px solid #1a2e33',
+                color: '#b0c4b1',
+                borderRadius: 4,
+                padding: 8,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
+              <button type="button" onClick={importFlowsintPins} disabled={busy || !importJson.trim()}>
+                {busy ? '…' : 'IMPORT TO GLOBE'}
+              </button>
+              {importMsg && <span style={{ fontSize: 11, color: importMsg.startsWith('Imported') ? '#00e5a0' : '#ff6b35' }}>{importMsg}</span>}
+            </div>
+          </div>
+          {flowsintOk === false && (
+            <div className="data-error" style={{ marginBottom: 8, fontSize: 12 }}>
+              Flowsint not reachable. On PC: <code>.\scripts\setup-flowsint.ps1</code> then <code>.\scripts\start-flowsint.ps1 -Build</code>
+              (Docker). UI: {FLOWSINT_URL}
+            </div>
+          )}
+          <iframe
+            title="Flowsint OSINT"
+            src={FLOWSINT_URL}
+            style={{
+              flex: 1,
+              width: '100%',
+              minHeight: 480,
+              border: '1px solid #1a2e33',
+              borderRadius: 6,
+              background: '#02060a',
+            }}
+          />
+        </div>
+      )}
+
+      {mode === 'tools' && (
+      <>
+      <div style={{ padding: '0 18px' }}>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
         {tools.map(t => (
           <button
@@ -1843,6 +2355,9 @@ function OsintPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void
             {JSON.stringify(result, null, 2)}
           </pre>
         </div>
+      )}
+      </div>
+      </>
       )}
     </div>
   )

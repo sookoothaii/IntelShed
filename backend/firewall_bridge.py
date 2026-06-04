@@ -15,8 +15,8 @@ from fastapi import APIRouter
 router = APIRouter(prefix="/api/firewall", tags=["firewall"])
 
 FIREWALL_HOST = os.getenv("FIREWALL_HOST", "localhost:8001")
-FIREWALL_URL = f"http://{FIREWALL_HOST}/api/v1/detect"
-TIMEOUT = 5.0  # fast — don't slow down chat
+FIREWALL_URL = f"http://{FIREWALL_HOST}/v1/detect"
+TIMEOUT = 30.0  # HAK_GAL may need time for lazy ONNX loading on first request
 
 
 def _extract_user_text(messages: list[dict]) -> str:
@@ -53,8 +53,23 @@ async def firewall_status():
     result = await firewall_scan("hello")
     available = result.get("_available", False)
     return {
+        "status": "healthy" if available else "unreachable",
         "enabled": bool(os.getenv("FIREWALL_HOST")),
         "reachable": available,
         "host": FIREWALL_HOST,
         "url": FIREWALL_URL,
+        "version": "HAK_GAL v9.4+",
     }
+
+
+@router.post("/test")
+async def firewall_test(payload: dict):
+    """Test a query against the HAK_GAL firewall directly."""
+    query = payload.get("query", "").strip()
+    if not query:
+        return {"error": "No query provided"}
+    result = await firewall_scan(query)
+    if not result.get("_available"):
+        return {"error": "Firewall not reachable", "host": FIREWALL_HOST}
+    # Return the data portion of the response
+    return result.get("data", result)

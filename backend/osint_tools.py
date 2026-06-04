@@ -9,10 +9,13 @@ import os
 import json
 import socket
 import re
+import hashlib
 from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter
+
+import entity_store
 
 router = APIRouter(prefix="/api/osint", tags=["osint-tools"])
 
@@ -172,3 +175,78 @@ async def reverse_geocode(lat: float, lon: float):
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Flowsint / investigation → globe pins (client merges into localStorage)
+# ---------------------------------------------------------------------------
+@router.post("/pins/import")
+async def import_pins(payload: dict):
+    """Normalize Flowsint or manual geo entities into OsintPin-shaped objects.
+
+    Body: { "pins": [...], "investigation_id": "optional-default" }
+    Each pin: lat, lon, label|title, type|pin_type, query?, tool?, investigation_id?, lines?
+    """
+    raw_pins = payload.get("pins") or payload.get("entities") or []
+    if isinstance(payload, dict) and payload.get("lat") is not None and not raw_pins:
+        raw_pins = [payload]
+    default_inv = (payload.get("investigation_id") or payload.get("investigationId") or "").strip()
+    out = []
+
+    for p in raw_pins:
+        if not isinstance(p, dict):
+            continue
+        try:
+            lat = float(p.get("lat"))
+            lon = float(p.get("lon"))
+        except (TypeError, ValueError):
+            continue
+        label = (p.get("label") or p.get("title") or p.get("name") or "OSINT").strip()
+        pin_type = (p.get("type") or p.get("pin_type") or "flowsint").strip()
+        query = (p.get("query") or label or f"{lat},{lon}").strip()
+        inv = (p.get("investigation_id") or p.get("investigationId") or default_inv).strip()
+        tool = (p.get("tool") or "flowsint").strip()
+        lines = p.get("lines") or []
+        if isinstance(lines, str):
+            lines = [lines]
+        if not lines and inv:
+            lines.append(f"Investigation: {inv}")
+        if pin_type:
+            lines.insert(0, f"Type: {pin_type}")
+
+        pin_id = p.get("id")
+        if not pin_id:
+            h = hashlib.sha256(f"{inv}:{query}:{lat}:{lon}".encode()).hexdigest()[:12]
+            pin_id = f"flowsint:{h}"
+
+        eid = entity_store.entity_id_for_pin(tool, query)
+        entity_store.upsert_entity(
+            eid,
+            pin_type or "osint",
+            label=label,
+            lat=lat,
+            lon=lon,
+            source_feed="flowsint" if tool == "flowsint" else tool,
+            external_id=pin_id,
+            meta={"investigation_id": inv, "pin_type": pin_type},
+        )
+        if inv:
+            inv_eid = f"investigation:{inv}"
+            entity_store.upsert_entity(inv_eid, "investigation", label=f"Investigation {inv}")
+            entity_store.link_entities(inv_eid, eid, "contains")
+
+        out.append({
+            "id": pin_id,
+            "tool": tool,
+            "query": query,
+            "lat": lat,
+            "lon": lon,
+            "title": label,
+            "lines": lines[:12],
+            "pinType": pin_type,
+            "investigationId": inv or None,
+            "entityId": eid,
+            "ts": int(datetime.now(timezone.utc).timestamp() * 1000),
+        })
+
+    return {"count": len(out), "pins": out}

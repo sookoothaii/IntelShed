@@ -1,6 +1,7 @@
 """SMARD — Bundesnetzagentur Strommarktdaten Deutschland.
 JSON API, no auth, 15min resolution for some series, daily for others.
 """
+import asyncio
 from datetime import datetime, timezone, timedelta
 
 import httpx
@@ -13,19 +14,20 @@ _SMARD_FILTER = "https://www.smard.de/app/filter"
 
 # Series IDs for Germany (region=DE)
 # See: https://www.smard.de/page/en/wiki-article/4464
+# SMARD filter IDs (bundesAPI/smard-api, 2024+)
 _SERIES = {
-    "wind_onshore": 4066,
-    "wind_offshore": 122,
-    "solar": 5096,
-    "biomass": 4067,
-    "hydro": 4068,
-    "brown_coal": 4069,
-    "hard_coal": 4070,
+    "wind_onshore": 4067,
+    "wind_offshore": 1226,
+    "solar": 4068,
+    "biomass": 4066,
+    "hydro": 1227,
+    "brown_coal": 4072,
+    "hard_coal": 4069,
     "natural_gas": 4071,
-    "pumped_storage": 4072,
+    "pumped_storage": 4070,
     "other_conventional": 4073,
     "total_load": 410,
-    "day_ahead_price": 6139,
+    "day_ahead_price": 4169,
 }
 
 # CO2 factors (g/kWh) — rough averages for DE
@@ -47,28 +49,35 @@ _SMARD_TTL = 900  # 15 minutes
 
 
 async def _fetch_smard_series(series_id: int, region: str = "DE"):
-    """Fetch one SMARD series. Returns list of {timestamp, value} or None."""
-    # Determine resolution from series_id
-    resolution = "hour" if series_id == 6139 else "quarterhour"
-    url = f"{_SMARD_BASE}/{series_id}/{region}/{resolution}"
+    """Fetch one SMARD series via index + timestamp URL (official SMARD web API)."""
+    resolution = "hour" if series_id in (4169, 410) else "quarterhour"
+    index_url = f"{_SMARD_BASE}/{series_id}/{region}/index_{resolution}.json"
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(url)
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            r = await client.get(index_url)
             r.raise_for_status()
-            data = r.json()
+            timestamps = r.json().get("timestamps") or []
+            if not timestamps:
+                return None
+            # Latest bucket may be incomplete (null tail) — try last 3 indices
+            for ts in reversed(timestamps[-3:]):
+                data_url = (
+                    f"{_SMARD_BASE}/{series_id}/{region}/"
+                    f"{series_id}_{region}_{resolution}_{ts}.json"
+                )
+                r2 = await client.get(data_url)
+                if r2.status_code != 200:
+                    continue
+                raw = r2.json().get("series", [])
+                out = []
+                for item in raw:
+                    if isinstance(item, list) and len(item) == 2 and item[1] is not None:
+                        out.append({"timestamp": item[0], "value": float(item[1])})
+                if out:
+                    return out
     except Exception:
         return None
-
-    # data["series"] is list of [timestamp_ms, value]
-    raw = data.get("series", [])
-    out = []
-    for item in raw:
-        if isinstance(item, list) and len(item) == 2:
-            ts, val = item
-            # value can be null
-            if val is not None:
-                out.append({"timestamp": ts, "value": float(val)})
-    return out
+    return None
 
 
 @router.get("/energy/de")
@@ -81,25 +90,27 @@ async def get_german_energy():
     if cached and (now - cached["ts"]) < _SMARD_TTL:
         return cached["data"]
 
-    # Fetch latest data for all generation sources
+    gen_keys = [k for k in _SERIES if k not in ("total_load", "day_ahead_price")]
+    fetched = await asyncio.gather(
+        *[_fetch_smard_series(_SERIES[k]) for k in gen_keys],
+        _fetch_smard_series(_SERIES["total_load"]),
+        _fetch_smard_series(_SERIES["day_ahead_price"]),
+    )
+    gen_series = fetched[: len(gen_keys)]
+    load_series = fetched[len(gen_keys)]
+    price_series = fetched[len(gen_keys) + 1]
+
     generation = {}
     total_gen_mw = 0
-    for key, sid in _SERIES.items():
-        if key in ("total_load", "day_ahead_price"):
-            continue
-        series = await _fetch_smard_series(sid)
+    for key, series in zip(gen_keys, gen_series):
         if series:
             latest = series[-1]
             generation[key] = {
                 "latest_mw": latest["value"],
                 "timestamp": latest["timestamp"],
-                "history": series[-12:],  # last 12 points
+                "history": series[-12:],
             }
             total_gen_mw += latest["value"]
-
-    # Fetch load and price
-    load_series = await _fetch_smard_series(_SERIES["total_load"])
-    price_series = await _fetch_smard_series(_SERIES["day_ahead_price"])
 
     # Calculate CO2 intensity
     co2_total_g = 0
@@ -127,3 +138,64 @@ async def get_german_energy():
 
     _smard_cache["de_energy"] = {"ts": now, "data": result}
     return result
+
+
+# Representative sites for globe visualization (not exact plant locations — regional proxies)
+_GLOBE_SITES = [
+    {"key": "wind_onshore", "label": "Wind Onshore", "lon": 9.2, "lat": 54.2, "color": "#7ee787"},
+    {"key": "wind_offshore", "label": "Wind Offshore", "lon": 7.8, "lat": 54.8, "color": "#56d364"},
+    {"key": "solar", "label": "Solar", "lon": 11.8, "lat": 49.1, "color": "#ffd23f"},
+    {"key": "biomass", "label": "Biomass", "lon": 12.1, "lat": 53.5, "color": "#8bc34a"},
+    {"key": "hydro", "label": "Hydro", "lon": 11.0, "lat": 47.7, "color": "#4fc3f7"},
+    {"key": "brown_coal", "label": "Brown Coal", "lon": 14.3, "lat": 51.5, "color": "#8b6914"},
+    {"key": "hard_coal", "label": "Hard Coal", "lon": 7.0, "lat": 51.4, "color": "#6f8c84"},
+    {"key": "natural_gas", "label": "Natural Gas", "lon": 9.9, "lat": 53.5, "color": "#ff9f43"},
+    {"key": "pumped_storage", "label": "Pumped Storage", "lon": 8.9, "lat": 47.6, "color": "#a78bfa"},
+    {"key": "other_conventional", "label": "Other", "lon": 10.0, "lat": 51.0, "color": "#b0c4b1"},
+]
+
+
+@router.get("/energy/de/globe")
+async def get_german_energy_globe():
+    """SMARD generation mix as pulsing points over Germany for Cesium."""
+    data = await get_german_energy()
+    gen = data.get("generation") or {}
+    price = (data.get("day_ahead_price") or {}).get("latest_eur_mwh")
+    load_mw = (data.get("load") or {}).get("latest_mw")
+    points = []
+    max_mw = 1.0
+    for site in _GLOBE_SITES:
+        info = gen.get(site["key"]) or {}
+        mw = info.get("latest_mw") or 0
+        max_mw = max(max_mw, mw)
+
+    for site in _GLOBE_SITES:
+        info = gen.get(site["key"]) or {}
+        mw = float(info.get("latest_mw") or 0)
+        if mw <= 0:
+            continue
+        # pixel radius 8–28 scaled by share of max
+        scale = mw / max_mw
+        points.append({
+            "id": site["key"],
+            "label": site["label"],
+            "lon": site["lon"],
+            "lat": site["lat"],
+            "mw": round(mw, 1),
+            "color": site["color"],
+            "radius": round(8 + scale * 20, 1),
+            "co2_factor": _CO2_FACTORS.get(site["key"], 500),
+            "timestamp": info.get("timestamp"),
+        })
+
+    return {
+        "region": "DE",
+        "updated": data.get("updated"),
+        "total_generation_mw": data.get("total_generation_mw"),
+        "co2_g_per_kwh": data.get("co2_g_per_kwh"),
+        "load_mw": load_mw,
+        "day_ahead_price_eur_mwh": price,
+        "negative_price": price is not None and price < 0,
+        "points": points,
+        "count": len(points),
+    }

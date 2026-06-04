@@ -12,6 +12,11 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import APIRouter
 
+import opensky_client
+import aircraft_provider
+import adsb_client
+import geo_centroids
+
 router = APIRouter(prefix="/api", tags=["feeds-extra"])
 
 # Module-local TTL cache (independent of main.py)
@@ -208,37 +213,44 @@ async def military_aircraft():
     cached = _get(key, ttl=20.0)
     if cached is not None:
         return cached
+    ac: list[dict] = []
+    source = "adsb.fi"
     try:
         async with httpx.AsyncClient(timeout=25.0, headers=_UA) as client:
             r = await client.get("https://opendata.adsb.fi/api/v2/mil")
             r.raise_for_status()
-            data = r.json()
-        ac = data.get("ac", []) or []
-        out = {
-            "count": len(ac),
-            "aircraft": [
-                {
-                    "hex": a.get("hex"),
-                    "flight": (a.get("flight") or "").strip(),
-                    "type": a.get("t"),
-                    "lat": a.get("lat"),
-                    "lon": a.get("lon"),
-                    "alt": a.get("alt_baro"),
-                    "speed": a.get("gs"),
-                    "track": a.get("track"),
-                    "squawk": a.get("squawk"),
-                }
-                for a in ac
-                if a.get("lat") is not None and a.get("lon") is not None
-            ],
-        }
-        _set(key, out)
-        return out
-    except Exception as e:
-        stale = _stale(key)
-        if stale:
-            return stale
-        return {"count": 0, "aircraft": [], "error": str(e)}
+            ac = r.json().get("ac", []) or []
+    except Exception:
+        try:
+            ac = await adsb_client.fetch_mil_states()
+            source = "adsb.lol"
+        except Exception as e:
+            stale = _stale(key)
+            if stale:
+                return stale
+            return {"count": 0, "aircraft": [], "error": str(e)}
+
+    out = {
+        "count": len(ac),
+        "source": source,
+        "aircraft": [
+            {
+                "hex": a.get("hex"),
+                "flight": (a.get("flight") or "").strip(),
+                "type": a.get("t"),
+                "lat": a.get("lat"),
+                "lon": a.get("lon"),
+                "alt": a.get("alt_baro"),
+                "speed": a.get("gs"),
+                "track": a.get("track"),
+                "squawk": a.get("squawk"),
+            }
+            for a in ac
+            if a.get("lat") is not None and a.get("lon") is not None
+        ],
+    }
+    _set(key, out)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -288,41 +300,97 @@ async def point_weather(lat: float, lon: float):
 # ---------------------------------------------------------------------------
 @router.get("/geopolitics")
 async def geopolitics(limit: int = 40):
-    """Current humanitarian disasters/crises worldwide (cached 30 min). No key."""
+    """Humanitarian crises on the globe — GDACS (coords) + ReliefWeb v2 when appname approved."""
     key = "geopolitics"
     cached = _get(key, ttl=1800.0)
     if cached is not None:
         return cached
+
+    items: list[dict] = []
+    seen: set[str] = set()
+
+    # GDACS — always free, often has Lat/Lon in description
     try:
-        async with httpx.AsyncClient(timeout=25.0, headers=_UA) as client:
-            r = await client.get(
-                "https://api.reliefweb.int/v1/disasters",
-                params={
-                    "appname": "worldbase",
-                    "profile": "list",
-                    "preset": "latest",
-                    "limit": min(limit, 100),
-                },
-            )
-            r.raise_for_status()
-            data = r.json()
-        items = []
-        for d in data.get("data", []):
-            f = d.get("fields", {})
+        gd = await gdacs_alerts()
+        for i, a in enumerate((gd.get("alerts") or [])[:25]):
+            title = a.get("title") or "GDACS alert"
+            lat, lon = a.get("lat"), a.get("lon")
+            if lat is None or lon is None:
+                lat, lon = geo_centroids.resolve_lat_lon(name=title)
+            if lat is None:
+                continue
+            sid = f"gdacs:{i}"
+            if sid in seen:
+                continue
+            seen.add(sid)
             items.append({
-                "id": d.get("id"),
-                "name": f.get("name"),
-                "status": f.get("status"),
-                "url": f.get("url"),
+                "id": sid,
+                "name": title[:120],
+                "status": "gdacs",
+                "url": a.get("link"),
+                "lat": lat,
+                "lon": lon,
+                "source": "gdacs",
             })
-        out = {"count": len(items), "disasters": items}
-        _set(key, out)
-        return out
-    except Exception as e:
-        stale = _stale(key)
-        if stale:
-            return stale
-        return {"count": 0, "disasters": [], "error": str(e)}
+    except Exception:
+        pass
+
+    # ReliefWeb v2 — needs approved RELIEFWEB_APPNAME in .env
+    rw_app = os.environ.get("RELIEFWEB_APPNAME", "").strip()
+    if rw_app:
+        try:
+            async with httpx.AsyncClient(timeout=25.0, headers=_UA) as client:
+                r = await client.get(
+                    "https://api.reliefweb.int/v2/disasters",
+                    params={
+                        "appname": rw_app,
+                        "limit": min(limit, 50),
+                        "profile": "list",
+                    },
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    for d in data.get("data", []):
+                        fields = d.get("fields", {})
+                        name = fields.get("name") or "Disaster"
+                        did = str(d.get("id", name))
+                        if did in seen:
+                            continue
+                        countries = fields.get("country") or []
+                        iso3 = None
+                        if countries and isinstance(countries[0], dict):
+                            iso3 = countries[0].get("iso3")
+                        lat, lon = geo_centroids.resolve_lat_lon(
+                            name=name, iso3=iso3, countries=countries
+                        )
+                        if lat is None:
+                            continue
+                        seen.add(did)
+                        items.append({
+                            "id": did,
+                            "name": name,
+                            "status": fields.get("status") or "reliefweb",
+                            "url": fields.get("url"),
+                            "lat": lat,
+                            "lon": lon,
+                            "source": "reliefweb",
+                        })
+        except Exception:
+            pass
+
+    out = {
+        "count": len(items),
+        "disasters": items[:limit],
+        "sources": list({x["source"] for x in items}),
+        "hint": (
+            "GDACS is always on. For ReliefWeb, set RELIEFWEB_APPNAME in backend/.env "
+            "(request at https://apidoc.reliefweb.int/parameters#appname)."
+            if not rw_app
+            else None
+        ),
+    }
+    _set(key, out)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -330,14 +398,15 @@ async def geopolitics(limit: int = 40):
 # ---------------------------------------------------------------------------
 @router.get("/anomalies")
 async def aircraft_anomalies():
-    """Scan current ADS-B traffic for unusual patterns. No key."""
+    """Scan ADS-B for unusual patterns (OpenSky or adsb.lol)."""
     try:
-        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
-            r = await client.get("https://opensky-network.org/api/states/all")
-            r.raise_for_status()
-            data = r.json()
-    except Exception:
-        return {"analyzed": 0, "anomalies": [], "error": "OpenSky unavailable"}
+        data, _src = await aircraft_provider.fetch_live_states(timeout=20.0)
+    except Exception as e:
+        return {
+            "analyzed": 0,
+            "anomalies": [],
+            "error": f"Aircraft feed unavailable ({e.__class__.__name__}).",
+        }
 
     states = data.get("states") or []
     anomalies = []
@@ -425,9 +494,17 @@ def _haversine(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+_CORR_CACHE: dict = {"ts": 0.0, "data": None}
+_CORR_TTL = 120.0
+
+
 @router.get("/correlations")
 async def cross_feed_correlations():
     """Scan feeds for spatial-temporal correlations. No key."""
+    now = time.time()
+    if _CORR_CACHE["data"] and (now - _CORR_CACHE["ts"]) < _CORR_TTL:
+        return _CORR_CACHE["data"]
+
     situations = []
 
     # 1. Earthquake near nuclear site
@@ -464,9 +541,8 @@ async def cross_feed_correlations():
         disasters = []
 
     try:
-        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
-            r = await client.get("https://opensky-network.org/api/states/all")
-            states = r.json().get("states", [])
+        os_data, _ = await aircraft_provider.fetch_live_states(timeout=15.0)
+        states = (os_data or {}).get("states", [])
     except Exception:
         states = []
 
@@ -521,8 +597,49 @@ async def cross_feed_correlations():
                 })
                 break
 
+    # 4. Elevated river gauge + heavy precipitation (Open-Meteo, no key)
+    try:
+        import pegel_bridge
+        peg = await pegel_bridge.get_pegel()
+        async with httpx.AsyncClient(timeout=12.0, headers=_UA) as client:
+            for g in peg.get("gauges") or []:
+                if g.get("severity") not in ("high", "critical"):
+                    continue
+                lat, lon = g.get("lat"), g.get("lon")
+                if lat is None or lon is None:
+                    continue
+                rain_mm = None
+                try:
+                    wr = await client.get(
+                        f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
+                        "&current=precipitation,rain&timezone=UTC"
+                    )
+                    cur = wr.json().get("current") or {}
+                    rain_mm = cur.get("precipitation") if cur.get("precipitation") is not None else cur.get("rain")
+                except Exception:
+                    pass
+                if rain_mm is not None and float(rain_mm) >= 2.0:
+                    situations.append({
+                        "severity": "high" if g["severity"] == "critical" else "medium",
+                        "type": "pegel_rain_correlation",
+                        "title": f"High water + rain at {g['name']} ({rain_mm} mm/h)",
+                        "location": {"lon": lon, "lat": lat, "place": g.get("water", "")},
+                        "details": {
+                            "gauge": g["name"],
+                            "water": g.get("water"),
+                            "level": g.get("value"),
+                            "unit": g.get("unit"),
+                            "precipitation_mm": rain_mm,
+                        },
+                    })
+    except Exception:
+        pass
+
     situations.sort(key=lambda s: 0 if s["severity"] == "high" else 1)
-    return {"situations": situations, "count": len(situations)}
+    out = {"situations": situations, "count": len(situations)}
+    _CORR_CACHE["data"] = out
+    _CORR_CACHE["ts"] = now
+    return out
 
 
 # ---------------------------------------------------------------------------

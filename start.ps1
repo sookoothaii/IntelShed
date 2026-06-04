@@ -1,96 +1,95 @@
-# WorldBase Windows Starter (Docker-free)
-# Requires: Python 3.11+, Node.js 20+, Ollama (optional)
+# WorldBase Windows Starter
+# Kills alte Prozesse, startet Backend + Frontend frisch
+# Paths with spaces (e.g. D:\MCP Mods\worldbase) are handled via -LiteralPath / WorkingDirectory
+
 $ErrorActionPreference = 'Stop'
+$Root = $PSScriptRoot
 
-$host.ui.RawUI.WindowTitle = 'WorldBase Starter'
+function Start-LoggedPowerShell {
+    param(
+        [string]$Title,
+        [string]$WorkingDirectory,
+        [string]$Command
+    )
+    $escapedDir = $WorkingDirectory.Replace("'", "''")
+    $fullCommand = "Set-Location -LiteralPath '$escapedDir'; $Command"
+    Start-Process -FilePath 'powershell.exe' -WindowStyle Normal -ArgumentList @(
+        '-NoExit',
+        '-ExecutionPolicy', 'Bypass',
+        '-Command', $fullCommand
+    ) | Out-Null
+    Write-Host "  Started: $Title" -ForegroundColor Green
+}
 
 Write-Host ''
 Write-Host '=====================================' -ForegroundColor Cyan
-Write-Host '  WORLDBASE — Spatial Workstation' -ForegroundColor Cyan
+Write-Host '  WORLDBASE' -ForegroundColor Cyan
 Write-Host '=====================================' -ForegroundColor Cyan
 Write-Host ''
 
-# Check Python
-$py = Get-Command python -ErrorAction SilentlyContinue
-if (-not $py) {
-    Write-Host 'ERROR: Python not found. Install from https://python.org' -ForegroundColor Red
-    exit 1
-}
-Write-Host 'Python: ' -NoNewline
-Write-Host $py.Source -ForegroundColor Green
-
-# Check Node
-$node = Get-Command node -ErrorAction SilentlyContinue
-if (-not $node) {
-    Write-Host 'ERROR: Node.js not found. Install from https://nodejs.org' -ForegroundColor Red
-    exit 1
-}
-Write-Host 'Node:   ' -NoNewline
-Write-Host $node.Source -ForegroundColor Green
-
-# Ollama status
-Write-Host 'Ollama: ' -NoNewline
-try {
-    $r = Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 2
-    $count = $r.models.Count
-    $msg = 'running ({0} models)' -f $count
-    Write-Host $msg -ForegroundColor Green
-} catch {
-    Write-Host 'not running (install from ollama.com)' -ForegroundColor Yellow
-}
+# Kill alte Prozesse
+Write-Host '[0/3] Cleaning up...' -ForegroundColor Yellow
+Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*uvicorn*main:app*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*vite*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep 2
 
 # Backend
-Write-Host ''
-Write-Host '[1/3] Backend setup...' -ForegroundColor Cyan
-$backendPath = Join-Path $PSScriptRoot 'backend'
-Set-Location $backendPath
+Write-Host '[1/3] Backend...' -ForegroundColor Cyan
+$backendPath = Join-Path $Root 'backend'
+$venvPython = Join-Path $backendPath 'venv\Scripts\python.exe'
 
-if (-not (Test-Path 'venv')) {
-    Write-Host '  Creating venv...' -ForegroundColor DarkGray
-    python -m venv venv
+if (-not (Test-Path -LiteralPath $venvPython)) {
+    Write-Host '  venv not found. Run in backend: python -m venv venv' -ForegroundColor Red
+    exit 1
 }
 
-.\venv\Scripts\Activate.ps1
-Write-Host '  Installing dependencies...' -ForegroundColor DarkGray
-pip install -q -r requirements.txt
-
-# Init DB if missing
-if (-not (Test-Path 'worldbase.db')) {
-    Write-Host '  Initializing SQLite DB...' -ForegroundColor DarkGray
-    python -c 'from main import init_db; init_db()'
+if (-not (Test-Path -LiteralPath (Join-Path $backendPath 'worldbase.db'))) {
+    Write-Host '  Init DB...' -ForegroundColor DarkGray
+    Push-Location -LiteralPath $backendPath
+    & $venvPython -c 'from main import init_db; init_db()'
+    Pop-Location
 }
 
-Write-Host '  Starting uvicorn on :8000...' -ForegroundColor DarkGray
-Start-Process powershell -ArgumentList '-NoExit', '-Command', '.\venv\Scripts\Activate.ps1; uvicorn main:app --host 0.0.0.0 --port 8000 --reload'
+$bindHost = '127.0.0.1'
+$envFile = Join-Path $backendPath '.env'
+if (Test-Path -LiteralPath $envFile) {
+    Get-Content -LiteralPath $envFile | ForEach-Object {
+        if ($_ -match '^\s*WORLDBASE_BIND_HOST\s*=\s*(.+)\s*$') {
+            $bindHost = $Matches[1].Trim().Trim('"').Trim("'")
+        }
+    }
+}
 
-Set-Location $PSScriptRoot
+$py = $venvPython.Replace("'", "''")
+Start-LoggedPowerShell -Title 'Backend :8002' -WorkingDirectory $backendPath -Command (
+    "& '$py' -m uvicorn main:app --host $bindHost --port 8002 --reload"
+)
+Start-Sleep 3
 
 # Frontend
-Write-Host ''
-Write-Host '[2/3] Frontend setup...' -ForegroundColor Cyan
-$frontendPath = Join-Path $PSScriptRoot 'frontend'
-Set-Location $frontendPath
-
-if (-not (Test-Path 'node_modules')) {
+Write-Host '[2/3] Frontend...' -ForegroundColor Cyan
+$frontendPath = Join-Path $Root 'frontend'
+if (-not (Test-Path -LiteralPath (Join-Path $frontendPath 'node_modules'))) {
     Write-Host '  npm install...' -ForegroundColor DarkGray
+    Push-Location -LiteralPath $frontendPath
     npm install
+    Pop-Location
 }
 
-Write-Host '  Starting Vite on :5173...' -ForegroundColor DarkGray
-Start-Process powershell -ArgumentList '-NoExit', '-Command', 'npm run dev'
+Start-LoggedPowerShell -Title 'Frontend :5176' -WorkingDirectory $frontendPath -Command 'npm run dev -- --port 5176'
+Start-Sleep 2
 
-Set-Location $PSScriptRoot
+# Browser
+Write-Host '[3/3] Browser...' -ForegroundColor Cyan
+Start-Process 'http://localhost:5176'
 
-# Summary
 Write-Host ''
-Write-Host '=====================================' -ForegroundColor Cyan
-Write-Host '  WorldBase is starting...' -ForegroundColor Cyan
-Write-Host '=====================================' -ForegroundColor Cyan
+Write-Host '=====================================' -ForegroundColor Green
+Write-Host '  RUNNING' -ForegroundColor Green
+Write-Host '=====================================' -ForegroundColor Green
+Write-Host '  http://localhost:5176' -ForegroundColor Green
+Write-Host '  http://localhost:8002/docs' -ForegroundColor Green
 Write-Host ''
-Write-Host '  Frontend:  http://localhost:5173' -ForegroundColor Green
-Write-Host '  Backend:   http://localhost:8000' -ForegroundColor Green
-Write-Host '  API Docs:  http://localhost:8000/docs' -ForegroundColor Green
-Write-Host '  Ollama:    http://localhost:11434' -ForegroundColor Green
-Write-Host ''
-Write-Host '  Press Ctrl+C in the terminal windows to stop.' -ForegroundColor DarkGray
+Write-Host "  Backend bind: $bindHost" -ForegroundColor DarkGray
+Write-Host '  Security: .\scripts\pc-security-audit.ps1' -ForegroundColor DarkGray
 Write-Host ''
