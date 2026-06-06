@@ -9,6 +9,13 @@
 
 Operator lebt **hauptsächlich in Thailand**; Hardware: **i9 + RTX 3080 Ti** — `world-z10` (~1 GB) oder PMTiles-in-Cesium sind realistisch.
 
+## Erledigt 2026-06-06 (Stufe B — RAG, Entity-Card, Cesium Eval, Split-View)
+
+- **RAG Erweitert**: `rag_memory.py` indexiert jetzt automatisch auch `hazards`, `situations`, und `volcanoes`. Harter Ringbuffer (2000 chunks) in SQLite implementiert, um die $O(n)$ Cosine-Search schnell zu halten (ohne `sqlite-vec`).
+- **Entity-Context-Card**: Globe-Clicks auf Entities (`aircraft`, `pegel`, `volcano` etc.) fetchen nun den Fusion-Graphen via `GET /api/entity/{id}/context` und zeigen verwandte Einträge direkt im Target-Panel (`Globe.tsx` -> `EntityContextCard`).
+- **Cesium 1.142 Eval**: `package.json` auf `cesium@1.142.0` gehoben. Experimenteller Layer-Toggle "MVT (EXPERIMENTAL)" im Globe eingeführt, der den neuen nativen `MVTDataProvider` über den 3D-Globus legt.
+- **Split-View**: Neuer **◫ SPLIT** Button im UI. Rendert `Globe` und `MapPanel` (2D MapLibre) nebeneinander inkl. asynchronem **Camera-Sync** in beide Richtungen.
+
 ---
 
 ## Erledigt (nicht nochmal von null)
@@ -37,14 +44,18 @@ Details: **`docs/PHASE1_INTEGRATION.md`**
 
 ## Fokus nächste Instanz (Priorität)
 
-### 1. PMTiles → sichtbar im UI (Höchster Hebel)
+### 1. Phase 2 Fusion & OSINT (mehr Aufwand)
 
-- Cesium unterstützt Protomaps-Vektor **nicht nativ**
-- Optionen: MapLibre-Panel neben Globe; oder `pmtiles serve` + Protomaps-Style JSON; oder `world-z10` als Raster-Pfad
-- Lokaler Stack liegt unter `data/pmtiles/` (gitignored) — nicht committen
-- Test: `.\scripts\start-pmtiles-serve.ps1` → `http://127.0.0.1:8088/planet_z6.json`
+- TiTiler + STAC/COG router (Sentinel-2/Landsat in Thailand für NDVI/Wolken/Wassertrübung)
+- FollowTheMoney + nomenklatura + yente/OpenSanctions (AIS↔sanctions)
+- `world-z10` global basemap: `.\scripts\download-pmtiles.ps1 -Region world-z10`
 
-### 2. Optional keys / Ops (User)
+### 2. Polish & Live-Data
+
+- Situation Board first-load (River scan in `/api/situations`)
+- GTFS DE VehiclePosition; aircraft trails; pegel sparklines
+
+### 3. Optional keys / Ops (User)
 
 ```powershell
 ollama pull qwen3:8b
@@ -53,17 +64,6 @@ ollama pull nomic-embed-text
 # Optional: CLOUDFLARE_API_TOKEN, OPENSKY_*, RELIEFWEB_APPNAME
 pip install -r backend/requirements.txt   # river, duckdb
 ```
-
-### 3. Phase 2 Fusion (free, mehr Aufwand)
-
-- TiTiler + STAC/COG router
-- FollowTheMoney + nomenklatura + yente/OpenSanctions (AIS↔sanctions)
-- `world-z10` global basemap: `.\scripts\download-pmtiles.ps1 -Region world-z10`
-
-### 4. Polish
-
-- Situation Board first-load (River scan in `/api/situations`)
-- GTFS DE VehiclePosition; aircraft trails; pegel sparklines
 
 ---
 
@@ -79,19 +79,25 @@ pip install -r backend/requirements.txt   # river, duckdb
 ## Start prompt (copy)
 
 ```
-Mission: WorldBase — PMTiles im UI + Phase 2 Fusion vorbereiten.
+Mission: WorldBase — Phase 2 Fusion & Polish
 
-Erledigt (2026-06-06): Gold Phase 1+2 — Qwen3, RAG, River, hazards, outages, volcanoes, GIBS toggle, DuckDB stub, PMTiles stack (planet_z6 + thailand), Docker optional.
+Erledigt (2026-06-06):
+- Gold Phase 1+2 — Qwen3, RAG, River, hazards, outages, PMTiles
+- RAG um Situations, Hazards und Volcanoes (2k Ringbuffer) erweitert
+- Globe-Click triggert Entity-Context-Card (Fusion Graph)
+- Cesium 1.142 Eval-Branch + MVTDataProvider (experimentell)
+- Split-View (Globe + MapLibre 2D) inkl. Camera-Sync
 
 Lies: LLM_HANDOFF.md, docs/PHASE1_INTEGRATION.md, docs/NEXT_LLM_MISSION.md.
-Globe: frontend/src/components/Globe.tsx
-PMTiles: scripts/start-pmtiles-serve.ps1, backend/pmtiles_bridge.py
 
-Ziel Session: PMTiles-Basemap neben/under Cesium sichtbar machen ODER world-z10 pull + status in /api/pmtiles/status.
+Ziel-Optionen Session:
+A) TiTiler + STAC/COG Router (Sentinel-2/Landsat) für Thailand einbauen
+B) OpenSanctions / FollowTheMoney (AIS <-> sanctions) Integration
+C) UI Polish (Situation Board First-Load, GTFS Live-Positionen, Pegel-Sparklines)
 
 Test: .\start.ps1 → http://localhost:5176
-Ollama: qwen3:8b + nomic-embed-text laufen lassen (Ollama-App muss laufen).
-Nicht: Secrets committen; 130 GB planet ohne -Force; neue Feeds ohne Layer.
+Ollama: qwen3:8b + nomic-embed-text (Ollama-App muss laufen).
+Nicht: Secrets committen; neue Feeds ohne Globe-Layer.
 ```
 
 ---
@@ -107,13 +113,16 @@ Nicht: Secrets committen; 130 GB planet ohne -Force; neue Feeds ohne Layer.
 - [ ] Globe layers: HAZARDS, OUTAGES, NASA GIBS FIRES
 - [ ] Chat: model **qwen3:8b**, tool `search_memory`
 
-### PMTiles (local)
+### PMTiles & Split-View
 
 - [ ] `.\scripts\download-pmtiles.ps1 -Region stack` (if missing)
-- [ ] `.\scripts\start-pmtiles-serve.ps1` → TileJSON loads
 - [ ] `GET /api/pmtiles/status` → archives list
+- [ ] **MAP** tab in nav renders Protomaps basemap
+- [ ] **SPLIT** toggle activates side-by-side view with Camera-Sync
+- [ ] Experimental MVT Layer toggle on Globe
 
 ### Next work
 
-- [ ] Basemap visible in frontend (MapLibre or Cesium integration)
-- [ ] Optional `world-z10` download
+- [ ] TiTiler / STAC Router
+- [ ] OpenSanctions Integration
+- [ ] UI Polish (GTFS, Sparklines)

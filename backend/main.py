@@ -238,6 +238,9 @@ async def _phase1_background_tasks():
             print(f"[PHASE1] River scan failed: {e}", flush=True)
         try:
             await rag_memory.ingest_pulse()
+            await rag_memory.ingest_hazards()
+            await rag_memory.ingest_situations()
+            await rag_memory.ingest_volcanoes()
         except Exception as e:
             print(f"[PHASE1] RAG pulse index failed: {e}", flush=True)
         await asyncio.sleep(600)

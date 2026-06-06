@@ -358,12 +358,17 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **Docker** (optional): `docker-compose.yml`, `docs/DOCKER_DEPLOY.md`, `scripts/start-docker.ps1`
 - Doc: **`docs/PHASE1_INTEGRATION.md`**
 
+**Done (2026-06-06) — Stufe B: RAG, Entity-Card, Cesium Eval & Split-View:**
+- **RAG Erweiterung**: `rag_memory.py` indexiert `hazards`, `situations` und `volcanoes` automatisch. SQLite Ringbuffer (2000 Chunks) statt `sqlite-vec` für O(n) Cosine-Search.
+- **Entity-Context-Card**: Globe-Clicks zeigen verbundene Datensätze (`GET /api/entity/{id}/context`) im `Globe.tsx` Target-Panel an (`EntityContextCard`).
+- **Cesium 1.142 Eval**: Update auf `cesium@1.142.0` auf Branch `feature/cesium-1.142-eval` und Einbau des nativen `MVTDataProvider` als experimentellen Globe-Layer.
+- **Split-View**: GLOBE und MAP können nun nebeneinander angezeigt werden, inklusive asynchronem, bidirektionalem Camera-Sync.
+
 **Backlog (next session):**
-1. **PMTiles in Cesium** or MapLibre side-by-side basemap (vector MVT from `pmtiles serve`)
-2. **`world-z10`** download if user wants global detail (~1 GB): `.\scripts\download-pmtiles.ps1 -Region world-z10`
-3. **TiTiler/STAC**, OpenSanctions/yente, IODA+CF with `CLOUDFLARE_API_TOKEN`
-4. **GTFS DE live positions** — VBB often trip-updates-only
-5. OpenSky / ReliefWeb optional keys; Pegel sparklines; aircraft trails
+1. **TiTiler/STAC**: Sentinel-2/Landsat-Satellitenbilder für Thailand einbauen
+2. **OpenSanctions / yente**: FollowTheMoney Integration für AIS-Sanktionsabgleich
+3. **UI Polish**: Situation Board First-Load, GTFS DE VehiclePosition (VBB), Pegel Sparklines, Aircraft Trails
+4. **`world-z10`**: Download for global detail (~1 GB): `.\scripts\download-pmtiles.ps1 -Region world-z10`
 
 **Done (2026-06-03):** Flowsint embed; `/api/flowsint/health`. OSINT pins + localStorage; `/api/pegel`; Ollama `keep_alive: 5m`.
 
@@ -412,7 +417,9 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - Crises geo: `backend/geo_centroids.py`
 - GDELT: `backend/gdelt_bridge.py` (pulse + geo)
 - Phase 1+2: `docs/PHASE1_INTEGRATION.md`
-- PMTiles: `scripts/download-pmtiles.ps1`, `scripts/start-pmtiles-serve.ps1`, `backend/pmtiles_bridge.py`
+- PMTiles backend: `backend/pmtiles_bridge.py` (status + Range-aware file endpoint)
+- PMTiles frontend: `frontend/src/components/MapPanel.tsx`
+- PMTiles tooling: `scripts/download-pmtiles.ps1`, `scripts/start-pmtiles-serve.ps1` (optional fallback)
 - Bridges: `cap_bridge.py`, `anomaly_river.py`, `rag_memory.py`, `outages_bridge.py`, `volcano_bridge.py`, `gibs_bridge.py`, `duckdb_fusion.py`
 - Mission: `docs/NEXT_LLM_MISSION.md`
 - DB: `D:\MCP Mods\worldbase\backend\worldbase.db`

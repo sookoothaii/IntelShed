@@ -68,6 +68,34 @@ Globe layers: **OUTAGES**, **VOLCANOES**, **NASA GIBS** imagery toggle (FIRES/GO
 
 Note: `r2-public.protomaps.com/protomaps-sample.pmtiles` was removed (404). Use regions above.
 
+## Phase A done (2026-06-06) — PMTiles in UI
+
+| Endpoint / Component | Purpose |
+|----------------------|---------|
+| `GET /api/pmtiles/file/{name}` | Range-aware stream (200/206), HEAD probe, ETag — replaces external `pmtiles serve` |
+| `frontend/src/components/MapPanel.tsx` | MapLibre + `pmtiles://` protocol + `@protomaps/basemaps` style |
+| App nav **MAP** tab | Tactical 2D companion to Cesium globe; focus sync via `focusOnMap` |
+
+```powershell
+# No separate pmtiles serve process required:
+.\start.ps1
+# Open http://localhost:5176 → click MAP tab
+```
+
+Optional: `scripts/start-pmtiles-serve.ps1` still works on port 8088 for ZXY/MVT
+testing or non-MapLibre clients.
+
+## Phase B done (2026-06-06) — RAG, Entity-Card, Cesium Eval & Split-View
+
+| Endpoint / Component | Purpose |
+|----------------------|---------|
+| `backend/rag_memory.py` | RAG erweitert auf Hazards, Situations, Volcanoes. Ringbuffer (2000 chunks) |
+| `frontend/src/components/Globe.tsx` | EntityContextCard bei Klick auf Entities (zeigt Fusion Graph) |
+| `frontend/src/components/Globe.tsx` | MVTDataProvider Toggle (Cesium 1.142 Eval-Branch) |
+| `frontend/src/App.tsx` | Split-View (Globe + MapPanel) mit bidirektionalem Camera-Sync |
+
 ## Next (still free)
 
-TiTiler/STAC, OpenSanctions/yente, PMTiles in Cesium viewer, RTL-SDR when hardware arrives.
+- **TiTiler/STAC** Router für Sentinel-2/Landsat-Daten in Thailand
+- **OpenSanctions / FollowTheMoney** (AIS ↔ sanctions)
+- **UI Polish** (Situation Board First-Load, GTFS VehiclePosition, Pegel Sparklines)
