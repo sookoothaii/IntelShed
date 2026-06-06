@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react'
 import Globe from './components/Globe'
+import MapPanel from './components/MapPanel'
 import FirewallPanel from './components/FirewallPanel'
 import SituationBoard from './components/SituationBoard'
 import type { FocusTarget } from './lib/focus'
 import type { OsintPin } from './lib/osintPins'
 import { loadOsintPins, saveOsintPins, mergeImportedPins } from './lib/osintPins'
 
-const NAV_ITEMS: { id: 'globe' | 'data' | 'chat' | 'firewall' | 'osint'; label: string; glyph: string }[] = [
+type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'firewall' | 'osint'
+
+const NAV_ITEMS: { id: ViewId; label: string; glyph: string }[] = [
   { id: 'globe', label: 'GLOBE', glyph: '◎' },
+  { id: 'map', label: 'MAP', glyph: '▦' },
   { id: 'data', label: 'DATA', glyph: '▤' },
   { id: 'chat', label: 'AI', glyph: '✦' },
   { id: 'firewall', label: 'FIREWALL', glyph: '🛡️' },
@@ -102,7 +106,8 @@ function SystemStatus() {
 }
 
 export default function App() {
-  const [view, setView] = useState<'globe' | 'data' | 'chat' | 'firewall' | 'osint'>('globe')
+  const [view, setView] = useState<ViewId>('globe')
+  const [splitView, setSplitView] = useState(false)
   const [booting, setBooting] = useState(true)
   const [focus, setFocus] = useState<FocusTarget | null>(null)
   const [askAI, setAskAI] = useState<{ question: string; context: string } | null>(null)
@@ -110,6 +115,7 @@ export default function App() {
   const [situationOpen, setSituationOpen] = useState(false)
   const [firewallHistory, setFirewallHistory] = useState<any[]>([])
   const [osintPins, setOsintPins] = useState<OsintPin[]>(() => loadOsintPins())
+  const [syncCamera, setSyncCamera] = useState<{ lon: number; lat: number; height?: number; zoom?: number; source: 'globe' | 'map'; ts: number } | null>(null)
   useAlertNotifications()
 
   useEffect(() => {
@@ -128,7 +134,20 @@ export default function App() {
 
   const focusOnMap = (f: Omit<FocusTarget, 'ts'>) => {
     setFocus({ ...f, ts: Date.now() })
-    setView('globe')
+    // Stay on map view if user already opened it; otherwise default to globe.
+    setView((prev) => (prev === 'map' ? 'map' : 'globe'))
+  }
+
+  const handleGlobeMove = (cam: { lon: number; lat: number; height: number }) => {
+    if (view === 'map' || splitView) {
+      setSyncCamera({ ...cam, source: 'globe', ts: Date.now() })
+    }
+  }
+
+  const handleMapMove = (cam: { lon: number; lat: number; zoom: number }) => {
+    if (view === 'globe' || splitView) {
+      setSyncCamera({ ...cam, source: 'map', ts: Date.now() })
+    }
   }
 
   const handleAskAI = (title: string, lines: string[]) => {
@@ -172,6 +191,9 @@ export default function App() {
               {n.label}
             </button>
           ))}
+          <button className={splitView ? 'active' : ''} onClick={() => setSplitView(!splitView)} style={{ marginLeft: 16 }}>
+            ◫ SPLIT
+          </button>
         </nav>
 
         <div className="hud-meta">
@@ -198,35 +220,49 @@ export default function App() {
 
       <main className="hud-main">
         <div key={view} className="view-fade">
-          {view === 'globe' && <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} />}
-          {view === 'data' && <DataPanel onFocus={focusOnMap} />}
-          {view === 'chat' && (
-            <ChatPanel
-              askAI={askAI}
-              onClearAsk={() => setAskAI(null)}
-              onFirewallResult={(r) => setFirewallHistory(h => [r, ...h].slice(0, 100))}
-              onClientAction={(act) => {
-                if (act?.type === 'focus_globe' && act.lat != null && act.lon != null) {
-                  focusOnMap({
-                    kind: act.kind || 'ai_focus',
-                    lat: act.lat,
-                    lon: act.lon,
-                    height: 400000,
-                    title: act.title || 'AI focus',
-                    lines: act.lines || [],
-                  })
-                }
-              }}
-            />
-          )}
-          {view === 'firewall' && <FirewallPanel history={firewallHistory} />}
-          {view === 'osint' && (
-            <OsintPanel
-              onFocus={focusOnMap}
-              onAddPin={addOsintPin}
-              onImportPins={(pins) => setOsintPins((prev) => mergeImportedPins(prev, pins))}
-              pinCount={osintPins.length}
-            />
+          {splitView ? (
+            <div style={{ display: 'flex', width: '100%', height: '100%' }}>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} onCameraMove={handleGlobeMove} syncCamera={syncCamera} />
+              </div>
+              <div style={{ flex: 1, position: 'relative', borderLeft: '1px solid rgba(0,255,163,0.3)' }}>
+                <MapPanel focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null} onCameraMove={handleMapMove} syncCamera={syncCamera} />
+              </div>
+            </div>
+          ) : (
+            <>
+              {view === 'globe' && <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} onCameraMove={handleGlobeMove} syncCamera={syncCamera} />}
+              {view === 'map' && <MapPanel focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null} onCameraMove={handleMapMove} syncCamera={syncCamera} />}
+              {view === 'data' && <DataPanel onFocus={focusOnMap} />}
+              {view === 'chat' && (
+                <ChatPanel
+                  askAI={askAI}
+                  onClearAsk={() => setAskAI(null)}
+                  onFirewallResult={(r) => setFirewallHistory(h => [r, ...h].slice(0, 100))}
+                  onClientAction={(act) => {
+                    if (act?.type === 'focus_globe' && act.lat != null && act.lon != null) {
+                      focusOnMap({
+                        kind: act.kind || 'ai_focus',
+                        lat: act.lat,
+                        lon: act.lon,
+                        height: 400000,
+                        title: act.title || 'AI focus',
+                        lines: act.lines || [],
+                      })
+                    }
+                  }}
+                />
+              )}
+              {view === 'firewall' && <FirewallPanel history={firewallHistory} />}
+              {view === 'osint' && (
+                <OsintPanel
+                  onFocus={focusOnMap}
+                  onAddPin={addOsintPin}
+                  onImportPins={(pins) => setOsintPins((prev) => mergeImportedPins(prev, pins))}
+                  pinCount={osintPins.length}
+                />
+              )}
+            </>
           )}
         </div>
       </main>

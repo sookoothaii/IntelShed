@@ -151,11 +151,15 @@ export default function Globe({
   onAskAI,
   osintPins = [],
   onClearOsintPins,
+  onCameraMove,
+  syncCamera,
 }: {
   focus?: FocusTarget | null
   onAskAI?: (title: string, lines: string[]) => void
   osintPins?: OsintPin[]
   onClearOsintPins?: () => void
+  onCameraMove?: (cam: { lon: number; lat: number; height: number }) => void
+  syncCamera?: { lon: number; lat: number; height?: number; zoom?: number; source: 'globe' | 'map'; ts: number } | null
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
@@ -201,6 +205,11 @@ export default function Globe({
     energy: true,
   })
 
+  const onCameraMoveRef = useRef(onCameraMove)
+  useEffect(() => {
+    onCameraMoveRef.current = onCameraMove
+  }, [onCameraMove])
+
   useEffect(() => {
     if (!containerRef.current) return
     let cancelled = false
@@ -230,6 +239,15 @@ export default function Globe({
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
+
+      viewer.camera.moveEnd.addEventListener(() => {
+        const c = Cartographic.fromCartesian(viewer!.camera.position)
+        onCameraMoveRef.current?.({
+          lon: CMath.toDegrees(c.longitude),
+          lat: CMath.toDegrees(c.latitude),
+          height: c.height,
+        })
+      })
 
       const aircraftSrc = new CustomDataSource('aircraft')
       const satSrc = new CustomDataSource('satellites')
@@ -1964,6 +1982,17 @@ export default function Globe({
       }
     }
   }
+
+  useEffect(() => {
+    if (!syncCamera || syncCamera.source === 'globe' || !viewerRef.current) return
+    const viewer = viewerRef.current
+    const height = syncCamera.height ?? (syncCamera.zoom ? 40000000 / Math.pow(2, syncCamera.zoom) : 400000)
+    // Avoid re-triggering moveEnd loop by disabling listener if needed, but simple duration: 0 works.
+    viewer.camera.flyTo({
+      destination: Cartesian3.fromDegrees(syncCamera.lon, syncCamera.lat, height),
+      duration: 0.1,
+    })
+  }, [syncCamera])
 
   useEffect(() => {
     timelineRef.current = { scrubT, hours: timelineHours }
