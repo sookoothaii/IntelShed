@@ -12,6 +12,7 @@ import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from starlette.datastructures import MutableHeaders
 
 import feeds_extra
 import node_sync
@@ -34,8 +35,18 @@ import chat_tools
 import opensky_client
 import aircraft_provider
 import gdelt_bridge
+import cap_bridge
+import anomaly_river
+import rag_memory
+import duckdb_fusion
+import gibs_bridge
+import outages_bridge
+import volcano_bridge
+import pmtiles_bridge
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
+DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
+)
 entity_store.set_db_path(DB_PATH)
 
 
@@ -56,14 +67,25 @@ def _load_env():
 _load_env()
 
 
+def _truthy(val: str) -> bool:
+    return str(val).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _log_security_startup():
     ingest = os.getenv("NODE_INGEST_TOKEN", "")
+    require = _truthy(os.getenv("WORLDBASE_REQUIRE_NODE_TOKEN", ""))
     if not ingest:
-        print(
-            "[SECURITY] NODE_INGEST_TOKEN not set — /api/node/* is open on the bind address. "
-            "Run scripts/setup-node-security.ps1 (PC) and sync token to the Pi.",
-            flush=True,
+        msg = (
+            "NODE_INGEST_TOKEN not set — /api/node/* is open on the bind address. "
+            "Run scripts/setup-node-security.ps1 (PC) and sync token to the Pi."
         )
+        if require:
+            # Fail fast: refuse to serve a LAN-exposed deployment without a token.
+            raise RuntimeError(
+                "[SECURITY] WORLDBASE_REQUIRE_NODE_TOKEN is set but NODE_INGEST_TOKEN is empty. "
+                "Refusing to start. " + msg
+            )
+        print("[SECURITY] " + msg, flush=True)
     else:
         print("[SECURITY] Node ingest/admin API protected (NODE_INGEST_TOKEN set).", flush=True)
 
@@ -72,13 +94,58 @@ _log_security_startup()
 
 app = FastAPI(title="WorldBase API", version="0.1.0", redirect_slashes=False)
 
+# Allowed browser origins. Dev (Vite :5173/:5176) plus any extra origins the
+# operator configures (e.g. the Caddy HTTPS front: https://localhost,
+# https://192.168.1.111). Comma-separated in WORLDBASE_CORS_ORIGINS.
+_CORS_ORIGINS = [
+    "http://localhost:5173", "http://127.0.0.1:5173",
+    "http://localhost:5176", "http://127.0.0.1:5176",
+    "https://localhost", "https://127.0.0.1",
+]
+_extra_origins = os.getenv("WORLDBASE_CORS_ORIGINS", "")
+if _extra_origins:
+    _CORS_ORIGINS.extend(o.strip() for o in _extra_origins.split(",") if o.strip())
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5176", "http://127.0.0.1:5176"],
+    allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class SecurityHeadersMiddleware:
+    """Pure-ASGI hardening headers — streaming-safe (unlike BaseHTTPMiddleware,
+    which buffers and breaks StreamingResponse/SSE such as the chat endpoint)."""
+
+    _HEADERS = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "SAMEORIGIN",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "X-Permitted-Cross-Domain-Policies": "none",
+        "Permissions-Policy": "geolocation=(self), microphone=(), camera=()",
+    }
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for key, value in self._HEADERS.items():
+                    headers.setdefault(key, value)
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 @contextmanager
@@ -138,6 +205,14 @@ app.include_router(cve_bridge.router)
 app.include_router(pegel_bridge.router)
 app.include_router(flowsint_bridge.router)
 app.include_router(gdelt_bridge.router)
+app.include_router(cap_bridge.router)
+app.include_router(anomaly_river.router)
+app.include_router(rag_memory.router)
+app.include_router(duckdb_fusion.router)
+app.include_router(gibs_bridge.router)
+app.include_router(outages_bridge.router)
+app.include_router(volcano_bridge.router)
+app.include_router(pmtiles_bridge.router)
 app.include_router(situations.router)
 
 
@@ -153,12 +228,27 @@ _BRIEFING_AUTOPILOT_TASK = None
 _BRIEFING_INTERVAL = int(os.getenv("WORLDBASE_BRIEFING_INTERVAL", "600"))  # 10 min default
 
 
+async def _phase1_background_tasks():
+    """River anomaly scan + GDELT/RAG indexing (best-effort, no crash on missing Ollama)."""
+    await asyncio.sleep(90)
+    while True:
+        try:
+            await anomaly_river.scan_feeds()
+        except Exception as e:
+            print(f"[PHASE1] River scan failed: {e}", flush=True)
+        try:
+            await rag_memory.ingest_pulse()
+        except Exception as e:
+            print(f"[PHASE1] RAG pulse index failed: {e}", flush=True)
+        await asyncio.sleep(600)
+
+
 async def _briefing_autopilot():
     """Background loop that fuses feeds + LLM into a new briefing periodically."""
     await asyncio.sleep(30)  # Let the server warm up on first boot
     while True:
         try:
-            await node_sync.generate_briefing()
+            await node_sync.generate_briefing_internal()
             print(f"[AUTOPILOT] Briefing generated at {datetime.now(timezone.utc).isoformat()}")
         except Exception as e:
             print(f"[AUTOPILOT] Briefing generation failed: {e}")
@@ -171,8 +261,11 @@ def on_startup():
     entity_store.init_entity_db()
     node_sync.init_node_db()
     node_sync.init_command_db()
+    anomaly_river.init_river_db()
+    rag_memory.init_memory_db()
     global _BRIEFING_AUTOPILOT_TASK
     _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
+    asyncio.create_task(_phase1_background_tasks())
 
 
 @app.on_event("shutdown")
@@ -669,9 +762,18 @@ async def list_models():
                 r.raise_for_status()
                 data = r.json()
                 models = data.get("models", [])
+                default_model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+                names = [m.get("name") for m in models]
+                if default_model not in names:
+                    for n in names:
+                        if n and n.split(":")[0] == default_model.split(":")[0]:
+                            default_model = n
+                            break
                 return {
                     "host": host,
                     "count": len(models),
+                    "default": default_model if default_model in names else (names[0] if names else None),
+                    "embed_model": os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
                     "models": [
                         {"name": m.get("name"), "size": m.get("size"), "parameter_size": m.get("details", {}).get("parameter_size")}
                         for m in models
@@ -691,7 +793,7 @@ async def chat_proxy(payload: dict):
     Set payload['firewall'] = True to route user messages through the LLM-Security-Firewall.
     """
     provider = payload.get("provider", "ollama")
-    model = payload.get("model", "qwen2.5:14b")
+    model = payload.get("model", os.getenv("OLLAMA_MODEL", "qwen3:8b"))
     use_stream = payload.get("stream", False)
     firewall_meta = None
 

@@ -6,6 +6,8 @@ import {
   Cartesian2,
   Color,
   createWorldTerrainAsync,
+  UrlTemplateImageryProvider,
+  GeographicTilingScheme,
   CustomDataSource,
   Entity,
   LabelStyle,
@@ -97,6 +99,9 @@ type Stats = {
   transit: number
   maritime: number
   gdacs: number
+  hazards: number
+  outages: number
+  volcanoes: number
   airquality: number
   pegel: number
   osint: number
@@ -133,7 +138,10 @@ export default function Globe({
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, maritime: 0, gdacs: 0, airquality: 0, pegel: 0, osint: 0, energy: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, pegel: 0, osint: 0, energy: 0, fps: 0 })
+  const [gibsLayer, setGibsLayer] = useState<'off' | 'fires' | 'goes' | 'viirs'>('off')
+  const gibsImageryRef = useRef<any>(null)
+  const gibsDateRef = useRef<string>('')
   const [transitCity, setTransitCity] = useState('berlin')
   const [target, setTarget] = useState<Target>(null)
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
@@ -156,6 +164,9 @@ export default function Globe({
     transit: true,
     maritime: true,
     gdacs: true,
+    hazards: true,
+    outages: true,
+    volcanoes: false,
     airquality: true,
     pegel: true,
     osint: true,
@@ -207,12 +218,15 @@ export default function Globe({
       const transitSrc = new CustomDataSource('transit')
       const maritimeSrc = new CustomDataSource('maritime')
       const gdacsSrc = new CustomDataSource('gdacs')
+      const hazardsSrc = new CustomDataSource('hazards')
+      const outagesSrc = new CustomDataSource('outages')
+      const volcanoSrc = new CustomDataSource('volcanoes')
       const airqualitySrc = new CustomDataSource('airquality')
       const pegelSrc = new CustomDataSource('pegel')
       const energySrc = new CustomDataSource('energy')
       const osintSrc = new CustomDataSource('osint')
       osintSrcRef.current = osintSrc
-      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc, wildfireSrc, lightningSrc, transitSrc, maritimeSrc, gdacsSrc, airqualitySrc, pegelSrc, energySrc, osintSrc].forEach((s) => viewer!.dataSources.add(s))
+      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc, wildfireSrc, lightningSrc, transitSrc, maritimeSrc, gdacsSrc, hazardsSrc, outagesSrc, volcanoSrc, airqualitySrc, pegelSrc, energySrc, osintSrc].forEach((s) => viewer!.dataSources.add(s))
 
       const acMap = new Map<string, Entity>()
       const satMap = new Map<string, Entity>()
@@ -1124,6 +1138,157 @@ export default function Globe({
         }
       }
 
+      const hazardColor = (severity: string) => {
+        const s = (severity || '').toLowerCase()
+        if (s === 'extreme') return '#ff2d00'
+        if (s === 'severe') return '#ff6b35'
+        if (s === 'moderate') return '#ffd23f'
+        return '#22d3ee'
+      }
+
+      const fetchHazards = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/hazards?limit=80')
+          const d = await r.json()
+          hazardsSrc.entities.removeAll()
+          let n = 0
+          for (const a of d.alerts || []) {
+            if (a.lon == null || a.lat == null) continue
+            const col = Color.fromCssColorString(hazardColor(a.severity))
+            hazardsSrc.entities.add({
+              position: Cartesian3.fromDegrees(a.lon, a.lat, 0),
+              point: {
+                pixelSize: 10,
+                color: col.withAlpha(0.92),
+                outlineColor: Color.WHITE,
+                outlineWidth: 1,
+              },
+              label: {
+                text: (a.event || 'HAZARD').slice(0, 28),
+                font: '600 8px "Courier New"',
+                fillColor: col,
+                outlineColor: Color.BLACK,
+                outlineWidth: 2,
+                style: LabelStyle.FILL_AND_OUTLINE,
+                verticalOrigin: VerticalOrigin.BOTTOM,
+                pixelOffset: new Cartesian2(0, -8),
+                distanceDisplayCondition: new DistanceDisplayCondition(0, 8e6),
+              },
+              properties: {
+                kind: 'hazard',
+                event: a.event,
+                headline: a.headline,
+                severity: a.severity,
+                urgency: a.urgency,
+                area_desc: a.area_desc,
+                feed: a.feed,
+                effective: a.effective,
+                expires: a.expires,
+              } as any,
+            })
+            n++
+          }
+          try {
+            const gr = await fetch('/api/gdelt/geo?timespan=1d&maxrecords=40')
+            const gd = await gr.json()
+            for (const ev of gd.events || []) {
+              if (ev.lon == null || ev.lat == null) continue
+              hazardsSrc.entities.add({
+                position: Cartesian3.fromDegrees(ev.lon, ev.lat, 0),
+                point: {
+                  pixelSize: 7,
+                  color: Color.fromCssColorString('#c084fc').withAlpha(0.85),
+                  outlineColor: Color.WHITE,
+                  outlineWidth: 1,
+                },
+                properties: {
+                  kind: 'gdelt_geo',
+                  title: ev.name,
+                  url: ev.url,
+                  date: ev.date,
+                } as any,
+              })
+              n++
+            }
+          } catch { /* gdelt geo optional */ }
+          if (!cancelled) setStats((p) => ({ ...p, hazards: n }))
+        } catch (e) {
+          console.error('hazards fetch failed', e)
+        }
+      }
+
+      const fetchOutages = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/outages?hours=72&limit=35')
+          const d = await r.json()
+          outagesSrc.entities.removeAll()
+          let n = 0
+          for (const o of d.items || []) {
+            if (o.lon == null || o.lat == null) continue
+            const col = Color.fromCssColorString(o.source === 'cloudflare' ? '#ff9f43' : '#a855f7')
+            outagesSrc.entities.add({
+              position: Cartesian3.fromDegrees(o.lon, o.lat, 0),
+              point: {
+                pixelSize: o.kind === 'event' ? 12 : 9,
+                color: col.withAlpha(0.9),
+                outlineColor: Color.WHITE,
+                outlineWidth: 1,
+              },
+              properties: {
+                kind: 'outage',
+                title: o.title,
+                source: o.source,
+                level: o.level,
+                duration_h: o.duration_h,
+                datasource: o.datasource,
+              } as any,
+            })
+            n++
+          }
+          if (!cancelled) setStats((p) => ({ ...p, outages: n }))
+        } catch (e) {
+          console.error('outages fetch failed', e)
+        }
+      }
+
+      const fetchVolcanoes = async () => {
+        if (cancelled) return
+        try {
+          const r = await fetch('/api/volcanoes?active_only=false&limit=350')
+          const d = await r.json()
+          volcanoSrc.entities.removeAll()
+          let n = 0
+          for (const v of d.volcanoes || []) {
+            if (v.lon == null || v.lat == null) continue
+            const col = Color.fromCssColorString(v.active ? '#ff4d5e' : '#6b7280')
+            volcanoSrc.entities.add({
+              position: Cartesian3.fromDegrees(v.lon, v.lat, Math.max(v.elevation_m || 0, 0)),
+              point: {
+                pixelSize: v.active ? 10 : 5,
+                color: col.withAlpha(v.active ? 0.95 : 0.55),
+                outlineColor: Color.BLACK,
+                outlineWidth: 1,
+              },
+              properties: {
+                kind: 'volcano',
+                name: v.name,
+                country: v.country,
+                type: v.type,
+                last_eruption: v.last_eruption,
+                elevation_m: v.elevation_m,
+                active: v.active,
+              } as any,
+            })
+            n++
+          }
+          if (!cancelled) setStats((p) => ({ ...p, volcanoes: n }))
+        } catch (e) {
+          console.error('volcanoes fetch failed', e)
+        }
+      }
+
       // ---------- AIR QUALITY ----------
       const aqColor = (pm25: number | null) => {
         if (pm25 == null) return '#6f8c84'
@@ -1432,6 +1597,44 @@ export default function Globe({
             link: props.link?.getValue?.(),
           })
           viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'outage') {
+          setTarget({
+            kind,
+            title: `📡 ${props.title?.getValue?.() || 'Outage'}`,
+            lines: [
+              `SOURCE: ${props.source?.getValue?.() ?? '—'}`,
+              `LEVEL: ${props.level?.getValue?.() ?? '—'}`,
+              `DATASOURCE: ${props.datasource?.getValue?.() ?? '—'}`,
+              props.duration_h?.getValue?.() != null ? `DURATION: ${props.duration_h.getValue()} h` : 'DURATION: —',
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'volcano') {
+          setTarget({
+            kind,
+            title: `🌋 ${props.name?.getValue?.() || 'Volcano'}`,
+            lines: [
+              `COUNTRY: ${props.country?.getValue?.() ?? '—'}`,
+              `TYPE: ${props.type?.getValue?.() ?? '—'}`,
+              `LAST ERUPTION: ${props.last_eruption?.getValue?.() ?? '—'}`,
+              `ELEV: ${props.elevation_m?.getValue?.() ?? '—'} m`,
+              `ACTIVE: ${props.active?.getValue?.() ? 'yes' : 'no'}`,
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'hazard' || kind === 'gdelt_geo') {
+          setTarget({
+            kind,
+            title: props.event?.getValue?.() || props.title?.getValue?.() || 'Hazard',
+            lines: [
+              `SEVERITY: ${props.severity?.getValue?.() ?? '—'}`,
+              `AREA: ${(props.area_desc?.getValue?.() || '').slice(0, 120)}`,
+              `FEED: ${props.feed?.getValue?.() ?? 'gdelt'}`,
+              `EFFECTIVE: ${props.effective?.getValue?.() ?? props.date?.getValue?.() ?? '—'}`,
+            ],
+            link: props.url?.getValue?.(),
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'airquality') {
           setTarget({
             kind,
@@ -1591,6 +1794,9 @@ export default function Globe({
           transitSrc.show = l.transit
           maritimeSrc.show = l.maritime
           gdacsSrc.show = l.gdacs
+          hazardsSrc.show = l.hazards
+          outagesSrc.show = l.outages
+          volcanoSrc.show = l.volcanoes
           airqualitySrc.show = l.airquality
           pegelSrc.show = l.pegel
           energySrc.show = l.energy
@@ -1612,6 +1818,10 @@ export default function Globe({
       fetchTransit()
       fetchMaritime()
       fetchGdacs()
+      fetchHazards()
+      fetchOutages()
+      fetchVolcanoes()
+      fetch('/api/gibs/latest').then((r) => r.json()).then((d) => { gibsDateRef.current = d.date || '' }).catch(() => {})
       fetchAirquality()
       fetchPegel()
       fetchEnergy()
@@ -1631,6 +1841,9 @@ export default function Globe({
       timers.push(setInterval(fetchTransit, 30000))
       timers.push(setInterval(fetchMaritime, 45000))
       timers.push(setInterval(fetchGdacs, 900000))
+      timers.push(setInterval(fetchHazards, 300000))
+      timers.push(setInterval(fetchOutages, 300000))
+      timers.push(setInterval(fetchVolcanoes, 21600000))
       timers.push(setInterval(fetchAirquality, 3600000))
       timers.push(setInterval(fetchPegel, 900000))
       timers.push(setInterval(fetchEnergy, 900000))
@@ -1652,6 +1865,31 @@ export default function Globe({
   useEffect(() => { apiRef.current.applyVision?.(vision) }, [vision])
   useEffect(() => { apiRef.current.setSatGroup?.(satGroup) }, [satGroup])
   useEffect(() => { apiRef.current.setLayerVisibility?.(layers) }, [layers])
+
+  useEffect(() => {
+    const viewer = viewerRef.current
+    if (!viewer) return
+    if (gibsImageryRef.current) {
+      viewer.imageryLayers.remove(gibsImageryRef.current, false)
+      gibsImageryRef.current = null
+    }
+    if (gibsLayer === 'off') return
+    const layerMap = {
+      fires: 'MODIS_Terra_Thermal_Anomalies_All',
+      goes: 'GOES-East_ABI_GeoColor',
+      viirs: 'VIIRS_SNPP_CorrectedReflectance_TrueColor',
+    } as const
+    const layerId = layerMap[gibsLayer]
+    const date = gibsDateRef.current || new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+    const provider = new UrlTemplateImageryProvider({
+      url: `https://gibs.earthdata.nasa.gov/wmts/epsg4326/best/${layerId}/default/${date}/250m/{z}/{y}/{x}.jpg`,
+      tilingScheme: new GeographicTilingScheme(),
+      maximumLevel: 8,
+      credit: 'NASA GIBS',
+    })
+    gibsImageryRef.current = viewer.imageryLayers.addImageryProvider(provider)
+    if (gibsImageryRef.current) gibsImageryRef.current.alpha = 0.72
+  }, [gibsLayer])
 
   useEffect(() => {
     timelineRef.current = { scrubT, hours: timelineHours }
@@ -1729,6 +1967,9 @@ export default function Globe({
         <div className="hud-row"><span className="hud-dot" style={{ background: '#ffd23f' }} />TRANSIT<span className="hud-val">{stats.transit}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#00e5ff' }} />MARITIME<span className="hud-val">{stats.maritime}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#ff6b35' }} />GDACS<span className="hud-val">{stats.gdacs}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#22d3ee' }} />HAZARDS<span className="hud-val">{stats.hazards}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#a855f7' }} />OUTAGES<span className="hud-val">{stats.outages}</span></div>
+        <div className="hud-row"><span className="hud-dot" style={{ background: '#ff4d5e' }} />VOLCANOES<span className="hud-val">{stats.volcanoes}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#b0c4b1' }} />AIR QUALITY<span className="hud-val">{stats.airquality}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#4fc3f7' }} />PEGEL<span className="hud-val">{stats.pegel}</span></div>
         <div className="hud-row"><span className="hud-dot" style={{ background: '#ffd23f' }} />ENERGY<span className="hud-val">{stats.energy}</span></div>
@@ -1759,6 +2000,20 @@ export default function Globe({
         </div>
 
         <div className="ctl-block">
+          <div className="hud-title">NASA GIBS</div>
+          <div className="vision-bar">
+            {([
+              { id: 'off', label: 'OFF' },
+              { id: 'fires', label: 'FIRES' },
+              { id: 'goes', label: 'GOES' },
+              { id: 'viirs', label: 'VIIRS' },
+            ] as const).map((g) => (
+              <button key={g.id} className={gibsLayer === g.id ? 'on' : ''} onClick={() => setGibsLayer(g.id)}>{g.label}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="ctl-block">
           <div className="hud-title">CONSTELLATION</div>
           <div className="vision-bar">
             {SAT_GROUPS.map((g) => (
@@ -1769,7 +2024,7 @@ export default function Globe({
 
         <div className="ctl-block">
           <div className="hud-title">LAYERS</div>
-          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'maritime', 'gdacs', 'airquality', 'pegel', 'energy', 'osint'] as const).map((k) => (
+          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'pegel', 'energy', 'osint'] as const).map((k) => (
             <label key={k} className={layers[k] ? 'on' : ''}>
               <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
             </label>

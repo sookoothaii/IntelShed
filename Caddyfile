@@ -1,0 +1,53 @@
+# WorldBase reverse proxy — TLS termination + SPA + /api proxy.
+#
+# HTTPS (internal CA) is served for `localhost` and the PC's LAN IP (set via the
+# WORLDBASE_LAN env, injected by docker-compose / start-docker.ps1). A Pi on the
+# LAN reaches https://<pc-ip>/api/node/ingest; node-sync endpoints are token
+# protected in the backend. Plain HTTP on :80 is a fallback for LAN tools.
+
+{
+	admin off
+	auto_https disable_redirects
+	default_sni localhost
+}
+
+(app) {
+	encode zstd gzip
+
+	# API -> FastAPI backend (same docker network)
+	@api path /api/*
+	handle @api {
+		reverse_proxy backend:8002
+	}
+
+	# Single-page app
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	# --- Optional hard lockdown: only the PC + the Pi may reach /api ---
+	# Uncomment and set your subnet to keep the dashboard off other LAN hosts.
+	# @blocked not remote_ip 127.0.0.1 192.168.1.0/24
+	# respond @blocked "Forbidden" 403
+}
+
+# HTTPS (internal CA) — browser via localhost, Pi via the PC's LAN IP.
+https://localhost, https://{$WORLDBASE_LAN:127.0.0.1} {
+	tls internal
+	import app
+	header Strict-Transport-Security "max-age=31536000"
+}
+
+# Plain HTTP fallback (any host/IP on :80). Prefer HTTPS in production.
+:80 {
+	import app
+}

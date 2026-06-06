@@ -1,8 +1,12 @@
 # WORLDBASE — Spatial Intelligence Workstation
 
-A Windows-native, Docker-free data-fusion dashboard: a CesiumJS 3D globe overlaid with live
+A Windows-native data-fusion dashboard: a CesiumJS 3D globe overlaid with live
 real-world feeds (aircraft, satellites, earthquakes, natural events, the ISS), tactical vision
 modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React + Vite frontend.
+
+Runs two ways: **natively** (venv + Vite, `start.ps1`) for development, or as a fully
+**containerized stack** (`docker compose`) where the PC and the off-grid Pi connect over
+**HTTPS with token-authenticated sync** — see [`docs/DOCKER_DEPLOY.md`](docs/DOCKER_DEPLOY.md).
 
 > Inspired by Bilawal Sidhu's WorldView and the offgrid-raspi stack.
 
@@ -34,6 +38,9 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
   - Timeline scrub — earthquakes + EONET events (6/12/24h window on globe)
   - Situation Board — fused correlations, anomalies, GDACS, pegel, Pi sensors (`GET /api/situations`)
   - GDELT news pulse — global headline themes (`GET /api/gdelt/pulse`, no key)
+  - NWS/Meteoalarm hazards + GDELT GEO on globe (`GET /api/hazards`, `GET /api/gdelt/geo`)
+  - River feed anomalies + RAG memory (`GET /api/anomalies/river`, `GET /api/memory/search`)
+  - Internet outages (IODA) + volcanoes (Smithsonian) + NASA GIBS imagery toggle on globe
 - **DATA panel** — searchable, filterable tables per feed with satellite-group selector.
 - **Click-to-locate** — click any event or earthquake in the DATA panel to fly to it on the
   globe with a pulsing marker and a TARGET LOCK info card (incl. source links).
@@ -60,7 +67,23 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
 
 ---
 
-## Quick Start (no Docker)
+## Quick Start (Docker — recommended)
+
+Docker 24+ with Compose. Brings up the backend (FastAPI), the SPA, and a Caddy
+reverse proxy with **internal-CA TLS** in one command:
+
+```powershell
+Set-Location -LiteralPath 'D:\MCP Mods\worldbase'
+.\scripts\start-docker.ps1     # generates a node token, detects LAN IP, builds + runs
+```
+
+Open **https://localhost** (accept the internal-CA warning once). The Pi reaches
+the PC at `https://<pc-lan-ip>/api/node/ingest`. Stop with `.\scripts\stop-docker.ps1`.
+Full guide + security model: [`docs/DOCKER_DEPLOY.md`](docs/DOCKER_DEPLOY.md).
+
+---
+
+## Quick Start (native, no Docker)
 
 ### Prerequisites
 - **Python 3.11+**

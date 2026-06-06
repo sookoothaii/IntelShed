@@ -19,10 +19,12 @@ from fastapi import APIRouter, Header, HTTPException
 
 router = APIRouter(prefix="/api", tags=["node-sync"])
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
+DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
+)
 SELF_URL = os.getenv("WORLDBASE_SELF", "http://localhost:8002").rstrip("/")
 OLLAMA_HOSTS = os.getenv("OLLAMA_HOST", "localhost:11434").split(",")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 
 # ---------------------------------------------------------------------------
 # Alert thresholds (positive prepper mindset: protect, not attack)
@@ -286,6 +288,11 @@ async def _gather_snapshot() -> dict:
         await grab("geopolitics", "/api/geopolitics?limit=20")
         await grab("military", "/api/military")
         await grab("gdacs", "/api/gdacs")
+        await grab("hazards", "/api/hazards?limit=40")
+        await grab("gdelt_geo", "/api/gdelt/geo?timespan=1d&maxrecords=30")
+        await grab("river", "/api/anomalies/river")
+        await grab("outages", "/api/outages?limit=20")
+        await grab("volcanoes", "/api/volcanoes?active_only=true&limit=30")
         await grab("cve", "/api/cve?limit=15")
         await grab("nodes", "/api/nodes")
     return snap
@@ -340,6 +347,41 @@ def _compile_alerts(snap: dict) -> list:
             "severity": "medium",
             "kind": "gdacs",
             "text": f"{gdacs_n} GDACS humanitarian alerts active.",
+        })
+
+    haz_n = (snap.get("hazards", {}) or {}).get("count") or 0
+    if haz_n:
+        top = ((snap.get("hazards", {}) or {}).get("alerts") or [])[:3]
+        sample = "; ".join((a.get("event") or "")[:50] for a in top if a.get("event"))
+        alerts.append({
+            "severity": "medium",
+            "kind": "weather_hazard",
+            "text": f"{haz_n} NWS/Meteoalarm alerts active. {sample}".strip(),
+        })
+
+    for sig in (snap.get("river", {}) or {}).get("anomalies") or []:
+        alerts.append({
+            "severity": "high",
+            "kind": "feed_anomaly",
+            "text": f"River anomaly: {sig.get('feed')} value={sig.get('value')} score={sig.get('score')}",
+        })
+
+    out_n = (snap.get("outages", {}) or {}).get("count") or 0
+    if out_n:
+        top = ((snap.get("outages", {}) or {}).get("items") or [])[:2]
+        sample = "; ".join((i.get("title") or "")[:40] for i in top)
+        alerts.append({
+            "severity": "medium",
+            "kind": "internet_outage",
+            "text": f"{out_n} IODA/CF outage signals. {sample}".strip(),
+        })
+
+    act_v = (snap.get("volcanoes", {}) or {}).get("active_count") or 0
+    if act_v:
+        alerts.append({
+            "severity": "low",
+            "kind": "volcano",
+            "text": f"{act_v} volcanoes with recent/observed activity (Smithsonian GVP).",
         })
 
     cve_items = (snap.get("cve", {}) or {}).get("vulnerabilities", [])[:5]
@@ -399,11 +441,19 @@ async def _ollama_chat(prompt: str) -> str:
 
 
 @router.post("/briefing/generate")
-async def generate_briefing():
+async def generate_briefing(x_admin_token: str = Header(default="")):
     """Fuse all feeds and have the local LLM write a world-situation report.
 
     Stored in SQLite; the Pi pulls it via /api/node/pull for offline display.
+    This route is admin-protected (heavy LLM call). The background autopilot
+    calls generate_briefing_internal() directly and is not affected.
     """
+    _verify_admin_secret(x_admin_token)
+    return await generate_briefing_internal()
+
+
+async def generate_briefing_internal():
+    """Actual briefing generation logic (no auth). Used by route + autopilot."""
     snap = await _gather_snapshot()
     alerts = _compile_alerts(snap)
 
@@ -442,6 +492,11 @@ async def generate_briefing():
             (now, text, json.dumps({"alerts": alerts})),
         )
         conn.commit()
+    try:
+        import rag_memory
+        await rag_memory.ingest_briefing(text, now)
+    except Exception:
+        pass
     return {"created_at": now, "text": text, "alerts": alerts}
 
 

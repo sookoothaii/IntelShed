@@ -1743,7 +1743,11 @@ function ChatPanel({
         const list = d.models || []
         setModels(list)
         if (list.length > 0 && !model) {
-          setModel(list[0].name)
+          const preferred = d.default as string | undefined
+          const pick = preferred && list.some((m: { name: string }) => m.name === preferred)
+            ? preferred
+            : list[0].name
+          setModel(pick)
         }
       })
       .catch(() => setModelErr('Could not reach backend for model list'))

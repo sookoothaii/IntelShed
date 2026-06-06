@@ -5,6 +5,12 @@
 
 **Live status (2026-06-04):** PC token set; Pi push/pull **Ingest OK**; Pi UFW hardened; Borg on `/mnt/sdcard/borg-repo`; `/mnt/usb` gone. Portal basic auth on Pi still optional.
 
+**Empfohlener Betrieb (2026-06-04): Docker-Stack mit TLS.** Backend nur auf
+`127.0.0.1:8002`, LAN-Zugriff ausschließlich über Caddy `:443` (interne CA).
+Pi synct über **HTTPS** (`WORLDBASE_SCHEME=https`), Token unverändert. Start:
+`.\scripts\start-docker.ps1`. Details + Härtung: [`DOCKER_DEPLOY.md`](DOCKER_DEPLOY.md).
+Secure-by-default: `WORLDBASE_REQUIRE_NODE_TOKEN=1` → Backend startet ohne Token nicht.
+
 ---
 
 ## Architektur (zwei Knoten)

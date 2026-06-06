@@ -1,5 +1,5 @@
 # LLM Handoff — WorldBase
-> Last updated: 2026-06-04 | Pi sync secured, Borg on SD, Flowsint live, security hardening
+> Last updated: 2026-06-06 | Phase 1+2 Gold stack: Ollama Qwen3, River, RAG, hazards, outages, PMTiles Thailand+world
 
 ## Project Overview
 WorldBase is a spatial intelligence dashboard: React + CesiumJS globe on the frontend, FastAPI backend with 20+ data feeds. No API keys required for any source. All feeds are fail-soft (serve stale cache or empty payload on upstream error).
@@ -19,7 +19,7 @@ WorldBase is a spatial intelligence dashboard: React + CesiumJS globe on the fro
 | HTTP Client | httpx (async) |
 | Cache | In-memory + SQLite `feed_cache` table |
 | DB | SQLite (`worldbase.db`) |
-| LLM | Ollama (qwen2.5:14b default) via `/api/chat` |
+| LLM | Ollama (**qwen3:8b** default) + **nomic-embed-text** RAG via `/api/chat` |
 
 ---
 
@@ -341,11 +341,29 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **`POST /api/flowsint/export-investigation`** — export globe pins for Flowsint workflow
 - Military feed: **adsb.fi** with **adsb.lol `/v2/mil`** fallback
 
-**Backlog:**
-1. **GTFS DE live positions** — VBB feed often trip-updates-only (0 VehiclePosition); Helsinki/Boston verify layer
-2. **OpenSky `.env`** — optional higher rate limits: `OPENSKY_CLIENT_ID` / `SECRET` (see `backend/.env.example`)
-3. **ReliefWeb v2 appname** — request at https://apidoc.reliefweb.int/parameters#appname → `RELIEFWEB_APPNAME`
-4. Pegel history sparklines, aircraft dead-reckoning trails, Situation Board first-load split
+**Done (2026-06-04–06) — Gold canvas Phase 1+2 (all free / no purchase):**
+- **Ollama:** `OLLAMA_MODEL=qwen3:8b`, `OLLAMA_EMBED_MODEL=nomic-embed-text` in `backend/.env.example`; `/api/models` returns `default`
+- **`cap_bridge.py`** — `GET /api/hazards` (NWS GeoJSON + Meteoalarm); Globe **HAZARDS** + GDELT GEO
+- **`anomaly_river.py`** — `GET /api/anomalies/river` (River HalfSpaceTrees, z-score fallback); in Situation Board + briefing
+- **`rag_memory.py`** — `GET /api/memory/search`, autopilot indexes briefings + GDELT; chat tool **`search_memory`**
+- **`gdelt_bridge.py`** — `GET /api/gdelt/geo` (GEO 2.0 points)
+- **`gibs_bridge.py`** — `GET /api/gibs/layers`, `/latest`; Globe NASA GIBS toggle (FIRES/GOES/VIIRS)
+- **`outages_bridge.py`** — `GET /api/outages` (IODA; optional Cloudflare via `CLOUDFLARE_API_TOKEN`)
+- **`volcano_bridge.py`** — `GET /api/volcanoes` (Smithsonian GVP WFS proxy)
+- **`duckdb_fusion.py`** — `GET /api/fusion/status`, `/sample`
+- **`pmtiles_bridge.py`** + **`scripts/download-pmtiles.ps1`** + **`scripts/start-pmtiles-serve.ps1`**
+  - Stack: `planet_z6.pmtiles` (~42 MB world) + `thailand.pmtiles` (~427 MB detail)
+  - Regions: `stack`, `thailand`, `world-z10`, `world-full -Force`, `asean`
+  - Serve: `http://127.0.0.1:8088` — MapLibre ZXY MVT (not yet wired into Cesium globe)
+- **Docker** (optional): `docker-compose.yml`, `docs/DOCKER_DEPLOY.md`, `scripts/start-docker.ps1`
+- Doc: **`docs/PHASE1_INTEGRATION.md`**
+
+**Backlog (next session):**
+1. **PMTiles in Cesium** or MapLibre side-by-side basemap (vector MVT from `pmtiles serve`)
+2. **`world-z10`** download if user wants global detail (~1 GB): `.\scripts\download-pmtiles.ps1 -Region world-z10`
+3. **TiTiler/STAC**, OpenSanctions/yente, IODA+CF with `CLOUDFLARE_API_TOKEN`
+4. **GTFS DE live positions** — VBB often trip-updates-only
+5. OpenSky / ReliefWeb optional keys; Pegel sparklines; aircraft trails
 
 **Done (2026-06-03):** Flowsint embed; `/api/flowsint/health`. OSINT pins + localStorage; `/api/pegel`; Ollama `keep_alive: 5m`.
 
@@ -392,6 +410,9 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - Main backend: `D:\MCP Mods\worldbase\backend\main.py`
 - Aircraft: `backend/aircraft_provider.py`, `backend/adsb_client.py`, `backend/opensky_client.py`
 - Crises geo: `backend/geo_centroids.py`
-- GDELT pulse: `backend/gdelt_bridge.py`
+- GDELT: `backend/gdelt_bridge.py` (pulse + geo)
+- Phase 1+2: `docs/PHASE1_INTEGRATION.md`
+- PMTiles: `scripts/download-pmtiles.ps1`, `scripts/start-pmtiles-serve.ps1`, `backend/pmtiles_bridge.py`
+- Bridges: `cap_bridge.py`, `anomaly_river.py`, `rag_memory.py`, `outages_bridge.py`, `volcano_bridge.py`, `gibs_bridge.py`, `duckdb_fusion.py`
 - Mission: `docs/NEXT_LLM_MISSION.md`
 - DB: `D:\MCP Mods\worldbase\backend\worldbase.db`

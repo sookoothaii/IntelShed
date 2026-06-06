@@ -7,3 +7,5 @@ beautifulsoup4>=4.12.0
 dnspython>=2.6.0
 gtfs-realtime-bindings>=1.0.0
 protobuf>=4.0.0
+river>=0.21.0
+duckdb>=1.1.0

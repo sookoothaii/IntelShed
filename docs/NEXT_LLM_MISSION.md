@@ -1,117 +1,119 @@
-# Next LLM Mission — Positive Palantir (WorldBase)
+# Next LLM Mission — WorldBase
 
 > Copy the **Start prompt** below into a new agent session.  
-> Read first: `LLM_HANDOFF.md` → `docs/POSITIVE_PALANTIR_VISION.md` → this file.
+> Read first: `LLM_HANDOFF.md` → `docs/PHASE1_INTEGRATION.md` → this file.
 
 ## Leitprinzip
 
-**Fusion vor Feeds** — eine Karte, Timeline, Entities, Investigation. Kein 13. DATA-Tab.
+**Fusion vor Feeds** — eine Karte, Timeline, Entities, Investigation. Kein Feed ohne Globe- oder Briefing-Mehrwert.
 
-Die nächste Instanz vertieft **Fusion und Bedienung**, nicht neue Feed-Bridges ohne Globe-Layer.
+Operator lebt **hauptsächlich in Thailand**; Hardware: **i9 + RTX 3080 Ti** — `world-z10` (~1 GB) oder PMTiles-in-Cesium sind realistisch.
 
 ---
 
-## Erledigt (nicht nochmal anfangen)
+## Erledigt (nicht nochmal von null)
 
-### Phase A — Done (2026-06-04)
+### Phase A–B (2026-06-04)
 
-| # | Feature | API / UI |
-|---|---------|----------|
-| 1 | Flowsint → Globe | `POST /api/osint/pins/import` — OSINT tab → Flowsint → paste JSON → **IMPORT TO GLOBE** |
-| 2 | Situation Board | `GET /api/situations` — header **SITUATIONS** overlay |
-| 3 | Entity layer | SQLite `entities` / `entity_links` — `GET /api/entity/{id}/context` |
-| 4 | AI tools | Ollama `use_tools` on `/api/chat` — `osint_ip`, `focus_globe`, `list_situations`, … |
+Situation Board, Entities, Chat-Tools, Time Slider, adsb.lol/OpenSky, GDACS crises, GDELT pulse, SMARD/ENERGY, Pi sparklines, Flowsint export.
 
-### Phase B — Partial (2026-06-04)
+### Gold Phase 1+2 (2026-06-04–06) — committed
 
-| Done | Item |
-|------|------|
-| ✅ | SMARD API fix + `/api/energy/de/globe` + **ENERGY** layer on globe |
-| ✅ | GTFS defaults: VBB Berlin + gtfs.de aggregate (HH/München bbox); `vehicle.position` parser |
-| ✅ | Pegel + rain in `/api/correlations` |
-| ✅ | Situations API parallel fetch + 45s cache; correlations 120s cache |
-| ✅ | Browser push for negative DE power price |
+| Modul | API / UI |
+|-------|----------|
+| Qwen3 + RAG | `OLLAMA_MODEL=qwen3:8b`, `nomic-embed-text`, `search_memory` tool |
+| Hazards | `GET /api/hazards` → Globe **HAZARDS** + GDELT GEO |
+| River | `GET /api/anomalies/river` → Situations + briefing |
+| Outages | `GET /api/outages` (IODA; CF optional) → Globe **OUTAGES** |
+| Volcanoes | `GET /api/volcanoes` → Globe **VOLCANOES** |
+| GIBS | `GET /api/gibs/*` → Globe imagery toggle FIRES/GOES/VIIRS |
+| Fusion stub | `GET /api/fusion/*` (DuckDB spatial) |
+| PMTiles | `download-pmtiles.ps1 -Region stack` → `planet_z6` + `thailand`; `start-pmtiles-serve.ps1` :8088 |
+| Docker | `docker-compose.yml`, `docs/DOCKER_DEPLOY.md` (optional deploy) |
+
+Details: **`docs/PHASE1_INTEGRATION.md`**
 
 ---
 
 ## Fokus nächste Instanz (Priorität)
 
-### Erledigt (2026-06-04, Code)
+### 1. PMTiles → sichtbar im UI (Höchster Hebel)
 
-| Item | Details |
-|------|---------|
-| ✅ Time Slider | `Globe.tsx` — SEISMIC + EVENTS, 6/12/24h, kumulativer Scrub, LIVE |
-| ✅ OpenSky Client | `opensky_client.py` — OAuth when configured |
-| ✅ adsb.lol fallback | `adsb_client.py` + `aircraft_provider.py` — ~1k aircraft without keys |
-| ✅ Pi Sparklines | `SensorSparklines.tsx` — Node Target-Panel |
-| ✅ Crises on globe | GDACS + `geo_centroids.py`; ReliefWeb v2 via `RELIEFWEB_APPNAME` |
-| ✅ GDELT pulse | `GET /api/gdelt/pulse` (headlines, cached) |
-| ✅ Flowsint export | `POST /api/flowsint/export-investigation` |
+- Cesium unterstützt Protomaps-Vektor **nicht nativ**
+- Optionen: MapLibre-Panel neben Globe; oder `pmtiles serve` + Protomaps-Style JSON; oder `world-z10` als Raster-Pfad
+- Lokaler Stack liegt unter `data/pmtiles/` (gitignored) — nicht committen
+- Test: `.\scripts\start-pmtiles-serve.ps1` → `http://127.0.0.1:8088/planet_z6.json`
 
-### 1. Ops / optional keys (User)
+### 2. Optional keys / Ops (User)
 
-- `OPENSKY_CLIENT_ID` / `SECRET` — higher OpenSky rate limits (optional; adsb.lol works without)
-- `RELIEFWEB_APPNAME` — approved appname for ReliefWeb v2 disasters on CRISES layer
-- `AIRCRAFT_SOURCE=auto|opensky|adsb` in `backend/.env`
+```powershell
+ollama pull qwen3:8b
+ollama pull nomic-embed-text
+# backend/.env: OLLAMA_MODEL, PMTILES_SERVE_URL=http://127.0.0.1:8088
+# Optional: CLOUDFLARE_API_TOKEN, OPENSKY_*, RELIEFWEB_APPNAME
+pip install -r backend/requirements.txt   # river, duckdb
+```
 
-### 2. Phase C — Edge USP
+### 3. Phase 2 Fusion (free, mehr Aufwand)
 
-- Optional: **Portal-Auth Pi** (`PORTAL_REQUIRE_AUTH`) — `docs/SECURITY_OPERATIONS.md`
-- Mesh briefing LCD, Firewall/HAK_GAL als LAN-only globe layer
+- TiTiler + STAC/COG router
+- FollowTheMoney + nomenklatura + yente/OpenSanctions (AIS↔sanctions)
+- `world-z10` global basemap: `.\scripts\download-pmtiles.ps1 -Region world-z10`
 
-### 4. Polish (nebeneinander, nicht Hauptmission)
+### 4. Polish
 
-- Situation Board: erster Load noch ~10–20s (Correlations in `/api/situations` teuer) → weiter cachen oder entkoppeln
-- GTFS DE: VBB oft nur **TripUpdates**, keine Live-Positionen — **kein Parser-Bug**; Helsinki/Boston für bewegliche Icons; DE-Positionen = anderer Endpoint recherchieren
+- Situation Board first-load (River scan in `/api/situations`)
+- GTFS DE VehiclePosition; aircraft trails; pegel sparklines
 
 ---
 
-## Phase D — Backlog (explizit nicht jetzt)
-
-- AIS bridge, OSM Overpass civic POIs, `POST /api/citizen/report`, Simulation
-- Neue Feeds **ohne** Globe-Anbindung
-
 ## Do NOT
 
-- SCADA / traffic-light control
-- Mass person tracking
-- Commit secrets (`pi-node-token.conf`, `backend/.env`)
-- Add feeds without globe fusion
+- Commit `backend/.env`, `data/pmtiles/`, secrets
+- SCADA / mass tracking
+- Neue Feed-Bridges ohne Globe- oder Briefing-Anbindung
+- Memgraph (BSL) — Neo4j CE / ArcadeDB if graph needed
 
 ---
 
 ## Start prompt (copy)
 
 ```
-Mission: WorldBase Phase B abschließen + Phase C starten — Fusion, keine neuen Feeds.
+Mission: WorldBase — PMTiles im UI + Phase 2 Fusion vorbereiten.
 
-Erledigt: Phase A (Pins, Situations, Entities, Chat-Tools); Phase B partial (SMARD/Globe, Pegel+Regen, Situations-Cache, GTFS-Defaults, negativer Strompreis-Push).
+Erledigt (2026-06-06): Gold Phase 1+2 — Qwen3, RAG, River, hazards, outages, volcanoes, GIBS toggle, DuckDB stub, PMTiles stack (planet_z6 + thailand), Docker optional.
 
-Erledigt: Time Slider, adsb.lol/OpenSky aircraft, Pi-Sparklines, GDACS crises, GDELT pulse.
+Lies: LLM_HANDOFF.md, docs/PHASE1_INTEGRATION.md, docs/NEXT_LLM_MISSION.md.
+Globe: frontend/src/components/Globe.tsx
+PMTiles: scripts/start-pmtiles-serve.ps1, backend/pmtiles_bridge.py
 
-Offen: ReliefWeb appname, Situation Board perf, GTFS DE VehiclePosition, aircraft trails.
+Ziel Session: PMTiles-Basemap neben/under Cesium sichtbar machen ODER world-z10 pull + status in /api/pmtiles/status.
 
-Lies: LLM_HANDOFF.md, docs/NEXT_LLM_MISSION.md, Globe.tsx, feeds_extra.py, node_sync.py.
 Test: .\start.ps1 → http://localhost:5176
-Nicht: neue Feed-Bridges ohne Globe-Layer; SCADA; Massen-Tracking; Secrets committen.
-Pi SSH nur bei Bedarf: user0@192.168.1.121
+Ollama: qwen3:8b + nomic-embed-text laufen lassen (Ollama-App muss laufen).
+Nicht: Secrets committen; 130 GB planet ohne -Force; neue Feeds ohne Layer.
 ```
 
 ---
 
 ## Test checklist
 
-### Regression (Phase A/B — sollte weiter grün sein)
+### Regression
 
-- [ ] `POST /api/osint/pins/import` → pins on globe
-- [ ] **SITUATIONS** — zweites Öffnen schnell (~1–2s); correlations + GDACS + pegel
-- [ ] Globe **ENERGY** → ~9 Kraftwerkspunkte DE (`GET /api/energy/de/globe`)
-- [ ] Transit **HELSINKI** / **BOSTON** → bewegliche Icons (Berlin = Trip-Delays only)
+- [ ] `GET /api/hazards` → geocoded alerts
+- [ ] `GET /api/outages` → IODA items
+- [ ] `GET /api/anomalies/river` → engine river or zscore
+- [ ] `GET /api/memory/stats` → chunks after briefing
+- [ ] Globe layers: HAZARDS, OUTAGES, NASA GIBS FIRES
+- [ ] Chat: model **qwen3:8b**, tool `search_memory`
 
-### Neue Arbeit
+### PMTiles (local)
 
-- [ ] Time Slider: scrub zurück → Quakes/Events (min.) sichtbar für gewähltes Zeitfenster
-- [ ] `/api/aircraft` → `source` = `adsb.lol` oder `opensky`, count > 0; HUD zeigt Quelle
-- [ ] **CRISES** → GDACS-Punkte weltweit (nicht 0,0-Stapel)
-- [ ] Optional: `RELIEFWEB_APPNAME` → zusätzliche ReliefWeb-Disasters
-- [ ] (Optional) Node-Klick → Sparklines aus `/api/node/{id}/sensors/history`
+- [ ] `.\scripts\download-pmtiles.ps1 -Region stack` (if missing)
+- [ ] `.\scripts\start-pmtiles-serve.ps1` → TileJSON loads
+- [ ] `GET /api/pmtiles/status` → archives list
+
+### Next work
+
+- [ ] Basemap visible in frontend (MapLibre or Cesium integration)
+- [ ] Optional `world-z10` download

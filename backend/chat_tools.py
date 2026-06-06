@@ -91,6 +91,21 @@ OLLAMA_TOOLS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_memory",
+            "description": "Semantic search over indexed briefings and GDELT headlines (citable RAG memory).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Natural language search query"},
+                    "k": {"type": "integer", "description": "Max results (default 6)"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -148,6 +163,13 @@ async def execute_tool(name: str, arguments: dict) -> dict[str, Any]:
         import node_sync
         result = await node_sync.generate_briefing()
         return {"tool": name, "result": {"created_at": result.get("created_at"), "preview": (result.get("text") or "")[:500]}}
+
+    if name == "search_memory":
+        import rag_memory
+        query = str(args.get("query", "")).strip()
+        k = int(args.get("k") or 6)
+        results = await rag_memory.search(query, k=k)
+        return {"tool": name, "result": {"query": query, "count": len(results), "results": results}}
 
     return {"tool": name, "error": f"unknown tool: {name}"}
 

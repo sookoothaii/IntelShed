@@ -1,0 +1,78 @@
+# WorldBase — full containerized stack: FastAPI backend + Caddy (TLS, SPA, /api proxy).
+# Quick start:  .\scripts\start-docker.ps1   (ensures a node token, builds, brings up)
+# Manual:       docker compose up -d --build
+#
+# Browser:  https://localhost           (accept the internal-CA cert once)
+# Pi sync:  https://<pc-lan-ip>/api/node/ingest   (set WORLDBASE_VERIFY_TLS=0 on the Pi)
+#
+# Build/runtime config comes from the repo-root .env (see .env.docker.example)
+# and from backend/.env (API keys, NODE_INGEST_TOKEN). The latter is optional at
+# parse time but required for a LAN-exposed deployment (WORLDBASE_REQUIRE_NODE_TOKEN).
+
+name: worldbase
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: worldbase-backend:local
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      WORLDBASE_DB_PATH: /data/worldbase.db
+      WORLDBASE_SELF: http://localhost:8002
+      # Reach the host's Ollama from inside the container
+      OLLAMA_HOST: ${OLLAMA_HOST:-host.docker.internal:11434}
+      # Secure-by-default: refuse to start LAN-exposed without a node token
+      WORLDBASE_REQUIRE_NODE_TOKEN: ${WORLDBASE_REQUIRE_NODE_TOKEN:-1}
+      # Browser origin served by Caddy (extend with your LAN https origin if needed)
+      WORLDBASE_CORS_ORIGINS: ${WORLDBASE_CORS_ORIGINS:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - worldbase-db:/data
+    # Backend is NOT published to the host: it is reachable only inside the
+    # docker network (Caddy proxies it). This is the most locked-down posture
+    # and also sidesteps the Windows loopback-bind quirk on 127.0.0.1:8002.
+    # For direct debugging use the Caddy entry (https://localhost/api/health)
+    # or `docker compose exec backend curl -s localhost:8002/api/health`.
+    # To expose it on the host anyway, use docker-compose.override.yml.
+    expose:
+      - "8002"
+    restart: unless-stopped
+    networks:
+      - worldbase
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_CESIUM_ION_TOKEN: ${VITE_CESIUM_ION_TOKEN:-}
+        VITE_FLOWSINT_URL: ${VITE_FLOWSINT_URL:-http://localhost:5173}
+    image: worldbase-web:local
+    depends_on:
+      - backend
+    environment:
+      # PC LAN IP that Caddy issues an internal TLS cert for (Pi reaches this).
+      # start-docker.ps1 auto-detects and sets this; falls back to loopback.
+      WORLDBASE_LAN: ${WORLDBASE_LAN:-127.0.0.1}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
+    networks:
+      - worldbase
+
+volumes:
+  worldbase-db:
+  caddy-data:
+  caddy-config:
+
+networks:
+  worldbase:
+    driver: bridge

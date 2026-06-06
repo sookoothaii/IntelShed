@@ -12,6 +12,7 @@ import entity_store
 import feeds_extra
 import node_sync
 import pegel_bridge
+import anomaly_river
 
 router = APIRouter(prefix="/api", tags=["situations"])
 
@@ -205,6 +206,29 @@ async def _items_sensors() -> list[dict]:
     return items
 
 
+async def _items_river() -> list[dict]:
+    items = []
+    try:
+        scan = await anomaly_river.get_river_state(90.0)
+        for i, sig in enumerate(scan.get("anomalies") or []):
+            feed = sig.get("feed", "feed")
+            eid = entity_store.entity_id_for_situation("river", feed)
+            items.append({
+                "id": f"river:{feed}:{i}",
+                "entity_id": eid,
+                "category": "anomaly",
+                "severity": "high" if sig.get("score", 0) >= 0.8 else "medium",
+                "type": "feed_anomaly",
+                "title": f"Unusual {feed.replace('_', ' ')} (score {sig.get('score')})",
+                "source": "river",
+                "location": None,
+                "details": sig,
+            })
+    except Exception:
+        pass
+    return items
+
+
 @router.get("/situations")
 async def unified_situations():
     """Single timeline for the Situation Board (parallel fetch + 45s cache)."""
@@ -212,14 +236,15 @@ async def unified_situations():
     if _CACHE["payload"] and (now - _CACHE["ts"]) < _CACHE_TTL:
         return _CACHE["payload"]
 
-    corr, anom, gdacs, pegel, sensors = await asyncio.gather(
+    corr, anom, gdacs, pegel, sensors, river = await asyncio.gather(
         _items_correlations(),
         _items_anomalies(),
         _items_gdacs(),
         _items_pegel(),
         _items_sensors(),
+        _items_river(),
     )
-    items = corr + anom + gdacs + pegel + sensors
+    items = corr + anom + gdacs + pegel + sensors + river
 
     sev_order = {"critical": 0, "high": 1, "medium": 2, "warn": 3, "low": 4, "normal": 5}
     items.sort(key=lambda x: sev_order.get(x.get("severity", "medium"), 3))
