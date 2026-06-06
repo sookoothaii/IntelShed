@@ -229,11 +229,11 @@ export default function App() {
       <main className="hud-main">
         <div key={view} className="view-fade">
           {splitView ? (
-            <div style={{ display: 'flex', width: '100%', height: '100%' }}>
-              <div style={{ flex: 1, position: 'relative' }}>
+            <div className="split-view">
+              <div className="split-pane">
                 <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} onCameraMove={handleGlobeMove} syncCamera={syncCamera} mapMode={mapMode} />
               </div>
-              <div style={{ flex: 1, position: 'relative', borderLeft: '1px solid rgba(0,255,163,0.3)' }}>
+              <div className="split-pane split-pane-right">
                 <MapPanel focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null} onCameraMove={handleMapMove} syncCamera={syncCamera} mapMode={mapMode} />
               </div>
             </div>

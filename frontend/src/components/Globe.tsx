@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import {
+  clampCameraHeight,
+  containerHasSize,
+  sanitizeLonLat,
+  zoomToGlobeHeight,
+} from '../lib/cameraSync'
+import {
   Viewer,
   Ion,
   Cartesian3,
@@ -333,6 +339,7 @@ export default function Globe({
   })
 
   const onCameraMoveRef = useRef(onCameraMove)
+  const cameraSyncingRef = useRef(false)
   useEffect(() => {
     onCameraMoveRef.current = onCameraMove
   }, [onCameraMove])
@@ -341,6 +348,7 @@ export default function Globe({
     if (!containerRef.current) return
     let cancelled = false
     let viewer: Viewer | null = null
+    let resizeObserver: ResizeObserver | null = null
     const timers: ReturnType<typeof setInterval>[] = []
 
     ;(async () => {
@@ -386,14 +394,28 @@ export default function Globe({
       }
 
       viewer.camera.moveEnd.addEventListener(() => {
+        if (cameraSyncingRef.current) return
         const c = Cartographic.fromCartesian(viewer!.camera.position)
+        const pos = sanitizeLonLat(CMath.toDegrees(c.longitude), CMath.toDegrees(c.latitude))
+        if (!pos) return
         onCameraMoveRef.current?.({
-          lon: CMath.toDegrees(c.longitude),
-          lat: CMath.toDegrees(c.latitude),
-          height: c.height,
+          lon: pos.lon,
+          lat: pos.lat,
+          height: clampCameraHeight(c.height),
           pitch: CMath.toDegrees(viewer!.camera.pitch),
         })
       })
+
+      resizeObserver = new ResizeObserver(() => {
+        if (!containerRef.current || !viewer) return
+        if (!containerHasSize(containerRef.current)) return
+        try {
+          viewer.resize()
+        } catch {
+          /* ignore during teardown */
+        }
+      })
+      resizeObserver.observe(containerRef.current)
 
       await applyGlobeMapMode(viewer, mapModeRef.current, {
         labelOverlay: labelOverlayRef,
@@ -2206,6 +2228,7 @@ export default function Globe({
 
     return () => {
       cancelled = true
+      resizeObserver?.disconnect()
       timers.forEach(clearInterval)
       if (viewer) { viewer.destroy(); viewerRef.current = null }
     }
@@ -2293,16 +2316,32 @@ export default function Globe({
 
   useEffect(() => {
     if (!syncCamera || syncCamera.source === 'globe' || !viewerRef.current) return
+    if (!containerHasSize(containerRef.current)) return
     const viewer = viewerRef.current
-    const height = syncCamera.height ?? (syncCamera.zoom ? 40000000 / Math.pow(2, syncCamera.zoom) : 400000)
-    const pitch = syncCamera.pitch != null
-      ? CMath.toRadians(syncCamera.pitch)
-      : (mapMode.render3d ? CMath.toRadians(-45) : CMath.toRadians(-90))
-    viewer.camera.flyTo({
-      destination: Cartesian3.fromDegrees(syncCamera.lon, syncCamera.lat, height),
-      orientation: { heading: 0, pitch, roll: 0 },
-      duration: 0.1,
-    })
+    const pos = sanitizeLonLat(syncCamera.lon, syncCamera.lat)
+    if (!pos) return
+    const height = syncCamera.height != null
+      ? clampCameraHeight(syncCamera.height)
+      : zoomToGlobeHeight(syncCamera.zoom ?? 4)
+    const pitchDeg = Number.isFinite(syncCamera.pitch)
+      ? Math.min(0, Math.max(-90, syncCamera.pitch!))
+      : (mapMode.render3d ? -45 : -90)
+    cameraSyncingRef.current = true
+    try {
+      viewer.camera.setView({
+        destination: Cartesian3.fromDegrees(pos.lon, pos.lat, height),
+        orientation: {
+          heading: 0,
+          pitch: CMath.toRadians(pitchDeg),
+          roll: 0,
+        },
+      })
+      viewer.resize()
+    } finally {
+      requestAnimationFrame(() => {
+        cameraSyncingRef.current = false
+      })
+    }
   }, [syncCamera, mapMode.render3d])
 
   useEffect(() => {

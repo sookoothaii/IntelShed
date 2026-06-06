@@ -5,6 +5,11 @@ import { layers as protomapsLayers, namedFlavor } from '@protomaps/basemaps'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_SATELLITE_TILES } from '../lib/mapView'
+import {
+  containerHasSize,
+  globeHeightToZoom,
+  sanitizeLonLat,
+} from '../lib/cameraSync'
 
 let _protocolRegistered = false
 
@@ -79,6 +84,7 @@ export default function MapPanel({
   const [showHint, setShowHint] = useState<boolean>(false)
 
   const onCameraMoveRef = useRef(onCameraMove)
+  const cameraSyncingRef = useRef(false)
   useEffect(() => {
     onCameraMoveRef.current = onCameraMove
   }, [onCameraMove])
@@ -121,6 +127,7 @@ export default function MapPanel({
   useEffect(() => {
     if (!containerRef.current || !activeArchive || status !== 'ready') return
     let cancelled = false
+    let resizeObserver: ResizeObserver | null = null
 
     const init = async () => {
       const archive = archives.find((a) => a.name === activeArchive)
@@ -222,14 +229,28 @@ export default function MapPanel({
       })
 
       map.on('moveend', () => {
+        if (cameraSyncingRef.current) return
         const center = map.getCenter()
+        const pos = sanitizeLonLat(center.lng, center.lat)
+        if (!pos) return
         onCameraMoveRef.current?.({
-          lon: center.lng,
-          lat: center.lat,
+          lon: pos.lon,
+          lat: pos.lat,
           zoom: map.getZoom(),
           pitch: map.getPitch(),
         })
       })
+
+      resizeObserver = new ResizeObserver(() => {
+        if (!containerRef.current || !mapRef.current) return
+        if (!containerHasSize(containerRef.current)) return
+        try {
+          mapRef.current.resize()
+        } catch {
+          /* ignore during teardown */
+        }
+      })
+      resizeObserver.observe(containerRef.current!)
 
       map.on('error', (e) => {
         console.warn('[MapPanel] map error', e?.error || e)
@@ -240,6 +261,7 @@ export default function MapPanel({
 
     return () => {
       cancelled = true
+      resizeObserver?.disconnect()
       if (mapRef.current) {
         mapRef.current.remove()
         mapRef.current = null
@@ -267,13 +289,21 @@ export default function MapPanel({
 
   useEffect(() => {
     if (!syncCamera || syncCamera.source === 'map' || !mapRef.current) return
-    const zoom = syncCamera.zoom ?? (syncCamera.height ? Math.max(1, Math.log2(40000000 / syncCamera.height)) : 4)
-    const pitch = syncCamera.pitch ?? (mapMode.render3d ? 60 : 0)
-    mapRef.current.flyTo({
-      center: [syncCamera.lon, syncCamera.lat],
-      zoom,
+    if (!containerHasSize(containerRef.current)) return
+    const pos = sanitizeLonLat(syncCamera.lon, syncCamera.lat)
+    if (!pos) return
+    const zoom = syncCamera.zoom ?? globeHeightToZoom(syncCamera.height ?? 400_000)
+    const pitch = Number.isFinite(syncCamera.pitch)
+      ? Math.min(85, Math.max(0, syncCamera.pitch!))
+      : (mapMode.render3d ? 60 : 0)
+    cameraSyncingRef.current = true
+    mapRef.current.jumpTo({
+      center: [pos.lon, pos.lat],
+      zoom: Math.min(22, Math.max(0, zoom)),
       pitch,
-      duration: 100,
+    })
+    requestAnimationFrame(() => {
+      cameraSyncingRef.current = false
     })
   }, [syncCamera, mapMode.render3d])
 
