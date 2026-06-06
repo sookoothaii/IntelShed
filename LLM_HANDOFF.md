@@ -254,6 +254,9 @@ npm run dev                          # http://localhost:5173
 
 # Frontend (production build)
 npm run build                      # outputs dist/
+
+# Automated smoke test (backend APIs, Ollama chat, Vite proxy, build)
+.\scripts\smoke-test.ps1           # expect FAIL 0 after .\start.ps1
 ```
 
 ---

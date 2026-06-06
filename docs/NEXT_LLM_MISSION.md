@@ -136,7 +136,7 @@ C) GTFS DE VehiclePositions (interpolation oder DELFI)
 D) world-z10 Basemap-Download für globale 2D-Karte
 E) Heatmap-Cells in LLM-Briefing als Prompt-Context
 
-Test: .\start.ps1 → http://localhost:5176
+Test: .\start.ps1 → .\scripts\smoke-test.ps1 (FAIL 0) → http://localhost:5176
   - DATA → STAC: Region "thailand" zeigt Sentinel-2 Thumbnails
   - DATA → SANCTIONS: "putin" + AIS-Screening
   - GLOBE → Aircraft anklicken → Trail-Polyline

@@ -118,7 +118,16 @@ testing or non-MapLibre clients.
 | `frontend/src/components/Globe.tsx` | Aircraft-Trails (Polyline mit Glow) bei Click, sanktionierte Vessels rot mit ⚠-Outline, **FUSION HEATMAP** Layer (Rectangle-Grid mit HSL-Plasma-Skala + Legende). |
 | `frontend/src/App.tsx` | Neue DATA-Tabs `stac` + `sanctions` registriert; Pegel-Tab nutzt Card-Grid mit Sparklines. |
 
-### Quick smoke-test (PC)
+### Automated smoke-test (PC)
+
+```powershell
+.\start.ps1
+# Warten bis Backend + Frontend + Ollama laufen, dann:
+.\scripts\smoke-test.ps1
+# Erwartung: PASS 17+, FAIL 0 (prüft APIs, Vite-Proxy, Ollama-Chat, Frontend-Build)
+```
+
+### Quick smoke-test (PC, manuell)
 
 ```powershell
 .\start.ps1
