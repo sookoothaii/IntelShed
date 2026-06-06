@@ -25,6 +25,7 @@ import {
   ColorMaterialProperty,
   ConstantPositionProperty,
   defined,
+  MVTDataProvider,
 } from 'cesium'
 import * as satellite from 'satellite.js'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
@@ -115,9 +116,35 @@ type Target = {
   lines: string[]
   link?: string
   nodeId?: string
+  entityId?: string
 } | null
 
 type Cursor = { lon: string; lat: string; alt: string }
+
+function EntityContextCard({ entityId }: { entityId: string }) {
+  const [ctx, setCtx] = useState<any>(null)
+  useEffect(() => {
+    let active = true
+    fetch(`/api/entity/${entityId}/context`)
+      .then(r => r.json())
+      .then(d => active && setCtx(d))
+      .catch(() => {})
+    return () => { active = false }
+  }, [entityId])
+  if (!ctx || ctx.error) return null
+  const related = ctx.related || []
+  if (related.length === 0) return null
+  return (
+    <div className="entity-ctx" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.2)' }}>
+       <div className="tp-line" style={{ color: '#00ffa3', fontSize: '9px', fontWeight: 'bold' }}>[FUSION GRAPH] RELATED: {related.length}</div>
+       {related.map((r: any) => (
+          <div key={r.id} className="tp-line" style={{ paddingLeft: '6px', borderLeft: '2px solid #00ffa3', opacity: 0.85 }}>
+            {r.label || r.id} <span style={{ opacity: 0.5 }}>({r.type})</span>
+          </div>
+       ))}
+    </div>
+  )
+}
 
 export default function Globe({
   focus,
@@ -142,6 +169,7 @@ export default function Globe({
   const [gibsLayer, setGibsLayer] = useState<'off' | 'fires' | 'goes' | 'viirs'>('off')
   const gibsImageryRef = useRef<any>(null)
   const gibsDateRef = useRef<string>('')
+  const [mvtProvider, setMvtProvider] = useState<any>(null)
   const [transitCity, setTransitCity] = useState('berlin')
   const [target, setTarget] = useState<Target>(null)
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
@@ -1461,8 +1489,10 @@ export default function Globe({
         const props = ent.properties as any
         const kind = props.kind?.getValue?.()
         if (kind === 'aircraft') {
+          const icao = props.icao?.getValue?.() || ''
           setTarget({
             kind, title: `✈ ${props.callsign?.getValue?.()}`,
+            entityId: icao ? `aircraft:${icao.toLowerCase()}` : undefined,
             lines: [
               `ICAO24: ${props.icao?.getValue?.()}`,
               `COUNTRY: ${props.country?.getValue?.()}`,
@@ -1610,9 +1640,11 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'volcano') {
+          const name = props.name?.getValue?.() || ''
           setTarget({
             kind,
-            title: `🌋 ${props.name?.getValue?.() || 'Volcano'}`,
+            title: `🌋 ${name || 'Volcano'}`,
+            entityId: name ? `volcano:${name}` : undefined,
             lines: [
               `COUNTRY: ${props.country?.getValue?.() ?? '—'}`,
               `TYPE: ${props.type?.getValue?.() ?? '—'}`,
@@ -1659,9 +1691,11 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'pegel') {
+          const uuid = props.id?.getValue?.() || props.name?.getValue?.() || ''
           setTarget({
             kind,
             title: `🌊 ${props.name?.getValue?.()} (${props.water?.getValue?.()})`,
+            entityId: uuid ? `pegel:${uuid}` : undefined,
             lines: [
               `LEVEL: ${props.value?.getValue?.() ?? '—'} ${props.unit?.getValue?.() ?? ''}`,
               `STATUS: ${props.severity?.getValue?.() ?? '—'}`,
@@ -1891,6 +1925,46 @@ export default function Globe({
     if (gibsImageryRef.current) gibsImageryRef.current.alpha = 0.72
   }, [gibsLayer])
 
+  const toggleMvt = async () => {
+    const viewer = viewerRef.current
+    if (!viewer) return
+    if (mvtProvider) {
+      viewer.imageryLayers.remove(mvtProvider, false)
+      setMvtProvider(null)
+    } else {
+      try {
+        const mvt = await MVTDataProvider.fromUrl(`http://127.0.0.1:8088/thailand/{z}/{x}/{y}.mvt`, {
+           style: {
+             version: 8,
+             sources: {
+               protomaps: {
+                 type: "vector",
+                 tiles: [`http://127.0.0.1:8088/thailand/{z}/{x}/{y}.mvt`]
+               }
+             },
+             layers: [{
+               id: "water",
+               type: "fill",
+               source: "protomaps",
+               "source-layer": "water",
+               paint: { "fill-color": "rgba(0, 100, 200, 0.4)" }
+             }, {
+               id: "roads",
+               type: "line",
+               source: "protomaps",
+               "source-layer": "roads",
+               paint: { "line-color": "rgba(255, 255, 255, 0.6)" }
+             }]
+           }
+        } as any)
+        const layer = viewer.imageryLayers.addImageryProvider(mvt as any)
+        setMvtProvider(layer)
+      } catch (err) {
+        console.error("MVTDataProvider error:", err)
+      }
+    }
+  }
+
   useEffect(() => {
     timelineRef.current = { scrubT, hours: timelineHours }
     apiRef.current.applyTimeline?.()
@@ -2029,6 +2103,9 @@ export default function Globe({
               <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
             </label>
           ))}
+          <label className={mvtProvider ? 'on' : ''} style={{ color: '#00e5a0', marginTop: 4 }}>
+            <input type="checkbox" checked={!!mvtProvider} onChange={toggleMvt} />MVT (EXPERIMENTAL)
+          </label>
           {onClearOsintPins && stats.osint > 0 && (
             <button type="button" className="web-search" style={{ marginTop: 6, fontSize: 10 }} onClick={onClearOsintPins}>
               CLEAR OSINT PINS
@@ -2099,6 +2176,7 @@ export default function Globe({
           <div className="tp-title">{target.title}</div>
           {target.lines.map((l, i) => <div key={i} className="tp-line">{l}</div>)}
           {target.nodeId && <SensorSparklines nodeId={target.nodeId} hours={timelineHours} />}
+          {target.entityId && <EntityContextCard entityId={target.entityId} />}
           {target.link && (
             <a className="tp-link" href={target.link} target="_blank" rel="noreferrer">OPEN SOURCE ↗</a>
           )}
