@@ -53,5 +53,7 @@ journalctl -u worldbase_push -n 2 --no-pager
 curl -s -m 8 http://${PcIp}:8002/api/health || echo HEALTH_FAIL
 "@
 
-& $ssh -i $key -o BatchMode=yes "user0@$PiHost" $remote
+# Pipe as LF-only script — avoids CRLF breaking bash on the Pi
+$remote = $remote -replace "`r`n", "`n"
+$remote | & $ssh -i $key -o BatchMode=yes "user0@$PiHost" bash -s
 Write-Host 'Done. Restart PC backend (.\start.ps1) if WORLDBASE_BIND_HOST changed.' -ForegroundColor Yellow
