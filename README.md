@@ -6,7 +6,7 @@ modes, click-to-locate, and a local Ollama AI chat panel. FastAPI backend, React
 
 Runs two ways: **natively** (venv + Vite, `start.ps1`) for development, or as a fully
 **containerized stack** (`docker compose`) where the PC and the off-grid Pi connect over
-**HTTPS with token-authenticated sync** — see [`docs/DOCKER_DEPLOY.md`](docs/DOCKER_DEPLOY.md).
+**HTTPS with token-authenticated sync** — `.\scripts\start-docker.ps1` (details in [`LLM_HANDOFF.md`](LLM_HANDOFF.md)).
 
 > Inspired by Bilawal Sidhu's WorldView and the offgrid-raspi stack.
 
@@ -52,7 +52,7 @@ Runs two ways: **natively** (venv + Vite, `start.ps1`) for development, or as a 
   reaching any provider.
 - **Public webcam feeds** — curated traffic, nature, space, and city webcams
   (NASA ISS HDEV, traffic cams, weather stations, cityscapes). Grid view + fullscreen.
-- **OSINT console** — quick lookups (IP, domain, email, …) plus **[Flowsint](https://github.com/reconurge/flowsint)** graph investigations (Docker on PC; see `docs/FLOWSINT_INTEGRATION.md`). OpenOSINT remains on the off-grid Pi.
+- **OSINT console** — quick lookups (IP, domain, email, …) plus **[Flowsint](https://github.com/reconurge/flowsint)** graph investigations (`.\scripts\setup-flowsint.ps1`). OpenOSINT remains on the off-grid Pi.
 - **PC ↔ Pi node sync** — the off-grid Pi pushes its edge telemetry (CPU temp, sensors,
   mesh nodes, Pi-hole, systemd health) into WorldBase every 45 s via a systemd daemon;
   the PC fuses all feeds with the local LLM into a world-situation briefing the Pi pulls
@@ -79,7 +79,7 @@ Set-Location -LiteralPath 'D:\MCP Mods\worldbase'
 
 Open **https://localhost** (accept the internal-CA warning once). The Pi reaches
 the PC at `https://<pc-lan-ip>/api/node/ingest`. Stop with `.\scripts\stop-docker.ps1`.
-Full guide + security model: [`docs/DOCKER_DEPLOY.md`](docs/DOCKER_DEPLOY.md).
+Docker + Pi TLS sync: `.\scripts\start-docker.ps1` — see [`LLM_HANDOFF.md`](LLM_HANDOFF.md).
 
 ---
 
@@ -265,13 +265,10 @@ Submodule: `offgrid-raspi/`. Edge node at `192.168.1.121`, sync to WorldBase on 
 
 | Topic | Doc |
 |-------|-----|
+| **LLM / operator handoff (canonical)** | [`LLM_HANDOFF.md`](LLM_HANDOFF.md) |
 | Pi ↔ WorldBase sync + token | [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) |
 | Storage (root vs SD, Borg) | [`offgrid-raspi/docs/pi-storage-layout.md`](offgrid-raspi/docs/pi-storage-layout.md) |
-| Security ops (PC + Pi) | [`docs/SECURITY_OPERATIONS.md`](docs/SECURITY_OPERATIONS.md) |
 | Operator status | [`offgrid-raspi/OFFGRID_STATUS.md`](offgrid-raspi/OFFGRID_STATUS.md) |
-| LLM / WorldBase integration | [`LLM_HANDOFF.md`](LLM_HANDOFF.md) |
-| Next mission / backlog | [`docs/NEXT_LLM_MISSION.md`](docs/NEXT_LLM_MISSION.md) |
-| Flowsint (graph OSINT) | [`docs/FLOWSINT_INTEGRATION.md`](docs/FLOWSINT_INTEGRATION.md) |
 
 SSH from Windows:
 
@@ -281,7 +278,7 @@ SSH from Windows:
 
 **Flowsint on PC:** `.\scripts\setup-flowsint.ps1` then `.\scripts\start-flowsint.ps1 -Build` — embed in WorldBase OSINT tab.
 
-**Security (PC + Pi):** [`docs/SECURITY_OPERATIONS.md`](docs/SECURITY_OPERATIONS.md) — `.\scripts\setup-node-security.ps1`, `.\scripts\pc-security-audit.ps1`
+**Security (PC + Pi):** `.\scripts\setup-node-security.ps1`, `.\scripts\pc-security-audit.ps1` — checklist in [`LLM_HANDOFF.md`](LLM_HANDOFF.md)
 
 ---
 

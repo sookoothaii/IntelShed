@@ -238,19 +238,22 @@ _BRIEFING_INTERVAL = int(os.getenv("WORLDBASE_BRIEFING_INTERVAL", "600"))  # 10 
 
 async def _phase1_background_tasks():
     """River anomaly scan + GDELT/RAG indexing (best-effort, no crash on missing Ollama)."""
+    from ollama_config import rag_autopilot_on
+
     await asyncio.sleep(90)
     while True:
         try:
             await anomaly_river.scan_feeds()
         except Exception as e:
             print(f"[PHASE1] River scan failed: {e}", flush=True)
-        try:
-            await rag_memory.ingest_pulse()
-            await rag_memory.ingest_hazards()
-            await rag_memory.ingest_situations()
-            await rag_memory.ingest_volcanoes()
-        except Exception as e:
-            print(f"[PHASE1] RAG pulse index failed: {e}", flush=True)
+        if rag_autopilot_on():
+            try:
+                await rag_memory.ingest_pulse()
+                await rag_memory.ingest_hazards()
+                await rag_memory.ingest_situations()
+                await rag_memory.ingest_volcanoes()
+            except Exception as e:
+                print(f"[PHASE1] RAG pulse index failed: {e}", flush=True)
         # Phase 2 — STAC + Sanctions augment the RAG corpus
         try:
             items = await stac_bridge.fetch_recent_thailand_items(limit=6)
@@ -316,8 +319,13 @@ def on_startup():
     anomaly_river.init_river_db()
     rag_memory.init_memory_db()
     aircraft_trails.init_trail_db()
+    from ollama_config import briefing_autopilot_on
+
     global _BRIEFING_AUTOPILOT_TASK
-    _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
+    if briefing_autopilot_on():
+        _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
+    else:
+        print("[AUTOPILOT] Briefing autopilot disabled (WORLDBASE_BRIEFING_AUTOPILOT=0)", flush=True)
     asyncio.create_task(_phase1_background_tasks())
     asyncio.create_task(_aircraft_trail_loop())
     asyncio.create_task(_situations_prewarm())
@@ -907,6 +915,8 @@ async def chat_proxy(payload: dict):
     Set payload['context'] = True to inject live WorldBase state as a system message.
     Set payload['firewall'] = True to route user messages through the LLM-Security-Firewall.
     """
+    from ollama_config import keep_alive
+
     provider = payload.get("provider", "ollama")
     model = payload.get("model", os.getenv("OLLAMA_MODEL", "qwen3:8b"))
     use_stream = payload.get("stream", False)
@@ -1005,7 +1015,7 @@ async def chat_proxy(payload: dict):
                                     "model": model,
                                     "messages": messages,
                                     "stream": True,
-                                    "keep_alive": "5m",
+                                    "keep_alive": keep_alive(),
                                 },
                             ) as r:
                                 r.raise_for_status()
@@ -1055,7 +1065,7 @@ async def chat_proxy(payload: dict):
                             "model": model,
                             "messages": messages,
                             "stream": False,
-                            "keep_alive": "5m",
+                            "keep_alive": keep_alive(),
                         },
                     )
                     r.raise_for_status()

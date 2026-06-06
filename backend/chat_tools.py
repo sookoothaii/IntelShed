@@ -200,7 +200,7 @@ async def run_ollama_with_tools(
         for _ in range(max_rounds):
             r = await client.post(
                 url,
-                json={"model": model, "messages": working, "stream": False, "tools": OLLAMA_TOOLS, "keep_alive": "5m"},
+                json={"model": model, "messages": working, "stream": False, "tools": OLLAMA_TOOLS, "keep_alive": __import__("ollama_config").keep_alive()},
             )
             r.raise_for_status()
             data = r.json()

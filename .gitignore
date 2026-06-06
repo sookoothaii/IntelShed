@@ -48,3 +48,8 @@ flowsint/
 # Logs
 *.log
 npm-debug.log*
+
+# Local-only docs (tracked: README.md + LLM_HANDOFF.md only)
+docs/
+GAP_REPORT.md
+PROJECT.md

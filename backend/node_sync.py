@@ -431,6 +431,7 @@ async def _ollama_chat(prompt: str) -> str:
                         "model": OLLAMA_MODEL,
                         "messages": [{"role": "user", "content": prompt}],
                         "stream": False,
+                        "keep_alive": __import__("ollama_config").keep_alive(),
                     },
                 )
                 if r.status_code == 200:

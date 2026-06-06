@@ -178,5 +178,5 @@ if (-not $Execute) {
 } else {
     $cFreeAfter = (Get-PSDrive -Name C).Free
     Write-Step "`nDone. C: free now $(Get-SizeGB $cFreeAfter) GB" 'Green'
-    Write-Step 'Set Docker disk location in Desktop UI if not done yet (see docs/DISK_MOVE_TO_D.md).'
+    Write-Step 'Set Docker disk location: Settings -> Resources -> Advanced -> D:\Docker\wsl-data -> Apply & Restart.'
 }

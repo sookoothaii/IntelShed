@@ -51,7 +51,11 @@ async def embed_text(text: str) -> list[float]:
     host = _OLLAMA
     url = f"http://{host}/api/embeddings"
     async with httpx.AsyncClient(timeout=60.0) as client:
-        r = await client.post(url, json={"model": _EMBED_MODEL, "prompt": text[:8000]})
+        from ollama_config import keep_alive
+        r = await client.post(
+            url,
+            json={"model": _EMBED_MODEL, "prompt": text[:8000], "keep_alive": keep_alive()},
+        )
         r.raise_for_status()
         data = r.json()
         emb = data.get("embedding")

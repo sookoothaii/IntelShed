@@ -25,5 +25,5 @@ Write-Host "`n=== Services ===" -ForegroundColor Cyan
 Get-Service WslService, vmcompute, hns -ErrorAction SilentlyContinue | Format-Table Name, Status, StartType
 
 Write-Host "`n=== If VirtualMachinePlatform is not Enabled ===" -ForegroundColor Yellow
-Write-Host 'Docker/Flowsint need WSL2. Fix Windows component store first (see docs/DOCKER_REPAIR.md).'
+Write-Host 'Docker/Flowsint need WSL2. Fix: Enable VirtualMachinePlatform + WSL, reboot, wsl --update.'
 Write-Host 'BIOS: enable Intel VT-x / AMD-SVM if VirtualizationFirmwareEnabled is False.'

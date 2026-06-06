@@ -1,5 +1,6 @@
 # LLM Handoff — WorldBase
-> Last updated: 2026-06-06 (Phase 2 Fusion + Map Modes + Ollama fix) | Stack: Ollama Qwen3, RAG (fixed), River, hazards, outages, PMTiles Thailand+world, **STAC, OpenSanctions, Trails, Fusion Heatmap, Google-Maps-style 2D/3D basemap switcher**
+> **Canonical project doc** (the “roman”). Repo tracks only this file + `README.md`; everything else lives here.
+> Last updated: 2026-06-06 (HAK_GAL Firewall joint test + VRAM tuning) | Stack: Ollama Qwen3, RAG (fixed), River, hazards, outages, PMTiles Thailand+world, **STAC, OpenSanctions, Trails, Fusion Heatmap, Google-Maps-style 2D/3D basemap switcher, HAK_GAL Firewall**
 
 ## Project Overview
 WorldBase is a spatial intelligence dashboard: React + CesiumJS globe on the frontend, FastAPI backend with 20+ data feeds. No API keys required for any source. All feeds are fail-soft (serve stale cache or empty payload on upstream error).
@@ -127,7 +128,7 @@ worldbase/
 | `/node/{id}/commands` | GET pending commands (Pi). Requires `X-Node-Token` |
 | `/alerts` | GET sensor alerts (threshold-based) |
 
-**Pi scripts:** `offgrid-raspi/scripts/worldbase_push.py`, `worldbase_pull.py` — deploy + token: `scripts/setup-node-security.ps1`, `offgrid-raspi/scripts/pi-node-token.conf`, `docs/WORLDBASE_PI_SYNC.md`.
+**Pi scripts:** `offgrid-raspi/scripts/worldbase_push.py`, `worldbase_pull.py` — deploy + token: `scripts/setup-node-security.ps1`, `offgrid-raspi/scripts/pi-node-token.conf`, `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`.
 
 ### Flowsint (local Docker)
 | Item | Detail |
@@ -136,7 +137,7 @@ worldbase/
 | Setup | `scripts/setup-flowsint.ps1`, `scripts/start-flowsint.ps1` |
 | UI | http://localhost:5173 (WorldBase Vite stays on **5176**) |
 | Health | `GET /api/flowsint/health` |
-| Doc | `docs/FLOWSINT_INTEGRATION.md` |
+| Setup | `scripts/setup-flowsint.ps1`, `scripts/start-flowsint.ps1` |
 
 ### OSINT (`osint_tools.py`)
 | Endpoint | What | Source |
@@ -146,6 +147,13 @@ worldbase/
 | `/osint/username/{username}` | GitHub/Reddit presence check | Platform APIs |
 | `/osint/email/{email}` | Disposable domain + MX check | Local |
 | `/osint/reverse-geocode` | Lat/lon → location name | BigDataCloud |
+
+### Firewall (`firewall_bridge.py`)
+| Endpoint | What |
+|----------|------|
+| `/firewall/status` | HAK_GAL reachability + `enabled` (requires `FIREWALL_HOST` in `.env`) |
+| `/firewall/test` | POST `{"query":"..."}` — direct firewall scan |
+| `/chat` + `firewall: true` | User message scanned before Ollama; blocks on `risk_score > 0.7` |
 
 ### System
 | Endpoint | What |
@@ -259,6 +267,14 @@ npm run build                      # outputs dist/
 .\scripts\smoke-test.ps1           # expect FAIL 0 after .\start.ps1
 ```
 
+### Docker (optional — Pi HTTPS sync)
+
+```powershell
+.\scripts\start-docker.ps1   # Caddy :443 TLS + backend on 127.0.0.1:8002
+```
+
+Stack: `docker-compose.yml` — `web` (Caddy SPA + `/api` proxy), `backend` (FastAPI, SQLite volume). Pi synct über HTTPS mit gleichem `NODE_INGEST_TOKEN`. Secure-by-default: `WORLDBASE_REQUIRE_NODE_TOKEN=1`.
+
 ---
 
 ## Environment Variables
@@ -268,6 +284,11 @@ npm run build                      # outputs dist/
 | `OLLAMA_HOST` | **127.0.0.1:11434** | Ollama host(s), comma-separated. **Windows:** `127.0.0.1` zuverlässiger als `localhost` (IPv6). Backend probiert beide automatisch. |
 | `OLLAMA_MODEL` | qwen3:8b | Default chat model (`/api/models` filtert Embed-Modelle raus) |
 | `OLLAMA_EMBED_MODEL` | nomic-embed-text | RAG embeddings only — nicht im Chat-Dropdown |
+| `OLLAMA_KEEP_ALIVE` | `1m` | `0` = Modell sofort aus VRAM; `5m` war früher Default (zu aggressiv mit Globe) |
+| `WORLDBASE_BRIEFING_AUTOPILOT` | `1` | `0` = kein Hintergrund-Briefing (spart VRAM) |
+| `WORLDBASE_RAG_AUTOPILOT` | `1` | `0` = kein Hintergrund-RAG-Embed |
+| `WORLDBASE_BRIEFING_INTERVAL` | `600` | Sekunden zwischen Autopilot-Briefings |
+| `FIREWALL_HOST` | `localhost:8001` | leer = HAK_GAL Firewall aus |
 | `NODE_INGEST_TOKEN` | "" (empty) | HMAC + shared secret for ingest/pull/commands |
 | `NODE_ADMIN_TOKEN` | (falls back to ingest) | `X-Admin-Token` for `/node/{id}/command` |
 | `WORLDBASE_BIND_HOST` | `127.0.0.1` | Uvicorn bind; `0.0.0.0` when Pi on LAN **with** token |
@@ -312,6 +333,7 @@ npm run build                      # outputs dist/
 | Component | Location | Status |
 |-----------|----------|--------|
 | WorldBase PC | `192.168.1.111:8002` API, `:5176` UI (`localhost` — Vite may bind `::1`) | Running |
+| HAK_GAL Firewall | `localhost:8001` (Orchestrator) | Healthy; `FIREWALL_HOST=localhost:8001` in `backend/.env` |
 | Flowsint Docker | `:5173` UI, `:5001` API | Healthy; embed in OSINT tab |
 | Off-Grid Pi | `192.168.1.121`, SSH `~/.ssh/offgrid-pi` | push/pull **Ingest OK**, token deployed |
 | Borg (Pi) | `/mnt/sdcard/borg-repo` | Re-init 2026-06-04; timer enabled; key in `/mnt/sdcard/borg-key-backup/` |
@@ -357,7 +379,7 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 
 ## Next Steps (Ideas)
 
-**Mission doc:** `docs/NEXT_LLM_MISSION.md` (Phase B–D checklist + copy-paste agent prompt).
+**Backlog:** see section *Backlog (next session)* below.
 
 **Done (2026-06-04) — Phase A “Positive Palantir”:**
 - `POST /api/osint/pins/import` + Flowsint JSON paste in OSINT tab → `osintPins` / globe
@@ -398,8 +420,7 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
   - Stack: `planet_z6.pmtiles` (~42 MB world) + `thailand.pmtiles` (~427 MB detail)
   - Regions: `stack`, `thailand`, `world-z10`, `world-full -Force`, `asean`
   - Serve: `http://127.0.0.1:8088` — MapLibre ZXY MVT (not yet wired into Cesium globe)
-- **Docker** (optional): `docker-compose.yml`, `docs/DOCKER_DEPLOY.md`, `scripts/start-docker.ps1`
-- Doc: **`docs/PHASE1_INTEGRATION.md`**
+- **Docker** (optional): `docker-compose.yml`, `scripts/start-docker.ps1`
 
 **Done (2026-06-06) — Stufe B: RAG, Entity-Card, Cesium Eval & Split-View:**
 - **RAG Erweiterung**: `rag_memory.py` indexiert `hazards`, `situations` und `volcanoes` automatisch. SQLite Ringbuffer (2000 Chunks) statt `sqlite-vec` für O(n) Cosine-Search.
@@ -417,6 +438,15 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **Situation Board First-Load**: Startup pre-warms River + Situations + Fusion-Heatmap, sodass der erste Klick instant ist.
 - **Frontend DATA-Tabs**: `stac` und `sanctions` neu hinzugekommen (siehe `frontend/src/components/{StacPanel,SanctionsPanel}.tsx`). Pegel-Tab als Card-Grid mit eingebetteten Sparklines.
 - **Globe-Layer**: AIRCRAFT TRAILS Toggle, FUSION HEATMAP Toggle, sanktionierte Vessels rot mit ⚠-Outline + Watchlist-Counter im Layer-Block.
+
+**Done (2026-06-06) — HAK_GAL Firewall + Joint-Stack-Test (WorldBase + Firewall):**
+- **`backend/.env`**: `FIREWALL_HOST=localhost:8001` gesetzt → `/api/firewall/status` meldet `enabled: true`
+- **Firewall-Reparatur (PC)**: kaputte `scipy`/`scikit-learn`-Installation (Import `compose_quat`) behoben via `pip install --no-cache-dir scipy==1.15.3 scikit-learn==1.7.2`
+- **Smoke-Test** `.\scripts\smoke-test.ps1`: **17/17 PASS** (Backend, Fusion, Feeds, Vite-Proxy, Ollama-Chat, Frontend-Build)
+- **Firewall-Integration**: `/api/firewall/status` → `healthy`; `/api/firewall/test` harmlos → erlaubt; Jailbreak-Prompt → `blocked: true`, `risk_score: 1.0`
+- **Chat mit `firewall: true`**: harmloser Prompt → Ollama antwortet; Jailbreak → **FIREWALL BLOCK** (kein LLM-Aufruf)
+- **VRAM (RTX 3080 Ti)**: ~11–13 GB mit Firewall-Modellen + `nomic-embed-text`; `OLLAMA_KEEP_ALIVE=1m`, `WORLDBASE_BRIEFING_INTERVAL=1800` in `.env`
+- **Start Firewall**: `D:\MCP Mods\HAK_GAL_HEXAGONAL\standalone_packages\llm-security-firewall\detectors\orchestrator\start.ps1`
 
 **Done (2026-06-06) — Stufe D: Google-Maps-Modus + Ollama-Zuverlässigkeit:**
 - **`MapModeBar`** (`frontend/src/components/MapModeBar.tsx`): Globale Leiste unten rechts — **KARTE / SATELLIT / HYBRID / GELÄNDE**, **2D / 3D**, **GEBÄUDE**, optional **PHOTO 3D** (Cesium Ion Google Photorealistic Tiles, Asset 2275207).
@@ -437,7 +467,7 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 
 ## 2026-06-04 session
 
-- **Security:** `NODE_INGEST_TOKEN` + protected node APIs; `scripts/setup-node-security.ps1`, `pc-security-audit.ps1`; `docs/SECURITY_OPERATIONS.md`
+- **Security:** `NODE_INGEST_TOKEN` + protected node APIs; `scripts/setup-node-security.ps1`, `scripts/pc-security-audit.ps1`; Pi: `offgrid security-harden`, UFW, Portal-Auth optional
 - **Pi (SSH):** token overrides, HMAC push/pull scripts, `offgrid security-harden`, llama `127.0.0.1`, Borg → `/mnt/sdcard/borg-repo`
 - **Flowsint:** Docker prod stack; CRLF fix in `setup-flowsint.ps1` for `entrypoint.sh`; iframe embed OK in WorldBase
 - **start.ps1:** paths with spaces (`D:\MCP Mods\worldbase`) via `-LiteralPath`
@@ -479,13 +509,13 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - Aircraft: `backend/aircraft_provider.py`, `backend/adsb_client.py`, `backend/opensky_client.py`
 - Crises geo: `backend/geo_centroids.py`
 - GDELT: `backend/gdelt_bridge.py` (pulse + geo)
-- Phase 1+2: `docs/PHASE1_INTEGRATION.md`
+- Phase 1+2 bridges: see *Done (2026-06-04–06)* sections above
 - PMTiles backend: `backend/pmtiles_bridge.py` (status + Range-aware file endpoint)
 - PMTiles frontend: `frontend/src/components/MapPanel.tsx`
 - PMTiles tooling: `scripts/download-pmtiles.ps1`, `scripts/start-pmtiles-serve.ps1` (optional fallback)
 - Bridges: `cap_bridge.py`, `anomaly_river.py`, `rag_memory.py`, `outages_bridge.py`, `volcano_bridge.py`, `gibs_bridge.py`, `duckdb_fusion.py`
 - Phase 2: `backend/stac_bridge.py`, `sanctions_bridge.py`, `aircraft_trails.py`, `fusion_heatmap.py`
 - Frontend Phase 2 components: `frontend/src/components/{PegelSparkline,StacPanel,SanctionsPanel}.tsx`
-- Mission: `docs/NEXT_LLM_MISSION.md`
+- Backlog: *Backlog (next session)* section in this file
 - DB: `D:\MCP Mods\worldbase\backend\worldbase.db`
 - Sanctions CSV cache: `D:\MCP Mods\worldbase\data\sanctions\targets.simple.csv` (~450 MB, CC-BY, auto-refresh 24 h)
