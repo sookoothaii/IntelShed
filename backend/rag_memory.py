@@ -71,32 +71,33 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-    def upsert_chunk(source: str, source_id: str, text: str, embedding: list[float], meta: dict | None = None):
-        now = datetime.now(timezone.utc).isoformat()
-        with _conn() as conn:
-            conn.execute(
-                """
-                INSERT INTO rag_chunks (source, source_id, text, embedding_json, meta_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(source, source_id) DO UPDATE SET
-                    text=excluded.text,
-                    embedding_json=excluded.embedding_json,
-                    meta_json=excluded.meta_json,
-                    created_at=excluded.created_at
-                """,
-                (
-                    source,
-                    source_id,
-                    text[:12000],
-                    json.dumps(embedding),
-                    json.dumps(meta or {}),
-                    now,
-                ),
-            )
-            conn.execute(
-                "DELETE FROM rag_chunks WHERE id NOT IN (SELECT id FROM rag_chunks ORDER BY id DESC LIMIT 2000)"
-            )
-            conn.commit()
+def upsert_chunk(source: str, source_id: str, text: str, embedding: list[float], meta: dict | None = None):
+    now = datetime.now(timezone.utc).isoformat()
+    with _conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO rag_chunks (source, source_id, text, embedding_json, meta_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source, source_id) DO UPDATE SET
+                text=excluded.text,
+                embedding_json=excluded.embedding_json,
+                meta_json=excluded.meta_json,
+                created_at=excluded.created_at
+            """,
+            (
+                source,
+                source_id,
+                text[:12000],
+                json.dumps(embedding),
+                json.dumps(meta or {}),
+                now,
+            ),
+        )
+        # Ring buffer cap — keep semantic recall O(n) cosine search fast.
+        conn.execute(
+            "DELETE FROM rag_chunks WHERE id NOT IN (SELECT id FROM rag_chunks ORDER BY id DESC LIMIT 2000)"
+        )
+        conn.commit()
 
 
 async def index_text(source: str, source_id: str, text: str, meta: dict | None = None) -> dict:
@@ -128,69 +129,110 @@ async def search(query: str, k: int | None = None) -> list[dict]:
     return rows[:k]
 
 
-    async def ingest_pulse() -> dict:
-        """Index latest GDELT pulse headlines into memory."""
-        import gdelt_bridge
+async def ingest_pulse() -> dict:
+    """Index latest GDELT pulse headlines into memory."""
+    import gdelt_bridge
 
-        data = await gdelt_bridge.gdelt_pulse()
-        n = 0
-        for i, art in enumerate(data.get("articles") or []):
-            title = art.get("title") or ""
-            if not title:
-                continue
-            sid = f"pulse:{art.get('url') or i}"
-            text = f"{title}\n{art.get('domain', '')} {art.get('sourcecountry', '')}"
-            try:
-                await index_text("gdelt_pulse", sid, text, meta=art)
-                n += 1
-            except Exception:
-                pass
-        return {"indexed": n, "source": "gdelt_pulse"}
-
-
-    async def ingest_hazards() -> dict:
-        import cap_bridge
-        data = await cap_bridge.get_hazards()
-        n = 0
-        for a in data.get("alerts") or []:
-            sid = f"hazard:{a.get('id', '') or n}"
-            text = f"HAZARD: {a.get('event', '')} in {a.get('area_desc', '')}. {a.get('headline', '')} Severity: {a.get('severity', '')}"
-            try:
-                await index_text("hazards", sid, text, meta=a)
-                n += 1
-            except Exception:
-                pass
-        return {"indexed": n, "source": "hazards"}
+    data = await gdelt_bridge.gdelt_pulse()
+    n = 0
+    for i, art in enumerate(data.get("articles") or []):
+        title = art.get("title") or ""
+        if not title:
+            continue
+        sid = f"pulse:{art.get('url') or i}"
+        text = f"{title}\n{art.get('domain', '')} {art.get('sourcecountry', '')}"
+        try:
+            await index_text("gdelt_pulse", sid, text, meta=art)
+            n += 1
+        except Exception:
+            pass
+    return {"indexed": n, "source": "gdelt_pulse"}
 
 
-    async def ingest_volcanoes() -> dict:
-        import volcano_bridge
-        data = await volcano_bridge.get_volcanoes(active_only=True)
-        n = 0
-        for v in data.get("volcanoes") or []:
-            sid = f"volcano:{v.get('id', '') or v.get('name', '')}"
-            text = f"ACTIVE VOLCANO: {v.get('name', '')} in {v.get('country', '')}. Type: {v.get('type', '')}. Last eruption: {v.get('last_eruption', '')}"
-            try:
-                await index_text("volcanoes", sid, text, meta=v)
-                n += 1
-            except Exception:
-                pass
-        return {"indexed": n, "source": "volcanoes"}
+async def ingest_hazards() -> dict:
+    import cap_bridge
+    data = await cap_bridge.hazards_active(limit=120)
+    n = 0
+    for a in data.get("alerts") or []:
+        sid = f"hazard:{a.get('id', '') or n}"
+        text = f"HAZARD: {a.get('event', '')} in {a.get('area_desc', '')}. {a.get('headline', '')} Severity: {a.get('severity', '')}"
+        try:
+            await index_text("hazards", sid, text, meta=a)
+            n += 1
+        except Exception:
+            pass
+    return {"indexed": n, "source": "hazards"}
 
 
-    async def ingest_situations() -> dict:
-        import situations
-        data = await situations.unified_situations()
-        n = 0
-        for s in data.get("items") or []:
-            sid = f"situation:{s.get('id', '') or n}"
-            text = f"SITUATION [{s.get('severity', '')}]: {s.get('title', '')} ({s.get('type', '')}). Details: {s.get('details', '')}"
-            try:
-                await index_text("situations", sid, text, meta=s)
-                n += 1
-            except Exception:
-                pass
-        return {"indexed": n, "source": "situations"}
+async def ingest_volcanoes() -> dict:
+    import volcano_bridge
+    data = await volcano_bridge.holocene_volcanoes(active_only=True, limit=300)
+    n = 0
+    for v in data.get("volcanoes") or []:
+        sid = f"volcano:{v.get('id', '') or v.get('name', '')}"
+        text = f"ACTIVE VOLCANO: {v.get('name', '')} in {v.get('country', '')}. Type: {v.get('type', '')}. Last eruption: {v.get('last_eruption', '')}"
+        try:
+            await index_text("volcanoes", sid, text, meta=v)
+            n += 1
+        except Exception:
+            pass
+    return {"indexed": n, "source": "volcanoes"}
+
+
+async def ingest_situations() -> dict:
+    import situations
+    data = await situations.unified_situations()
+    n = 0
+    for s in data.get("items") or []:
+        sid = f"situation:{s.get('id', '') or n}"
+        text = f"SITUATION [{s.get('severity', '')}]: {s.get('title', '')} ({s.get('type', '')}). Details: {s.get('details', '')}"
+        try:
+            await index_text("situations", sid, text, meta=s)
+            n += 1
+        except Exception:
+            pass
+    return {"indexed": n, "source": "situations"}
+
+
+async def ingest_sanctions_hits(hits: list[dict]) -> dict:
+    """Index sanctions matches (vessels, individuals, entities) for citable recall."""
+    n = 0
+    for h in hits or []:
+        ent_id = h.get("entity_id") or h.get("id") or h.get("caption") or ""
+        if not ent_id:
+            continue
+        sid = f"sanctions:{ent_id}"
+        text = (
+            f"SANCTIONED {h.get('schema', 'Entity')}: {h.get('caption', '')} — "
+            f"datasets: {', '.join(h.get('datasets', []) or [])}. "
+            f"Topics: {', '.join(h.get('topics', []) or [])}. Score: {h.get('score', 0):.2f}"
+        )
+        try:
+            await index_text("sanctions", sid, text, meta=h)
+            n += 1
+        except Exception:
+            pass
+    return {"indexed": n, "source": "sanctions"}
+
+
+async def ingest_stac_items(items: list[dict]) -> dict:
+    """Index recent STAC/Sentinel-2 scenes so the LLM can cite imagery coverage."""
+    n = 0
+    for it in items or []:
+        sid = f"stac:{it.get('id', '')}"
+        if not it.get("id"):
+            continue
+        bbox = it.get("bbox") or []
+        text = (
+            f"SAT IMAGE: {it.get('collection', '')} {it.get('id', '')} "
+            f"({it.get('datetime', '')}) bbox={bbox} cloud_cover={it.get('cloud_cover', '')}%"
+        )
+        try:
+            await index_text("stac", sid, text, meta={k: it.get(k) for k in ("id", "collection", "datetime", "bbox", "cloud_cover", "thumbnail")})
+            n += 1
+        except Exception:
+            pass
+    return {"indexed": n, "source": "stac"}
 
 
 async def ingest_briefing(text: str, created_at: str) -> dict:

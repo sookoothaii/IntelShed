@@ -1,5 +1,5 @@
 # LLM Handoff — WorldBase
-> Last updated: 2026-06-06 | Phase 1+2 Gold stack: Ollama Qwen3, River, RAG, hazards, outages, PMTiles Thailand+world
+> Last updated: 2026-06-06 (Phase 2 Fusion + Map Modes + Ollama fix) | Stack: Ollama Qwen3, RAG (fixed), River, hazards, outages, PMTiles Thailand+world, **STAC, OpenSanctions, Trails, Fusion Heatmap, Google-Maps-style 2D/3D basemap switcher**
 
 ## Project Overview
 WorldBase is a spatial intelligence dashboard: React + CesiumJS globe on the frontend, FastAPI backend with 20+ data feeds. No API keys required for any source. All feeds are fail-soft (serve stale cache or empty payload on upstream error).
@@ -38,8 +38,11 @@ worldbase/
 │   ├── src/
 │   │   ├── App.tsx          # Main app: DATA panel (12 tabs), ChatPanel, FullAnalysisOverlay
 │   │   ├── styles/hud.css   # ALL styles including new analysis overlay
+│   │   ├── lib/mapView.ts   # Shared basemap + 2D/3D mode state
 │   │   └── components/
-│   │       └── Globe.tsx    # CesiumJS: 9 DataSources, entity rendering, Ask AI
+│   │       ├── Globe.tsx    # Cesium 3D: terrain, OSM buildings, fusion layers
+│   │       ├── MapPanel.tsx # MapLibre 2D: PMTiles, satellite, pitch, extrusion
+│   │       └── MapModeBar.tsx  # KARTE/SATELLIT/HYBRID/GELÄNDE + 2D/3D toggle
 │   └── dist/                # Built frontend (served by backend)
 └── offgrid-raspi/           # Pi scripts (not in this workspace)
 ```
@@ -73,9 +76,45 @@ worldbase/
 | Endpoint | What |
 |----------|------|
 | `/anomalies` | Aircraft anomaly detection (6 patterns) |
+| `/anomalies/river` | Online River HalfSpaceTrees / z-score per feed |
 | `/correlations` | Cross-feed correlation (nuclear-quake, military-surge, seismic-cluster) |
 | `/briefing` | Latest LLM-generated situation briefing |
 | `/briefing/generate` | Force new briefing generation |
+| `/situations` | Unified situation board (parallel fetch) |
+| `/fusion/heatmap` | **Killer-Feature**: 8-feed signal aggregation onto lat/lon grid |
+| `/memory/{search,stats,index/pulse}` | RAG over briefings + GDELT + hazards + situations + volcanoes + STAC + sanctions |
+
+### Imagery & Maps
+| Endpoint | What | Source |
+|----------|------|--------|
+| `/stac/collections` | STAC catalog + region presets | static |
+| `/stac/search` | Sentinel-2 / Landsat search (bbox + date + cloud) | Element84 EarthSearch (free) |
+| `/stac/item/{id}` | STAC item detail | Element84 |
+| `/stac/thumbnail?id=...` | CORS-safe thumbnail proxy | Element84 |
+| `/pmtiles/{status,file/{name}}` | Local Protomaps PMTiles serve | local |
+| `/gibs/{layers,latest}` | NASA GIBS WMTS catalog + token | NASA |
+
+### Maritime intelligence
+| Endpoint | What |
+|----------|------|
+| `/maritime` | Live AIS vessel positions (port regions) |
+| `/maritime/ports` | Tracked port bbox list |
+| `/sanctions/status` | Local CSV freshness + index size |
+| `/sanctions/refresh` | Force re-download of OpenSanctions default CSV |
+| `/sanctions/search?q=` | Local fuzzy match (Person/Company/Vessel) |
+| `/sanctions/screen/vessels` | AIS ↔ OpenSanctions cross-match |
+
+### Aircraft trails
+| Endpoint | What |
+|----------|------|
+| `/aircraft/trails?icao24=...&minutes=30` | Persisted 30 min trail per ICAO24 |
+| `/aircraft/trails/stats` | Row count, distinct aircraft, oldest/newest |
+| `/aircraft/trails/snapshot` | Manual trigger (rate-limited) |
+
+### Pegel sparklines
+| Endpoint | What |
+|----------|------|
+| `/pegel/{uuid}/history?hours=24` | Time series for SVG sparkline rendering |
 
 ### Pi↔PC Sync (`node_sync.py`)
 | Endpoint | What |
@@ -223,8 +262,9 @@ npm run build                      # outputs dist/
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `OLLAMA_HOST` | localhost:11434 | Ollama host(s), comma-separated |
-| `OLLAMA_MODEL` | qwen2.5:14b | Default LLM model |
+| `OLLAMA_HOST` | **127.0.0.1:11434** | Ollama host(s), comma-separated. **Windows:** `127.0.0.1` zuverlässiger als `localhost` (IPv6). Backend probiert beide automatisch. |
+| `OLLAMA_MODEL` | qwen3:8b | Default chat model (`/api/models` filtert Embed-Modelle raus) |
+| `OLLAMA_EMBED_MODEL` | nomic-embed-text | RAG embeddings only — nicht im Chat-Dropdown |
 | `NODE_INGEST_TOKEN` | "" (empty) | HMAC + shared secret for ingest/pull/commands |
 | `NODE_ADMIN_TOKEN` | (falls back to ingest) | `X-Admin-Token` for `/node/{id}/command` |
 | `WORLDBASE_BIND_HOST` | `127.0.0.1` | Uvicorn bind; `0.0.0.0` when Pi on LAN **with** token |
@@ -364,11 +404,31 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **Cesium 1.142 Eval**: Update auf `cesium@1.142.0` auf Branch `feature/cesium-1.142-eval` und Einbau des nativen `MVTDataProvider` als experimentellen Globe-Layer.
 - **Split-View**: GLOBE und MAP können nun nebeneinander angezeigt werden, inklusive asynchronem, bidirektionalem Camera-Sync.
 
+**Done (2026-06-06) — Stufe C: Phase 2 Fusion komplett:**
+- **CRITICAL BUGFIX `rag_memory.py`**: 5 Funktionen waren versehentlich um 4 Spaces eingerückt → Modul-Level fehlte, ganzer RAG-Stack hätte zur Laufzeit `AttributeError` geworfen. Korrigiert. Außerdem `cap_bridge.get_hazards` / `volcano_bridge.get_volcanoes` durch echte Funktionsnamen (`hazards_active`, `holocene_volcanoes`) ersetzt. **Phase B war ohne diesen Fix nicht funktional.**
+- **STAC / Sentinel-2** (`backend/stac_bridge.py`): Element84 EarthSearch (kostenlos, kein Key). Endpoints: `/api/stac/{collections,search,item/{id},thumbnail}`. Region-Presets: `thailand`, `bangkok`, `phuket`, `mekong-delta`, `germany`, `rhein`. Range-aware Thumbnail-Proxy mit ETag. Optional `TITILER_URL` → echte NDVI/True-Color Kacheln. Bridge cached intern (5 min search, 10 min thumbnails).
+- **OpenSanctions** (`backend/sanctions_bridge.py`): Lokal-first ohne paid API. Lädt CC-BY `default/targets.simple.csv` (~450 MB) einmal pro 24 h, parst in In-Memory Index (by_name + by_id_token), Jaccard+Substring Fuzzy-Match, IMO/MMSI Identifier-Lookup. Endpoints: `/api/sanctions/{status,refresh,search,screen/vessels}`. Fallback auf self-hosted `yente` (`OPENSANCTIONS_YENTE_URL`) wenn gesetzt. Background ingest in RAG.
+- **Aircraft Trails** (`backend/aircraft_trails.py`): Background-Snapshot alle 30 s aus `aircraft_provider`. SQLite `aircraft_trail` Tabelle mit (icao24, lat, lon, alt, speed, heading, t). Auto-Prune ≥ 6 h, Hard-Cap 200 k Rows. Endpoints: `/api/aircraft/{trails,trails/stats,trails/snapshot}`.
+- **Pegel Sparklines** (`backend/pegel_bridge.py`): Neuer Endpoint `/api/pegel/{uuid}/history?hours=24` über pegelonline `measurements.json`. Frontend `frontend/src/components/PegelSparkline.tsx` ist ein dependency-freier SVG-Renderer.
+- **FUSION HEATMAP** (`backend/fusion_heatmap.py`, neu, **Killer-Feature**): aggregiert quakes + GDACS + hazards + volcanoes + aircraft-anomalies + outages + pegel + aircraft-density auf konfigurierbares Lat/Lon-Grid. Endpoint: `/api/fusion/heatmap?cell_deg=2&top=60&include_geojson=0|1`. Globe-Layer mit Rectangle-Entities + HSL-Plasma-Skala + Legende.
+- **Situation Board First-Load**: Startup pre-warms River + Situations + Fusion-Heatmap, sodass der erste Klick instant ist.
+- **Frontend DATA-Tabs**: `stac` und `sanctions` neu hinzugekommen (siehe `frontend/src/components/{StacPanel,SanctionsPanel}.tsx`). Pegel-Tab als Card-Grid mit eingebetteten Sparklines.
+- **Globe-Layer**: AIRCRAFT TRAILS Toggle, FUSION HEATMAP Toggle, sanktionierte Vessels rot mit ⚠-Outline + Watchlist-Counter im Layer-Block.
+
+**Done (2026-06-06) — Stufe D: Google-Maps-Modus + Ollama-Zuverlässigkeit:**
+- **`MapModeBar`** (`frontend/src/components/MapModeBar.tsx`): Globale Leiste unten rechts — **KARTE / SATELLIT / HYBRID / GELÄNDE**, **2D / 3D**, **GEBÄUDE**, optional **PHOTO 3D** (Cesium Ion Google Photorealistic Tiles, Asset 2275207).
+- **`mapView.ts`**: Shared State zwischen Globe (Cesium) und MapPanel (MapLibre); Esri World Imagery + Hillshade (kostenlos, kein Key).
+- **Globe**: OSM 3D-Gebäude (`createOsmBuildingsAsync`), GPU-Tuning (`maximumScreenSpaceError`, FXAA, `resolutionScale`), Basemap-Umschalter ersetzt Cesium `baseLayerPicker`.
+- **MapPanel**: Satellit/Hybrid/Gelände-Raster, `fill-extrusion` Gebäude aus PMTiles, Pitch 60° im 3D-Modus, Kamera-Sync inkl. Pitch.
+- **Ollama-Fix**: `OLLAMA_HOST=127.0.0.1:11434`, Host-Fallbacks, `/api/models` Timeout 12 s + 20 s Cache, Embed-Modelle aus Chat-Liste gefiltert, Vite-Proxy → `127.0.0.1:8002` (120 s Timeout). AI-Tab: deutsche Fehler + **↻ ERNEUT PRÜFEN**.
+- **Start**: immer `.\start.ps1` → Frontend **:5176** (nicht direkt :8002 — dort gibt es keine UI).
+
 **Backlog (next session):**
-1. **TiTiler/STAC**: Sentinel-2/Landsat-Satellitenbilder für Thailand einbauen
-2. **OpenSanctions / yente**: FollowTheMoney Integration für AIS-Sanktionsabgleich
-3. **UI Polish**: Situation Board First-Load, GTFS DE VehiclePosition (VBB), Pegel Sparklines, Aircraft Trails
-4. **`world-z10`**: Download for global detail (~1 GB): `.\scripts\download-pmtiles.ps1 -Region world-z10`
+1. **TiTiler-Service** starten (Docker oder uvicorn) → `TITILER_URL` setzen für echte Sentinel-NDVI auf Globe
+2. **yente self-hosting** für unlimited Sanctions-Match
+3. **GTFS DE VehiclePosition**: DELFI oder Frontend-Interpolation (VBB liefert nur trip_updates)
+4. **`world-z10`**: Global detail PMTiles (~1 GB): `.\scripts\download-pmtiles.ps1 -Region world-z10`
+5. **Heatmap → Briefing**: Top-3 Fusion-Cells in den LLM-Prompt-Context aufnehmen
 
 **Done (2026-06-03):** Flowsint embed; `/api/flowsint/health`. OSINT pins + localStorage; `/api/pegel`; Ollama `keep_alive: 5m`.
 
@@ -421,5 +481,8 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - PMTiles frontend: `frontend/src/components/MapPanel.tsx`
 - PMTiles tooling: `scripts/download-pmtiles.ps1`, `scripts/start-pmtiles-serve.ps1` (optional fallback)
 - Bridges: `cap_bridge.py`, `anomaly_river.py`, `rag_memory.py`, `outages_bridge.py`, `volcano_bridge.py`, `gibs_bridge.py`, `duckdb_fusion.py`
+- Phase 2: `backend/stac_bridge.py`, `sanctions_bridge.py`, `aircraft_trails.py`, `fusion_heatmap.py`
+- Frontend Phase 2 components: `frontend/src/components/{PegelSparkline,StacPanel,SanctionsPanel}.tsx`
 - Mission: `docs/NEXT_LLM_MISSION.md`
 - DB: `D:\MCP Mods\worldbase\backend\worldbase.db`
+- Sanctions CSV cache: `D:\MCP Mods\worldbase\data\sanctions\targets.simple.csv` (~450 MB, CC-BY, auto-refresh 24 h)

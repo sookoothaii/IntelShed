@@ -8,8 +8,9 @@ export default defineConfig({
     port: 5176,
     proxy: {
       '/api': {
-        target: 'http://localhost:8002',
+        target: 'http://127.0.0.1:8002',
         changeOrigin: true,
+        timeout: 120_000,
       },
     },
   },

@@ -3,9 +3,14 @@ import Globe from './components/Globe'
 import MapPanel from './components/MapPanel'
 import FirewallPanel from './components/FirewallPanel'
 import SituationBoard from './components/SituationBoard'
+import PegelSparkline from './components/PegelSparkline'
+import StacPanel from './components/StacPanel'
+import SanctionsPanel from './components/SanctionsPanel'
 import type { FocusTarget } from './lib/focus'
 import type { OsintPin } from './lib/osintPins'
 import { loadOsintPins, saveOsintPins, mergeImportedPins } from './lib/osintPins'
+import MapModeBar from './components/MapModeBar'
+import { DEFAULT_MAP_VIEW, type MapViewMode } from './lib/mapView'
 
 type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'firewall' | 'osint'
 
@@ -115,7 +120,8 @@ export default function App() {
   const [situationOpen, setSituationOpen] = useState(false)
   const [firewallHistory, setFirewallHistory] = useState<any[]>([])
   const [osintPins, setOsintPins] = useState<OsintPin[]>(() => loadOsintPins())
-  const [syncCamera, setSyncCamera] = useState<{ lon: number; lat: number; height?: number; zoom?: number; source: 'globe' | 'map'; ts: number } | null>(null)
+  const [syncCamera, setSyncCamera] = useState<{ lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null>(null)
+  const [mapMode, setMapMode] = useState<MapViewMode>(DEFAULT_MAP_VIEW)
   useAlertNotifications()
 
   useEffect(() => {
@@ -138,17 +144,19 @@ export default function App() {
     setView((prev) => (prev === 'map' ? 'map' : 'globe'))
   }
 
-  const handleGlobeMove = (cam: { lon: number; lat: number; height: number }) => {
+  const handleGlobeMove = (cam: { lon: number; lat: number; height: number; pitch?: number }) => {
     if (view === 'map' || splitView) {
       setSyncCamera({ ...cam, source: 'globe', ts: Date.now() })
     }
   }
 
-  const handleMapMove = (cam: { lon: number; lat: number; zoom: number }) => {
+  const handleMapMove = (cam: { lon: number; lat: number; zoom: number; pitch?: number }) => {
     if (view === 'globe' || splitView) {
       setSyncCamera({ ...cam, source: 'map', ts: Date.now() })
     }
   }
+
+  const showMapChrome = splitView || view === 'globe' || view === 'map'
 
   const handleAskAI = (title: string, lines: string[]) => {
     const context = `Entity: ${title}\n${lines.join('\n')}`
@@ -223,16 +231,16 @@ export default function App() {
           {splitView ? (
             <div style={{ display: 'flex', width: '100%', height: '100%' }}>
               <div style={{ flex: 1, position: 'relative' }}>
-                <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} onCameraMove={handleGlobeMove} syncCamera={syncCamera} />
+                <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} onCameraMove={handleGlobeMove} syncCamera={syncCamera} mapMode={mapMode} />
               </div>
               <div style={{ flex: 1, position: 'relative', borderLeft: '1px solid rgba(0,255,163,0.3)' }}>
-                <MapPanel focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null} onCameraMove={handleMapMove} syncCamera={syncCamera} />
+                <MapPanel focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null} onCameraMove={handleMapMove} syncCamera={syncCamera} mapMode={mapMode} />
               </div>
             </div>
           ) : (
             <>
-              {view === 'globe' && <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} onCameraMove={handleGlobeMove} syncCamera={syncCamera} />}
-              {view === 'map' && <MapPanel focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null} onCameraMove={handleMapMove} syncCamera={syncCamera} />}
+              {view === 'globe' && <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} onCameraMove={handleGlobeMove} syncCamera={syncCamera} mapMode={mapMode} />}
+              {view === 'map' && <MapPanel focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null} onCameraMove={handleMapMove} syncCamera={syncCamera} mapMode={mapMode} />}
               {view === 'data' && <DataPanel onFocus={focusOnMap} />}
               {view === 'chat' && (
                 <ChatPanel
@@ -265,6 +273,16 @@ export default function App() {
             </>
           )}
         </div>
+
+        {showMapChrome && (
+          <MapModeBar
+            mode={mapMode}
+            onChange={setMapMode}
+            onRequestGlobe={() => {
+              if (!splitView && view === 'map') setView('globe')
+            }}
+          />
+        )}
       </main>
     </div>
   )
@@ -677,7 +695,7 @@ type Quake = { id: string; place: string; mag: number; depth: number; time: numb
 type WEvent = { id: string; title: string; category: string; categories?: string[]; date: string; lon: number; lat: number; magnitude?: number | null; unit?: string | null; closed?: string | null; link?: string; sources?: string[]; points?: number }
 type Sat = { name: string; tle1: string; tle2: string }
 
-const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'pegel', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams', 'cve'] as const
+const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'pegel', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams', 'cve', 'stac', 'sanctions'] as const
 type DataTab = typeof DATA_TABS[number]
 
 type NodeInfo = { node_id: string; name: string; lat: number; lon: number; updated_at: string; payload?: any }
@@ -1223,24 +1241,28 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
           {(pegel?.alerts ?? 0) > 0 && <span className="data-count" style={{ color: '#ff6b35' }}>{pegel?.alerts} elevated</span>}
           {pegel?.error && <div className="data-error">{pegel.error}</div>}
           {!pegel?.gauges?.length && !pegel?.error && <div className="health-status pending">No gauge data</div>}
-          <table className="data-table">
-            <thead><tr><th>Station</th><th>River</th><th>Level</th><th>State</th><th>Status</th></tr></thead>
-            <tbody>
-              {(pegel?.gauges || []).map((g: RiverGauge, i: number) => {
-                const color = g.severity === 'critical' ? '#ff2d00' : g.severity === 'high' ? '#ff6b35' : g.severity === 'low' ? '#88aaff' : '#4fc3f7'
-                return (
-                  <tr key={i} style={{ cursor: 'pointer' }} onClick={() => onFocus({ kind: 'pegel', lon: g.lon, lat: g.lat, height: 350000, title: `${g.name} (${g.water})`, lines: [`${g.value} ${g.unit}`, `${g.state_mnw_mhw || '—'} / ${g.state_nsw_hsw || '—'}`, g.timestamp || ''] })}>
-                    <td><strong>{g.name}</strong></td>
-                    <td>{g.water}</td>
-                    <td style={{ color }}>{g.value} {g.unit}</td>
-                    <td style={{ fontSize: 11 }}>{g.state_mnw_mhw || '—'}</td>
-                    <td style={{ color, fontWeight: 'bold' }}>{g.severity}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-          <div style={{ marginTop: 8, fontSize: 11, color: '#6f8c84' }}>Source: Pegelonline (WSV)</div>
+          <div className="pegel-grid">
+            {(pegel?.gauges || []).map((g: RiverGauge) => {
+              const color = g.severity === 'critical' ? '#ff2d00' : g.severity === 'high' ? '#ff6b35' : g.severity === 'low' ? '#88aaff' : '#4fc3f7'
+              return (
+                <div key={g.uuid} className="pegel-card" style={{ borderLeft: `3px solid ${color}` }}>
+                  <div className="pegel-card-head">
+                    <div>
+                      <strong>{g.name}</strong>
+                      <span className="pegel-water">{g.water}</span>
+                    </div>
+                    <button className="locate-mini" onClick={() => onFocus({ kind: 'pegel', lon: g.lon, lat: g.lat, height: 350000, title: `${g.name} (${g.water})`, lines: [`${g.value} ${g.unit}`, `${g.state_mnw_mhw || '—'} / ${g.state_nsw_hsw || '—'}`, g.timestamp || ''] })}>◎</button>
+                  </div>
+                  <div className="pegel-now" style={{ color }}>
+                    {g.value} <span className="pegel-unit">{g.unit}</span>
+                    <span className="pegel-sev" style={{ color }}>{g.severity}</span>
+                  </div>
+                  <PegelSparkline uuid={g.uuid} hours={24} width={240} height={48} color={color} />
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: '#6f8c84' }}>Source: Pegelonline (WSV) · sparklines /api/pegel/{'{uuid}'}/history</div>
         </section>
       )}
 
@@ -1528,6 +1550,14 @@ function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void 
         />
       )}
 
+      {tab === 'stac' && (
+        <StacPanel onFocus={onFocus} />
+      )}
+
+      {tab === 'sanctions' && (
+        <SanctionsPanel onFocus={onFocus} />
+      )}
+
     </div>
   )
 
@@ -1764,37 +1794,57 @@ function ChatPanel({
   const [model, setModel] = useState('')
   const [busy, setBusy] = useState(false)
   const [modelErr, setModelErr] = useState<string | null>(null)
+  const [modelHint, setModelHint] = useState<string | null>(null)
   const [webSearch, setWebSearch] = useState(false)
   const [firewall, setFirewall] = useState(false)
   const [firewallMeta, setFirewallMeta] = useState<any>(null)
 
-  useEffect(() => {
+  const loadModels = () => {
+    setModelErr(null)
+    setModelHint(null)
     fetch('/api/models')
       .then((r) => r.json())
       .then((d) => {
         if (d.error) {
+          const extra = [d.hint, d.detail, d.hosts_tried?.length ? `hosts: ${d.hosts_tried.join(', ')}` : '']
+            .filter(Boolean)
+            .join(' · ')
           setModelErr(d.error)
+          setModelHint(extra || 'Prüfe: Ollama läuft? Backend auf :8002? Frontend via .\\start.ps1 (:5176)?')
           return
         }
-        const list = d.models || []
+        if (d.warning) setModelHint(d.warning)
+        const list = (d.models || []).filter((m: { name: string }) => !/embed/i.test(m.name))
         setModels(list)
-        if (list.length > 0 && !model) {
+        if (list.length > 0) {
           const preferred = d.default as string | undefined
           const pick = preferred && list.some((m: { name: string }) => m.name === preferred)
             ? preferred
             : list[0].name
           setModel(pick)
+        } else {
+          setModelErr('Kein Chat-Modell in Ollama')
+          setModelHint('ollama pull qwen3:8b')
         }
       })
-      .catch(() => setModelErr('Could not reach backend for model list'))
+      .catch(() => {
+        setModelErr('Backend nicht erreichbar')
+        setModelHint('Starte mit .\\start.ps1 — Frontend :5176, Backend :8002')
+      })
 
     fetch('/api/providers')
       .then((r) => r.json())
       .then((d) => {
         const list = d.providers || []
-        setProviders(list)
+        setProviders(list.length ? list : [{ id: 'ollama', name: 'Ollama (Local)', models: [], requires_key: false }])
       })
-      .catch(() => {})
+      .catch(() => {
+        setProviders([{ id: 'ollama', name: 'Ollama (Local)', models: [], requires_key: false }])
+      })
+  }
+
+  useEffect(() => {
+    loadModels()
   }, [])
 
   // Auto-send when askAI is provided (from globe target click)
@@ -1958,7 +2008,18 @@ function ChatPanel({
     <div className="panel chat">
       <h2>WorldBase AI <span style={{ color: '#ff2d00', fontSize: 10 }}>[FIREWALL UI v1.0]</span></h2>
 
-      {modelErr && <div className="data-error">{modelErr}</div>}
+      {modelErr && (
+        <div className="data-error">
+          {modelErr}
+          {modelHint && <div style={{ marginTop: 6, fontSize: 11, opacity: 0.9 }}>{modelHint}</div>}
+          <button type="button" className="web-search" style={{ marginTop: 8, fontSize: 10 }} onClick={loadModels}>
+            ↻ ERNEUT PRÜFEN
+          </button>
+        </div>
+      )}
+      {!modelErr && modelHint && (
+        <div className="data-error" style={{ borderColor: '#ffd23f', color: '#ffd23f' }}>{modelHint}</div>
+      )}
 
       <div className="model-select">
         <select

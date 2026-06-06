@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MutableRefObject } from 'react'
 import {
   Viewer,
   Ion,
@@ -6,6 +6,10 @@ import {
   Cartesian2,
   Color,
   createWorldTerrainAsync,
+  createOsmBuildingsAsync,
+  Cesium3DTileset,
+  SceneMode,
+  OpenStreetMapImageryProvider,
   UrlTemplateImageryProvider,
   GeographicTilingScheme,
   CustomDataSource,
@@ -17,6 +21,7 @@ import {
   DistanceDisplayCondition,
   Math as CMath,
   PolylineGlowMaterialProperty,
+  Rectangle,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   PostProcessStage,
@@ -26,6 +31,7 @@ import {
   ConstantPositionProperty,
   defined,
   MVTDataProvider,
+  ImageryLayer,
 } from 'cesium'
 import * as satellite from 'satellite.js'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
@@ -41,6 +47,9 @@ import { POIS } from '../lib/pois'
 import type { FocusTarget } from '../lib/focus'
 import type { OsintPin } from '../lib/osintPins'
 import SensorSparklines from './SensorSparklines'
+import PegelSparkline from './PegelSparkline'
+import type { MapViewMode } from '../lib/mapView'
+import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_SATELLITE_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
@@ -63,6 +72,108 @@ function fmtTimelineLabel(ms: number): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function esriImagery(url: string, credit: string) {
+  return new UrlTemplateImageryProvider({
+    url,
+    credit,
+    maximumLevel: 19,
+  })
+}
+
+async function applyGlobeMapMode(
+  viewer: Viewer,
+  mode: MapViewMode,
+  refs: {
+    labelOverlay: MutableRefObject<ImageryLayer | null>
+    osmBuildings: MutableRefObject<any>
+    photoreal: MutableRefObject<any>
+    gibsOverlay: MutableRefObject<ImageryLayer | null>
+  },
+) {
+  const scene = viewer.scene
+  scene.mode = mode.render3d ? SceneMode.SCENE3D : SceneMode.SCENE2D
+
+  // --- Basemap (preserve NASA GIBS overlay on top if active) ---
+  const layers = viewer.imageryLayers
+  const gibsKeep = refs.gibsOverlay.current
+  if (refs.labelOverlay.current) {
+    try { layers.remove(refs.labelOverlay.current, false) } catch { /* already removed */ }
+    refs.labelOverlay.current = null
+  }
+  while (layers.length > (gibsKeep ? 1 : 0)) {
+    const layer = layers.get(0)
+    if (layer === gibsKeep) break
+    layers.remove(layer, false)
+  }
+
+  if (mode.basemap === 'streets') {
+    layers.addImageryProvider(new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }))
+  } else if (mode.basemap === 'satellite') {
+    layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
+  } else if (mode.basemap === 'hybrid') {
+    layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
+    if (refs.labelOverlay.current) {
+      layers.remove(refs.labelOverlay.current, false)
+      refs.labelOverlay.current = null
+    }
+    refs.labelOverlay.current = layers.addImageryProvider(
+      new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }),
+    )
+    if (refs.labelOverlay.current) refs.labelOverlay.current.alpha = 0.38
+  } else {
+    layers.addImageryProvider(esriImagery(ESRI_HILLSHADE_TILES, 'Esri World Hillshade'))
+    layers.addImageryProvider(
+      new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }),
+    )
+    const top = layers.get(layers.length - 1)
+    if (top) top.alpha = 0.55
+  }
+
+  // --- 3D buildings ---
+  if (refs.osmBuildings.current) {
+    refs.osmBuildings.current.show = mode.buildings && !mode.photorealistic
+  }
+
+  // --- Photorealistic 3D tiles (Ion) ---
+  if (mode.photorealistic && Ion.defaultAccessToken) {
+    if (!refs.photoreal.current) {
+      try {
+        const tileset = await Cesium3DTileset.fromIonAssetId(ION_PHOTOREALISTIC_ASSET)
+        refs.photoreal.current = tileset
+        scene.primitives.add(tileset)
+      } catch (e) {
+        console.warn('[Globe] Photorealistic 3D unavailable:', e)
+      }
+    }
+    if (refs.photoreal.current) refs.photoreal.current.show = true
+  } else if (refs.photoreal.current) {
+    refs.photoreal.current.show = false
+  }
+
+  // --- 3D camera tilt ---
+  if (mode.render3d && scene.mode === SceneMode.SCENE3D) {
+    const cam = viewer.camera
+    const c = Cartographic.fromCartesian(cam.position)
+    if (cam.pitch > -CMath.PI_OVER_FOUR) {
+      viewer.camera.flyTo({
+        destination: Cartesian3.fromRadians(c.longitude, c.latitude, Math.max(c.height, 800)),
+        orientation: {
+          heading: cam.heading,
+          pitch: CMath.toRadians(-45),
+          roll: 0,
+        },
+        duration: 0.6,
+      })
+    }
+  } else if (!mode.render3d) {
+    viewer.camera.flyTo({
+      destination: viewer.camera.position,
+      orientation: { heading: 0, pitch: CMath.toRadians(-90), roll: 0 },
+      duration: 0.5,
+    })
+  }
 }
 
 Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? ''
@@ -117,6 +228,7 @@ type Target = {
   link?: string
   nodeId?: string
   entityId?: string
+  pegelUuid?: string
 } | null
 
 type Cursor = { lon: string; lat: string; alt: string }
@@ -153,13 +265,15 @@ export default function Globe({
   onClearOsintPins,
   onCameraMove,
   syncCamera,
+  mapMode = DEFAULT_MAP_VIEW,
 }: {
   focus?: FocusTarget | null
   onAskAI?: (title: string, lines: string[]) => void
   osintPins?: OsintPin[]
   onClearOsintPins?: () => void
-  onCameraMove?: (cam: { lon: number; lat: number; height: number }) => void
-  syncCamera?: { lon: number; lat: number; height?: number; zoom?: number; source: 'globe' | 'map'; ts: number } | null
+  onCameraMove?: (cam: { lon: number; lat: number; height: number; pitch?: number }) => void
+  syncCamera?: { lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null
+  mapMode?: MapViewMode
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
@@ -173,6 +287,11 @@ export default function Globe({
   const [gibsLayer, setGibsLayer] = useState<'off' | 'fires' | 'goes' | 'viirs'>('off')
   const gibsImageryRef = useRef<any>(null)
   const gibsDateRef = useRef<string>('')
+  const labelOverlayRef = useRef<ImageryLayer | null>(null)
+  const osmBuildingsRef = useRef<any>(null)
+  const photorealRef = useRef<any>(null)
+  const mapModeRef = useRef(mapMode)
+  useEffect(() => { mapModeRef.current = mapMode }, [mapMode])
   const [mvtProvider, setMvtProvider] = useState<any>(null)
   const [transitCity, setTransitCity] = useState('berlin')
   const [target, setTarget] = useState<Target>(null)
@@ -180,6 +299,14 @@ export default function Globe({
   const [scrubT, setScrubT] = useState(1)
   const [timelineHours, setTimelineHours] = useState<number>(24)
   const [aircraftSource, setAircraftSource] = useState('')
+  const [trailsEnabled, setTrailsEnabled] = useState(true)
+  const [heatmapOn, setHeatmapOn] = useState(false)
+  const [heatmapMeta, setHeatmapMeta] = useState<{ cells: number; max: number; contrib: Record<string, number> } | null>(null)
+  const [sanctionedMmsi, setSanctionedMmsi] = useState<Set<string>>(new Set())
+  const sanctionedRef = useRef<Set<string>>(new Set())
+  useEffect(() => { sanctionedRef.current = sanctionedMmsi }, [sanctionedMmsi])
+  const trailsEnabledRef = useRef(true)
+  useEffect(() => { trailsEnabledRef.current = trailsEnabled }, [trailsEnabled])
   const timelineRef = useRef({ scrubT: 1, hours: 24 })
   const [layers, setLayers] = useState({
     aircraft: true,
@@ -222,8 +349,8 @@ export default function Globe({
 
       viewer = new Viewer(containerRef.current, {
         terrainProvider,
-        baseLayerPicker: true,
-        sceneModePicker: true,
+        baseLayerPicker: false,
+        sceneModePicker: false,
         navigationHelpButton: false,
         animation: false,
         timeline: false,
@@ -236,9 +363,27 @@ export default function Globe({
 
       const scene = viewer.scene
       scene.globe.enableLighting = true
+      scene.globe.depthTestAgainstTerrain = true
+      scene.globe.maximumScreenSpaceError = 0.75
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
+      viewer.resolutionScale = Math.min(window.devicePixelRatio, 2)
+      if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
+
+      // OSM 3D buildings — free via Cesium Ion (same token as terrain)
+      if (Ion.defaultAccessToken) {
+        try {
+          const buildings = await createOsmBuildingsAsync()
+          if (!cancelled) {
+            osmBuildingsRef.current = buildings
+            buildings.show = mapModeRef.current.buildings && !mapModeRef.current.photorealistic
+            scene.primitives.add(buildings)
+          }
+        } catch (e) {
+          console.warn('[Globe] OSM Buildings unavailable:', e)
+        }
+      }
 
       viewer.camera.moveEnd.addEventListener(() => {
         const c = Cartographic.fromCartesian(viewer!.camera.position)
@@ -246,8 +391,23 @@ export default function Globe({
           lon: CMath.toDegrees(c.longitude),
           lat: CMath.toDegrees(c.latitude),
           height: c.height,
+          pitch: CMath.toDegrees(viewer!.camera.pitch),
         })
       })
+
+      await applyGlobeMapMode(viewer, mapModeRef.current, {
+        labelOverlay: labelOverlayRef,
+        osmBuildings: osmBuildingsRef,
+        photoreal: photorealRef,
+        gibsOverlay: gibsImageryRef,
+      })
+      apiRef.current.applyMapMode = () =>
+        applyGlobeMapMode(viewer!, mapModeRef.current, {
+          labelOverlay: labelOverlayRef,
+          osmBuildings: osmBuildingsRef,
+          photoreal: photorealRef,
+          gibsOverlay: gibsImageryRef,
+        })
 
       const aircraftSrc = new CustomDataSource('aircraft')
       const satSrc = new CustomDataSource('satellites')
@@ -271,8 +431,11 @@ export default function Globe({
       const pegelSrc = new CustomDataSource('pegel')
       const energySrc = new CustomDataSource('energy')
       const osintSrc = new CustomDataSource('osint')
+      const trailsSrc = new CustomDataSource('aircraft-trails')
+      const fusionSrc = new CustomDataSource('fusion-heatmap')
       osintSrcRef.current = osintSrc
-      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc, wildfireSrc, lightningSrc, transitSrc, maritimeSrc, gdacsSrc, hazardsSrc, outagesSrc, volcanoSrc, airqualitySrc, pegelSrc, energySrc, osintSrc].forEach((s) => viewer!.dataSources.add(s))
+      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc, wildfireSrc, lightningSrc, transitSrc, maritimeSrc, gdacsSrc, hazardsSrc, outagesSrc, volcanoSrc, airqualitySrc, pegelSrc, energySrc, osintSrc, trailsSrc, fusionSrc].forEach((s) => viewer!.dataSources.add(s))
+      fusionSrc.show = false
 
       const acMap = new Map<string, Entity>()
       const satMap = new Map<string, Entity>()
@@ -1046,19 +1209,22 @@ export default function Globe({
             if (e) {
               ;(e.position as ConstantPositionProperty).setValue(pos)
             } else {
-              const typeColor = v.type === 'Cargo' ? '#8B4513' : v.type === 'Tanker' ? '#000080' : v.type === 'Passenger' ? '#FF69B4' : v.type === 'Fishing' ? '#32CD32' : '#00e5ff'
+              const flagged = sanctionedRef.current.has(String(v.mmsi || ''))
+              const typeColor = flagged
+                ? '#ff2d00'
+                : (v.type === 'Cargo' ? '#8B4513' : v.type === 'Tanker' ? '#000080' : v.type === 'Passenger' ? '#FF69B4' : v.type === 'Fishing' ? '#32CD32' : '#00e5ff')
               e = maritimeSrc.entities.add({
                 id: 'vs-' + id,
                 position: new ConstantPositionProperty(pos),
                 point: {
-                  pixelSize: 10,
-                  color: Color.fromCssColorString(typeColor).withAlpha(0.9),
-                  outlineColor: Color.WHITE,
-                  outlineWidth: 1,
+                  pixelSize: flagged ? 13 : 10,
+                  color: Color.fromCssColorString(typeColor).withAlpha(0.95),
+                  outlineColor: flagged ? Color.fromCssColorString('#ffd23f') : Color.WHITE,
+                  outlineWidth: flagged ? 2 : 1,
                   scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.5),
                 },
                 label: {
-                  text: v.name?.substring(0, 12) || v.type || 'Vessel',
+                  text: `${flagged ? '⚠ ' : ''}${(v.name?.substring(0, 12) || v.type || 'Vessel')}`,
                   font: '600 9px "Courier New"',
                   fillColor: Color.fromCssColorString(typeColor),
                   outlineColor: Color.BLACK,
@@ -1079,6 +1245,7 @@ export default function Globe({
                   destination: v.destination,
                   flag: v.flag,
                   length: v.length,
+                  sanctioned: flagged,
                 } as any,
               })
               vesselMap.set(id, e)
@@ -1469,6 +1636,7 @@ export default function Globe({
               },
               properties: {
                 kind: 'pegel',
+                uuid: g.uuid,
                 name: g.name,
                 water: g.water,
                 value: g.value,
@@ -1483,6 +1651,99 @@ export default function Globe({
           if (!cancelled) setStats((p) => ({ ...p, pegel: (d.gauges || []).length }))
         } catch (e) {
           console.error('pegel fetch failed', e)
+        }
+      }
+
+      // ---------- AIRCRAFT TRAILS ----------
+      // Local cache so we never re-fetch the same trail while a target is locked.
+      const trailEntities = new Map<string, Entity>()
+      const fetchTrailFor = async (icao: string) => {
+        if (!icao) return
+        if (trailEntities.has(icao)) return
+        try {
+          const r = await fetch(`/api/aircraft/trails?icao24=${encodeURIComponent(icao)}&minutes=30`)
+          if (!r.ok) return
+          const d = await r.json()
+          const pts: any[] = d.points || []
+          if (pts.length < 2) return
+          const positions: Cartesian3[] = pts.map(p => Cartesian3.fromDegrees(p.lon, p.lat, Math.max(p.alt ?? 0, 0)))
+          const ent = trailsSrc.entities.add({
+            id: `trail-${icao}`,
+            polyline: {
+              positions,
+              width: 2.5,
+              material: new PolylineGlowMaterialProperty({
+                glowPower: 0.25,
+                color: Color.fromCssColorString('#ffd23f').withAlpha(0.85),
+              }),
+              clampToGround: false,
+            },
+          })
+          trailEntities.set(icao, ent)
+        } catch (e) {
+          // best-effort
+        }
+      }
+      const clearTrail = (icao: string) => {
+        const e = trailEntities.get(icao)
+        if (e) { trailsSrc.entities.remove(e); trailEntities.delete(icao) }
+      }
+      const clearAllTrails = () => {
+        trailsSrc.entities.removeAll()
+        trailEntities.clear()
+      }
+
+      // ---------- FUSION HEATMAP ----------
+      const fetchFusion = async () => {
+        if (!fusionSrc.show) return
+        try {
+          const r = await fetch('/api/fusion/heatmap?cell_deg=2&top=80&include_geojson=0')
+          if (!r.ok) return
+          const d = await r.json()
+          fusionSrc.entities.removeAll()
+          const cells: any[] = d.cells || []
+          const cellDeg = d.cell_deg || 2
+          for (const c of cells) {
+            const half = cellDeg / 2
+            const west = c.lon - half, east = c.lon + half
+            const south = c.lat - half, north = c.lat + half
+            const t = Math.min(1, c.score || 0)
+            // Plasma-ish: low cyan → high red.
+            const hueDeg = (1 - t) * 180  // 180=cyan, 0=red
+            const cssColor = `hsla(${hueDeg.toFixed(0)}, 90%, ${(45 + t * 25).toFixed(0)}%, ${(0.18 + t * 0.55).toFixed(2)})`
+            fusionSrc.entities.add({
+              id: `fusion-${c.lat}-${c.lon}`,
+              rectangle: {
+                coordinates: Rectangle.fromDegrees(west, south, east, north),
+                material: Color.fromCssColorString(cssColor),
+                outline: true,
+                outlineColor: Color.fromCssColorString('#ffffff').withAlpha(0.18),
+                height: 0,
+              },
+              position: Cartesian3.fromDegrees(c.lon, c.lat, 0),
+              label: t > 0.5 ? {
+                text: `${Math.round(c.intensity)}`,
+                font: '700 11px "Courier New"',
+                fillColor: Color.fromCssColorString('#ffffff'),
+                outlineColor: Color.BLACK,
+                outlineWidth: 2,
+                style: LabelStyle.FILL_AND_OUTLINE,
+                verticalOrigin: VerticalOrigin.CENTER,
+                horizontalOrigin: HorizontalOrigin.CENTER,
+                distanceDisplayCondition: new DistanceDisplayCondition(0, 8e7),
+              } : undefined,
+              properties: {
+                kind: 'fusion_cell',
+                intensity: c.intensity,
+                score: c.score,
+                sources: c.sources?.join(', '),
+                samples: (c.samples || []).map((s: any) => `${s.source}: ${s.label}`).join(' | '),
+              } as any,
+            })
+          }
+          if (!cancelled) setHeatmapMeta({ cells: cells.length, max: d.max_intensity || 0, contrib: d.contributors || {} })
+        } catch (e) {
+          console.error('fusion heatmap fetch failed', e)
         }
       }
 
@@ -1507,19 +1768,21 @@ export default function Globe({
         const props = ent.properties as any
         const kind = props.kind?.getValue?.()
         if (kind === 'aircraft') {
-          const icao = props.icao?.getValue?.() || ''
+          const icao = (props.icao?.getValue?.() || '').toLowerCase()
           setTarget({
             kind, title: `✈ ${props.callsign?.getValue?.()}`,
-            entityId: icao ? `aircraft:${icao.toLowerCase()}` : undefined,
+            entityId: icao ? `aircraft:${icao}` : undefined,
             lines: [
-              `ICAO24: ${props.icao?.getValue?.()}`,
+              `ICAO24: ${icao}`,
               `COUNTRY: ${props.country?.getValue?.()}`,
               `ALTITUDE: ${Math.round(props.alt?.getValue?.() ?? 0)} m`,
               `VELOCITY: ${Math.round(props.vel?.getValue?.() ?? 0)} m/s`,
               `HEADING: ${Math.round(props.heading?.getValue?.() ?? 0)}°`,
+              trailsEnabledRef.current ? 'TRAIL: fetching…' : 'TRAIL: disabled',
             ],
           })
           viewer!.trackedEntity = ent
+          if (trailsEnabledRef.current && icao) fetchTrailFor(icao)
         } else if (kind === 'satellite') {
           setTarget({
             kind, title: `🛰 ${props.name?.getValue?.()}`,
@@ -1568,19 +1831,32 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'maritime') {
+          const mmsi = String(props.mmsi?.getValue?.() ?? '')
+          const flagged = sanctionedRef.current.has(mmsi)
           setTarget({
-            kind, title: `🚢 ${props.name?.getValue?.() || 'Vessel'}`,
+            kind, title: `🚢 ${flagged ? '⚠ ' : ''}${props.name?.getValue?.() || 'Vessel'}`,
             lines: [
-              `MMSI: ${props.mmsi?.getValue?.() ?? '—'}`,
+              `MMSI: ${mmsi || '—'}`,
               `TYPE: ${props.type?.getValue?.() ?? '—'}`,
               `COURSE: ${props.course?.getValue?.() ?? '—'}°`,
               `SPEED: ${props.speed?.getValue?.() != null ? props.speed.getValue() + ' kn' : '—'}`,
               `DESTINATION: ${props.destination?.getValue?.() ?? '—'}`,
               `FLAG: ${props.flag?.getValue?.() ?? '—'}`,
               `LENGTH: ${props.length?.getValue?.() != null ? props.length.getValue() + ' m' : '—'}`,
+              ...(flagged ? ['⚠ ON OPENSANCTIONS WATCHLIST'] : []),
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'fusion_cell') {
+          setTarget({
+            kind, title: `⛶ FUSION CELL`,
+            lines: [
+              `INTENSITY: ${props.intensity?.getValue?.()}`,
+              `SCORE: ${(props.score?.getValue?.() ?? 0).toFixed(2)}`,
+              `SOURCES: ${props.sources?.getValue?.() || '—'}`,
+              `SAMPLES: ${(props.samples?.getValue?.() || '').slice(0, 120) || '—'}`,
+            ],
+          })
         } else if (kind === 'wildfire') {
           setTarget({
             kind, title: `🔥 WILDFIRE (${props.confidence_label?.getValue?.() || 'unknown'})`,
@@ -1709,11 +1985,12 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'pegel') {
-          const uuid = props.id?.getValue?.() || props.name?.getValue?.() || ''
+          const uuid = props.uuid?.getValue?.() || ''
           setTarget({
             kind,
             title: `🌊 ${props.name?.getValue?.()} (${props.water?.getValue?.()})`,
             entityId: uuid ? `pegel:${uuid}` : undefined,
+            pegelUuid: uuid || undefined,
             lines: [
               `LEVEL: ${props.value?.getValue?.() ?? '—'} ${props.unit?.getValue?.() ?? ''}`,
               `STATUS: ${props.severity?.getValue?.() ?? '—'}`,
@@ -1853,7 +2130,16 @@ export default function Globe({
           pegelSrc.show = l.pegel
           energySrc.show = l.energy
           if (osintSrcRef.current) osintSrcRef.current.show = l.osint
+          trailsSrc.show = trailsEnabledRef.current
         },
+        setHeatmap: async (on: boolean) => {
+          fusionSrc.show = on
+          if (on) await fetchFusion()
+          else { fusionSrc.entities.removeAll(); setHeatmapMeta(null) }
+        },
+        clearAllTrails,
+        clearTrail,
+        fetchTrail: fetchTrailFor,
       }
 
       await loadSatTLEs('starlink')
@@ -1899,6 +2185,23 @@ export default function Globe({
       timers.push(setInterval(fetchAirquality, 3600000))
       timers.push(setInterval(fetchPegel, 900000))
       timers.push(setInterval(fetchEnergy, 900000))
+      timers.push(setInterval(fetchFusion, 90000))
+
+      // Refresh the sanctions watchlist set in the foreground every 2 min.
+      const fetchSanctions = async () => {
+        try {
+          const r = await fetch('/api/sanctions/screen/vessels?min_score=0.85&limit=400')
+          if (!r.ok) return
+          const d = await r.json()
+          const mmsi = new Set<string>()
+          for (const m of d.matches || []) {
+            if (m?.vessel?.mmsi) mmsi.add(String(m.vessel.mmsi))
+          }
+          if (!cancelled) setSanctionedMmsi(mmsi)
+        } catch {}
+      }
+      fetchSanctions()
+      timers.push(setInterval(fetchSanctions, 120000))
     })()
 
     return () => {
@@ -1917,6 +2220,11 @@ export default function Globe({
   useEffect(() => { apiRef.current.applyVision?.(vision) }, [vision])
   useEffect(() => { apiRef.current.setSatGroup?.(satGroup) }, [satGroup])
   useEffect(() => { apiRef.current.setLayerVisibility?.(layers) }, [layers])
+  useEffect(() => { apiRef.current.setHeatmap?.(heatmapOn) }, [heatmapOn])
+  useEffect(() => { apiRef.current.applyMapMode?.() }, [mapMode])
+  useEffect(() => {
+    if (!trailsEnabled) apiRef.current.clearAllTrails?.()
+  }, [trailsEnabled])
 
   useEffect(() => {
     const viewer = viewerRef.current
@@ -1987,12 +2295,15 @@ export default function Globe({
     if (!syncCamera || syncCamera.source === 'globe' || !viewerRef.current) return
     const viewer = viewerRef.current
     const height = syncCamera.height ?? (syncCamera.zoom ? 40000000 / Math.pow(2, syncCamera.zoom) : 400000)
-    // Avoid re-triggering moveEnd loop by disabling listener if needed, but simple duration: 0 works.
+    const pitch = syncCamera.pitch != null
+      ? CMath.toRadians(syncCamera.pitch)
+      : (mapMode.render3d ? CMath.toRadians(-45) : CMath.toRadians(-90))
     viewer.camera.flyTo({
       destination: Cartesian3.fromDegrees(syncCamera.lon, syncCamera.lat, height),
+      orientation: { heading: 0, pitch, roll: 0 },
       duration: 0.1,
     })
-  }, [syncCamera])
+  }, [syncCamera, mapMode.render3d])
 
   useEffect(() => {
     timelineRef.current = { scrubT, hours: timelineHours }
@@ -2132,6 +2443,17 @@ export default function Globe({
               <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
             </label>
           ))}
+          <label className={trailsEnabled ? 'on' : ''} style={{ color: '#ffd23f', marginTop: 4 }}>
+            <input type="checkbox" checked={trailsEnabled} onChange={() => setTrailsEnabled(v => !v)} />AIRCRAFT TRAILS
+          </label>
+          <label className={heatmapOn ? 'on' : ''} style={{ color: '#ff6b35' }}>
+            <input type="checkbox" checked={heatmapOn} onChange={() => setHeatmapOn(v => !v)} />FUSION HEATMAP
+          </label>
+          {sanctionedMmsi.size > 0 && (
+            <div style={{ marginTop: 6, fontSize: 10, color: '#ff2d00' }}>
+              ⚠ {sanctionedMmsi.size} vessel{sanctionedMmsi.size > 1 ? 's' : ''} flagged (OpenSanctions)
+            </div>
+          )}
           <label className={mvtProvider ? 'on' : ''} style={{ color: '#00e5a0', marginTop: 4 }}>
             <input type="checkbox" checked={!!mvtProvider} onChange={toggleMvt} />MVT (EXPERIMENTAL)
           </label>
@@ -2196,6 +2518,22 @@ export default function Globe({
         </div>
       </div>
 
+      {heatmapOn && heatmapMeta && (
+        <div className="fusion-legend">
+          <div className="fusion-legend-title">FUSION HEATMAP · {heatmapMeta.cells} cells</div>
+          <div className="fusion-legend-gradient" />
+          <div className="fusion-legend-scale">
+            <span>low</span>
+            <span>max {heatmapMeta.max.toFixed(1)}</span>
+          </div>
+          <div className="fusion-legend-contrib">
+            {Object.entries(heatmapMeta.contrib).filter(([, n]) => n > 0).map(([k, n]) => (
+              <span key={k}>{k}:{n}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {target && (
         <div className={`target-panel ${target.kind}`}>
           <div className="tp-head">
@@ -2205,6 +2543,11 @@ export default function Globe({
           <div className="tp-title">{target.title}</div>
           {target.lines.map((l, i) => <div key={i} className="tp-line">{l}</div>)}
           {target.nodeId && <SensorSparklines nodeId={target.nodeId} hours={timelineHours} />}
+          {target.pegelUuid && (
+            <div style={{ marginTop: 8 }}>
+              <PegelSparkline uuid={target.pegelUuid} hours={24} width={260} height={56} />
+            </div>
+          )}
           {target.entityId && <EntityContextCard entityId={target.entityId} />}
           {target.link && (
             <a className="tp-link" href={target.link} target="_blank" rel="noreferrer">OPEN SOURCE ↗</a>

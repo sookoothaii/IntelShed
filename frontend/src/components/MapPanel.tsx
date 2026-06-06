@@ -3,6 +3,8 @@ import maplibregl, { Map as MapLibreMap, StyleSpecification } from 'maplibre-gl'
 import { Protocol, PMTiles } from 'pmtiles'
 import { layers as protomapsLayers, namedFlavor } from '@protomaps/basemaps'
 import 'maplibre-gl/dist/maplibre-gl.css'
+import type { MapViewMode } from '../lib/mapView'
+import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_SATELLITE_TILES } from '../lib/mapView'
 
 let _protocolRegistered = false
 
@@ -22,17 +24,53 @@ type FlavorName = (typeof FLAVORS)[number]
 
 export type MapFocus = { lat: number; lon: number; ts?: number } | null
 
+const VECTOR_LAYER_PREFIX = 'protomaps-'
+const BUILDINGS_LAYER_ID = 'wb-buildings-3d'
+
+function applyMapModeToMap(map: MapLibreMap, mode: MapViewMode) {
+  const showVector = mode.basemap === 'streets' || mode.basemap === 'hybrid'
+  const showSat = mode.basemap === 'satellite' || mode.basemap === 'hybrid'
+  const showHill = mode.basemap === 'terrain'
+
+  for (const layer of map.getStyle().layers || []) {
+    const src = 'source' in layer ? layer.source : null
+    if (layer.id.startsWith(VECTOR_LAYER_PREFIX) || src === 'protomaps') {
+      if (layer.id === BUILDINGS_LAYER_ID) continue
+      map.setLayoutProperty(layer.id, 'visibility', showVector ? 'visible' : 'none')
+    }
+  }
+
+  const setVis = (id: string, on: boolean) => {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none')
+  }
+  setVis('wb-satellite', showSat)
+  setVis('wb-hillshade', showHill)
+
+  if (map.getLayer(BUILDINGS_LAYER_ID)) {
+    map.setLayoutProperty(BUILDINGS_LAYER_ID, 'visibility', mode.buildings && mode.render3d ? 'visible' : 'none')
+  }
+
+  const pitch = mode.render3d ? 60 : 0
+  const bearing = mode.render3d ? map.getBearing() : 0
+  map.easeTo({ pitch, bearing, duration: 500 })
+}
+
 export default function MapPanel({
   focus,
   onCameraMove,
   syncCamera,
+  mapMode = DEFAULT_MAP_VIEW,
 }: {
   focus?: MapFocus
-  onCameraMove?: (cam: { lon: number; lat: number; zoom: number }) => void
-  syncCamera?: { lon: number; lat: number; height?: number; zoom?: number; source: 'globe' | 'map'; ts: number } | null
+  onCameraMove?: (cam: { lon: number; lat: number; zoom: number; pitch?: number }) => void
+  syncCamera?: { lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null
+  mapMode?: MapViewMode
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
+  const mapModeRef = useRef(mapMode)
+  useEffect(() => { mapModeRef.current = mapMode }, [mapMode])
+
   const [archives, setArchives] = useState<Archive[]>([])
   const [activeArchive, setActiveArchive] = useState<string>('')
   const [flavor, setFlavor] = useState<FlavorName>('dark')
@@ -45,7 +83,6 @@ export default function MapPanel({
     onCameraMoveRef.current = onCameraMove
   }, [onCameraMove])
 
-  // Protocol handler must be registered exactly once for the app lifecycle.
   useEffect(() => {
     if (_protocolRegistered) return
     const protocol = new Protocol()
@@ -89,7 +126,6 @@ export default function MapPanel({
       const archive = archives.find((a) => a.name === activeArchive)
       if (!archive) return
 
-      // Absolute URL so the pmtiles:// fetcher resolves correctly during dev (Vite proxy)
       const pmtilesUrl = `${window.location.origin}${archive.pmtiles_url}`
 
       let centerLon = 100
@@ -109,6 +145,11 @@ export default function MapPanel({
       if (cancelled) return
 
       const flv = namedFlavor(flavor)
+      const vectorLayers = protomapsLayers('protomaps', flv, { lang: 'en' }).map((layer) => ({
+        ...layer,
+        id: `${VECTOR_LAYER_PREFIX}${layer.id}`,
+      }))
+
       const style: StyleSpecification = {
         version: 8,
         glyphs: 'https://cdn.protomaps.com/fonts/pbf/{fontstack}/{range}.pbf',
@@ -119,8 +160,40 @@ export default function MapPanel({
             attribution:
               '<a href="https://protomaps.com">Protomaps</a> © <a href="https://openstreetmap.org">OpenStreetMap</a>',
           },
+          'wb-satellite': {
+            type: 'raster',
+            tiles: [ESRI_SATELLITE_TILES],
+            tileSize: 256,
+            attribution: 'Esri, Maxar',
+            maxzoom: 19,
+          },
+          'wb-hillshade': {
+            type: 'raster',
+            tiles: [ESRI_HILLSHADE_TILES],
+            tileSize: 256,
+            attribution: 'Esri',
+            maxzoom: 15,
+          },
         },
-        layers: protomapsLayers('protomaps', flv, { lang: 'en' }),
+        layers: [
+          { id: 'wb-satellite', type: 'raster', source: 'wb-satellite', layout: { visibility: 'none' } },
+          { id: 'wb-hillshade', type: 'raster', source: 'wb-hillshade', layout: { visibility: 'none' } },
+          ...vectorLayers,
+          {
+            id: BUILDINGS_LAYER_ID,
+            type: 'fill-extrusion',
+            source: 'protomaps',
+            'source-layer': 'buildings',
+            filter: ['>', ['coalesce', ['get', 'render_height'], 0], 0],
+            layout: { visibility: 'none' },
+            paint: {
+              'fill-extrusion-color': '#1e2d3d',
+              'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 12],
+              'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+              'fill-extrusion-opacity': 0.88,
+            },
+          },
+        ],
       }
 
       if (mapRef.current) {
@@ -133,12 +206,20 @@ export default function MapPanel({
         style,
         center: [centerLon, centerLat],
         zoom: initZoom,
-        maxZoom: maxZoom,
+        maxZoom,
+        pitch: mapModeRef.current.render3d ? 60 : 0,
+        bearing: 0,
+        dragRotate: true,
+        pitchWithRotate: true,
         attributionControl: { compact: true },
       })
-      map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-right')
+      map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right')
       map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-right')
       mapRef.current = map
+
+      map.on('load', () => {
+        applyMapModeToMap(map, mapModeRef.current)
+      })
 
       map.on('moveend', () => {
         const center = map.getCenter()
@@ -146,6 +227,7 @@ export default function MapPanel({
           lon: center.lng,
           lat: center.lat,
           zoom: map.getZoom(),
+          pitch: map.getPitch(),
         })
       })
 
@@ -166,6 +248,12 @@ export default function MapPanel({
   }, [archives, activeArchive, flavor, status])
 
   useEffect(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    applyMapModeToMap(map, mapMode)
+  }, [mapMode])
+
+  useEffect(() => {
     if (!focus || !mapRef.current) return
     const target: [number, number] = [focus.lon, focus.lat]
     const currZoom = mapRef.current.getZoom()
@@ -180,12 +268,14 @@ export default function MapPanel({
   useEffect(() => {
     if (!syncCamera || syncCamera.source === 'map' || !mapRef.current) return
     const zoom = syncCamera.zoom ?? (syncCamera.height ? Math.max(1, Math.log2(40000000 / syncCamera.height)) : 4)
+    const pitch = syncCamera.pitch ?? (mapMode.render3d ? 60 : 0)
     mapRef.current.flyTo({
       center: [syncCamera.lon, syncCamera.lat],
       zoom,
-      duration: 100, // fast sync
+      pitch,
+      duration: 100,
     })
-  }, [syncCamera])
+  }, [syncCamera, mapMode.render3d])
 
   const archive = archives.find((a) => a.name === activeArchive)
 

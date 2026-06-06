@@ -43,6 +43,10 @@ import gibs_bridge
 import outages_bridge
 import volcano_bridge
 import pmtiles_bridge
+import stac_bridge
+import sanctions_bridge
+import aircraft_trails
+import fusion_heatmap
 
 DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
@@ -213,6 +217,10 @@ app.include_router(gibs_bridge.router)
 app.include_router(outages_bridge.router)
 app.include_router(volcano_bridge.router)
 app.include_router(pmtiles_bridge.router)
+app.include_router(stac_bridge.router)
+app.include_router(sanctions_bridge.router)
+app.include_router(aircraft_trails.router)
+app.include_router(fusion_heatmap.router)
 app.include_router(situations.router)
 
 
@@ -243,7 +251,48 @@ async def _phase1_background_tasks():
             await rag_memory.ingest_volcanoes()
         except Exception as e:
             print(f"[PHASE1] RAG pulse index failed: {e}", flush=True)
+        # Phase 2 — STAC + Sanctions augment the RAG corpus
+        try:
+            items = await stac_bridge.fetch_recent_thailand_items(limit=6)
+            await rag_memory.ingest_stac_items(items)
+        except Exception as e:
+            print(f"[PHASE2] STAC ingest failed: {e}", flush=True)
+        try:
+            screen = await sanctions_bridge.sanctions_screen_vessels(min_score=0.85, limit=200)
+            hits = [m.get("sanction") for m in (screen.get("matches") or []) if m.get("sanction")]
+            if hits:
+                await rag_memory.ingest_sanctions_hits(hits)
+        except Exception as e:
+            print(f"[PHASE2] Sanctions ingest failed: {e}", flush=True)
         await asyncio.sleep(600)
+
+
+async def _aircraft_trail_loop():
+    """Snapshot aircraft positions into the trail table every ~30s."""
+    await asyncio.sleep(45)
+    while True:
+        try:
+            await aircraft_trails.snapshot_now()
+        except Exception as e:
+            print(f"[TRAIL] aircraft snapshot failed: {e}", flush=True)
+        await asyncio.sleep(30)
+
+
+async def _situations_prewarm():
+    """Warm the Situation Board + River cache so first-load is instant."""
+    await asyncio.sleep(20)
+    try:
+        await anomaly_river.scan_feeds()
+    except Exception:
+        pass
+    try:
+        await situations.unified_situations()
+    except Exception:
+        pass
+    try:
+        await fusion_heatmap.fusion_heatmap(cell_deg=2.0, top=60, include_geojson=0)
+    except Exception:
+        pass
 
 
 async def _briefing_autopilot():
@@ -266,9 +315,12 @@ def on_startup():
     node_sync.init_command_db()
     anomaly_river.init_river_db()
     rag_memory.init_memory_db()
+    aircraft_trails.init_trail_db()
     global _BRIEFING_AUTOPILOT_TASK
     _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
     asyncio.create_task(_phase1_background_tasks())
+    asyncio.create_task(_aircraft_trail_loop())
+    asyncio.create_task(_situations_prewarm())
 
 
 @app.on_event("shutdown")
@@ -713,8 +765,40 @@ async def get_world():
 
 
 import os
+import time
 
-OLLAMA_HOSTS = os.getenv("OLLAMA_HOST", "localhost:11434").split(",")
+_models_cache: dict = {"ts": 0.0, "data": None}
+_MODELS_CACHE_TTL = 20.0
+
+
+def _ollama_hosts() -> list[str]:
+    """Resolve Ollama host(s) with Windows-friendly loopback fallbacks."""
+    raw = os.getenv("OLLAMA_HOST", "127.0.0.1:11434")
+    hosts = [h.strip() for h in raw.split(",") if h.strip()]
+    expanded: list[str] = []
+    for h in hosts:
+        expanded.append(h)
+        if h.startswith("localhost:"):
+            expanded.append(h.replace("localhost:", "127.0.0.1:", 1))
+        elif h.startswith("127.0.0.1:"):
+            port = h.split(":", 1)[1]
+            expanded.append(f"localhost:{port}")
+    seen: set[str] = set()
+    out: list[str] = []
+    for h in expanded:
+        if h not in seen:
+            seen.add(h)
+            out.append(h)
+    return out or ["127.0.0.1:11434"]
+
+
+OLLAMA_HOSTS = _ollama_hosts()
+
+
+def _is_embed_model(name: str) -> bool:
+    embed_base = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text").split(":")[0].lower()
+    n = (name or "").lower()
+    return n.startswith(embed_base) or "embed" in n
 
 
 @app.get("/api/search")
@@ -756,35 +840,63 @@ async def search_web(q: str, n: int = 5):
 
 @app.get("/api/models")
 async def list_models():
-    """List available Ollama models."""
+    """List available Ollama chat models (embed models excluded from chat picker)."""
+    now = time.time()
+    if _models_cache["data"] and now - _models_cache["ts"] < _MODELS_CACHE_TTL:
+        return _models_cache["data"]
+
+    last_err = None
     for host in OLLAMA_HOSTS:
-        host = host.strip()
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=12.0) as client:
                 r = await client.get(f"http://{host}/api/tags")
                 r.raise_for_status()
                 data = r.json()
-                models = data.get("models", [])
+                all_models = data.get("models", [])
+                chat_models = [m for m in all_models if not _is_embed_model(m.get("name", ""))]
                 default_model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
-                names = [m.get("name") for m in models]
-                if default_model not in names:
-                    for n in names:
+                chat_names = [m.get("name") for m in chat_models]
+                all_names = [m.get("name") for m in all_models]
+                if default_model not in chat_names:
+                    for n in chat_names:
                         if n and n.split(":")[0] == default_model.split(":")[0]:
                             default_model = n
                             break
-                return {
+                payload = {
                     "host": host,
-                    "count": len(models),
-                    "default": default_model if default_model in names else (names[0] if names else None),
+                    "count": len(chat_models),
+                    "default": default_model if default_model in chat_names else (chat_names[0] if chat_names else None),
                     "embed_model": os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
+                    "embed_available": any(_is_embed_model(n or "") for n in all_names),
                     "models": [
-                        {"name": m.get("name"), "size": m.get("size"), "parameter_size": m.get("details", {}).get("parameter_size")}
-                        for m in models
+                        {
+                            "name": m.get("name"),
+                            "size": m.get("size"),
+                            "parameter_size": m.get("details", {}).get("parameter_size"),
+                        }
+                        for m in chat_models
                     ],
                 }
-        except Exception:
+                if not chat_models and all_models:
+                    payload["warning"] = (
+                        "Only embedding models found. Run: ollama pull qwen3:8b"
+                    )
+                _models_cache["ts"] = now
+                _models_cache["data"] = payload
+                return payload
+        except Exception as e:
+            last_err = str(e)
             continue
-    return {"error": "Ollama not reachable", "hosts_tried": OLLAMA_HOSTS}
+    err = {
+        "error": "Ollama not reachable",
+        "detail": last_err,
+        "hosts_tried": OLLAMA_HOSTS,
+        "hint": (
+            "1) Start Ollama (ollama.com)  2) ollama pull qwen3:8b  "
+            "3) backend/.env → OLLAMA_HOST=127.0.0.1:11434  4) .\\start.ps1"
+        ),
+    }
+    return err
 
 
 @app.post("/api/chat")
