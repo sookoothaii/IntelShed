@@ -27,6 +27,42 @@ type StatusResponse = {
 const FLAVORS = ['dark', 'black', 'grayscale', 'light', 'white'] as const
 type FlavorName = (typeof FLAVORS)[number]
 
+/** Protomaps basemap assets (glyphs + flavor-matched sprites). */
+const GLYPHS = 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf'
+const SPRITE_BY_FLAVOR: Record<FlavorName, string> = {
+  dark: 'https://protomaps.github.io/basemaps-assets/sprites/v4/dark',
+  black: 'https://protomaps.github.io/basemaps-assets/sprites/v4/black',
+  grayscale: 'https://protomaps.github.io/basemaps-assets/sprites/v4/grayscale',
+  light: 'https://protomaps.github.io/basemaps-assets/sprites/v4/light',
+  white: 'https://protomaps.github.io/basemaps-assets/sprites/v4/white',
+}
+
+function installStyleImageFallback(map: MapLibreMap) {
+  map.on('styleimagemissing', (e) => {
+    if (map.hasImage(e.id)) return
+    const dot = e.id === 'capital' || e.id === 'townspot'
+    const size = dot ? 10 : 22
+    const data = new Uint8Array(size * size * 4)
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const dx = x - size / 2 + 0.5
+        const dy = y - size / 2 + 0.5
+        const inside = dx * dx + dy * dy <= (size / 2 - 0.5) ** 2
+        const o = (y * size + x) * 4
+        if (!inside) continue
+        if (e.id === 'capital') {
+          data[o] = 255; data[o + 1] = 210; data[o + 2] = 60; data[o + 3] = 255
+        } else if (e.id === 'townspot') {
+          data[o] = 180; data[o + 1] = 180; data[o + 2] = 180; data[o + 3] = 220
+        } else {
+          data[o] = 90; data[o + 1] = 110; data[o + 2] = 130; data[o + 3] = 200
+        }
+      }
+    }
+    map.addImage(e.id, { width: size, height: size, data }, { pixelRatio: 1 })
+  })
+}
+
 export type MapFocus = { lat: number; lon: number; ts?: number } | null
 
 const VECTOR_LAYER_PREFIX = 'protomaps-'
@@ -130,6 +166,11 @@ export default function MapPanel({
     let resizeObserver: ResizeObserver | null = null
 
     const init = async () => {
+      if (cancelled || !containerRef.current) return
+      if (!containerHasSize(containerRef.current)) {
+        requestAnimationFrame(() => { if (!cancelled) init() })
+        return
+      }
       const archive = archives.find((a) => a.name === activeArchive)
       if (!archive) return
 
@@ -159,7 +200,8 @@ export default function MapPanel({
 
       const style: StyleSpecification = {
         version: 8,
-        glyphs: 'https://cdn.protomaps.com/fonts/pbf/{fontstack}/{range}.pbf',
+        glyphs: GLYPHS,
+        sprite: SPRITE_BY_FLAVOR[flavor],
         sources: {
           protomaps: {
             type: 'vector',
@@ -220,6 +262,7 @@ export default function MapPanel({
         pitchWithRotate: true,
         attributionControl: { compact: true },
       })
+      installStyleImageFallback(map)
       map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right')
       map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-right')
       mapRef.current = map

@@ -103,17 +103,10 @@ async def get_pegel():
     try:
         import json
         import sqlite3
-        import os
 
-        db = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
-        conn = sqlite3.connect(db)
-        c = conn.cursor()
-        c.execute(
-            "INSERT OR REPLACE INTO feed_cache (key, value, cached_at) VALUES (?, ?, ?)",
-            ("pegel", json.dumps(payload), datetime.now(timezone.utc).isoformat()),
-        )
-        conn.commit()
-        conn.close()
+        import feed_registry
+
+        feed_registry.write("pegel", payload)
     except Exception:
         pass
 

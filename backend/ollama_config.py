@@ -7,6 +7,11 @@ def keep_alive() -> str:
     return os.getenv("OLLAMA_KEEP_ALIVE", "1m")
 
 
+def chat_timeout() -> float:
+    """httpx timeout for Ollama chat/tool rounds (local LLM can be slow)."""
+    return float(os.getenv("OLLAMA_CHAT_TIMEOUT", "600"))
+
+
 def briefing_autopilot_on() -> bool:
     return os.getenv("WORLDBASE_BRIEFING_AUTOPILOT", "1").strip().lower() not in {
         "0", "false", "no", "off",

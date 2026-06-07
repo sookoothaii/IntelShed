@@ -36,7 +36,7 @@ from fastapi import APIRouter, Query
 router = APIRouter(prefix="/api/fusion", tags=["fusion-heatmap"])
 
 _CACHE: dict[str, tuple[float, dict]] = {}
-_CACHE_TTL = 30.0
+_CACHE_TTL = 60.0
 
 
 def _cell_key(lat: float, lon: float, cell_deg: float) -> tuple[float, float]:

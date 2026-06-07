@@ -1,34 +1,44 @@
 """NASA FIRMS — Fire Information for Resource Management System.
 Near real-time wildfire / thermal anomaly detection.
-No API key required for small area queries.
+Requires free MAP_KEY from https://firms.modaps.eosdis.nasa.gov/api/map_key
+Falls back to NASA EONET open wildfire events when MAP_KEY is missing.
 """
-import asyncio
+import os
 from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter
 
+import feed_registry
+
 router = APIRouter(prefix="/api", tags=["firms"])
 
-# MODIS and VIIRS near-real-time feeds
-_FIRMS_URLS = {
-    "modis": "https://firms.modaps.eosdis.nasa.gov/api/area/csv/MODIS_NRT/world/1",
-    "viirs_noaa20": "https://firms.modaps.eosdis.nasa.gov/api/area/csv/VIIRS_NOAA20_NRT/world/1",
-    "viirs_snpp": "https://firms.modaps.eosdis.nasa.gov/api/area/csv/VIIRS_SNPP_NRT/world/1",
+FIRMS_MAP_KEY = os.getenv("FIRMS_MAP_KEY", "").strip()
+
+_FIRMS_SOURCES = {
+    "modis": "MODIS_NRT",
+    "viirs_noaa20": "VIIRS_NOAA20_NRT",
+    "viirs_snpp": "VIIRS_SNPP_NRT",
 }
 
-# Simple in-memory cache
 _firms_cache: dict = {}
 _FIRMS_TTL = 600  # 10 minutes
 
 
+def _firms_url(source: str) -> str | None:
+    api_source = _FIRMS_SOURCES.get(source)
+    if not FIRMS_MAP_KEY or not api_source:
+        return None
+    return f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{FIRMS_MAP_KEY}/{api_source}/world/1"
+
+
 async def _fetch_firms(source: str):
     """Fetch FIRMS CSV and parse to list of fire records."""
-    url = _FIRMS_URLS.get(source)
+    url = _firms_url(source)
     if not url:
-        return []
+        return [{"error": "FIRMS_MAP_KEY not set — get a free key at firms.modaps.eosdis.nasa.gov/api/map_key"}]
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             r = await client.get(url)
             r.raise_for_status()
             text = r.text
@@ -68,38 +78,87 @@ async def _fetch_firms(source: str):
         except (ValueError, TypeError):
             continue
 
-    # Sort by confidence descending, limit to 500 hottest
     records.sort(key=lambda x: x.get("confidence", 0), reverse=True)
     return records[:500]
 
 
+async def _eonet_wildfire_fallback() -> list[dict]:
+    """Open NASA EONET wildfire events when FIRMS is unavailable."""
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(
+                "https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=200"
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception:
+        return []
+
+    fires = []
+    for ev in data.get("events", []):
+        cat_ids = [str(c.get("id", "")).lower() for c in ev.get("categories", [])]
+        title = (ev.get("title") or "").lower()
+        if not any("wildfire" in c or "fire" in c for c in cat_ids) and "fire" not in title:
+            continue
+        geo = ev.get("geometry", [])
+        if not geo:
+            continue
+        last = geo[-1]
+        coords = last.get("coordinates", [])
+        if not coords or len(coords) < 2:
+            continue
+        fires.append({
+            "lat": float(coords[1]),
+            "lon": float(coords[0]),
+            "brightness": 0,
+            "confidence": 65,
+            "confidence_label": "inferred",
+            "scan": 0,
+            "track": 0,
+            "acq_date": (last.get("date") or "")[:10],
+            "acq_time": "",
+            "satellite": "EONET",
+            "instrument": "EONET",
+            "frp": 0,
+            "source": "eonet",
+        })
+    return fires[:300]
+
+
 @router.get("/wildfires")
 async def get_wildfires():
-    """Global thermal anomalies / wildfires from NASA FIRMS.
-    Combines MODIS + VIIRS. Cached 10 minutes. No key.
-    """
+    """Global thermal anomalies / wildfires from NASA FIRMS (+ EONET fallback). Cached 10 min."""
     now = datetime.now(timezone.utc).timestamp()
-    cache_key = "firms_all"
+    cache_key = "firms_v2"
     cached = _firms_cache.get(cache_key)
     if cached and (now - cached["ts"]) < _FIRMS_TTL:
         return cached["data"]
 
-    sources = ["modis", "viirs_noaa20", "viirs_snpp"]
     all_fires = []
     errors = []
-    for src in sources:
-        try:
-            fires = await _fetch_firms(src)
-            if fires and "error" in fires[0]:
-                errors.append({src: fires[0]["error"]})
-            else:
-                for f in fires:
-                    f["source"] = src
-                all_fires.extend(fires)
-        except Exception as e:
-            errors.append({src: str(e)})
+    # One VIIRS world query is enough for the globe (~30k rows max); three sources block the API for minutes.
+    sources = ["viirs_snpp"] if FIRMS_MAP_KEY else []
+    if FIRMS_MAP_KEY:
+        for src in sources:
+            try:
+                fires = await _fetch_firms(src)
+                if fires and "error" in fires[0]:
+                    errors.append({src: fires[0]["error"]})
+                else:
+                    for f in fires:
+                        f["source"] = src
+                    all_fires.extend(fires)
+            except Exception as e:
+                errors.append({src: str(e)})
+    else:
+        errors.append({"firms": "FIRMS_MAP_KEY not set — using EONET wildfire events"})
 
-    # Deduplicate by lat/lon rounded to 2 decimals + date
+    source_note = None
+    if not all_fires:
+        all_fires = await _eonet_wildfire_fallback()
+        if all_fires:
+            source_note = "eonet_fallback"
+
     seen = set()
     unique = []
     for f in all_fires:
@@ -108,15 +167,18 @@ async def get_wildfires():
             seen.add(key)
             unique.append(f)
 
-    # Sort by confidence
     unique.sort(key=lambda x: x.get("confidence", 0), reverse=True)
 
     result = {
         "count": len(unique),
         "updated": datetime.now(timezone.utc).isoformat(),
-        "fires": unique[:300],  # top 300
+        "fires": unique[:300],
         "errors": errors if errors else None,
+        "source": source_note or ("firms" if FIRMS_MAP_KEY and unique else None),
+        "spatial_resolution": "1 day VIIRS world" if FIRMS_MAP_KEY else "EONET event centroids",
+        "data_quality": "eonet_inferred" if source_note == "eonet_fallback" else "firms_thermal",
     }
 
     _firms_cache[cache_key] = {"ts": now, "data": result}
+    feed_registry.write("wildfires", result)
     return result

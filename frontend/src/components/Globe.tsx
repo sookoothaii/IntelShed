@@ -15,7 +15,6 @@ import {
   createOsmBuildingsAsync,
   Cesium3DTileset,
   SceneMode,
-  OpenStreetMapImageryProvider,
   UrlTemplateImageryProvider,
   GeographicTilingScheme,
   CustomDataSource,
@@ -27,7 +26,6 @@ import {
   DistanceDisplayCondition,
   Math as CMath,
   PolylineGlowMaterialProperty,
-  Rectangle,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   PostProcessStage,
@@ -55,7 +53,7 @@ import type { OsintPin } from '../lib/osintPins'
 import SensorSparklines from './SensorSparklines'
 import PegelSparkline from './PegelSparkline'
 import type { MapViewMode } from '../lib/mapView'
-import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_SATELLITE_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
+import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
@@ -78,6 +76,25 @@ function fmtTimelineLabel(ms: number): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function feedPos(lon: number, lat: number) {
+  return Cartesian3.fromDegrees(lon, lat, 0)
+}
+
+/** Feed markers on the surface — round via depthTestAgainstTerrain=false on the scene. */
+function feedPoint(
+  pixelSize: number,
+  color: Color,
+  opts?: { outline?: Color; outlineWidth?: number; scaleByDistance?: NearFarScalar },
+) {
+  return {
+    pixelSize,
+    color,
+    outlineColor: opts?.outline ?? Color.WHITE,
+    outlineWidth: opts?.outlineWidth ?? 2,
+    ...(opts?.scaleByDistance ? { scaleByDistance: opts.scaleByDistance } : {}),
+  }
 }
 
 function esriImagery(url: string, credit: string) {
@@ -115,7 +132,7 @@ async function applyGlobeMapMode(
   }
 
   if (mode.basemap === 'streets') {
-    layers.addImageryProvider(new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }))
+    layers.addImageryProvider(esriImagery(ESRI_STREET_TILES, 'Esri, OpenStreetMap contributors'))
   } else if (mode.basemap === 'satellite') {
     layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
   } else if (mode.basemap === 'hybrid') {
@@ -125,14 +142,12 @@ async function applyGlobeMapMode(
       refs.labelOverlay.current = null
     }
     refs.labelOverlay.current = layers.addImageryProvider(
-      new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }),
+      esriImagery(ESRI_REFERENCE_LABELS, 'Esri, OpenStreetMap contributors'),
     )
-    if (refs.labelOverlay.current) refs.labelOverlay.current.alpha = 0.38
+    if (refs.labelOverlay.current) refs.labelOverlay.current.alpha = 0.85
   } else {
     layers.addImageryProvider(esriImagery(ESRI_HILLSHADE_TILES, 'Esri World Hillshade'))
-    layers.addImageryProvider(
-      new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }),
-    )
+    layers.addImageryProvider(esriImagery(ESRI_STREET_TILES, 'Esri, OpenStreetMap contributors'))
     const top = layers.get(layers.length - 1)
     if (top) top.alpha = 0.55
   }
@@ -227,6 +242,166 @@ type Stats = {
   fps: number
 }
 
+type GlobeLayers = {
+  aircraft: boolean
+  satellites: boolean
+  orbits: boolean
+  quakes: boolean
+  events: boolean
+  nodes: boolean
+  military: boolean
+  spaceweather: boolean
+  geopolitics: boolean
+  wildfires: boolean
+  lightning: boolean
+  transit: boolean
+  maritime: boolean
+  gdacs: boolean
+  hazards: boolean
+  outages: boolean
+  volcanoes: boolean
+  airquality: boolean
+  pegel: boolean
+  energy: boolean
+  osint: boolean
+}
+
+type LayerKey = keyof GlobeLayers
+
+type FeedHealth = {
+  status?: string
+  age_sec?: number
+  source?: string | string[]
+  count?: number
+  error?: string
+}
+
+type TelemetryEntry = {
+  layer?: LayerKey
+  label: string
+  statKey?: keyof Stats
+  color: string
+  hudKey?: string
+  healthKeys?: string[]
+  formatValue?: (stats: Stats) => string
+  /** Einzeiler für Hover-Tooltip */
+  tip?: string
+}
+
+function kpTooltip(kp: number): string {
+  if (!kp) return 'Kp-Index (0–9): geomagnetische Aktivität, 3 h Mittelwert.'
+  if (kp < 2) return `Kp ${kp.toFixed(2)} — ruhig, kaum Einfluss auf Satelliten/Netze.`
+  if (kp < 4) return `Kp ${kp.toFixed(2)} — leicht aktiv, Polarlicht möglich.`
+  if (kp < 5) return `Kp ${kp.toFixed(2)} — aktiv, HF/GNSS können stören.`
+  if (kp < 6) return `Kp ${kp.toFixed(2)} — kleiner Sturm, Ausfälle möglich.`
+  return `Kp ${kp.toFixed(2)} — starker Sturm, Satelliten & Netze gefährdet.`
+}
+
+const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] = [
+  {
+    id: 'motion',
+    label: 'MOTION',
+    rows: [
+      { layer: 'aircraft', label: 'AIRCRAFT', statKey: 'aircraft', color: '#ffd23f', healthKeys: ['aircraft'], tip: 'Live-Flugzeuge (ADS-B).' },
+      { layer: 'satellites', label: 'SATELLITES', statKey: 'satellites', color: '#00e5ff', tip: 'Satelliten der gewählten Konstellation.' },
+      { layer: 'orbits', label: 'ORBITS', color: '#00e5ff', tip: 'Umlaufbahnen als Linien (ein/aus).' },
+      { layer: 'military', label: 'MILITARY', statKey: 'military', color: '#ff6b35', healthKeys: ['military'], tip: 'Als militärisch erkannte Luftfahrzeuge.' },
+      { layer: 'maritime', label: 'MARITIME', statKey: 'maritime', color: '#00e5ff', healthKeys: ['maritime'], tip: 'AIS-Schiffspositionen weltweit.' },
+      { layer: 'transit', label: 'TRANSIT', statKey: 'transit', color: '#ffd23f', healthKeys: ['transit'], tip: 'ÖPNV-Fahrzeuge (GTFS-Realtime).' },
+    ],
+  },
+  {
+    id: 'geo',
+    label: 'GEO',
+    rows: [
+      { layer: 'quakes', label: 'SEISMIC', statKey: 'quakes', color: '#ff2d00', healthKeys: ['quakes'], tip: 'Erdbeben ≥ M2.5, letzte 24 h (USGS).' },
+      { layer: 'events', label: 'EVENTS', statKey: 'events', color: '#ff6b35', healthKeys: ['events', 'world'], tip: 'Aktuelle Meldungen aus Event-/RSS-Feeds.' },
+      { layer: 'gdacs', label: 'GDACS', statKey: 'gdacs', color: '#ff6b35', hudKey: 'gdacs', healthKeys: ['gdacs', 'gdacs_v2'], tip: 'UN-Warnungen: Zyklon, Beben, Flut, Dürre.' },
+      { layer: 'hazards', label: 'HAZARDS', statKey: 'hazards', color: '#22d3ee', hudKey: 'hazards', healthKeys: ['hazards', 'cap'], tip: 'Offizielle Wetterwarnungen (CAP).' },
+      { layer: 'volcanoes', label: 'VOLCANOES', statKey: 'volcanoes', color: '#ff4d5e', healthKeys: ['volcanoes'], tip: 'Holozäne Vulkane (Smithsonian).' },
+      { layer: 'geopolitics', label: 'CRISES', statKey: 'geopolitics', color: '#ff2d00', healthKeys: ['geopolitics'], tip: 'Geopolitische Krisen (ReliefWeb).' },
+    ],
+  },
+  {
+    id: 'env',
+    label: 'ENV',
+    rows: [
+      { layer: 'wildfires', label: 'WILDFIRES', statKey: 'wildfires', color: '#ff6b35', hudKey: 'wildfires', healthKeys: ['wildfires', 'eonet'], tip: 'Aktive Brände (NASA EONET/FIRMS).' },
+      { layer: 'lightning', label: 'LIGHTNING', statKey: 'lightning', color: '#22d3ee', hudKey: 'lightning', healthKeys: ['lightning', 'blitzortung'], tip: 'Blitzeinschläge in Echtzeit.' },
+      {
+        layer: 'spaceweather',
+        label: 'KP INDEX',
+        statKey: 'spaceweather',
+        color: '#00e5a0',
+        healthKeys: ['spaceweather'],
+        formatValue: (s) => (s.spaceweather ? s.spaceweather.toFixed(2) : '—'),
+      },
+      { layer: 'airquality', label: 'AIR QUALITY', statKey: 'airquality', color: '#b0c4b1', healthKeys: ['airquality'], tip: 'Luftqualität (AQI/PM2.5) je Stadt.' },
+    ],
+  },
+  {
+    id: 'infra',
+    label: 'INFRA',
+    rows: [
+      { layer: 'nodes', label: 'NODES', statKey: 'nodes', color: '#00e5a0', healthKeys: ['nodes'], tip: 'Eigene Edge-Knoten (Pi/Mesh).' },
+      { layer: 'outages', label: 'OUTAGES', statKey: 'outages', color: '#a855f7', hudKey: 'outages', healthKeys: ['outages'], tip: 'Internet-Störungen (IODA/Cloudflare).' },
+      { layer: 'pegel', label: 'PEGEL', statKey: 'pegel', color: '#4fc3f7', hudKey: 'pegel', healthKeys: ['pegel'], tip: 'Deutsche Pegelstände / Hochwasser.' },
+      { layer: 'energy', label: 'ENERGY', statKey: 'energy', color: '#ffd23f', hudKey: 'energy', healthKeys: ['energy_de'], tip: 'Strombilanz Deutschland (SMARD).' },
+    ],
+  },
+  {
+    id: 'intel',
+    label: 'INTEL',
+    rows: [
+      { layer: 'osint', label: 'OSINT', statKey: 'osint', color: '#00ffa3', tip: 'Eigene Recherche-Pins auf der Kugel.' },
+    ],
+  },
+]
+
+function fmtTelemetryAge(sec: number | null | undefined): string {
+  if (sec == null || !Number.isFinite(sec)) return ''
+  if (sec < 60) return `${Math.round(sec)}s`
+  if (sec < 3600) return `${Math.round(sec / 60)}m`
+  return `${(sec / 3600).toFixed(1)}h`
+}
+
+function resolveFeedHealth(feeds: Record<string, FeedHealth>, keys?: string[]): FeedHealth | null {
+  if (!keys?.length) return null
+  for (const k of keys) {
+    if (feeds[k]) return feeds[k]
+  }
+  for (const [k, v] of Object.entries(feeds)) {
+    if (keys.some((hk) => k === hk || k.startsWith(`${hk}:`) || k.includes(hk))) return v
+  }
+  return null
+}
+
+function telemetryMeta(
+  entry: TelemetryEntry,
+  feedHud: Record<string, string>,
+  health: FeedHealth | null,
+  extra?: string,
+): string {
+  const parts: string[] = []
+  if (extra) parts.push(extra)
+  else if (entry.hudKey && feedHud[entry.hudKey]) parts.push(feedHud[entry.hudKey])
+  else if (health?.source) {
+    const src = Array.isArray(health.source) ? health.source[0] : health.source
+    if (src) parts.push(String(src).replace(/^https?:\/\//, '').slice(0, 14))
+  }
+  const age = fmtTelemetryAge(health?.age_sec)
+  if (age) parts.push(age)
+  return parts.length ? ` · ${parts.join(' · ')}` : ''
+}
+
+function feedStatusClass(status?: string): string {
+  if (status === 'fresh') return 'telemetry-status--fresh'
+  if (status === 'warn') return 'telemetry-status--warn'
+  if (status === 'stale') return 'telemetry-status--stale'
+  if (status === 'unknown') return 'telemetry-status--unknown'
+  return ''
+}
+
 type Target = {
   kind: string
   title: string
@@ -272,6 +447,8 @@ export default function Globe({
   onCameraMove,
   syncCamera,
   mapMode = DEFAULT_MAP_VIEW,
+  visible = true,
+  layoutSplit = false,
 }: {
   focus?: FocusTarget | null
   onAskAI?: (title: string, lines: string[]) => void
@@ -280,6 +457,8 @@ export default function Globe({
   onCameraMove?: (cam: { lon: number; lat: number; height: number; pitch?: number }) => void
   syncCamera?: { lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null
   mapMode?: MapViewMode
+  visible?: boolean
+  layoutSplit?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
@@ -299,12 +478,16 @@ export default function Globe({
   const mapModeRef = useRef(mapMode)
   useEffect(() => { mapModeRef.current = mapMode }, [mapMode])
   const [mvtProvider, setMvtProvider] = useState<any>(null)
-  const [transitCity, setTransitCity] = useState('berlin')
+  const [transitCity, setTransitCity] = useState('helsinki')
   const [target, setTarget] = useState<Target>(null)
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
   const [scrubT, setScrubT] = useState(1)
   const [timelineHours, setTimelineHours] = useState<number>(24)
   const [aircraftSource, setAircraftSource] = useState('')
+  const [feedHud, setFeedHud] = useState<Record<string, string>>({})
+  const [feedHealth, setFeedHealth] = useState<Record<string, FeedHealth>>({})
+  const [telemetryCompact, setTelemetryCompact] = useState(false)
+  const [telemetryCollapsed, setTelemetryCollapsed] = useState<Record<string, boolean>>({})
   const [trailsEnabled, setTrailsEnabled] = useState(true)
   const [heatmapOn, setHeatmapOn] = useState(false)
   const [heatmapMeta, setHeatmapMeta] = useState<{ cells: number; max: number; contrib: Record<string, number> } | null>(null)
@@ -321,28 +504,81 @@ export default function Globe({
     quakes: true,
     events: true,
     nodes: true,
-    military: true,
+    military: false,
     spaceweather: true,
-    geopolitics: true,
+    geopolitics: false,
     wildfires: true,
     lightning: true,
-    transit: true,
-    maritime: true,
+    transit: false,
+    maritime: false,
     gdacs: true,
     hazards: true,
     outages: true,
     volcanoes: false,
-    airquality: true,
-    pegel: true,
+    airquality: false,
+    pegel: false,
     osint: true,
-    energy: true,
+    energy: false,
   })
+
+  const visibleRef = useRef(visible)
+  useEffect(() => { visibleRef.current = visible }, [visible])
+  const layersRef = useRef(layers)
+  useEffect(() => { layersRef.current = layers }, [layers])
+
+  useEffect(() => {
+    if (!visible) return
+    let cancelled = false
+    const poll = async () => {
+      try {
+        const r = await fetch('/api/health')
+        if (!r.ok || cancelled) return
+        const d = await r.json()
+        if (!cancelled && d.feeds) setFeedHealth(d.feeds)
+      } catch { /* ignore */ }
+    }
+    poll()
+    const t = setInterval(poll, 60000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [visible])
 
   const onCameraMoveRef = useRef(onCameraMove)
   const cameraSyncingRef = useRef(false)
+  useEffect(() => { onCameraMoveRef.current = onCameraMove }, [onCameraMove])
+
   useEffect(() => {
-    onCameraMoveRef.current = onCameraMove
-  }, [onCameraMove])
+    if (!visible) return
+    const v = viewerRef.current
+    if (!v || (v as any).isDestroyed?.()) return
+    const id = requestAnimationFrame(() => {
+      try {
+        v.resize()
+      } catch {
+        /* ignore during teardown */
+      }
+    })
+    return () => cancelAnimationFrame(id)
+  }, [visible, layoutSplit])
+
+  useEffect(() => {
+    const v = viewerRef.current
+    if (!v || (v as any).isDestroyed?.()) return
+    v.useDefaultRenderLoop = visible
+    if (visible) {
+      try {
+        v.resize()
+        v.scene.requestRender()
+        apiRef.current.applyTimeline?.()
+      } catch {
+        /* ignore during teardown */
+      }
+    }
+  }, [visible, layoutSplit])
+
+  useEffect(() => {
+    if (!visible) return
+    apiRef.current.refreshSnapshot?.()
+  }, [visible, layoutSplit])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -350,6 +586,7 @@ export default function Globe({
     let viewer: Viewer | null = null
     let resizeObserver: ResizeObserver | null = null
     const timers: ReturnType<typeof setInterval>[] = []
+    const feedActive = () => !cancelled && visibleRef.current
 
     ;(async () => {
       const terrainProvider = await createWorldTerrainAsync()
@@ -371,65 +608,41 @@ export default function Globe({
 
       const scene = viewer.scene
       scene.globe.enableLighting = true
-      scene.globe.depthTestAgainstTerrain = true
-      scene.globe.maximumScreenSpaceError = 0.75
+      scene.globe.depthTestAgainstTerrain = false
+      scene.globe.maximumScreenSpaceError = 1.0
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
-      viewer.resolutionScale = Math.min(window.devicePixelRatio, 2)
+      viewer.resolutionScale = Math.min(window.devicePixelRatio, 1.5)
       if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
 
       // OSM 3D buildings — free via Cesium Ion (same token as terrain)
-      if (Ion.defaultAccessToken) {
-        try {
-          const buildings = await createOsmBuildingsAsync()
-          if (!cancelled) {
-            osmBuildingsRef.current = buildings
-            buildings.show = mapModeRef.current.buildings && !mapModeRef.current.photorealistic
-            scene.primitives.add(buildings)
-          }
-        } catch (e) {
-          console.warn('[Globe] OSM Buildings unavailable:', e)
-        }
-      }
-
       viewer.camera.moveEnd.addEventListener(() => {
+        const v = viewerRef.current
+        if (!v || (v as any).isDestroyed?.()) return
         if (cameraSyncingRef.current) return
-        const c = Cartographic.fromCartesian(viewer!.camera.position)
+        const c = Cartographic.fromCartesian(v.camera.position)
         const pos = sanitizeLonLat(CMath.toDegrees(c.longitude), CMath.toDegrees(c.latitude))
         if (!pos) return
         onCameraMoveRef.current?.({
           lon: pos.lon,
           lat: pos.lat,
           height: clampCameraHeight(c.height),
-          pitch: CMath.toDegrees(viewer!.camera.pitch),
+          pitch: CMath.toDegrees(v.camera.pitch),
         })
       })
 
       resizeObserver = new ResizeObserver(() => {
-        if (!containerRef.current || !viewer) return
+        const v = viewerRef.current
+        if (!containerRef.current || !v || (v as any).isDestroyed?.()) return
         if (!containerHasSize(containerRef.current)) return
         try {
-          viewer.resize()
+          v.resize()
         } catch {
           /* ignore during teardown */
         }
       })
       resizeObserver.observe(containerRef.current)
-
-      await applyGlobeMapMode(viewer, mapModeRef.current, {
-        labelOverlay: labelOverlayRef,
-        osmBuildings: osmBuildingsRef,
-        photoreal: photorealRef,
-        gibsOverlay: gibsImageryRef,
-      })
-      apiRef.current.applyMapMode = () =>
-        applyGlobeMapMode(viewer!, mapModeRef.current, {
-          labelOverlay: labelOverlayRef,
-          osmBuildings: osmBuildingsRef,
-          photoreal: photorealRef,
-          gibsOverlay: gibsImageryRef,
-        })
 
       const aircraftSrc = new CustomDataSource('aircraft')
       const satSrc = new CustomDataSource('satellites')
@@ -464,12 +677,13 @@ export default function Globe({
 
       // ---------- AIRCRAFT ----------
       const fetchAircraft = async () => {
-        if (cancelled) return
+        if (!feedActive() || !layersRef.current.aircraft) return
         try {
           const r = await fetch('/api/aircraft')
           const d = await r.json()
           const states: any[] = d.states || []
           const seen = new Set<string>()
+          aircraftSrc.entities.suspendEvents()
           for (const s of states) {
             const lon = s[5], lat = s[6]
             if (lon == null || lat == null) continue
@@ -515,6 +729,7 @@ export default function Globe({
           for (const [id, e] of acMap) {
             if (!seen.has(id)) { aircraftSrc.entities.remove(e); acMap.delete(id) }
           }
+          aircraftSrc.entities.resumeEvents()
           if (!cancelled) {
             setStats((p) => ({ ...p, aircraft: acMap.size }))
             if (d.source) setAircraftSource(String(d.source))
@@ -544,13 +759,20 @@ export default function Globe({
         }
       }
 
-      const propagateSats = () => {
-        if (cancelled || satCache.length === 0) return
+      let lastOrbitDrawMs = 0
+      const ORBIT_REDRAW_MS = 45000
+
+      const propagateSats = (forceOrbits = false) => {
+        if (!feedActive() || satCache.length === 0) return
         const now = new Date()
         const gmst = satellite.gstime(now)
         const seen = new Set<string>()
-        orbitSrc.entities.suspendEvents()
-        orbitSrc.entities.removeAll()
+        const drawOrbits = forceOrbits || (Date.now() - lastOrbitDrawMs >= ORBIT_REDRAW_MS)
+        if (drawOrbits) {
+          orbitSrc.entities.suspendEvents()
+          orbitSrc.entities.removeAll()
+          lastOrbitDrawMs = Date.now()
+        }
         let drawn = 0
         const MAX_ORBITS = 50
         for (const { name, rec } of satCache) {
@@ -592,7 +814,7 @@ export default function Globe({
               })
               satMap.set(name, e)
             }
-            if (drawn < MAX_ORBITS) {
+            if (drawOrbits && drawn < MAX_ORBITS) {
               drawn++
               const periodMin = (2 * Math.PI) / rec.no
               const pts: Cartesian3[] = []
@@ -622,7 +844,7 @@ export default function Globe({
         for (const [name, e] of satMap) {
           if (!seen.has(name)) { satSrc.entities.remove(e); satMap.delete(name) }
         }
-        orbitSrc.entities.resumeEvents()
+        if (drawOrbits) orbitSrc.entities.resumeEvents()
         if (!cancelled) setStats((p) => ({ ...p, satellites: satMap.size }))
       }
 
@@ -637,16 +859,14 @@ export default function Globe({
           const mag = q.mag ?? 0
           const sev = Math.min(mag / 8, 1)
           const ent = quakeSrc.entities.add({
-            position: Cartesian3.fromDegrees(q.lon, q.lat, 0),
-            point: {
-              pixelSize: 4 + mag * 2.5,
-              color: Color.fromHsl(0.02 + 0.08 * (1 - sev), 1.0, 0.5, 0.9),
-              outlineColor: Color.BLACK,
+            position: feedPos(q.lon, q.lat),
+            point: feedPoint(4 + mag * 2.5, Color.fromHsl(0.02 + 0.08 * (1 - sev), 1.0, 0.5, 0.9), {
+              outline: Color.BLACK,
               outlineWidth: 1,
-            },
+            }),
             properties: { kind: 'quake', place: q.place, mag, depth: q.depth, time: q.time } as any,
           })
-          if (mag >= 4.5) {
+          if (mag >= 5) {
             const t0 = Date.now()
             ent.ellipse = ({
               semiMajorAxis: new CallbackProperty(() => {
@@ -682,17 +902,14 @@ export default function Globe({
 
       const renderEvents = (list: any[]) => {
         eventSrc.entities.removeAll()
+        let n = 0
         for (const ev of list) {
           if (ev.lon == null || ev.lat == null) continue
+          n++
           const col = Color.fromCssColorString(eventColor(ev.category))
           eventSrc.entities.add({
-            position: Cartesian3.fromDegrees(ev.lon, ev.lat, 0),
-            point: {
-              pixelSize: 9,
-              color: col.withAlpha(0.9),
-              outlineColor: Color.WHITE,
-              outlineWidth: 1,
-            },
+            position: feedPos(ev.lon, ev.lat),
+            point: feedPoint(9, col.withAlpha(0.9), { outlineWidth: 1 }),
             label: {
               text: ev.category,
               font: '600 10px "Courier New"',
@@ -707,7 +924,7 @@ export default function Globe({
             properties: { kind: 'event', title: ev.title, category: ev.category, date: ev.date } as any,
           })
         }
-        if (!cancelled) setStats((p) => ({ ...p, events: list.length }))
+        if (!cancelled) setStats((p) => ({ ...p, events: n }))
       }
 
       const applyTimeline = () => {
@@ -719,11 +936,10 @@ export default function Globe({
         renderEvents(events)
       }
 
-      const fetchQuakes = async () => {
-        if (cancelled) return
+      const fetchQuakes = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.quakes) return
         try {
-          const r = await fetch('/api/earthquakes?period=day&magnitude=2.5')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/earthquakes?period=day&magnitude=2.5')).json()) as any
           quakeRaw.length = 0
           quakeRaw.push(...(d.earthquakes || []))
           applyTimeline()
@@ -732,11 +948,10 @@ export default function Globe({
         }
       }
 
-      const fetchEvents = async () => {
-        if (cancelled) return
+      const fetchEvents = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.events) return
         try {
-          const r = await fetch('/api/events?limit=120')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/events?limit=120')).json()) as any
           eventRaw.length = 0
           eventRaw.push(...(d.events || []))
           applyTimeline()
@@ -752,11 +967,10 @@ export default function Globe({
         const norm = Math.max(0, Math.min(1, (t - 40) / 30))
         return Color.fromHsl(0.35 * (1 - norm), 1.0, 0.5, 0.95)
       }
-      const fetchNodes = async () => {
-        if (cancelled) return
+      const fetchNodes = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.nodes) return
         try {
-          const r = await fetch('/api/nodes')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/nodes')).json()) as any
           const nodes: any[] = d.nodes || []
           const seen = new Set<string>()
           for (const n of nodes) {
@@ -908,11 +1122,10 @@ export default function Globe({
 
       // ---------- MILITARY AIRCRAFT ----------
       const milMap = new Map<string, Entity>()
-      const fetchMilitary = async () => {
-        if (cancelled) return
+      const fetchMilitary = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.military) return
         try {
-          const r = await fetch('/api/military')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/military')).json()) as any
           const list: any[] = d.aircraft || []
           const seen = new Set<string>()
           for (const a of list) {
@@ -985,11 +1198,10 @@ export default function Globe({
       }
 
       // ---------- SPACEWEATHER ----------
-      const fetchSpaceweather = async () => {
-        if (cancelled) return
+      const fetchSpaceweather = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.spaceweather) return
         try {
-          const r = await fetch('/api/spaceweather')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/spaceweather')).json()) as any
           spaceweatherSrc.entities.removeAll()
           const kp = d.kp_index ?? 0
           // Aurora oval based on Kp (simple ring at auroral latitudes)
@@ -1046,11 +1258,10 @@ export default function Globe({
       }
 
       // ---------- WILDFIRES ----------
-      const fetchWildfires = async () => {
-        if (cancelled) return
+      const fetchWildfires = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.wildfires) return
         try {
-          const r = await fetch('/api/wildfires')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/wildfires')).json()) as any
           wildfireSrc.entities.removeAll()
           const fires: any[] = d.fires || []
           for (const f of fires) {
@@ -1058,14 +1269,11 @@ export default function Globe({
             const conf = f.confidence ?? 0
             const color = conf >= 80 ? '#ff2d00' : conf >= 50 ? '#ff6b35' : '#ffd23f'
             wildfireSrc.entities.add({
-              position: Cartesian3.fromDegrees(f.lon, f.lat, 0),
-              point: {
-                pixelSize: conf >= 80 ? 10 : conf >= 50 ? 8 : 6,
-                color: Color.fromCssColorString(color).withAlpha(0.9),
-                outlineColor: Color.WHITE,
+              position: feedPos(f.lon, f.lat),
+              point: feedPoint(conf >= 80 ? 10 : conf >= 50 ? 8 : 6, Color.fromCssColorString(color).withAlpha(0.9), {
                 outlineWidth: 1,
                 scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.6),
-              },
+              }),
               label: {
                 text: `${f.confidence_label || 'fire'} ${f.confidence ?? '?'}%`,
                 font: '600 9px "Courier New"',
@@ -1088,7 +1296,12 @@ export default function Globe({
               } as any,
             })
           }
-          if (!cancelled) setStats((p) => ({ ...p, wildfires: fires.length }))
+          if (!cancelled) {
+            const mapped = fires.filter((f) => f.lon != null && f.lat != null).length
+            setStats((p) => ({ ...p, wildfires: d.count ?? mapped }))
+            const src = d.source === 'eonet_fallback' ? 'eonet' : (d.source || '')
+            setFeedHud((p) => ({ ...p, wildfires: src || (d.errors ? 'degraded' : '') }))
+          }
         } catch (e) {
           console.error('wildfires fetch failed', e)
         }
@@ -1096,11 +1309,10 @@ export default function Globe({
 
       // ---------- LIGHTNING ----------
       const lightningMap = new Map<string, any>()
-      const fetchLightning = async () => {
-        if (cancelled) return
+      const fetchLightning = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.lightning) return
         try {
-          const r = await fetch('/api/lightning')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/lightning')).json()) as any
           const strikes: any[] = d.strikes || []
           const now = Date.now()
           // Remove strikes older than 10 minutes
@@ -1136,7 +1348,15 @@ export default function Globe({
             })
             lightningMap.set(id, { entity: e, ts })
           }
-          if (!cancelled) setStats((p) => ({ ...p, lightning: lightningMap.size }))
+          if (!cancelled) {
+            if (d.error) {
+              setStats((p) => ({ ...p, lightning: 0 }))
+              setFeedHud((p) => ({ ...p, lightning: 'N/A' }))
+            } else {
+              setStats((p) => ({ ...p, lightning: lightningMap.size }))
+              setFeedHud((p) => ({ ...p, lightning: '' }))
+            }
+          }
         } catch (e) {
           console.error('lightning fetch failed', e)
         }
@@ -1145,7 +1365,7 @@ export default function Globe({
       // ---------- TRANSIT ----------
       const transitMap = new Map<string, Entity>()
       const fetchTransit = async () => {
-        if (cancelled) return
+        if (!feedActive() || !layersRef.current.transit) return
         try {
           const r = await fetch(`/api/transit/${transitCity}`)
           const d = await r.json()
@@ -1210,11 +1430,10 @@ export default function Globe({
 
       // ---------- MARITIME ----------
       const vesselMap = new Map<string, Entity>()
-      const fetchMaritime = async () => {
-        if (cancelled) return
+      const fetchMaritime = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.maritime) return
         try {
-          const r = await fetch('/api/maritime')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/maritime')).json()) as any
           if (d.error) {
             for (const [id, e] of vesselMap) { maritimeSrc.entities.remove(e); vesselMap.delete(id) }
             if (!cancelled) setStats((p) => ({ ...p, maritime: 0 }))
@@ -1283,11 +1502,10 @@ export default function Globe({
       }
 
       // ---------- GEOPOLITICS ----------
-      const fetchGeopolitics = async () => {
-        if (cancelled) return
+      const fetchGeopolitics = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.geopolitics) return
         try {
-          const r = await fetch('/api/geopolitics')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/geopolitics')).json()) as any
           geopoliticsSrc.entities.removeAll()
           const disasters: any[] = d.disasters || []
           for (const dis of disasters) {
@@ -1295,13 +1513,8 @@ export default function Globe({
             const lon = dis.lon
             if (lat == null || lon == null) continue
             geopoliticsSrc.entities.add({
-              position: Cartesian3.fromDegrees(lon, lat, 0),
-              point: {
-                pixelSize: 10,
-                color: Color.fromCssColorString('#ff2d00'),
-                outlineColor: Color.WHITE,
-                outlineWidth: 1,
-              },
+              position: feedPos(lon, lat),
+              point: feedPoint(10, Color.fromCssColorString('#ff2d00'), { outlineWidth: 1 }),
               label: {
                 text: dis.name.substring(0, 40),
                 font: '600 10px "Courier New"',
@@ -1339,24 +1552,18 @@ export default function Globe({
         if (t.includes('volcano')) return '#ff4d5e'
         return '#ff6b35'
       }
-      const fetchGdacs = async () => {
-        if (cancelled) return
+      const fetchGdacs = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.gdacs) return
         try {
-          const r = await fetch('/api/gdacs')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/gdacs')).json()) as any
           gdacsSrc.entities.removeAll()
           let n = 0
           for (const a of d.alerts || []) {
             if (a.lon == null || a.lat == null) continue
             const col = Color.fromCssColorString(gdacsTypeColor(a.title))
             gdacsSrc.entities.add({
-              position: Cartesian3.fromDegrees(a.lon, a.lat, 0),
-              point: {
-                pixelSize: 11,
-                color: col.withAlpha(0.95),
-                outlineColor: Color.WHITE,
-                outlineWidth: 1,
-              },
+              position: feedPos(a.lon, a.lat),
+              point: feedPoint(11, col.withAlpha(0.95), { outlineWidth: 1 }),
               properties: {
                 kind: 'gdacs',
                 title: a.title,
@@ -1367,7 +1574,14 @@ export default function Globe({
             })
             n++
           }
-          if (!cancelled) setStats((p) => ({ ...p, gdacs: n }))
+          const total = d.count ?? (d.alerts || []).length
+          if (!cancelled) {
+            setStats((p) => ({ ...p, gdacs: total }))
+            setFeedHud((p) => ({
+              ...p,
+              gdacs: n < total ? `${n} map` : (d.source ? String(d.source).replace('.org', '') : ''),
+            }))
+          }
         } catch (e) {
           console.error('gdacs fetch failed', e)
         }
@@ -1381,24 +1595,18 @@ export default function Globe({
         return '#22d3ee'
       }
 
-      const fetchHazards = async () => {
-        if (cancelled) return
+      const fetchHazards = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.hazards) return
         try {
-          const r = await fetch('/api/hazards?limit=80')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/hazards?limit=80')).json()) as any
           hazardsSrc.entities.removeAll()
           let n = 0
           for (const a of d.alerts || []) {
             if (a.lon == null || a.lat == null) continue
             const col = Color.fromCssColorString(hazardColor(a.severity))
             hazardsSrc.entities.add({
-              position: Cartesian3.fromDegrees(a.lon, a.lat, 0),
-              point: {
-                pixelSize: 10,
-                color: col.withAlpha(0.92),
-                outlineColor: Color.WHITE,
-                outlineWidth: 1,
-              },
+              position: feedPos(a.lon, a.lat),
+              point: feedPoint(10, col.withAlpha(0.92), { outlineWidth: 1 }),
               label: {
                 text: (a.event || 'HAZARD').slice(0, 28),
                 font: '600 8px "Courier New"',
@@ -1447,17 +1655,19 @@ export default function Globe({
               n++
             }
           } catch { /* gdelt geo optional */ }
-          if (!cancelled) setStats((p) => ({ ...p, hazards: n }))
+          if (!cancelled) {
+            setStats((p) => ({ ...p, hazards: d.count ?? n }))
+            setFeedHud((p) => ({ ...p, hazards: d.geocoded != null && d.geocoded < (d.count ?? n) ? `${d.geocoded} map` : '' }))
+          }
         } catch (e) {
           console.error('hazards fetch failed', e)
         }
       }
 
-      const fetchOutages = async () => {
-        if (cancelled) return
+      const fetchOutages = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.outages) return
         try {
-          const r = await fetch('/api/outages?hours=72&limit=35')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/outages?hours=72&limit=35')).json()) as any
           outagesSrc.entities.removeAll()
           let n = 0
           for (const o of d.items || []) {
@@ -1482,17 +1692,22 @@ export default function Globe({
             })
             n++
           }
-          if (!cancelled) setStats((p) => ({ ...p, outages: n }))
+          if (!cancelled) {
+            const total = d.count ?? (d.items || []).length
+            setStats((p) => ({ ...p, outages: total }))
+            const src = (d.sources || []).join('+') || 'ioda'
+            const mapNote = d.geocoded != null && d.geocoded < total ? `${d.geocoded} map` : src
+            setFeedHud((p) => ({ ...p, outages: mapNote }))
+          }
         } catch (e) {
           console.error('outages fetch failed', e)
         }
       }
 
-      const fetchVolcanoes = async () => {
-        if (cancelled) return
+      const fetchVolcanoes = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.volcanoes) return
         try {
-          const r = await fetch('/api/volcanoes?active_only=false&limit=350')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/volcanoes?active_only=false&limit=350')).json()) as any
           volcanoSrc.entities.removeAll()
           let n = 0
           for (const v of d.volcanoes || []) {
@@ -1532,11 +1747,10 @@ export default function Globe({
         if (pm25 <= 55) return '#ff6b35'
         return '#ff2d00'
       }
-      const fetchAirquality = async () => {
-        if (cancelled) return
+      const fetchAirquality = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.airquality) return
         try {
-          const r = await fetch('/api/airquality')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/airquality')).json()) as any
           airqualitySrc.entities.removeAll()
           for (const c of d.cities || []) {
             if (c.lon == null || c.lat == null) continue
@@ -1581,11 +1795,10 @@ export default function Globe({
         if (sev === 'low') return '#88aaff'
         return '#4fc3f7'
       }
-      const fetchEnergy = async () => {
-        if (cancelled) return
+      const fetchEnergy = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.energy) return
         try {
-          const r = await fetch('/api/energy/de/globe')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/energy/de/globe')).json()) as any
           energySrc.entities.removeAll()
           const pulse = Date.now() / 1000
           for (const p of d.points || []) {
@@ -1622,17 +1835,24 @@ export default function Globe({
               } as any,
             })
           }
-          if (!cancelled) setStats((prev) => ({ ...prev, energy: (d.points || []).length }))
+          if (!cancelled) {
+            const active = d.active_sources ?? (d.points || []).length
+            const genGw = d.total_generation_mw != null ? `${Math.round(d.total_generation_mw / 1000)}GW` : ''
+            setStats((p) => ({ ...p, energy: active || (d.total_generation_mw ? 1 : 0) }))
+            setFeedHud((p) => ({
+              ...p,
+              energy: d.stale ? 'stale' : (genGw || (d.error ? 'err' : 'smard')),
+            }))
+          }
         } catch (e) {
           console.error('energy fetch failed', e)
         }
       }
 
-      const fetchPegel = async () => {
-        if (cancelled) return
+      const fetchPegel = async (prefetched?: unknown) => {
+        if (!feedActive() || !layersRef.current.pegel) return
         try {
-          const r = await fetch('/api/pegel')
-          const d = await r.json()
+          const d = (prefetched ?? await (await fetch('/api/pegel')).json()) as any
           pegelSrc.entities.removeAll()
           for (const g of d.gauges || []) {
             if (g.lon == null || g.lat == null) continue
@@ -1670,7 +1890,10 @@ export default function Globe({
               } as any,
             })
           }
-          if (!cancelled) setStats((p) => ({ ...p, pegel: (d.gauges || []).length }))
+          if (!cancelled) {
+            setStats((p) => ({ ...p, pegel: d.count ?? (d.gauges || []).length }))
+            setFeedHud((p) => ({ ...p, pegel: d.error ? 'err' : (d.source ? 'pegel' : '') }))
+          }
         } catch (e) {
           console.error('pegel fetch failed', e)
         }
@@ -1717,32 +1940,25 @@ export default function Globe({
 
       // ---------- FUSION HEATMAP ----------
       const fetchFusion = async () => {
-        if (!fusionSrc.show) return
+        if (!feedActive() || !fusionSrc.show) return
         try {
           const r = await fetch('/api/fusion/heatmap?cell_deg=2&top=80&include_geojson=0')
           if (!r.ok) return
           const d = await r.json()
           fusionSrc.entities.removeAll()
           const cells: any[] = d.cells || []
-          const cellDeg = d.cell_deg || 2
           for (const c of cells) {
-            const half = cellDeg / 2
-            const west = c.lon - half, east = c.lon + half
-            const south = c.lat - half, north = c.lat + half
             const t = Math.min(1, c.score || 0)
             // Plasma-ish: low cyan → high red.
             const hueDeg = (1 - t) * 180  // 180=cyan, 0=red
             const cssColor = `hsla(${hueDeg.toFixed(0)}, 90%, ${(45 + t * 25).toFixed(0)}%, ${(0.18 + t * 0.55).toFixed(2)})`
             fusionSrc.entities.add({
               id: `fusion-${c.lat}-${c.lon}`,
-              rectangle: {
-                coordinates: Rectangle.fromDegrees(west, south, east, north),
-                material: Color.fromCssColorString(cssColor),
-                outline: true,
-                outlineColor: Color.fromCssColorString('#ffffff').withAlpha(0.18),
-                height: 0,
-              },
-              position: Cartesian3.fromDegrees(c.lon, c.lat, 0),
+              position: feedPos(c.lon, c.lat),
+              point: feedPoint(8 + t * 14, Color.fromCssColorString(cssColor), {
+                outlineWidth: 1,
+                outline: Color.fromCssColorString('#ffffff').withAlpha(0.35),
+              }),
               label: t > 0.5 ? {
                 text: `${Math.round(c.intensity)}`,
                 font: '700 11px "Courier New"',
@@ -1812,19 +2028,25 @@ export default function Globe({
           })
           viewer!.trackedEntity = ent
         } else if (kind === 'quake') {
+          const place = props.place?.getValue?.() || 'Unknown location'
+          const mag = props.mag?.getValue?.()
           setTarget({
-            kind, title: `⊕ M${props.mag?.getValue?.()} SEISMIC`,
+            kind, title: `⊕ M${mag} SEISMIC — ${place}`,
             lines: [
-              `${props.place?.getValue?.()}`,
               `DEPTH: ${props.depth?.getValue?.()} km`,
               `TIME: ${new Date(props.time?.getValue?.()).toLocaleString()}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'event') {
+          const evTitle = props.title?.getValue?.() || 'Event'
+          const category = props.category?.getValue?.()
           setTarget({
-            kind, title: `⚠ ${props.category?.getValue?.()}`,
-            lines: [`${props.title?.getValue?.()}`, `DATE: ${new Date(props.date?.getValue?.()).toLocaleString()}`],
+            kind, title: `⚠ ${evTitle}`,
+            lines: [
+              ...(category ? [`CATEGORY: ${category}`] : []),
+              `DATE: ${new Date(props.date?.getValue?.()).toLocaleString()}`,
+            ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'military') {
@@ -2057,6 +2279,7 @@ export default function Globe({
       // ---------- FPS ----------
       let frames = 0, lastT = performance.now()
       scene.postRender.addEventListener(() => {
+        if (!visibleRef.current) return
         frames++
         const now = performance.now()
         if (now - lastT >= 1000) {
@@ -2081,9 +2304,42 @@ export default function Globe({
         }
       }
 
+      // ---------- Bundled snapshot (one HTTP round-trip for slow feeds) ----------
+      const fetchSnapshot = async () => {
+        if (!feedActive()) return
+        const l = layersRef.current
+        const keys = (
+          ['quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires',
+            'lightning', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'pegel', 'energy'] as const
+        ).filter((k) => l[k])
+        if (!keys.length) return
+        try {
+          const qs = keys.map((k) => `layers=${k}`).join('&')
+          const d = await (await fetch(`/api/globe/snapshot?${qs}`)).json()
+          if (d.quakes) await fetchQuakes(d.quakes)
+          if (d.events) await fetchEvents(d.events)
+          if (d.nodes) await fetchNodes(d.nodes)
+          if (d.military) await fetchMilitary(d.military)
+          if (d.spaceweather) await fetchSpaceweather(d.spaceweather)
+          if (d.geopolitics) await fetchGeopolitics(d.geopolitics)
+          if (d.wildfires) await fetchWildfires(d.wildfires)
+          if (d.lightning) await fetchLightning(d.lightning)
+          if (d.maritime) await fetchMaritime(d.maritime)
+          if (d.gdacs) await fetchGdacs(d.gdacs)
+          if (d.hazards) await fetchHazards(d.hazards)
+          if (d.outages) await fetchOutages(d.outages)
+          if (d.volcanoes) await fetchVolcanoes(d.volcanoes)
+          if (d.airquality) await fetchAirquality(d.airquality)
+          if (d.pegel) await fetchPegel(d.pegel)
+          if (d.energy) await fetchEnergy(d.energy)
+        } catch (e) {
+          console.error('globe snapshot failed', e)
+        }
+      }
+
       apiRef.current = {
         applyVision,
-        setSatGroup: async (g: string) => { await loadSatTLEs(g); propagateSats() },
+        setSatGroup: async (g: string) => { await loadSatTLEs(g); propagateSats(true) },
         flyTo: (poi: typeof POIS[number]) => {
           if (!viewer) return
           viewer.trackedEntity = undefined
@@ -2117,7 +2373,6 @@ export default function Globe({
               color: Color.fromCssColorString('#00ffa3'),
               outlineColor: Color.WHITE,
               outlineWidth: 2,
-              disableDepthTestDistance: Number.POSITIVE_INFINITY,
             },
             ellipse: {
               semiMajorAxis: new CallbackProperty(() => 20000 + ring() * 200000, false) as any,
@@ -2162,55 +2417,32 @@ export default function Globe({
         clearAllTrails,
         clearTrail,
         fetchTrail: fetchTrailFor,
+        refreshSnapshot: fetchSnapshot,
       }
 
-      await loadSatTLEs('starlink')
-      propagateSats()
+      apiRef.current.setLayerVisibility?.(layers)
+
+      fetchSnapshot()
       fetchAircraft()
-      fetchQuakes()
-      fetchEvents()
-      fetchNodes()
-      fetchMilitary()
-      fetchSpaceweather()
-      fetchGeopolitics()
-      fetchWildfires()
-      fetchLightning()
-      fetchTransit()
-      fetchMaritime()
-      fetchGdacs()
-      fetchHazards()
-      fetchOutages()
-      fetchVolcanoes()
-      fetch('/api/gibs/latest').then((r) => r.json()).then((d) => { gibsDateRef.current = d.date || '' }).catch(() => {})
-      fetchAirquality()
-      fetchPegel()
-      fetchEnergy()
+
+      timers.push(window.setTimeout(() => {
+        if (!feedActive()) return
+        fetch('/api/gibs/latest').then((r) => r.json()).then((d) => { gibsDateRef.current = d.date || '' }).catch(() => {})
+      }, 1200))
+
+      await loadSatTLEs('starlink')
+      propagateSats(true)
 
       if (focusRef.current) apiRef.current.focusOn(focusRef.current)
 
-      timers.push(setInterval(fetchAircraft, 10000))
-      timers.push(setInterval(propagateSats, 3000))
-      timers.push(setInterval(fetchQuakes, 300000))
-      timers.push(setInterval(fetchEvents, 600000))
-      timers.push(setInterval(fetchNodes, 30000))
-      timers.push(setInterval(fetchMilitary, 15000))
-      timers.push(setInterval(fetchSpaceweather, 300000))
-      timers.push(setInterval(fetchGeopolitics, 600000))
-      timers.push(setInterval(fetchWildfires, 300000))
-      timers.push(setInterval(fetchLightning, 60000))
-      timers.push(setInterval(fetchTransit, 30000))
-      timers.push(setInterval(fetchMaritime, 45000))
-      timers.push(setInterval(fetchGdacs, 900000))
-      timers.push(setInterval(fetchHazards, 300000))
-      timers.push(setInterval(fetchOutages, 300000))
-      timers.push(setInterval(fetchVolcanoes, 21600000))
-      timers.push(setInterval(fetchAirquality, 3600000))
-      timers.push(setInterval(fetchPegel, 900000))
-      timers.push(setInterval(fetchEnergy, 900000))
-      timers.push(setInterval(fetchFusion, 90000))
+      timers.push(setInterval(fetchSnapshot, 20000))
+      timers.push(setInterval(fetchAircraft, 15000))
+      timers.push(setInterval(propagateSats, 5000))
+      timers.push(setInterval(() => { if (layersRef.current.transit) fetchTransit() }, 45000))
+      timers.push(setInterval(() => { if (fusionSrc.show) fetchFusion() }, 120000))
 
-      // Refresh the sanctions watchlist set in the foreground every 2 min.
       const fetchSanctions = async () => {
+        if (!feedActive() || !layersRef.current.maritime) return
         try {
           const r = await fetch('/api/sanctions/screen/vessels?min_score=0.85&limit=400')
           if (!r.ok) return
@@ -2223,13 +2455,47 @@ export default function Globe({
         } catch {}
       }
       fetchSanctions()
-      timers.push(setInterval(fetchSanctions, 120000))
+      timers.push(setInterval(fetchSanctions, 180000))
+
+      // Basemap + 3D buildings after feeds start (slow Ion assets must not block markers)
+      ;(async () => {
+        if (Ion.defaultAccessToken) {
+          try {
+            const buildings = await createOsmBuildingsAsync()
+            if (!cancelled && viewerRef.current === viewer) {
+              osmBuildingsRef.current = buildings
+              buildings.show = mapModeRef.current.buildings && !mapModeRef.current.photorealistic
+              scene.primitives.add(buildings)
+            }
+          } catch (e) {
+            console.warn('[Globe] OSM Buildings unavailable:', e)
+          }
+        }
+        if (!cancelled && viewerRef.current === viewer) {
+          await applyGlobeMapMode(viewer, mapModeRef.current, {
+            labelOverlay: labelOverlayRef,
+            osmBuildings: osmBuildingsRef,
+            photoreal: photorealRef,
+            gibsOverlay: gibsImageryRef,
+          })
+          apiRef.current.applyMapMode = () =>
+            applyGlobeMapMode(viewer!, mapModeRef.current, {
+              labelOverlay: labelOverlayRef,
+              osmBuildings: osmBuildingsRef,
+              photoreal: photorealRef,
+              gibsOverlay: gibsImageryRef,
+            })
+        }
+      })()
     })()
 
     return () => {
       cancelled = true
       resizeObserver?.disconnect()
-      timers.forEach(clearInterval)
+      timers.forEach((id) => {
+        clearTimeout(id)
+        clearInterval(id)
+      })
       if (viewer) { viewer.destroy(); viewerRef.current = null }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2242,7 +2508,12 @@ export default function Globe({
 
   useEffect(() => { apiRef.current.applyVision?.(vision) }, [vision])
   useEffect(() => { apiRef.current.setSatGroup?.(satGroup) }, [satGroup])
-  useEffect(() => { apiRef.current.setLayerVisibility?.(layers) }, [layers])
+  useEffect(() => {
+    apiRef.current.setLayerVisibility?.(layers)
+    if (!visible) return
+    const t = window.setTimeout(() => apiRef.current.refreshSnapshot?.(), 400)
+    return () => clearTimeout(t)
+  }, [layers, visible])
   useEffect(() => { apiRef.current.setHeatmap?.(heatmapOn) }, [heatmapOn])
   useEffect(() => { apiRef.current.applyMapMode?.() }, [mapMode])
   useEffect(() => {
@@ -2366,7 +2637,6 @@ export default function Globe({
           color: Color.fromCssColorString('#00ffa3').withAlpha(0.95),
           outlineColor: Color.WHITE,
           outlineWidth: 2,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
         },
         label: {
           text: p.tool.toUpperCase(),
@@ -2393,7 +2663,48 @@ export default function Globe({
     setStats((s) => ({ ...s, osint: osintPins.length }))
   }, [osintPins])
 
-  const toggle = (k: keyof typeof layers) => setLayers((l) => ({ ...l, [k]: !l[k] }))
+  const toggle = (k: LayerKey) => setLayers((l) => ({ ...l, [k]: !l[k] }))
+
+  const toggleTelemetryGroup = (id: string) => {
+    setTelemetryCollapsed((c) => ({ ...c, [id]: !c[id] }))
+  }
+
+  const layerCount = Object.values(layers).filter(Boolean).length
+  const freshFeeds = Object.values(feedHealth).filter((f) => f.status === 'fresh').length
+
+  const renderTelemetryRow = (entry: TelemetryEntry) => {
+    if (!entry.layer) return null
+    const on = layers[entry.layer]
+    const health = resolveFeedHealth(feedHealth, entry.healthKeys)
+    const count = entry.statKey != null
+      ? (entry.formatValue ? entry.formatValue(stats) : String(stats[entry.statKey]))
+      : (on ? 'ON' : 'OFF')
+    const extra = entry.layer === 'aircraft' && aircraftSource ? aircraftSource : undefined
+    const meta = telemetryMeta(entry, feedHud, health, extra)
+    const hidden = telemetryCompact && !on && entry.statKey != null && stats[entry.statKey] === 0
+    if (hidden) return null
+    const tip = entry.layer === 'spaceweather'
+      ? kpTooltip(stats.spaceweather)
+      : entry.tip
+    return (
+      <button
+        key={entry.label}
+        type="button"
+        className={['hud-row', 'telemetry-row', on ? 'telemetry-row--on' : 'telemetry-row--off'].join(' ')}
+        onClick={() => toggle(entry.layer!)}
+        data-tip={tip || undefined}
+      >
+        <span className="hud-dot" style={{ background: entry.color, opacity: on ? 1 : 0.35 }} />
+        <span className="telemetry-label">{entry.label}</span>
+        {health?.status && (
+          <span className={['telemetry-status', feedStatusClass(health.status)].join(' ')} aria-hidden />
+        )}
+        <span className="hud-val">
+          {count}{meta}
+        </span>
+      </button>
+    )
+  }
 
   return (
     <div className={`globe-wrap vision-${vision}`}>
@@ -2406,27 +2717,50 @@ export default function Globe({
       </div>
 
       <div className="globe-hud">
-        <div className="hud-title">LIVE TELEMETRY</div>
-        <div className="hud-row"><span className="hud-dot yellow" />AIRCRAFT<span className="hud-val">{stats.aircraft}{aircraftSource ? ` · ${aircraftSource}` : ''}</span></div>
-        <div className="hud-row"><span className="hud-dot cyan" />SATELLITES<span className="hud-val">{stats.satellites}</span></div>
-        <div className="hud-row"><span className="hud-dot red" />SEISMIC<span className="hud-val">{stats.quakes}</span></div>
-        <div className="hud-row"><span className="hud-dot orange" />EVENTS<span className="hud-val">{stats.events}</span></div>
-        <div className="hud-row"><span className="hud-dot green" />NODES<span className="hud-val">{stats.nodes}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#ff6b35' }} />MILITARY<span className="hud-val">{stats.military}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#00e5a0' }} />KP INDEX<span className="hud-val">{stats.spaceweather}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#ff2d00' }} />CRISES<span className="hud-val">{stats.geopolitics}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#ff6b35' }} />WILDFIRES<span className="hud-val">{stats.wildfires}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#22d3ee' }} />LIGHTNING<span className="hud-val">{stats.lightning}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#ffd23f' }} />TRANSIT<span className="hud-val">{stats.transit}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#00e5ff' }} />MARITIME<span className="hud-val">{stats.maritime}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#ff6b35' }} />GDACS<span className="hud-val">{stats.gdacs}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#22d3ee' }} />HAZARDS<span className="hud-val">{stats.hazards}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#a855f7' }} />OUTAGES<span className="hud-val">{stats.outages}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#ff4d5e' }} />VOLCANOES<span className="hud-val">{stats.volcanoes}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#b0c4b1' }} />AIR QUALITY<span className="hud-val">{stats.airquality}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#4fc3f7' }} />PEGEL<span className="hud-val">{stats.pegel}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#ffd23f' }} />ENERGY<span className="hud-val">{stats.energy}</span></div>
-        <div className="hud-row"><span className="hud-dot" style={{ background: '#00ffa3' }} />OSINT<span className="hud-val">{stats.osint}</span></div>
+        <div className="telemetry-head">
+          <div className="hud-title">LIVE TELEMETRY</div>
+          <div className="telemetry-summary">
+            {layerCount} layers · {freshFeeds || '—'} fresh
+          </div>
+          <button
+            type="button"
+            className="telemetry-filter"
+            onClick={() => setTelemetryCompact((v) => !v)}
+            title={telemetryCompact ? 'Alle Feeds anzeigen' : 'Nur aktive Feeds'}
+          >
+            {telemetryCompact ? 'ALL' : 'ACTIVE'}
+          </button>
+        </div>
+
+        {TELEMETRY_GROUPS.map((group) => {
+          const collapsed = telemetryCollapsed[group.id]
+          const visibleRows = group.rows.filter((row) => {
+            if (!row.layer) return true
+            if (!telemetryCompact) return true
+            const on = layers[row.layer]
+            const n = row.statKey ? stats[row.statKey] : 0
+            return on || n > 0 || row.layer === 'orbits'
+          })
+          if (!visibleRows.length) return null
+          const groupTotal = group.rows.reduce((sum, row) => {
+            if (!row.statKey || row.formatValue) return sum
+            return sum + (stats[row.statKey] || 0)
+          }, 0)
+          return (
+            <div key={group.id} className="telemetry-group">
+              <button
+                type="button"
+                className="telemetry-group-head"
+                onClick={() => toggleTelemetryGroup(group.id)}
+              >
+                <span>{collapsed ? '▸' : '▾'} {group.label}</span>
+                <span className="telemetry-group-sum">{groupTotal > 0 ? groupTotal : '—'}</span>
+              </button>
+              {!collapsed && visibleRows.map((row) => renderTelemetryRow(row))}
+            </div>
+          )
+        })}
+
         <div className="hud-divider" />
         <div className="hud-row">RENDER<span className="hud-val">{stats.fps} FPS</span></div>
         <div className="hud-row sub">LON {cursor.lon}  LAT {cursor.lat}</div>

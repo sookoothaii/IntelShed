@@ -8,13 +8,18 @@ $toolsDir = Join-Path $root "tools\pmtiles"
 $port = if ($env:PMTILES_PORT) { $env:PMTILES_PORT } else { 8088 }
 
 if (-not (Test-Path $destDir)) {
-    throw "No $destDir — run .\scripts\download-pmtiles.ps1 -Region stack first"
+    throw "No $destDir - run .\scripts\download-pmtiles.ps1 -Region stack first"
 }
 
 $cli = Get-Command pmtiles -ErrorAction SilentlyContinue
+$localExe = Join-Path $toolsDir "pmtiles.exe"
 if (-not $cli) {
-    $local = Join-Path $toolsDir "pmtiles.exe"
-    if (Test-Path $local) { $cli = @{ Source = $local } }
+    if (Test-Path $localExe) {
+        $cli = @{ Source = $localExe }
+    } else {
+        $found = Get-ChildItem -Path $toolsDir -Recurse -Filter "pmtiles.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $cli = @{ Source = $found.FullName } }
+    }
 }
 if (-not $cli) {
     throw "pmtiles CLI missing. Run .\scripts\download-pmtiles.ps1 -Region stack (auto-installs CLI)."

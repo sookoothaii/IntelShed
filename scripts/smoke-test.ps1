@@ -40,23 +40,25 @@ Write-Host ""
 
 Write-Host "[1] Core backend" -ForegroundColor Cyan
 Test-Endpoint "health" "$Backend/api/health" {
-    param($d); if ($d.status -ne 'ok') { throw "status=$($d.status)" }
-} -TimeoutSec 60
+    param($d)
+    if ($d.status -ne 'ok') { throw "status=$($d.status)" }
+    if ($d.feed_count -lt 3) { throw "feed_count=$($d.feed_count) too low" }
+} -TimeoutSec 120
 Test-Endpoint "models (Ollama)" "$Backend/api/models" {
     param($d)
     if ($d.error) { throw $d.error }
     if (-not $d.models -or $d.models.Count -eq 0) { throw "no chat models" }
     if (-not $d.default) { throw "no default model" }
-}
+} -TimeoutSec 90
 Test-Endpoint "providers" "$Backend/api/providers" {
     param($d); if (-not $d.providers) { throw "empty providers" }
-}
+} -TimeoutSec 90
 
 Write-Host ""
 Write-Host "[2] Phase 2 fusion APIs" -ForegroundColor Cyan
 Test-Endpoint "stac collections" "$Backend/api/stac/collections" {
     param($d); if (-not $d.regions) { throw "no regions" }
-}
+} -TimeoutSec 90
 Test-Endpoint "sanctions status" "$Backend/api/sanctions/status" {
     param($d); if ($null -eq $d.index_rows) { throw "no index_rows" }
 } -Optional
@@ -72,7 +74,36 @@ Test-Endpoint "pmtiles status" "$Backend/api/pmtiles/status" {
 }
 
 Write-Host ""
-Write-Host "[3] Intelligence feeds (sample)" -ForegroundColor Cyan
+Write-Host "[3] Scientific feeds (provenance + counts)" -ForegroundColor Cyan
+Test-Endpoint "wildfires" "$Backend/api/wildfires" {
+    param($d)
+    if ($null -eq $d.count) { throw "missing count" }
+    if (-not $d.updated) { throw "missing updated ISO timestamp" }
+    if (-not $d.source -and -not $d.errors) { throw "missing source attribution" }
+} -TimeoutSec 90
+Test-Endpoint "gdacs" "$Backend/api/gdacs" {
+    param($d)
+    if ($null -eq $d.count) { throw "missing count" }
+    if (-not $d.source) { throw "missing source" }
+} -TimeoutSec 90
+Test-Endpoint "outages" "$Backend/api/outages?hours=72&limit=20" {
+    param($d)
+    if ($null -eq $d.count) { throw "missing count" }
+    if ($d.sources -notcontains 'ioda') { throw "ioda source missing" }
+} -TimeoutSec 90
+Test-Endpoint "energy DE globe" "$Backend/api/energy/de/globe" {
+    param($d)
+    if (-not $d.updated) { throw "missing updated" }
+    if (-not $d.source) { throw "missing source" }
+    if ($d.points.Count -eq 0 -and -not $d.error -and -not $d.stale) { throw "empty points without error/stale flag" }
+} -TimeoutSec 60
+Test-Endpoint "pegel" "$Backend/api/pegel" {
+    param($d)
+    if ($null -eq $d.count) { throw "missing count" }
+} -TimeoutSec 60 -Optional
+
+Write-Host ""
+Write-Host "[4] Intelligence feeds (sample)" -ForegroundColor Cyan
 @(
     @{ n = 'aircraft'; u = '/api/aircraft' },
     @{ n = 'earthquakes'; u = '/api/earthquakes' },
@@ -84,7 +115,7 @@ Write-Host "[3] Intelligence feeds (sample)" -ForegroundColor Cyan
 }
 
 Write-Host ""
-Write-Host "[4] Vite dev proxy" -ForegroundColor Cyan
+Write-Host "[5] Vite dev proxy" -ForegroundColor Cyan
 Test-Endpoint "proxy /api/health" "$Frontend/api/health" {
     param($d); if ($d.status -ne 'ok') { throw "proxy broken" }
 } -TimeoutSec 15
@@ -93,7 +124,7 @@ Test-Endpoint "proxy /api/models" "$Frontend/api/models" {
 } -TimeoutSec 20
 
 Write-Host ""
-Write-Host "[5] Ollama chat (short)" -ForegroundColor Cyan
+Write-Host "[6] Ollama chat (short)" -ForegroundColor Cyan
 try {
     $body = @{
         model    = 'qwen3:8b'
@@ -112,7 +143,14 @@ try {
 }
 
 Write-Host ""
-Write-Host "[6] Frontend build" -ForegroundColor Cyan
+Write-Host '[7] Briefing (cached - autopilot fills; skip slow POST)' -ForegroundColor Cyan
+Test-Endpoint "briefing latest" "$Backend/api/briefing" {
+    param($d)
+    if ($null -eq $d.text) { throw 'no text field' }
+} -TimeoutSec 15 -Optional
+
+Write-Host ""
+Write-Host "[8] Frontend build" -ForegroundColor Cyan
 Push-Location (Join-Path $Root 'frontend')
 try {
     npm run build 2>&1 | Out-Null

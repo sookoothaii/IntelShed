@@ -16,7 +16,7 @@ export type MapViewMode = {
 export const DEFAULT_MAP_VIEW: MapViewMode = {
   basemap: 'streets',
   render3d: true,
-  buildings: true,
+  buildings: false,
   photorealistic: false,
 }
 
@@ -34,6 +34,14 @@ export const ESRI_SATELLITE_TILES =
 /** ESRI World Hillshade for terrain-shaded basemap. */
 export const ESRI_HILLSHADE_TILES =
   'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}'
+
+/** ESRI streets — CORS-safe in Vite dev (OSM tile server blocks browser XHR). */
+export const ESRI_STREET_TILES =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
+
+/** Label overlay for hybrid satellite view. */
+export const ESRI_REFERENCE_LABELS =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'
 
 /** Cesium Ion asset: Google Photorealistic 3D Tiles */
 export const ION_PHOTOREALISTIC_ASSET = 2275207

@@ -41,6 +41,9 @@ from fastapi import APIRouter, BackgroundTasks, Query
 
 router = APIRouter(prefix="/api/sanctions", tags=["sanctions"])
 
+_SCREEN_CACHE: dict[str, tuple[float, dict]] = {}
+_SCREEN_TTL = 120.0
+
 _DATA_DIR = Path(os.getenv("WORLDBASE_SANCTIONS_DIR") or (Path(__file__).resolve().parent.parent / "data" / "sanctions"))
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _CSV_PATH = _DATA_DIR / "targets.simple.csv"
@@ -389,13 +392,20 @@ async def sanctions_screen_vessels(
 ):
     """Cross-match the live AIS feed against the sanctions index."""
     import ais_bridge
+
+    cache_key = f"{min_score:.2f}:{limit}"
+    now = time.time()
+    cached = _SCREEN_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _SCREEN_TTL:
+        return cached[1]
+
     try:
         maritime = await ais_bridge.get_maritime()
     except Exception as e:
         return {"error": f"AIS feed unavailable: {e}", "matches": []}
     vessels = (maritime.get("vessels") or [])[:limit]
     hits = await screen_vessels(vessels, min_score=min_score)
-    return {
+    result = {
         "scanned": len(vessels),
         "min_score": min_score,
         "matches": hits,
@@ -403,3 +413,5 @@ async def sanctions_screen_vessels(
         "demo_mode": maritime.get("demo_mode", False),
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
+    _SCREEN_CACHE[cache_key] = (now, result)
+    return result

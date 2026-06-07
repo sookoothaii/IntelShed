@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from starlette.datastructures import MutableHeaders
 
+import globe_snapshot
 import feeds_extra
 import node_sync
 import osint_tools
@@ -164,6 +165,8 @@ def get_db():
 
 def init_db():
     with get_db() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS aircraft (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -193,6 +196,7 @@ def init_db():
         conn.commit()
 
 
+app.include_router(globe_snapshot.router)
 app.include_router(feeds_extra.router)
 app.include_router(node_sync.router)
 app.include_router(osint_tools.router)
@@ -341,6 +345,7 @@ def on_shutdown():
 _FEED_TTL_SEC: dict[str, float] = {
     "airquality": 3600,
     "gdacs": 900,
+    "gdacs_v2": 900,
     "pegel": 900,
     "markets": 120,
     "military": 60,
@@ -348,6 +353,9 @@ _FEED_TTL_SEC: dict[str, float] = {
     "geopolitics": 600,
     "reliefweb": 600,
     "eonet": 1800,
+    "wildfires": 600,
+    "outages": 300,
+    "energy_de": 900,
 }
 
 
@@ -372,38 +380,71 @@ def _feed_status(age_sec: float | None) -> str:
     return "stale"
 
 
+@app.get("/api/health/ping")
+async def health_ping():
+    """Fast liveness probe for the HUD status bar (no feed parsing)."""
+    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
+
+
 @app.get("/api/health")
-def health():
-    now = datetime.now(timezone.utc)
-    feeds = {}
-    try:
-        import sqlite3
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("SELECT key, cached_at FROM feed_cache ORDER BY key")
-        for row in c.fetchall():
-            key, cached_at = row
-            try:
-                age = (now - datetime.fromisoformat(cached_at)).total_seconds()
-                ttl = _feed_ttl_sec(key)
-                feeds[key] = {
-                    "cached_at": cached_at,
-                    "age_sec": round(age, 1),
-                    "ttl_sec": ttl,
-                    "fresh": age < ttl,
-                    "status": _feed_status(age),
-                }
-            except Exception:
-                feeds[key] = {"cached_at": cached_at, "age_sec": None, "fresh": None, "status": "unknown"}
-        conn.close()
-    except Exception:
-        pass
-    return {
-        "status": "ok",
-        "time": now.isoformat(),
-        "feeds": feeds,
-        "feed_count": len(feeds),
-    }
+async def health():
+    import asyncio
+
+    def _build():
+        now = datetime.now(timezone.utc)
+        feeds = {}
+        try:
+            import json
+            import sqlite3
+            conn = sqlite3.connect(DB_PATH, timeout=5.0)
+            conn.execute("PRAGMA busy_timeout=5000")
+            c = conn.cursor()
+            c.execute("SELECT key, value, cached_at FROM feed_cache ORDER BY key")
+            for key, value_json, cached_at in c.fetchall():
+                meta: dict = {}
+                if value_json and len(value_json) < 120_000:
+                    try:
+                        val = json.loads(value_json)
+                        if isinstance(val, dict):
+                            meta["count"] = val.get("count")
+                            meta["source"] = val.get("source") or val.get("sources")
+                            meta["updated"] = val.get("updated")
+                            meta["error"] = val.get("error")
+                            meta["stale"] = val.get("stale")
+                            meta["demo_mode"] = val.get("demo_mode")
+                            meta["geocoded"] = val.get("geocoded") or val.get("count_mapped")
+                    except Exception:
+                        pass
+                try:
+                    age = (now - datetime.fromisoformat(cached_at)).total_seconds()
+                    ttl = _feed_ttl_sec(key)
+                    feeds[key] = {
+                        "cached_at": cached_at,
+                        "age_sec": round(age, 1),
+                        "ttl_sec": ttl,
+                        "fresh": age < ttl,
+                        "status": _feed_status(age),
+                        **meta,
+                    }
+                except Exception:
+                    feeds[key] = {"cached_at": cached_at, "age_sec": None, "fresh": None, "status": "unknown", **meta}
+            conn.close()
+        except Exception:
+            pass
+        fresh_n = sum(1 for f in feeds.values() if f.get("fresh"))
+        stale_n = sum(1 for f in feeds.values() if f.get("status") == "stale")
+        err_n = sum(1 for f in feeds.values() if f.get("error"))
+        return {
+            "status": "ok",
+            "time": now.isoformat(),
+            "feeds": feeds,
+            "feed_count": len(feeds),
+            "feeds_fresh": fresh_n,
+            "feeds_stale": stale_n,
+            "feeds_error": err_n,
+        }
+
+    return await asyncio.to_thread(_build)
 
 
 # Simple in-memory TTL cache to avoid upstream rate limits
@@ -567,7 +608,7 @@ async def build_chat_context() -> str:
 async def get_aircraft(limit: int = 800):
     """Live aircraft: OpenSky (OAuth) when configured, else adsb.lol grid (free, ODbL)."""
     cache_key = "aircraft"
-    cached = _cache_get(cache_key, ttl=15.0)
+    cached = _cache_get(cache_key, ttl=30.0)
     source = "cache"
     if cached is None:
         try:
@@ -671,13 +712,30 @@ async def get_earthquakes(period: str = "day", magnitude: str = "2.5"):
     """
     key = f"quakes:{period}:{magnitude}"
     data = _cache_get(key, ttl=300.0)
+    upstream_err = None
+    stale = False
     if data is None:
         url = f"https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/{magnitude}_{period}.geojson"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            data = r.json()
-        _cache_set(key, data)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+                data = r.json()
+            _cache_set(key, data)
+        except Exception as e:
+            upstream_err = str(e)
+            cached = _CACHE.get(key)
+            if cached:
+                data = cached[1]
+                stale = True
+            else:
+                return {
+                    "count": 0,
+                    "earthquakes": [],
+                    "error": upstream_err,
+                    "stale": False,
+                    "source": "earthquake.usgs.gov",
+                }
 
     quakes = []
     for f in data.get("features", []):
@@ -695,21 +753,38 @@ async def get_earthquakes(period: str = "day", magnitude: str = "2.5"):
             "tsunami": props.get("tsunami"),
             "url": props.get("url"),
         })
-    return {"count": len(quakes), "earthquakes": quakes}
+    return {
+        "count": len(quakes),
+        "earthquakes": quakes,
+        "source": "earthquake.usgs.gov",
+        "stale": stale,
+        "error": upstream_err,
+    }
 
 
 @app.get("/api/events")
 async def get_events(limit: int = 100):
     """NASA EONET natural events: wildfires, storms, volcanoes, ice (cached 30min)."""
     data = _cache_get("eonet", ttl=1800.0)
+    upstream_err = None
+    stale = False
     if data is None:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.get(
-                "https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=200"
-            )
-            r.raise_for_status()
-            data = r.json()
-        _cache_set("eonet", data)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get(
+                    "https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=200"
+                )
+                r.raise_for_status()
+                data = r.json()
+            _cache_set("eonet", data)
+        except Exception as e:
+            upstream_err = str(e)
+            cached = _CACHE.get("eonet")
+            if cached:
+                data = cached[1]
+                stale = True
+            else:
+                return {"count": 0, "events": [], "error": upstream_err, "stale": False}
 
     events = []
     for ev in data.get("events", [])[:limit]:
@@ -737,7 +812,11 @@ async def get_events(limit: int = 100):
             "sources": sources,
             "points": len(geo),
         })
-    return {"count": len(events), "events": events}
+    out = {"count": len(events), "events": events}
+    if upstream_err:
+        out["error"] = upstream_err
+        out["stale"] = stale
+    return out
 
 
 @app.get("/api/iss")
@@ -776,7 +855,7 @@ import os
 import time
 
 _models_cache: dict = {"ts": 0.0, "data": None}
-_MODELS_CACHE_TTL = 20.0
+_MODELS_CACHE_TTL = 60.0
 
 
 def _ollama_hosts() -> list[str]:
@@ -856,7 +935,7 @@ async def list_models():
     last_err = None
     for host in OLLAMA_HOSTS:
         try:
-            async with httpx.AsyncClient(timeout=12.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 r = await client.get(f"http://{host}/api/tags")
                 r.raise_for_status()
                 data = r.json()
@@ -907,30 +986,19 @@ async def list_models():
     return err
 
 
-@app.post("/api/chat")
-async def chat_proxy(payload: dict):
-    """Proxy chat requests to LLM providers. Supports SSE streaming.
-
-    Providers: ollama (default), openai, anthropic, groq, openrouter.
-    Set payload['context'] = True to inject live WorldBase state as a system message.
-    Set payload['firewall'] = True to route user messages through the LLM-Security-Firewall.
-    """
-    from ollama_config import keep_alive
-
-    provider = payload.get("provider", "ollama")
-    model = payload.get("model", os.getenv("OLLAMA_MODEL", "qwen3:8b"))
-    use_stream = payload.get("stream", False)
+async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict | None]:
+    """Firewall scan + WorldBase context. Returns (messages, firewall_meta, block_payload)."""
     firewall_meta = None
+    messages = list(payload.get("messages", []))
 
-    # Optional: LLM-Security-Firewall scan (only if explicitly requested)
     if payload.get("firewall"):
         from firewall_bridge import firewall_scan, _extract_user_text
-        user_text = _extract_user_text(payload.get("messages", []))
+        user_text = _extract_user_text(messages)
         if user_text:
             scan = await firewall_scan(user_text)
             firewall_meta = scan.get("data")
             if firewall_meta and (firewall_meta.get("should_block") or firewall_meta.get("risk_score", 0) > 0.7):
-                block_msg = {
+                return messages, firewall_meta, {
                     "message": {
                         "role": "assistant",
                         "content": (
@@ -945,78 +1013,136 @@ async def chat_proxy(payload: dict):
                     "firewall_blocked": True,
                     "firewall_meta": firewall_meta,
                 }
-                if use_stream:
-                    return StreamingResponse(
-                        (f"data: {json.dumps(block_msg)}\n\n" async for _ in [1]),
-                        media_type="text/event-stream",
-                    )
-                return block_msg
 
-    # Build messages, optionally injecting live context + web search results
-    messages = list(payload.get("messages", []))
-    if payload.get("context"):
-        ctx = await build_chat_context()
-        search_results = payload.get("search_results", "")
+    search_results = payload.get("search_results", "")
+    entity_context = payload.get("entity_context", "")
+    force_fast = payload.get("force_fast") or bool(entity_context)
+    want_ctx = payload.get("context") and not force_fast
+    ctx = await build_chat_context() if want_ctx else ""
+
+    if ctx or entity_context or search_results:
         parts = []
         if ctx:
             parts.append("=== INTERNAL TELEMETRY ===\n" + ctx)
+        if entity_context:
+            parts.append("=== SELECTED TARGET (Globe) ===\n" + entity_context)
         if search_results:
             parts.append("=== WEB SEARCH RESULTS ===\n" + search_results)
-        if parts:
-            system_msg = {
-                "role": "system",
-                "content": (
-                    "You are WorldBase AI — a hard-nosed intelligence analyst. "
-                    "NO greeting. NO 'es scheint'. NO hedging. Just facts.\n\n"
-                    "RULES:\n"
-                    "1. Start directly with findings. No intro like 'Basierend auf...'\n"
-                    "2. Use EVERY data source provided. If web results exist, quote them.\n"
-                    "3. Structure: KEY FINDINGS → DETAILS → SOURCES\n"
-                    "4. If data is missing, say 'DATA GAP: [topic]' — do not guess\n"
-                    "5. Keep it terse. Bullet points. Military briefing style.\n\n"
-                    + "\n\n".join(parts)
-                ),
-            }
-            messages = [system_msg] + messages
+        entity_rules = (
+            "\n6. SELECTED TARGET is the operator's picked map entity — analyze IT first; "
+            "do not answer with generic world news unless the target clearly ties to it.\n"
+            if entity_context
+            else ""
+        )
+        system_msg = {
+            "role": "system",
+            "content": (
+                "You are WorldBase AI — local Ollama on a spatial intelligence workstation.\n\n"
+                "CAPABILITIES (be honest if asked):\n"
+                "- Direct internet: only when the operator enabled web search (🔍); "
+                "then you receive DuckDuckGo snippets below — not live browsing.\n"
+                "- Live feeds (aircraft, quakes, nodes, CVE, headlines): only when "
+                "INTERNAL TELEMETRY is attached (CTX/Lage mode).\n"
+                "- Tools may query WorldBase APIs (situations, OSINT lookups).\n\n"
+                "RULES:\n"
+                "1. Answer the user's actual question FIRST (1-3 sentences), same language.\n"
+                "2. Use ONLY data in the blocks below — never invent URLs, headlines, or CVEs.\n"
+                "3. Cite sources only from WEB SEARCH RESULTS or INTERNAL TELEMETRY; "
+                "if none apply, say so — no fake SOURCES section.\n"
+                "4. Use KEY FINDINGS → DETAILS → SOURCES only for explicit analysis requests; "
+                "skip that template for simple or meta questions.\n"
+                "5. If data is missing, say 'DATA GAP: [topic]' — do not guess.\n"
+                + entity_rules
+                + "\n\n"
+                + "\n\n".join(parts)
+            ),
+        }
+        messages = [system_msg] + messages
+    elif not any(m.get("role") == "system" for m in messages):
+        messages = [{
+            "role": "system",
+            "content": (
+                "You are WorldBase AI (local Ollama). No live feeds or web search are "
+                "attached to this message unless the operator enables CTX or 🔍. "
+                "Answer honestly and concisely in the user's language. "
+                "Do not invent URLs or claim internet access you do not have."
+            ),
+        }] + messages
+
+    return messages, firewall_meta, None
+
+
+@app.post("/api/chat")
+async def chat_proxy(payload: dict):
+    """Proxy chat requests to LLM providers. Supports SSE streaming.
+
+    Providers: ollama (default), openai, anthropic, groq, openrouter.
+    Set payload['context'] = True to inject live WorldBase state as a system message.
+    Set payload['firewall'] = True to route user messages through the LLM-Security-Firewall.
+    """
+    from ollama_config import chat_timeout, keep_alive
+
+    provider = payload.get("provider", "ollama")
+    model = payload.get("model", os.getenv("OLLAMA_MODEL", "qwen3:8b"))
+    use_stream = payload.get("stream", False)
+    use_tools = payload.get("use_tools", provider == "ollama")
+    force_fast = payload.get("force_fast") or bool(payload.get("entity_context"))
+    if force_fast:
+        use_tools = False
+
+    def _ollama_chat_body(model_name: str, messages: list, *, stream: bool) -> dict:
+        body: dict = {
+            "model": model_name,
+            "messages": messages,
+            "stream": stream,
+            "keep_alive": keep_alive(),
+        }
+        if "qwen3" in model_name.lower():
+            body["think"] = False
+        if force_fast:
+            body["options"] = {"num_predict": 260, "temperature": 0.4}
+        return body
 
     # ------------------------------------------------------------------
     # OLLAMA (local, default)
     # ------------------------------------------------------------------
-    use_tools = payload.get("use_tools", provider == "ollama")
-
     if provider == "ollama":
         if use_stream:
             async def ollama_stream():
+                yield f"data: {json.dumps({'status': 'preparing'})}\n\n"
+                messages, firewall_meta, block_msg = await _prepare_chat_messages(payload)
+                if block_msg:
+                    yield f"data: {json.dumps(block_msg)}\n\n"
+                    return
                 if firewall_meta:
                     yield f"data: {json.dumps({'firewall_result': firewall_meta})}\n\n"
                 last_err = None
+                ollama_timeout = chat_timeout()
                 for host in OLLAMA_HOSTS:
                     host = host.strip()
                     try:
                         if use_tools:
-                            final_msgs, actions = await chat_tools.run_ollama_with_tools(
+                            yield f"data: {json.dumps({'status': 'tools'})}\n\n"
+                            async for event in chat_tools.stream_ollama_with_tools(
                                 host, model, messages, max_rounds=4
-                            )
-                            for act in actions:
-                                yield f"data: {json.dumps({'client_action': act})}\n\n"
-                            text = (final_msgs[-1].get("content") or "") if final_msgs else ""
-                            if text:
-                                chunk = 48
-                                for i in range(0, len(text), chunk):
-                                    yield f"data: {json.dumps({'token': text[i:i + chunk]})}\n\n"
-                            yield f"data: {json.dumps({'done': True})}\n\n"
+                            ):
+                                if event.get("token"):
+                                    yield f"data: {json.dumps({'token': event['token']})}\n\n"
+                                elif event.get("status"):
+                                    yield f"data: {json.dumps(event)}\n\n"
+                                elif event.get("client_action"):
+                                    yield f"data: {json.dumps({'client_action': event['client_action']})}\n\n"
+                                elif event.get("done"):
+                                    yield f"data: {json.dumps({'done': True})}\n\n"
                             return
+                        yield f"data: {json.dumps({'status': 'generating'})}\n\n"
                         url = f"http://{host}/api/chat"
-                        async with httpx.AsyncClient(timeout=60.0) as client:
+                        chat_body = _ollama_chat_body(model, messages, stream=True)
+                        async with httpx.AsyncClient(timeout=ollama_timeout) as client:
                             async with client.stream(
                                 "POST",
                                 url,
-                                json={
-                                    "model": model,
-                                    "messages": messages,
-                                    "stream": True,
-                                    "keep_alive": keep_alive(),
-                                },
+                                json=chat_body,
                             ) as r:
                                 r.raise_for_status()
                                 async for line in r.aiter_lines():
@@ -1043,6 +1169,10 @@ async def chat_proxy(payload: dict):
 
             return StreamingResponse(ollama_stream(), media_type="text/event-stream")
 
+        messages, firewall_meta, block_msg = await _prepare_chat_messages(payload)
+        if block_msg:
+            return block_msg
+
         last_err = None
         for host in OLLAMA_HOSTS:
             host = host.strip()
@@ -1058,15 +1188,10 @@ async def chat_proxy(payload: dict):
                         "done": True,
                     }
                 url = f"http://{host}/api/chat"
-                async with httpx.AsyncClient(timeout=60.0) as client:
+                async with httpx.AsyncClient(timeout=chat_timeout()) as client:
                     r = await client.post(
                         url,
-                        json={
-                            "model": model,
-                            "messages": messages,
-                            "stream": False,
-                            "keep_alive": keep_alive(),
-                        },
+                        json=_ollama_chat_body(model, messages, stream=False),
                     )
                     r.raise_for_status()
                     return r.json()
@@ -1102,6 +1227,15 @@ async def chat_proxy(payload: dict):
     # ------------------------------------------------------------------
     # EXTERNAL PROVIDERS (OpenAI-compatible or Anthropic)
     # ------------------------------------------------------------------
+    messages, firewall_meta, block_msg = await _prepare_chat_messages(payload)
+    if block_msg:
+        if use_stream:
+            return StreamingResponse(
+                (f"data: {json.dumps(block_msg)}\n\n" async for _ in [1]),
+                media_type="text/event-stream",
+            )
+        return block_msg
+
     PROVIDER_CONFIG = {
         "openai": {
             "url": "https://api.openai.com/v1/chat/completions",

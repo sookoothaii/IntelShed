@@ -11,6 +11,7 @@ import json
 import sqlite3
 import hmac
 import hashlib
+import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -42,6 +43,8 @@ SENSOR_THRESHOLDS = {
 
 INGEST_TOKEN = os.getenv("NODE_INGEST_TOKEN", "")
 ADMIN_TOKEN = os.getenv("NODE_ADMIN_TOKEN", "") or INGEST_TOKEN
+_BRIEFING_LOCK = asyncio.Lock()
+_ALERT_SEVERITY = {"critical": 0, "high": 1, "warning": 2, "medium": 3, "low": 4}
 
 
 def _node_hmac(body: dict) -> str:
@@ -271,31 +274,66 @@ async def list_sensor_alerts(node_id: str = "", limit: int = 50):
 # Fusion : gather feeds -> compile critical alerts
 # ---------------------------------------------------------------------------
 async def _gather_snapshot() -> dict:
-    """Pull key feeds from our own API into one compact snapshot."""
+    """Pull key feeds from our own API into one compact snapshot (parallel)."""
     snap: dict = {}
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        async def grab(name, path):
+    feeds = (
+        ("earthquakes", "/api/earthquakes?period=day&magnitude=4.5"),
+        ("spaceweather", "/api/spaceweather"),
+        ("events", "/api/events?limit=40"),
+        ("markets", "/api/markets"),
+        ("geopolitics", "/api/geopolitics?limit=20"),
+        ("military", "/api/military"),
+        ("gdacs", "/api/gdacs"),
+        ("hazards", "/api/hazards?limit=40"),
+        ("gdelt_geo", "/api/gdelt/geo?timespan=1d&maxrecords=30"),
+        ("river", "/api/anomalies/river"),
+        ("outages", "/api/outages?limit=20"),
+        ("volcanoes", "/api/volcanoes?active_only=true&limit=30"),
+        ("cve", "/api/cve?limit=15"),
+        ("nodes", "/api/nodes"),
+        ("fusion", "/api/fusion/heatmap?cell_deg=2&top=10&include_geojson=0"),
+    )
+
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        async def grab(name: str, path: str) -> tuple[str, dict | None]:
             try:
                 r = await client.get(f"{SELF_URL}{path}")
                 if r.status_code == 200:
-                    snap[name] = r.json()
+                    return name, r.json()
             except Exception:
                 pass
-        await grab("earthquakes", "/api/earthquakes?period=day&magnitude=4.5")
-        await grab("spaceweather", "/api/spaceweather")
-        await grab("events", "/api/events?limit=40")
-        await grab("markets", "/api/markets")
-        await grab("geopolitics", "/api/geopolitics?limit=20")
-        await grab("military", "/api/military")
-        await grab("gdacs", "/api/gdacs")
-        await grab("hazards", "/api/hazards?limit=40")
-        await grab("gdelt_geo", "/api/gdelt/geo?timespan=1d&maxrecords=30")
-        await grab("river", "/api/anomalies/river")
-        await grab("outages", "/api/outages?limit=20")
-        await grab("volcanoes", "/api/volcanoes?active_only=true&limit=30")
-        await grab("cve", "/api/cve?limit=15")
-        await grab("nodes", "/api/nodes")
+            return name, None
+
+        results = await asyncio.gather(*(grab(n, p) for n, p in feeds))
+        for name, data in results:
+            if data is not None:
+                snap[name] = data
     return snap
+
+
+def _format_fusion_hotspots(snap: dict) -> str:
+    """Top fusion-grid cells for the LLM briefing (spatial situational awareness)."""
+    cells = (snap.get("fusion", {}) or {}).get("cells") or []
+    if not cells:
+        return "- No ranked fusion hotspots."
+    lines = []
+    for i, c in enumerate(cells[:3], 1):
+        lat, lon = c.get("lat"), c.get("lon")
+        if lat is None or lon is None:
+            continue
+        score = c.get("score", 0)
+        sources = ", ".join(c.get("sources") or [])
+        samples = "; ".join(
+            (s.get("label") or "")[:60]
+            for s in (c.get("samples") or [])[:2]
+            if s.get("label")
+        )
+        tail = f" — {samples}" if samples else ""
+        lines.append(
+            f"- #{i} {lat:.1f}N {lon:.1f}E score={score:.2f} "
+            f"[{sources}]{tail}"
+        )
+    return "\n".join(lines) or "- No ranked fusion hotspots."
 
 
 def _compile_alerts(snap: dict) -> list:
@@ -420,20 +458,22 @@ def _compile_alerts(snap: dict) -> list:
 # ---------------------------------------------------------------------------
 # PC -> Pi : LLM situation briefing
 # ---------------------------------------------------------------------------
-async def _ollama_chat(prompt: str) -> str:
+async def _ollama_briefing(prompt: str) -> str:
+    """Single-shot briefing via local Ollama — capped tokens, no Qwen3 thinking."""
+    body: dict = {
+        "model": OLLAMA_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+        "keep_alive": __import__("ollama_config").keep_alive(),
+        "options": {"num_predict": 220, "temperature": 0.35},
+    }
+    if "qwen3" in OLLAMA_MODEL.lower():
+        body["think"] = False
     for host in OLLAMA_HOSTS:
         host = host.strip()
         try:
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                r = await client.post(
-                    f"http://{host}/api/chat",
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "messages": [{"role": "user", "content": prompt}],
-                        "stream": False,
-                        "keep_alive": __import__("ollama_config").keep_alive(),
-                    },
-                )
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                r = await client.post(f"http://{host}/api/chat", json=body)
                 if r.status_code == 200:
                     return r.json().get("message", {}).get("content", "").strip()
         except Exception:
@@ -442,23 +482,30 @@ async def _ollama_chat(prompt: str) -> str:
 
 
 @router.post("/briefing/generate")
-async def generate_briefing(x_admin_token: str = Header(default="")):
+async def generate_briefing():
     """Fuse all feeds and have the local LLM write a world-situation report.
 
     Stored in SQLite; the Pi pulls it via /api/node/pull for offline display.
-    This route is admin-protected (heavy LLM call). The background autopilot
-    calls generate_briefing_internal() directly and is not affected.
+    Open on the LAN — local Ollama only; destructive node commands stay admin-gated.
     """
-    _verify_admin_secret(x_admin_token)
     return await generate_briefing_internal()
 
 
 async def generate_briefing_internal():
     """Actual briefing generation logic (no auth). Used by route + autopilot."""
+    async with _BRIEFING_LOCK:
+        return await _generate_briefing_unlocked()
+
+
+async def _generate_briefing_unlocked():
     snap = await _gather_snapshot()
     alerts = _compile_alerts(snap)
 
-    alert_lines = "\n".join(f"- {a['text']}" for a in alerts) or "- No critical alerts."
+    top_alerts = sorted(
+        alerts,
+        key=lambda a: _ALERT_SEVERITY.get(a.get("severity"), 9),
+    )[:10]
+    alert_lines = "\n".join(f"- {a['text']}" for a in top_alerts) or "- No critical alerts."
     sw = snap.get("spaceweather", {})
     mk = snap.get("markets", {}).get("crypto", {})
     cve_lines = "\n".join(
@@ -470,19 +517,22 @@ async def generate_briefing_internal():
         f"- {n.get('name')}: {'online' if n.get('online') else 'OFFLINE'}, CPU {n.get('health', {}).get('cpu_temp_c', '?')}C"
         for n in nodes[:3]
     ) or "- none"
+    fusion_lines = _format_fusion_hotspots(snap)
     prompt = (
         "You are the situational-awareness officer of a small off-grid intelligence "
         "node. Write a concise (max 150 words) world-situation briefing in plain text "
         "for a field operator. Be factual, calm, no markdown headers. "
+        "Prioritize fusion hotspots and critical alerts when present. "
         "Use only the data below.\n\n"
         f"Space weather: Kp={sw.get('kp_index')} ({sw.get('scale')}).\n"
         f"Crypto (USD): {json.dumps(mk)[:300]}\n"
         f"Edge nodes:\n{node_lines}\n"
+        f"Fusion hotspots (8-feed spatial grid, top cells):\n{fusion_lines}\n"
         f"CISA KEV (exploited CVEs):\n{cve_lines}\n"
         f"Critical alerts:\n{alert_lines}\n\n"
         "Briefing:"
     )
-    text = await _ollama_chat(prompt)
+    text = await _ollama_briefing(prompt)
     if not text:
         text = "LLM unavailable. Raw alerts:\n" + alert_lines
 

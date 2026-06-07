@@ -1,11 +1,15 @@
 # LLM Handoff — WorldBase
-> **Canonical project doc** (the “roman”). Repo tracks only this file + `README.md`; everything else lives here.
-> Last updated: 2026-06-06 (HAK_GAL Firewall joint test + VRAM tuning) | Stack: Ollama Qwen3, RAG (fixed), River, hazards, outages, PMTiles Thailand+world, **STAC, OpenSanctions, Trails, Fusion Heatmap, Google-Maps-style 2D/3D basemap switcher, HAK_GAL Firewall**
+
+> **Operator + agent reference.** User docs: [`README.md`](README.md) · [`docs/FEEDS.md`](docs/FEEDS.md) · [`docs/API-KEYS.md`](docs/API-KEYS.md) · [`docs/SETUP.md`](docs/SETUP.md)  
+> Last updated: 2026-06-07 | Stack: qwen3:8b/14b, RAG, feed_registry, /api/health provenance, fail-soft feeds
 
 ## Project Overview
-WorldBase is a spatial intelligence dashboard: React + CesiumJS globe on the frontend, FastAPI backend with 20+ data feeds. No API keys required for any source. All feeds are fail-soft (serve stale cache or empty payload on upstream error).
+
+WorldBase is a spatial intelligence dashboard: React + CesiumJS globe, FastAPI backend with 30+ feeds. **Fail-soft** — upstream errors → stale cache or `{ count: 0, error }`, not HTTP 500.
 
 **Philosophy**: Positive intelligence — help make better decisions, not attack.
+
+**Inspiration**: Bilawal Sidhu *WorldView*, [K-AI-STACK/WorldView](https://github.com/K-AI-STACK/WorldView), [kevtoe/worldview](https://github.com/kevtoe/worldview), [petieclark/worldview](https://github.com/petieclark/worldview), offgrid-raspi.
 
 ---
 
@@ -70,7 +74,7 @@ worldbase/
 | `/military` | Military aircraft (adsb.fi) | 20s | adsb.fi |
 | `/nodes` | Pi node telemetry | DB | Local |
 | `/airquality` | PM2.5/PM10 (6 cities) | 3600s | Open-Meteo |
-| `/gdacs` | Humanitarian alerts | 900s | GDACS RSS |
+| `/gdacs` | Humanitarian alerts (red/orange) | 900s | gdacs.org JSON API |
 | `/pegel` | German river gauges (Pegelonline) | 900s | pegelonline.wsv.de |
 
 ### Intelligence Engine
@@ -158,7 +162,7 @@ worldbase/
 ### System
 | Endpoint | What |
 |----------|------|
-| `/health` | Status + per-feed freshness timestamps |
+| `/health` | Status + per-feed freshness, count, source, error (SQLite `feed_cache` + `feed_registry.py`) |
 | `/chat` | SSE streaming LLM chat with web search |
 
 ---

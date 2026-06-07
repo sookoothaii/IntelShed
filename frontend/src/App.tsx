@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Globe from './components/Globe'
 import MapPanel from './components/MapPanel'
 import FirewallPanel from './components/FirewallPanel'
@@ -72,13 +72,19 @@ function useAlertNotifications() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 }
-function useClock() {
+function HudClock() {
   const [now, setNow] = useState(new Date())
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
     return () => clearInterval(t)
   }, [])
-  return now
+  const utc = now.toISOString().slice(11, 19)
+  return (
+    <div className="hud-clock">
+      <span className="clock-time">{utc}</span>
+      <span className="clock-zone">UTC</span>
+    </div>
+  )
 }
 
 function SystemStatus() {
@@ -88,7 +94,7 @@ function SystemStatus() {
   useEffect(() => {
     const ping = async () => {
       try {
-        const r = await fetch('/api/health')
+        const r = await fetch('/api/health/ping')
         setBackend(r.ok ? 'online' : 'offline')
       } catch { setBackend('offline') }
       try {
@@ -98,7 +104,7 @@ function SystemStatus() {
       } catch { setOllama('offline') }
     }
     ping()
-    const t = setInterval(ping, 15000)
+    const t = setInterval(ping, 60000)
     return () => clearInterval(t)
   }, [])
 
@@ -115,7 +121,8 @@ export default function App() {
   const [splitView, setSplitView] = useState(false)
   const [booting, setBooting] = useState(true)
   const [focus, setFocus] = useState<FocusTarget | null>(null)
-  const [askAI, setAskAI] = useState<{ question: string; context: string } | null>(null)
+  const askAIIdRef = useRef(0)
+  const [askAI, setAskAI] = useState<{ id: number; question: string; context: string } | null>(null)
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [situationOpen, setSituationOpen] = useState(false)
   const [firewallHistory, setFirewallHistory] = useState<any[]>([])
@@ -136,7 +143,6 @@ export default function App() {
   }
 
   const clearOsintPins = () => setOsintPins([])
-  const now = useClock()
 
   const focusOnMap = (f: Omit<FocusTarget, 'ts'>) => {
     setFocus({ ...f, ts: Date.now() })
@@ -159,18 +165,27 @@ export default function App() {
   const showMapChrome = splitView || view === 'globe' || view === 'map'
 
   const handleAskAI = (title: string, lines: string[]) => {
-    const context = `Entity: ${title}\n${lines.join('\n')}`
-    const question = `Analyze this target and tell me what it means for the current world situation:\n${context}`
-    setAskAI({ question, context })
+    const context = [`Entity: ${title}`, ...lines.filter(Boolean)].join('\n')
+    const question = 'Analyze this target and tell me what it means for the current world situation.'
+    askAIIdRef.current += 1
+    setAskAI({ id: askAIIdRef.current, question, context })
     setView('chat')
   }
 
+  const globeSharedProps = {
+    focus,
+    onAskAI: handleAskAI,
+    osintPins,
+    onClearOsintPins: clearOsintPins,
+    onCameraMove: handleGlobeMove,
+    syncCamera,
+    mapMode,
+  }
+
   useEffect(() => {
-    const t = setTimeout(() => setBooting(false), 2200)
+    const t = setTimeout(() => setBooting(false), 800)
     return () => clearTimeout(t)
   }, [])
-
-  const utc = now.toISOString().slice(11, 19)
 
   return (
     <div className="app">
@@ -193,7 +208,12 @@ export default function App() {
             <button
               key={n.id}
               className={view === n.id ? 'active' : ''}
-              onClick={() => setView(n.id)}
+              onClick={() => {
+                if (n.id === 'data' || n.id === 'firewall' || n.id === 'osint' || n.id === 'chat') {
+                  setSplitView(false)
+                }
+                setView(n.id)
+              }}
             >
               <span className="nav-glyph">{n.glyph}</span>
               {n.label}
@@ -208,10 +228,7 @@ export default function App() {
           <button className="mega-analysis-btn" onClick={() => setSituationOpen(true)}>SITUATIONS</button>
           <button className="mega-analysis-btn secondary" onClick={() => setAnalysisOpen(true)}>FULL SITUATION</button>
           <SystemStatus />
-          <div className="hud-clock">
-            <span className="clock-time">{utc}</span>
-            <span className="clock-zone">UTC</span>
-          </div>
+          <HudClock />
         </div>
       </header>
 
@@ -231,22 +248,34 @@ export default function App() {
           {splitView ? (
             <div className="split-view">
               <div className="split-pane">
-                <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} onCameraMove={handleGlobeMove} syncCamera={syncCamera} mapMode={mapMode} />
+                <Globe {...globeSharedProps} />
               </div>
               <div className="split-pane split-pane-right">
-                <MapPanel focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null} onCameraMove={handleMapMove} syncCamera={syncCamera} mapMode={mapMode} />
+                <MapPanel
+                  focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null}
+                  onCameraMove={handleMapMove}
+                  syncCamera={syncCamera}
+                  mapMode={mapMode}
+                />
               </div>
             </div>
           ) : (
             <>
-              {view === 'globe' && <Globe focus={focus} onAskAI={handleAskAI} osintPins={osintPins} onClearOsintPins={clearOsintPins} onCameraMove={handleGlobeMove} syncCamera={syncCamera} mapMode={mapMode} />}
-              {view === 'map' && <MapPanel focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null} onCameraMove={handleMapMove} syncCamera={syncCamera} mapMode={mapMode} />}
+              {view === 'globe' && <Globe {...globeSharedProps} />}
+              {view === 'map' && (
+                <MapPanel
+                  focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null}
+                  onCameraMove={handleMapMove}
+                  syncCamera={syncCamera}
+                  mapMode={mapMode}
+                />
+              )}
               {view === 'data' && <DataPanel onFocus={focusOnMap} />}
               {view === 'chat' && (
                 <ChatPanel
                   askAI={askAI}
                   onClearAsk={() => setAskAI(null)}
-                  onFirewallResult={(r) => setFirewallHistory(h => [r, ...h].slice(0, 100))}
+                  onFirewallResult={(r) => setFirewallHistory((h) => [r, ...h].slice(0, 100))}
                   onClientAction={(act) => {
                     if (act?.type === 'focus_globe' && act.lat != null && act.lon != null) {
                       focusOnMap({
@@ -1779,7 +1808,7 @@ function ChatPanel({
   onFirewallResult,
   onClientAction,
 }: {
-  askAI?: { question: string; context: string } | null
+  askAI?: { id: number; question: string; context: string } | null
   onClearAsk?: () => void
   onFirewallResult?: (r: any) => void
   onClientAction?: (act: any) => void
@@ -1793,11 +1822,16 @@ function ChatPanel({
   const [models, setModels] = useState<{ name: string; parameter_size?: string }[]>([])
   const [model, setModel] = useState('')
   const [busy, setBusy] = useState(false)
+  const [genStatus, setGenStatus] = useState<string | null>(null)
   const [modelErr, setModelErr] = useState<string | null>(null)
   const [modelHint, setModelHint] = useState<string | null>(null)
   const [webSearch, setWebSearch] = useState(false)
+  const [feedContext, setFeedContext] = useState(false)
+  const [useTools, setUseTools] = useState(false)
   const [firewall, setFirewall] = useState(false)
   const [firewallMeta, setFirewallMeta] = useState<any>(null)
+  const [genWaitSec, setGenWaitSec] = useState(0)
+  const processedAskIdRef = useRef(0)
 
   const loadModels = () => {
     setModelErr(null)
@@ -1847,41 +1881,73 @@ function ChatPanel({
     loadModels()
   }, [])
 
-  // Auto-send when askAI is provided (from globe target click)
   useEffect(() => {
-    if (askAI && !busy) {
-      setMsg(askAI.question)
-      // Small delay to let React render before sending
-      const t = setTimeout(() => {
-        sendWithMessage(askAI.question, askAI.context)
-        onClearAsk?.()
-      }, 100)
-      return () => clearTimeout(t)
+    if (!busy) {
+      setGenWaitSec(0)
+      return
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [askAI])
+    const t0 = Date.now()
+    setGenWaitSec(0)
+    const id = setInterval(() => {
+      setGenWaitSec(Math.floor((Date.now() - t0) / 1000))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [busy])
 
-  async function sendWithMessage(userMsg: string, entityCtx?: string) {
-    if (busy) return
+  // Auto-send when askAI is provided (from globe / situation board)
+  useEffect(() => {
+    if (!askAI || busy) return
+    if (askAI.id <= processedAskIdRef.current) return
+    const activeModel = model || models[0]?.name
+    if (!activeModel) return
+
+    const pending = askAI
+    setMsg(`${pending.question}\n\n${pending.context}`)
+    const t = setTimeout(() => {
+      processedAskIdRef.current = pending.id
+      void sendWithMessage(pending.question, pending.context, { forceFast: true })
+      onClearAsk?.()
+    }, 100)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askAI, busy, model, models])
+
+  async function sendWithMessage(
+    userMsg: string,
+    entityCtx?: string,
+    opts?: { forceFast?: boolean },
+  ) {
+    const text = userMsg.trim()
+    if (busy || !text) return
     let activeModel = model
     if (!activeModel && models.length > 0) {
       activeModel = models[0].name
       setModel(activeModel)
     }
     if (!activeModel) return
+
+    const isEntityAsk = Boolean(entityCtx)
+    const forceFast = opts?.forceFast ?? isEntityAsk
+    const useCtx = !forceFast && feedContext
+    const useWebSearch = !forceFast && webSearch
+    const useToolCalls = !forceFast && useTools && provider === 'ollama'
+
     setMsg('')
     setFirewallMeta(null)
-    setHistory((h) => [...h, { role: 'user', content: userMsg }])
-    setBusy(true)
-
-    // Add placeholder assistant message that we will stream into
+    const userDisplay = entityCtx ? `${text}\n\n${entityCtx}` : text
+    setHistory((h) => [...h, { role: 'user', content: userDisplay }])
     setHistory((h) => [...h, { role: 'assistant', content: '' }])
+    setBusy(true)
+    setGenStatus(forceFast ? 'Entity-Analyse (schnell)…' : 'Starte…')
 
-    // Optional web search: fetch results and prepend as context
     let searchCtx = ''
-    if (webSearch) {
+    if (useWebSearch) {
+      const searchQ = isEntityAsk && entityCtx
+        ? entityCtx.split('\n')[0].replace(/^Entity:\s*/, '').trim() || text
+        : text
+      setGenStatus('🔍 DuckDuckGo-Suche…')
       try {
-        const sr = await fetch(`/api/search?q=${encodeURIComponent(userMsg)}&n=5`)
+        const sr = await fetch(`/api/search?q=${encodeURIComponent(searchQ)}&n=5`)
         const sd = await sr.json()
         if (sd.results && sd.results.length > 0) {
           searchCtx = sd.results.map((r: any, i: number) =>
@@ -1893,10 +1959,10 @@ function ChatPanel({
       }
     }
 
-    // If entity context provided, prepend it to search results
-    const combinedSearchResults = entityCtx
-      ? (searchCtx ? entityCtx + '\n\n' + searchCtx : entityCtx)
-      : (searchCtx || undefined)
+    if (useCtx) setGenStatus('Lagebild wird geladen (CTX)…')
+    else if (useToolCalls) setGenStatus('Ollama + Tools — kann 30–90s dauern…')
+    else if (forceFast) setGenStatus('Ollama analysiert Ziel…')
+    else setGenStatus('Ollama wird kontaktiert…')
 
     try {
       const r = await fetch('/api/chat', {
@@ -1904,13 +1970,15 @@ function ChatPanel({
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({
           model: activeModel,
-          messages: [{ role: 'user', content: userMsg }],
+          messages: [{ role: 'user', content: text }],
           stream: true,
-          context: true,
+          context: useCtx,
           provider,
-          search_results: combinedSearchResults,
+          entity_context: entityCtx || undefined,
+          search_results: searchCtx || undefined,
           firewall,
-          use_tools: provider === 'ollama',
+          use_tools: useToolCalls,
+          force_fast: forceFast,
         }),
       })
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
@@ -1947,7 +2015,7 @@ function ChatPanel({
               setFirewallMeta(data.firewall_result)
               onFirewallResult?.({
                 timestamp: Date.now(),
-                query: userMsg,
+                query: text,
                 ...data.firewall_result,
               })
               continue
@@ -1958,7 +2026,7 @@ function ChatPanel({
                 setFirewallMeta(data.firewall_meta)
                 onFirewallResult?.({
                   timestamp: Date.now(),
-                  query: userMsg,
+                  query: text,
                   ...data.firewall_meta,
                 })
               }
@@ -1969,13 +2037,27 @@ function ChatPanel({
               })
               break
             }
+            if (data.status) {
+              const labels: Record<string, string> = {
+                preparing: 'Lagebild & Kontext werden geladen…',
+                tools: 'Ollama analysiert (Tools aktiv)…',
+                generating: 'Ollama generiert Antwort…',
+              }
+              if (data.status === 'tool' && data.tool) {
+                setGenStatus(`Tool: ${data.tool}…`)
+              } else {
+                setGenStatus(labels[data.status as string] || String(data.status))
+              }
+            }
             if (data.done) {
+              setGenStatus(null)
               break
             }
             if (data.client_action) {
               onClientAction?.(data.client_action)
             }
             if (data.token) {
+              setGenStatus('Ollama generiert Antwort…')
               setHistory((h) => {
                 const copy = [...h]
                 copy[copy.length - 1] = {
@@ -1998,6 +2080,7 @@ function ChatPanel({
       })
     } finally {
       setBusy(false)
+      setGenStatus(null)
     }
   }
 
@@ -2019,6 +2102,11 @@ function ChatPanel({
       )}
       {!modelErr && modelHint && (
         <div className="data-error" style={{ borderColor: '#ffd23f', color: '#ffd23f' }}>{modelHint}</div>
+      )}
+      {(feedContext || webSearch || useTools) && !busy && (
+        <div className="chat-slow-hint">
+          CTX / 🔍 / TOOLS aktiv — manuelle Chats oft 30–90&nbsp;s. Ask AI vom Globe nutzt automatisch den schnellen Entity-Pfad.
+        </div>
       )}
 
       <div className="model-select">
@@ -2068,6 +2156,20 @@ function ChatPanel({
         )}
 
         <button
+          className={useTools ? 'web-search on' : 'web-search'}
+          onClick={() => setUseTools((v) => !v)}
+          title="Ollama Tool-Runden (situations, OSINT) — langsamer, aber schlauer"
+        >
+          {useTools ? 'TOOLS ON' : 'TOOLS OFF'}
+        </button>
+        <button
+          className={feedContext ? 'web-search on' : 'web-search'}
+          onClick={() => setFeedContext((v) => !v)}
+          title="WorldBase Lagebild: nodes, feeds, headlines, CVE in den Prompt"
+        >
+          {feedContext ? 'CTX ON' : 'CTX OFF'}
+        </button>
+        <button
           className={webSearch ? 'web-search on' : 'web-search'}
           onClick={() => setWebSearch((v) => !v)}
           title="Toggle web search (injects DuckDuckGo results as context)"
@@ -2102,19 +2204,33 @@ function ChatPanel({
         </div>
       )}
 
+      {busy && genStatus && (
+        <div className="chat-gen-status" role="status" aria-live="polite">
+          <span className="chat-gen-pulse" />
+          <span>{genStatus}{genWaitSec > 0 ? ` (${genWaitSec}s)` : ''}</span>
+        </div>
+      )}
+
       <div className="chat-history">
         {history.map((m, i) => (
           <div key={i} className={`chat-msg ${m.role}`}>
-            <strong>{m.role}:</strong> {m.content}
+            <strong>{m.role}:</strong>{' '}
+            {m.role === 'assistant' && !m.content && busy && i === history.length - 1 ? (
+              <span className="chat-waiting">{genStatus || '…'}</span>
+            ) : (
+              m.content
+            )}
+            {m.role === 'assistant' && busy && i === history.length - 1 && (
+              <span className="chat-cursor" aria-hidden="true">▌</span>
+            )}
           </div>
         ))}
-        {busy && <div className="chat-msg assistant">…</div>}
       </div>
       <div className="chat-input">
         <input
           value={msg}
           onChange={(e) => setMsg(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && sendWithMessage(msg.trim())}
+          onKeyDown={(e) => e.key === 'Enter' && !busy && msg.trim() && sendWithMessage(msg.trim())}
           placeholder={model ? `Ask ${model} (${provider})…` : 'Select a model first…'}
           disabled={!model}
         />
@@ -2206,7 +2322,7 @@ function OsintPanel({
       }
     }
     poll()
-    const t = setInterval(poll, 15000)
+    const t = setInterval(poll, 60000)
     return () => { cancelled = true; clearInterval(t) }
   }, [mode])
 

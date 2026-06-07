@@ -7,6 +7,8 @@ from datetime import datetime, timezone, timedelta
 import httpx
 from fastapi import APIRouter
 
+import feed_registry
+
 router = APIRouter(prefix="/api", tags=["energy"])
 
 _SMARD_BASE = "https://www.smard.de/app/chart_data"
@@ -120,9 +122,15 @@ async def get_german_energy():
 
     co2_per_kwh = round(co2_total_g / (total_gen_mw or 1) / 1000, 2) if total_gen_mw else None
 
+    series_ok = sum(1 for s in gen_series if s) + (1 if load_series else 0) + (1 if price_series else 0)
+    error = None
+    if series_ok == 0:
+        error = "SMARD upstream returned no series"
+
     result = {
         "region": "DE",
         "updated": datetime.now(timezone.utc).isoformat(),
+        "source": "smard.de",
         "total_generation_mw": round(total_gen_mw, 2),
         "co2_g_per_kwh": co2_per_kwh,
         "generation": generation,
@@ -134,9 +142,22 @@ async def get_german_energy():
             "latest_eur_mwh": price_series[-1]["value"] if price_series else None,
             "history": price_series[-24:] if price_series else [],
         },
+        "active_series": series_ok,
+        "error": error,
+        "stale": False,
     }
 
+    if series_ok == 0:
+        stale = feed_registry.read("energy_de")
+        if stale:
+            stale = dict(stale)
+            stale["stale"] = True
+            stale["error"] = error
+            _smard_cache["de_energy"] = {"ts": now, "data": stale}
+            return stale
+
     _smard_cache["de_energy"] = {"ts": now, "data": result}
+    feed_registry.write("energy_de", result)
     return result
 
 
@@ -191,6 +212,8 @@ async def get_german_energy_globe():
     return {
         "region": "DE",
         "updated": data.get("updated"),
+        "source": "smard.de",
+        "proxy_note": "Globe markers are regional proxies, not plant GPS",
         "total_generation_mw": data.get("total_generation_mw"),
         "co2_g_per_kwh": data.get("co2_g_per_kwh"),
         "load_mw": load_mw,
@@ -198,4 +221,7 @@ async def get_german_energy_globe():
         "negative_price": price is not None and price < 0,
         "points": points,
         "count": len(points),
+        "active_sources": len([s for s in _GLOBE_SITES if (gen.get(s["key"]) or {}).get("latest_mw")]),
+        "stale": data.get("stale"),
+        "error": data.get("error"),
     }
