@@ -18,8 +18,9 @@
 | | |
 |---|---|
 | **Globe** | 30+ live layers — aircraft, quakes, disasters, energy, maritime, transit |
+| **MAP** | Offline Protomaps via PMTiles — regional (`thailand`) or full planet (`planet_full` ~130 GB) |
 | **Intelligence** | Situations, correlations, anomalies, sanctions screening, RAG memory |
-| **AI** | Local chat via Ollama (`qwen3:8b` default), optional cloud providers |
+| **AI** | Local chat via Ollama (`qwen3:8b` default), optional HAK_GAL firewall scan |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → briefing back to Pi |
 | **Philosophy** | Positive intelligence — better decisions, not attacks |
 
@@ -40,6 +41,7 @@ copy frontend\.env.example frontend\.env   # set VITE_CESIUM_ION_TOKEN
 | **UI** | http://localhost:5176 |
 | **API** | http://localhost:8002/docs |
 | **Health** | http://localhost:8002/api/health |
+| **Health (fast)** | http://localhost:8002/api/health/ping |
 | **Ollama** | http://127.0.0.1:11434 |
 
 ```powershell
@@ -47,7 +49,36 @@ ollama pull qwen3:8b
 ollama pull nomic-embed-text   # RAG embeddings
 ```
 
-Smoke test: `.\scripts\smoke-test.ps1`
+**Verify stack:** `.\scripts\smoke-test.ps1` (23 checks — backend, feeds, Vite proxy, Ollama chat, build)
+
+### Offline maps (PMTiles)
+
+```powershell
+# Regional stack (~500 MB) — default for fast MAP load
+.\scripts\download-pmtiles.ps1 -Region stack
+
+# Full planet (~130 GB, resumable BITS)
+.\scripts\download-pmtiles.ps1 -Region world-full -Force
+
+# Optional ZXY MVT tiles (experimental Globe MVT layer)
+.\scripts\start-pmtiles-serve.ps1   # http://127.0.0.1:8088
+```
+
+In **MAP** view, pick the archive in the dropdown. Default is **`thailand`** for speed; select **`planet_full`** for global offline detail when the ~130 GB file is present.
+
+### Split view
+
+**◫ SPLIT** in the HUD shows Globe (left) and Map (right) with linked camera sync. Use for tactical overview + precise 2D basemap.
+
+### Optional LLM firewall
+
+Set `FIREWALL_HOST=localhost:8001` in `backend/.env` and start HAK_GAL separately:
+
+```powershell
+D:\MCP Mods\HAK_GAL_HEXAGONAL\standalone_packages\llm-security-firewall\detectors\orchestrator\start.ps1
+```
+
+Enable **🛡️ ON** in the AI chat. When the firewall service is down, WorldBase fails open (chat still works, unscanned).
 
 ### Docker + Pi sync
 
@@ -84,7 +115,7 @@ Full catalog → [`docs/FEEDS.md`](docs/FEEDS.md) · Keys → [`docs/API-KEYS.md
                             │ /api/*
 ┌───────────────────────────▼─────────────────────────────┐
 │  FastAPI + httpx + SQLite feed_cache         :8002        │
-│  TTL cache · provenance · /api/health dashboard         │
+│  TTL cache · /api/globe/snapshot · /api/health            │
 └───────────────────────────┬─────────────────────────────┘
          ┌──────────────────┼──────────────────┐
          ▼                  ▼                  ▼

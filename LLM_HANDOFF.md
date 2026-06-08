@@ -1,7 +1,7 @@
 # LLM Handoff — WorldBase
 
 > **Operator + agent reference.** User docs: [`README.md`](README.md) · [`docs/FEEDS.md`](docs/FEEDS.md) · [`docs/API-KEYS.md`](docs/API-KEYS.md) · [`docs/SETUP.md`](docs/SETUP.md)  
-> Last updated: 2026-06-07 | Stack: qwen3:8b/14b, RAG, feed_registry, /api/health provenance, fail-soft feeds
+> Last updated: 2026-06-08 | Stack: qwen3:8b/14b, RAG, feed_registry, globe_snapshot, /api/health/ping, fail-soft feeds
 
 ## Project Overview
 
@@ -33,23 +33,27 @@ WorldBase is a spatial intelligence dashboard: React + CesiumJS globe, FastAPI b
 ```
 worldbase/
 ├── backend/
-│   ├── main.py              # FastAPI app, /api/chat (SSE streaming), /api/health
-│   ├── feeds_extra.py       # 13 feed endpoints + anomaly/correlation detection
+│   ├── main.py              # FastAPI app, /api/chat (SSE streaming), /api/health, /api/health/ping
+│   ├── feeds_extra.py       # Extended feeds (async SQLite via asyncio.to_thread + WAL)
+│   ├── feed_registry.py     # Shared feed_cache writes for /api/health provenance
+│   ├── globe_snapshot.py    # GET /api/globe/snapshot — bundled parallel feed fetch (15s cache)
+│   ├── firewall_bridge.py   # Optional HAK_GAL LLM firewall on :8001
 │   ├── node_sync.py         # Pi↔PC sync, sensor alerts, HMAC auth, mesh briefing
-│   ├── osint_tools.py       # NEW: IP/Domain/Username/Email/Reverse-geocode
-│   ├── requirements.txt     # dnspython added for DNS lookups
-│   └── worldbase.db         # SQLite (node_state, briefings, sensor_alerts, feed_cache)
+│   ├── osint_tools.py       # IP/Domain/Username/Email/Reverse-geocode
+│   ├── rag_memory.py        # Ollama nomic-embed + SQLite cosine RAG (2000 chunk cap)
+│   └── worldbase.db         # SQLite (node_state, briefings, sensor_alerts, feed_cache, rag_chunks)
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx          # Main app: DATA panel (12 tabs), ChatPanel, FullAnalysisOverlay
-│   │   ├── styles/hud.css   # ALL styles including new analysis overlay
+│   │   ├── App.tsx          # Views: Globe, MAP, DATA, AI, FIREWALL, OSINT; split-view layout
+│   │   ├── styles/hud.css   # HUD, telemetry, split-view, map mode bar
 │   │   ├── lib/mapView.ts   # Shared basemap + 2D/3D mode state
 │   │   └── components/
-│   │       ├── Globe.tsx    # Cesium 3D: terrain, OSM buildings, fusion layers
-│   │       ├── MapPanel.tsx # MapLibre 2D: PMTiles, satellite, pitch, extrusion
+│   │       ├── Globe.tsx    # Cesium 3D, grouped LIVE TELEMETRY, layer-aware snapshot polling
+│   │       ├── MapPanel.tsx # MapLibre 2D PMTiles + Protomaps sprites (basemaps-assets)
 │   │       └── MapModeBar.tsx  # KARTE/SATELLIT/HYBRID/GELÄNDE + 2D/3D toggle
-│   └── dist/                # Built frontend (served by backend)
-└── offgrid-raspi/           # Pi scripts (not in this workspace)
+│   └── public/favicon.svg
+├── data/pmtiles/            # Offline archives (gitignored blobs; see download script)
+└── offgrid-raspi/           # Pi scripts (submodule)
 ```
 
 ---
@@ -163,7 +167,9 @@ worldbase/
 | Endpoint | What |
 |----------|------|
 | `/health` | Status + per-feed freshness, count, source, error (SQLite `feed_cache` + `feed_registry.py`) |
-| `/chat` | SSE streaming LLM chat with web search |
+| `/health/ping` | Fast liveness probe for HUD status bar (no feed parsing) |
+| `/globe/snapshot?layers=...` | Parallel bundle of slow globe feeds (15s cache, refresh lock) |
+| `/chat` | SSE streaming LLM chat with web search + optional firewall scan |
 
 ---
 
@@ -186,11 +192,20 @@ CREATE TABLE feed_cache (key TEXT PRIMARY KEY, value TEXT, cached_at TEXT);
 - **FullAnalysisOverlay**: The big red "FULL SITUATION" button. Fetches ALL 13 feeds in parallel, 2-column layout, auto-refresh 30s toggle.
 
 ### `Globe.tsx`
-- 9 CustomDataSources: aircraft, satellites, seismic, events, iss, military, spaceweather, geopolitics, nodes
+- Many CustomDataSources (aircraft, satellites, seismic, events, military, spaceweather, geopolitics, nodes, …)
+- **LIVE TELEMETRY** panel: grouped feeds (MOTION/GEO/ENV/INFRA/INTEL), hover tooltips, click toggles layers
+- Layer-aware polling via **`/api/globe/snapshot`** (one HTTP round-trip when visible)
+- Pauses render loop + feed polling when globe layer hidden (`visible` prop)
+- Lighter default layers (military, maritime, transit, pegel, etc. off by default)
 - Emergency squawk pulsating ring (7500/7600/7700 = red)
 - Kp-based aurora oval rings
 - Ask AI button in target panel
-- HUD stats overlay
+- Time slider (quakes + events, 6/12/24h)
+
+### Split view (`App.tsx`)
+- **◫ SPLIT** — side-by-side `split-view` + two `split-pane` (Globe left, MapPanel right)
+- Bidirectional camera sync via `syncCamera` state
+- Do **not** use overlapping absolute layers (breaks globe interaction and map tiles)
 
 ---
 
@@ -337,7 +352,7 @@ Stack: `docker-compose.yml` — `web` (Caddy SPA + `/api` proxy), `backend` (Fas
 | Component | Location | Status |
 |-----------|----------|--------|
 | WorldBase PC | `192.168.1.111:8002` API, `:5176` UI (`localhost` — Vite may bind `::1`) | Running |
-| HAK_GAL Firewall | `localhost:8001` (Orchestrator) | Healthy; `FIREWALL_HOST=localhost:8001` in `backend/.env` |
+| HAK_GAL Firewall | `localhost:8001` (Orchestrator) | **Manual start** — not auto-launched by `start.ps1`. When down, WorldBase **fail-open** (chat passes un scanned). Start: `...\llm-security-firewall\detectors\orchestrator\start.ps1` |
 | Flowsint Docker | `:5173` UI, `:5001` API | Healthy; embed in OSINT tab |
 | Off-Grid Pi | `192.168.1.121`, SSH `~/.ssh/offgrid-pi` | push/pull **Ingest OK**, token deployed |
 | Borg (Pi) | `/mnt/sdcard/borg-repo` | Re-init 2026-06-04; timer enabled; key in `/mnt/sdcard/borg-key-backup/` |
@@ -460,12 +475,35 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **Ollama-Fix**: `OLLAMA_HOST=127.0.0.1:11434`, Host-Fallbacks, `/api/models` Timeout 12 s + 20 s Cache, Embed-Modelle aus Chat-Liste gefiltert, Vite-Proxy → `127.0.0.1:8002` (120 s Timeout). AI-Tab: deutsche Fehler + **↻ ERNEUT PRÜFEN**.
 - **Start**: immer `.\start.ps1` → Frontend **:5176** (nicht direkt :8002 — dort gibt es keine UI).
 
+**Done (2026-06-08) — Performance, offline planet, operator UI (`34975b4`):**
+- **`feeds_extra.py`**: SQLite reads/writes via `asyncio.to_thread` + WAL — no longer blocks the event loop
+- **`globe_snapshot.py`**: `GET /api/globe/snapshot` — parallel feed bundle, 15s cache, refresh lock
+- **`ais_bridge.py`**: parallel upstream fetch, 6s timeout, stale cache, refresh lock
+- **`main.py`**: `/api/health/ping`; aircraft cache 30s; WAL in `init_db`
+- **`feed_registry.py`**: shared `feed_cache` persistence for health provenance
+- **Globe**: `visibleRef` pauses render + polling when hidden; snapshot replaces ~15 parallel fetches; lighter default layers
+- **Split view**: restored git-style `split-view` / `split-pane` layout (stable pan/zoom + events)
+- **Telemetry HUD**: grouped LIVE TELEMETRY, feed health dots, ACTIVE/ALL filter, hover tooltips (incl. dynamic Kp text)
+- **MapPanel**: Protomaps sprites from `basemaps-assets` + `styleimagemissing` fallback
+- **PMTiles**: `planet_full.pmtiles` ~**130 GB** downloaded (`.\scripts\download-pmtiles.ps1 -Region world-full -Force`); MAP archive dropdown defaults to **`thailand`** for fast load — select **`planet_full`** manually for global basemap
+- **Smoke test**: `.\scripts\smoke-test.ps1` → **23/23 PASS** (verified after restart)
+
+**Architecture notes (2026-06-08):**
+- **Turbopuffer**: not used — stay local/offline-first for RAG (`rag_memory.py`) and firewall (HAK_GAL centroids). Next RAG step: `sqlite-vec` locally, not cloud vector DB.
+- **Firewall**: HAK_GAL v6 semantic-first (`all-MiniLM-L6-v2` centroids). WorldBase passes `session_id: worldbase` only; optional future: WorldBase context in scan payload.
+
 **Backlog (next session):**
-1. **TiTiler-Service** starten (Docker oder uvicorn) → `TITILER_URL` setzen für echte Sentinel-NDVI auf Globe
-2. **yente self-hosting** für unlimited Sanctions-Match
-3. **GTFS DE VehiclePosition**: DELFI oder Frontend-Interpolation (VBB liefert nur trip_updates)
-4. **`world-z10`**: Global detail PMTiles (~1 GB): `.\scripts\download-pmtiles.ps1 -Region world-z10`
-5. **Heatmap → Briefing**: Top-3 Fusion-Cells in den LLM-Prompt-Context aufnehmen
+1. **MAP default archive** — auto-select `planet_full` when `size_mb >= 95_000` (+ loading indicator on first MapLibre init)
+2. **Telemetry presets** — Overview / DE Infra / OSINT (layer + telemetry group sets)
+3. **Firewall autostart** — optional flag in `start.ps1` or header status dot when `:8001` down
+4. **Firewall context** — pass WorldBase intent (CVE analysis, situation board) to reduce false blocks
+5. **`sqlite-vec`** spike in `rag_memory.py` (replace O(n) cosine over 500 rows)
+6. **TiTiler** + **yente** self-host (unchanged from prior backlog)
+7. **Heatmap → Briefing**: top-3 fusion cells in LLM context
+8. **PR**: merge `feature/cesium-1.142-eval` → `main`
+
+**Removed from backlog (done):**
+- ~~`world-full` download~~ — `planet_full.pmtiles` on disk (~130 GB)
 
 **Done (2026-06-03):** Flowsint embed; `/api/flowsint/health`. OSINT pins + localStorage; `/api/pegel`; Ollama `keep_alive: 5m`.
 
@@ -498,6 +536,12 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 | AIRCRAFT = 0, OpenSky error | No OAuth + rate limit | Automatic **adsb.lol** fallback; optional credentials in `backend/.env` |
 | CRISES at 0,0 or empty | ReliefWeb v1 dead (410) | Uses **GDACS** + geocoding; set `RELIEFWEB_APPNAME` for v2 |
 | HUD shows `adsb.lol` under AIRCRAFT | Working as designed | OpenSky not configured — free global ADS-B active |
+| Globe sluggish / API queue | SQLite blocking event loop (old) | Fixed — use latest; restart `.\start.ps1`; check `/api/globe/snapshot` |
+| Split: globe not interactive | Overlay/grid layout over WebGL | Use `split-view` + `split-pane` only (see Split view section) |
+| MapLibre `capital`/`townspot` warnings | Missing Protomaps sprites | Fixed in MapPanel — reload; needs `basemaps-assets` CDN or offline sprite host |
+| MAP shows Thailand not world | Default archive for speed | Select **planet_full** in MAP archive dropdown (~130 GB) |
+| 🛡️ firewall does nothing | HAK_GAL not running on :8001 | Start orchestrator `start.ps1`; set `FIREWALL_HOST=localhost:8001` |
+| `/api/firewall/status` unreachable | Fail-open by design | Chat works without scan; start external firewall service |
 
 ---
 
@@ -516,7 +560,9 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - Phase 1+2 bridges: see *Done (2026-06-04–06)* sections above
 - PMTiles backend: `backend/pmtiles_bridge.py` (status + Range-aware file endpoint)
 - PMTiles frontend: `frontend/src/components/MapPanel.tsx`
-- PMTiles tooling: `scripts/download-pmtiles.ps1`, `scripts/start-pmtiles-serve.ps1` (optional fallback)
+- PMTiles data: `data/pmtiles/planet_full.pmtiles` (~130 GB), `thailand.pmtiles`, `planet_z6.pmtiles`
+- PMTiles tooling: `scripts/download-pmtiles.ps1`, `scripts/start-pmtiles-serve.ps1` (optional ZXY on :8088)
+- Performance: `backend/globe_snapshot.py`, `backend/feed_registry.py`, `backend/ais_bridge.py` (parallel)
 - Bridges: `cap_bridge.py`, `anomaly_river.py`, `rag_memory.py`, `outages_bridge.py`, `volcano_bridge.py`, `gibs_bridge.py`, `duckdb_fusion.py`
 - Phase 2: `backend/stac_bridge.py`, `sanctions_bridge.py`, `aircraft_trails.py`, `fusion_heatmap.py`
 - Frontend Phase 2 components: `frontend/src/components/{PegelSparkline,StacPanel,SanctionsPanel}.tsx`
