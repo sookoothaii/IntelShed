@@ -14,6 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from starlette.datastructures import MutableHeaders
 
+# Rate Limiting
+from middleware.rate_limit import setup_rate_limiting
+
 import globe_snapshot
 import feeds_extra
 import node_sync
@@ -151,6 +154,9 @@ class SecurityHeadersMiddleware:
 
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Setup Rate Limiting (slowapi)
+setup_rate_limiting(app)
 
 
 @contextmanager
@@ -388,7 +394,27 @@ async def health_ping():
 
 @app.get("/api/health")
 async def health():
-    import asyncio
+    # Determine database type
+    db_type = "sqlite"
+    db_connected = False
+    if os.getenv("DATABASE_URL"):
+        db_type = "postgresql" if "postgresql" in os.getenv("DATABASE_URL", "").lower() else "other"
+        # Test connection
+        try:
+            from db.database import health_check as pg_health
+            db_connected = await pg_health()
+        except Exception:
+            db_connected = False
+    else:
+        # Test SQLite
+        try:
+            import sqlite3
+            conn = sqlite3.connect(DB_PATH, timeout=2.0)
+            conn.execute("SELECT 1")
+            conn.close()
+            db_connected = True
+        except Exception:
+            db_connected = False
 
     def _build():
         now = datetime.now(timezone.utc)
@@ -444,7 +470,10 @@ async def health():
             "feeds_error": err_n,
         }
 
-    return await asyncio.to_thread(_build)
+    result = await asyncio.to_thread(_build)
+    result["database"] = db_type
+    result["db_connected"] = db_connected
+    return result
 
 
 # Simple in-memory TTL cache to avoid upstream rate limits

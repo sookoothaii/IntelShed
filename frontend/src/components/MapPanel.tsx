@@ -24,6 +24,26 @@ type StatusResponse = {
   primary: string | null
 }
 
+/** Archives above this size are manual-only — too heavy for auto-default. */
+const PLANET_FULL_MB = 95_000
+
+/** Prefer small global archive for smooth pan/zoom; never auto-select planet_full. */
+function pickArchive(archives: Archive[]): Archive {
+  const byName = (name: string) => archives.find((a) => a.name === name)
+  const small = archives.filter((a) => a.name !== 'planet_full' && a.size_mb < PLANET_FULL_MB)
+  const pool = small.length ? small : archives
+  return (
+    byName('planet_z6') ||
+    byName('thailand') ||
+    pool.find((a) => a.name !== 'planet_full') ||
+    archives[0]
+  )
+}
+
+function isHeavyArchive(archive: Archive | undefined): boolean {
+  return !!archive && archive.size_mb >= PLANET_FULL_MB
+}
+
 const FLAVORS = ['dark', 'black', 'grayscale', 'light', 'white'] as const
 type FlavorName = (typeof FLAVORS)[number]
 
@@ -116,6 +136,7 @@ export default function MapPanel({
   const [activeArchive, setActiveArchive] = useState<string>('')
   const [flavor, setFlavor] = useState<FlavorName>('dark')
   const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'empty'>('loading')
+  const [mapBooting, setMapBooting] = useState(false)
   const [error, setError] = useState<string>('')
   const [showHint, setShowHint] = useState<boolean>(false)
 
@@ -143,11 +164,7 @@ export default function MapPanel({
           return
         }
         setArchives(data.archives)
-        const preferred =
-          data.archives.find((a) => a.name === 'thailand') ||
-          data.archives.find((a) => a.name === 'planet_z6') ||
-          data.archives[0]
-        setActiveArchive(preferred.name)
+        setActiveArchive(pickArchive(data.archives).name)
         setStatus('ready')
       })
       .catch((e) => {
@@ -174,7 +191,9 @@ export default function MapPanel({
       const archive = archives.find((a) => a.name === activeArchive)
       if (!archive) return
 
+      setMapBooting(true)
       const pmtilesUrl = `${window.location.origin}${archive.pmtiles_url}`
+      const heavy = isHeavyArchive(archive)
 
       let centerLon = 100
       let centerLat = 13
@@ -255,11 +274,14 @@ export default function MapPanel({
         style,
         center: [centerLon, centerLat],
         zoom: initZoom,
-        maxZoom,
+        maxZoom: heavy ? Math.min(maxZoom, 12) : maxZoom,
         pitch: mapModeRef.current.render3d ? 60 : 0,
         bearing: 0,
         dragRotate: true,
         pitchWithRotate: true,
+        fadeDuration: 0,
+        renderWorldCopies: false,
+        maxTileCacheSize: heavy ? 32 : 64,
         attributionControl: { compact: true },
       })
       installStyleImageFallback(map)
@@ -269,6 +291,10 @@ export default function MapPanel({
 
       map.on('load', () => {
         applyMapModeToMap(map, mapModeRef.current)
+      })
+
+      map.once('idle', () => {
+        if (!cancelled) setMapBooting(false)
       })
 
       map.on('moveend', () => {
@@ -304,6 +330,7 @@ export default function MapPanel({
 
     return () => {
       cancelled = true
+      setMapBooting(false)
       resizeObserver?.disconnect()
       if (mapRef.current) {
         mapRef.current.remove()
@@ -351,10 +378,18 @@ export default function MapPanel({
   }, [syncCamera, mapMode.render3d])
 
   const archive = archives.find((a) => a.name === activeArchive)
+  const heavyArchive = isHeavyArchive(archive)
 
   return (
     <div className="map-wrap">
       <div ref={containerRef} className="map-canvas" />
+
+      {mapBooting && (
+        <div className="map-loading" aria-live="polite">
+          <span className="map-loading-spin" aria-hidden />
+          {heavyArchive ? 'Loading large archive…' : 'Loading basemap…'}
+        </div>
+      )}
 
       <div className="map-controls">
         <div className="map-title">PMTILES BASEMAP</div>
@@ -364,10 +399,15 @@ export default function MapPanel({
           {archives.length === 0 ? (
             <span className="map-val">—</span>
           ) : (
-            <select value={activeArchive} onChange={(e) => setActiveArchive(e.target.value)}>
+            <select
+              value={activeArchive}
+              onChange={(e) => setActiveArchive(e.target.value)}
+              title={heavyArchive ? 'Large archive — first pan/zoom may be slow' : undefined}
+            >
               {archives.map((a) => (
                 <option key={a.name} value={a.name}>
-                  {a.name} · {a.size_mb} MB
+                  {a.name} · {a.size_mb >= 1024 ? `${(a.size_mb / 1024).toFixed(1)} GB` : `${a.size_mb} MB`}
+                  {a.size_mb >= PLANET_FULL_MB ? ' ⚠' : ''}
                 </option>
               ))}
             </select>

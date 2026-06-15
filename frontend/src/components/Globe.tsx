@@ -52,6 +52,7 @@ import type { FocusTarget } from '../lib/focus'
 import type { OsintPin } from '../lib/osintPins'
 import SensorSparklines from './SensorSparklines'
 import PegelSparkline from './PegelSparkline'
+import { canFetch, logFetchError } from '../lib/networkFetch'
 import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
 
@@ -358,6 +359,135 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
   },
 ]
 
+type ViewPresetId = 'overview' | 'de_infra' | 'osint' | 'full'
+
+type ViewPreset = {
+  label: string
+  layers: GlobeLayers
+  collapsed: Record<string, boolean>
+  trails: boolean
+  compact: boolean
+}
+
+const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
+  overview: {
+    label: 'OVERVIEW',
+    layers: {
+      aircraft: true,
+      satellites: true,
+      orbits: false,
+      quakes: true,
+      events: true,
+      nodes: false,
+      military: false,
+      spaceweather: true,
+      geopolitics: false,
+      wildfires: true,
+      lightning: false,
+      transit: false,
+      maritime: false,
+      gdacs: true,
+      hazards: true,
+      outages: true,
+      volcanoes: false,
+      airquality: false,
+      pegel: false,
+      energy: false,
+      osint: true,
+    },
+    collapsed: { motion: false, geo: false, env: false, infra: true, intel: true },
+    trails: false,
+    compact: true,
+  },
+  de_infra: {
+    label: 'DE INFRA',
+    layers: {
+      aircraft: true,
+      satellites: false,
+      orbits: false,
+      quakes: true,
+      events: false,
+      nodes: false,
+      military: false,
+      spaceweather: true,
+      geopolitics: false,
+      wildfires: false,
+      lightning: false,
+      transit: false,
+      maritime: false,
+      gdacs: true,
+      hazards: true,
+      outages: true,
+      volcanoes: false,
+      airquality: false,
+      pegel: true,
+      energy: true,
+      osint: false,
+    },
+    collapsed: { motion: true, geo: false, env: true, infra: false, intel: true },
+    trails: false,
+    compact: true,
+  },
+  osint: {
+    label: 'OSINT',
+    layers: {
+      aircraft: false,
+      satellites: false,
+      orbits: false,
+      quakes: false,
+      events: true,
+      nodes: false,
+      military: false,
+      spaceweather: false,
+      geopolitics: true,
+      wildfires: false,
+      lightning: false,
+      transit: false,
+      maritime: true,
+      gdacs: true,
+      hazards: false,
+      outages: false,
+      volcanoes: false,
+      airquality: false,
+      pegel: false,
+      energy: false,
+      osint: true,
+    },
+    collapsed: { motion: true, geo: true, env: true, infra: true, intel: false },
+    trails: false,
+    compact: false,
+  },
+  full: {
+    label: 'FULL',
+    layers: {
+      aircraft: true,
+      satellites: true,
+      orbits: true,
+      quakes: true,
+      events: true,
+      nodes: true,
+      military: false,
+      spaceweather: true,
+      geopolitics: false,
+      wildfires: true,
+      lightning: true,
+      transit: false,
+      maritime: false,
+      gdacs: true,
+      hazards: true,
+      outages: true,
+      volcanoes: false,
+      airquality: false,
+      pegel: false,
+      energy: false,
+      osint: true,
+    },
+    collapsed: { motion: false, geo: false, env: false, infra: false, intel: false },
+    trails: true,
+    compact: false,
+  },
+}
+
 function fmtTelemetryAge(sec: number | null | undefined): string {
   if (sec == null || !Number.isFinite(sec)) return ''
   if (sec < 60) return `${Math.round(sec)}s`
@@ -486,9 +616,13 @@ export default function Globe({
   const [aircraftSource, setAircraftSource] = useState('')
   const [feedHud, setFeedHud] = useState<Record<string, string>>({})
   const [feedHealth, setFeedHealth] = useState<Record<string, FeedHealth>>({})
-  const [telemetryCompact, setTelemetryCompact] = useState(false)
-  const [telemetryCollapsed, setTelemetryCollapsed] = useState<Record<string, boolean>>({})
-  const [trailsEnabled, setTrailsEnabled] = useState(true)
+  const [telemetryCompact, setTelemetryCompact] = useState(VIEW_PRESETS.overview.compact)
+  const [telemetryCollapsed, setTelemetryCollapsed] = useState<Record<string, boolean>>(
+    () => ({ ...VIEW_PRESETS.overview.collapsed }),
+  )
+  const [viewPreset, setViewPreset] = useState<ViewPresetId>('overview')
+  const [layersPanelOpen, setLayersPanelOpen] = useState(false)
+  const [trailsEnabled, setTrailsEnabled] = useState(VIEW_PRESETS.overview.trails)
   const [heatmapOn, setHeatmapOn] = useState(false)
   const [heatmapMeta, setHeatmapMeta] = useState<{ cells: number; max: number; contrib: Record<string, number> } | null>(null)
   const [sanctionedMmsi, setSanctionedMmsi] = useState<Set<string>>(new Set())
@@ -497,29 +631,7 @@ export default function Globe({
   const trailsEnabledRef = useRef(true)
   useEffect(() => { trailsEnabledRef.current = trailsEnabled }, [trailsEnabled])
   const timelineRef = useRef({ scrubT: 1, hours: 24 })
-  const [layers, setLayers] = useState({
-    aircraft: true,
-    satellites: true,
-    orbits: true,
-    quakes: true,
-    events: true,
-    nodes: true,
-    military: false,
-    spaceweather: true,
-    geopolitics: false,
-    wildfires: true,
-    lightning: true,
-    transit: false,
-    maritime: false,
-    gdacs: true,
-    hazards: true,
-    outages: true,
-    volcanoes: false,
-    airquality: false,
-    pegel: false,
-    osint: true,
-    energy: false,
-  })
+  const [layers, setLayers] = useState<GlobeLayers>(() => ({ ...VIEW_PRESETS.overview.layers }))
 
   const visibleRef = useRef(visible)
   useEffect(() => { visibleRef.current = visible }, [visible])
@@ -585,6 +697,7 @@ export default function Globe({
     let cancelled = false
     let viewer: Viewer | null = null
     let resizeObserver: ResizeObserver | null = null
+    let recoverAfterOnline: (() => void) | null = null
     const timers: ReturnType<typeof setInterval>[] = []
     const feedActive = () => !cancelled && visibleRef.current
 
@@ -677,7 +790,7 @@ export default function Globe({
 
       // ---------- AIRCRAFT ----------
       const fetchAircraft = async () => {
-        if (!feedActive() || !layersRef.current.aircraft) return
+        if (!feedActive() || !layersRef.current.aircraft || !canFetch()) return
         try {
           const r = await fetch('/api/aircraft')
           const d = await r.json()
@@ -735,7 +848,7 @@ export default function Globe({
             if (d.source) setAircraftSource(String(d.source))
           }
         } catch (e) {
-          console.error('aircraft fetch failed', e)
+          logFetchError('Globe', 'aircraft')
         }
       }
 
@@ -755,7 +868,7 @@ export default function Globe({
           orbitSrc.entities.removeAll()
           satMap.clear()
         } catch (e) {
-          console.error('sat TLE fetch failed', e)
+          logFetchError('Globe', 'sat TLE')
         }
       }
 
@@ -944,7 +1057,7 @@ export default function Globe({
           quakeRaw.push(...(d.earthquakes || []))
           applyTimeline()
         } catch (e) {
-          console.error('quakes fetch failed', e)
+          logFetchError('Globe', 'quakes')
         }
       }
 
@@ -956,7 +1069,7 @@ export default function Globe({
           eventRaw.push(...(d.events || []))
           applyTimeline()
         } catch (e) {
-          console.error('events fetch failed', e)
+          logFetchError('Globe', 'events')
         }
       }
 
@@ -1116,7 +1229,7 @@ export default function Globe({
           }
           if (!cancelled) setStats((p) => ({ ...p, nodes: nodeMap.size }))
         } catch (e) {
-          console.error('nodes fetch failed', e)
+          logFetchError('Globe', 'nodes')
         }
       }
 
@@ -1193,7 +1306,7 @@ export default function Globe({
           }
           if (!cancelled) setStats((p) => ({ ...p, military: milMap.size }))
         } catch (e) {
-          console.error('military fetch failed', e)
+          logFetchError('Globe', 'military')
         }
       }
 
@@ -1253,7 +1366,7 @@ export default function Globe({
           })
           if (!cancelled) setStats((p) => ({ ...p, spaceweather: kp }))
         } catch (e) {
-          console.error('spaceweather fetch failed', e)
+          logFetchError('Globe', 'spaceweather')
         }
       }
 
@@ -1303,7 +1416,7 @@ export default function Globe({
             setFeedHud((p) => ({ ...p, wildfires: src || (d.errors ? 'degraded' : '') }))
           }
         } catch (e) {
-          console.error('wildfires fetch failed', e)
+          logFetchError('Globe', 'wildfires')
         }
       }
 
@@ -1358,7 +1471,7 @@ export default function Globe({
             }
           }
         } catch (e) {
-          console.error('lightning fetch failed', e)
+          logFetchError('Globe', 'lightning')
         }
       }
 
@@ -1424,7 +1537,7 @@ export default function Globe({
           }
           if (!cancelled) setStats((p) => ({ ...p, transit: transitMap.size }))
         } catch (e) {
-          console.error('transit fetch failed', e)
+          logFetchError('Globe', 'transit')
         }
       }
 
@@ -1497,7 +1610,7 @@ export default function Globe({
           }
           if (!cancelled) setStats((p) => ({ ...p, maritime: vesselMap.size }))
         } catch (e) {
-          console.error('maritime fetch failed', e)
+          logFetchError('Globe', 'maritime')
         }
       }
 
@@ -1538,7 +1651,7 @@ export default function Globe({
           }
           if (!cancelled) setStats((p) => ({ ...p, geopolitics: disasters.length }))
         } catch (e) {
-          console.error('geopolitics fetch failed', e)
+          logFetchError('Globe', 'geopolitics')
         }
       }
 
@@ -1583,7 +1696,7 @@ export default function Globe({
             }))
           }
         } catch (e) {
-          console.error('gdacs fetch failed', e)
+          logFetchError('Globe', 'gdacs')
         }
       }
 
@@ -1660,7 +1773,7 @@ export default function Globe({
             setFeedHud((p) => ({ ...p, hazards: d.geocoded != null && d.geocoded < (d.count ?? n) ? `${d.geocoded} map` : '' }))
           }
         } catch (e) {
-          console.error('hazards fetch failed', e)
+          logFetchError('Globe', 'hazards')
         }
       }
 
@@ -1700,7 +1813,7 @@ export default function Globe({
             setFeedHud((p) => ({ ...p, outages: mapNote }))
           }
         } catch (e) {
-          console.error('outages fetch failed', e)
+          logFetchError('Globe', 'outages')
         }
       }
 
@@ -1735,7 +1848,7 @@ export default function Globe({
           }
           if (!cancelled) setStats((p) => ({ ...p, volcanoes: n }))
         } catch (e) {
-          console.error('volcanoes fetch failed', e)
+          logFetchError('Globe', 'volcanoes')
         }
       }
 
@@ -1785,7 +1898,7 @@ export default function Globe({
           }
           if (!cancelled) setStats((p) => ({ ...p, airquality: (d.cities || []).length }))
         } catch (e) {
-          console.error('airquality fetch failed', e)
+          logFetchError('Globe', 'airquality')
         }
       }
 
@@ -1845,7 +1958,7 @@ export default function Globe({
             }))
           }
         } catch (e) {
-          console.error('energy fetch failed', e)
+          logFetchError('Globe', 'energy')
         }
       }
 
@@ -1895,7 +2008,7 @@ export default function Globe({
             setFeedHud((p) => ({ ...p, pegel: d.error ? 'err' : (d.source ? 'pegel' : '') }))
           }
         } catch (e) {
-          console.error('pegel fetch failed', e)
+          logFetchError('Globe', 'pegel')
         }
       }
 
@@ -1981,7 +2094,7 @@ export default function Globe({
           }
           if (!cancelled) setHeatmapMeta({ cells: cells.length, max: d.max_intensity || 0, contrib: d.contributors || {} })
         } catch (e) {
-          console.error('fusion heatmap fetch failed', e)
+          logFetchError('Globe', 'fusion heatmap')
         }
       }
 
@@ -2306,7 +2419,7 @@ export default function Globe({
 
       // ---------- Bundled snapshot (one HTTP round-trip for slow feeds) ----------
       const fetchSnapshot = async () => {
-        if (!feedActive()) return
+        if (!feedActive() || !canFetch()) return
         const l = layersRef.current
         const keys = (
           ['quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires',
@@ -2333,7 +2446,7 @@ export default function Globe({
           if (d.pegel) await fetchPegel(d.pegel)
           if (d.energy) await fetchEnergy(d.energy)
         } catch (e) {
-          console.error('globe snapshot failed', e)
+          logFetchError('Globe', 'snapshot')
         }
       }
 
@@ -2457,6 +2570,13 @@ export default function Globe({
       fetchSanctions()
       timers.push(setInterval(fetchSanctions, 180000))
 
+      recoverAfterOnline = () => {
+        if (cancelled || !feedActive()) return
+        fetchSnapshot()
+        fetchAircraft()
+      }
+      window.addEventListener('online', recoverAfterOnline)
+
       // Basemap + 3D buildings after feeds start (slow Ion assets must not block markers)
       ;(async () => {
         if (Ion.defaultAccessToken) {
@@ -2491,6 +2611,7 @@ export default function Globe({
 
     return () => {
       cancelled = true
+      if (recoverAfterOnline) window.removeEventListener('online', recoverAfterOnline)
       resizeObserver?.disconnect()
       timers.forEach((id) => {
         clearTimeout(id)
@@ -2665,6 +2786,15 @@ export default function Globe({
 
   const toggle = (k: LayerKey) => setLayers((l) => ({ ...l, [k]: !l[k] }))
 
+  const applyViewPreset = (id: ViewPresetId) => {
+    const preset = VIEW_PRESETS[id]
+    setLayers({ ...preset.layers })
+    setTelemetryCollapsed({ ...preset.collapsed })
+    setTelemetryCompact(preset.compact)
+    setTrailsEnabled(preset.trails)
+    setViewPreset(id)
+  }
+
   const toggleTelemetryGroup = (id: string) => {
     setTelemetryCollapsed((c) => ({ ...c, [id]: !c[id] }))
   }
@@ -2719,6 +2849,19 @@ export default function Globe({
       <div className="globe-hud">
         <div className="telemetry-head">
           <div className="hud-title">LIVE TELEMETRY</div>
+          <div className="telemetry-presets">
+            {(Object.keys(VIEW_PRESETS) as ViewPresetId[]).map((id) => (
+              <button
+                key={id}
+                type="button"
+                className={['telemetry-preset', viewPreset === id ? 'telemetry-preset--on' : ''].join(' ')}
+                onClick={() => applyViewPreset(id)}
+                title={`Preset: ${VIEW_PRESETS[id].label}`}
+              >
+                {VIEW_PRESETS[id].label}
+              </button>
+            ))}
+          </div>
           <div className="telemetry-summary">
             {layerCount} layers · {freshFeeds || '—'} fresh
           </div>
@@ -2810,30 +2953,40 @@ export default function Globe({
         </div>
 
         <div className="ctl-block">
-          <div className="hud-title">LAYERS</div>
-          {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'pegel', 'energy', 'osint'] as const).map((k) => (
-            <label key={k} className={layers[k] ? 'on' : ''}>
-              <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
-            </label>
-          ))}
-          <label className={trailsEnabled ? 'on' : ''} style={{ color: '#ffd23f', marginTop: 4 }}>
-            <input type="checkbox" checked={trailsEnabled} onChange={() => setTrailsEnabled(v => !v)} />AIRCRAFT TRAILS
-          </label>
-          <label className={heatmapOn ? 'on' : ''} style={{ color: '#ff6b35' }}>
-            <input type="checkbox" checked={heatmapOn} onChange={() => setHeatmapOn(v => !v)} />FUSION HEATMAP
-          </label>
-          {sanctionedMmsi.size > 0 && (
-            <div style={{ marginTop: 6, fontSize: 10, color: '#ff2d00' }}>
-              ⚠ {sanctionedMmsi.size} vessel{sanctionedMmsi.size > 1 ? 's' : ''} flagged (OpenSanctions)
-            </div>
-          )}
-          <label className={mvtProvider ? 'on' : ''} style={{ color: '#00e5a0', marginTop: 4 }}>
-            <input type="checkbox" checked={!!mvtProvider} onChange={toggleMvt} />MVT (EXPERIMENTAL)
-          </label>
-          {onClearOsintPins && stats.osint > 0 && (
-            <button type="button" className="web-search" style={{ marginTop: 6, fontSize: 10 }} onClick={onClearOsintPins}>
-              CLEAR OSINT PINS
-            </button>
+          <button
+            type="button"
+            className="layers-advanced-toggle"
+            onClick={() => setLayersPanelOpen((v) => !v)}
+          >
+            {layersPanelOpen ? '▾' : '▸'} LAYERS (advanced)
+          </button>
+          {layersPanelOpen && (
+            <>
+              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'pegel', 'energy', 'osint'] as const).map((k) => (
+                <label key={k} className={layers[k] ? 'on' : ''}>
+                  <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
+                </label>
+              ))}
+              <label className={trailsEnabled ? 'on' : ''} style={{ color: '#ffd23f', marginTop: 4 }}>
+                <input type="checkbox" checked={trailsEnabled} onChange={() => setTrailsEnabled(v => !v)} />AIRCRAFT TRAILS
+              </label>
+              <label className={heatmapOn ? 'on' : ''} style={{ color: '#ff6b35' }}>
+                <input type="checkbox" checked={heatmapOn} onChange={() => setHeatmapOn(v => !v)} />FUSION HEATMAP
+              </label>
+              {sanctionedMmsi.size > 0 && (
+                <div style={{ marginTop: 6, fontSize: 10, color: '#ff2d00' }}>
+                  ⚠ {sanctionedMmsi.size} vessel{sanctionedMmsi.size > 1 ? 's' : ''} flagged (OpenSanctions)
+                </div>
+              )}
+              <label className={mvtProvider ? 'on' : ''} style={{ color: '#00e5a0', marginTop: 4 }}>
+                <input type="checkbox" checked={!!mvtProvider} onChange={toggleMvt} />MVT (EXPERIMENTAL)
+              </label>
+              {onClearOsintPins && stats.osint > 0 && (
+                <button type="button" className="web-search" style={{ marginTop: 6, fontSize: 10 }} onClick={onClearOsintPins}>
+                  CLEAR OSINT PINS
+                </button>
+              )}
+            </>
           )}
         </div>
 

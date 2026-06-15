@@ -157,7 +157,7 @@ async def get_german_energy():
             return stale
 
     _smard_cache["de_energy"] = {"ts": now, "data": result}
-    feed_registry.write("energy_de", result)
+    feed_registry.write_auto("energy_de", result)
     return result
 
 

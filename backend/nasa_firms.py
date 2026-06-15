@@ -180,5 +180,5 @@ async def get_wildfires():
     }
 
     _firms_cache[cache_key] = {"ts": now, "data": result}
-    feed_registry.write("wildfires", result)
+    feed_registry.write_auto("wildfires", result)
     return result

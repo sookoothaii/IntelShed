@@ -104,8 +104,13 @@ function SystemStatus() {
       } catch { setOllama('offline') }
     }
     ping()
+    const onOnline = () => { ping() }
+    window.addEventListener('online', onOnline)
     const t = setInterval(ping, 60000)
-    return () => clearInterval(t)
+    return () => {
+      clearInterval(t)
+      window.removeEventListener('online', onOnline)
+    }
   }, [])
 
   return (

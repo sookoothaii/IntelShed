@@ -101,12 +101,23 @@ async def get_pegel():
     _cache["ts"] = now
 
     try:
-        import json
-        import sqlite3
-
         import feed_registry
-
-        feed_registry.write("pegel", payload)
+        
+        # Try PostgreSQL first if configured, fallback to SQLite
+        if feed_registry.is_postgres_mode():
+            from db.database import get_db_context
+            
+            async def _write_pg():
+                async with get_db_context() as db:
+                    await feed_registry.async_write(db, "pegel", payload)
+            
+            # Run async write directly since we are in an async function
+            try:
+                await _write_pg()
+            except Exception:
+                pass  # Fallback to SQLite on error
+        else:
+            feed_registry.write_auto("pegel", payload)
     except Exception:
         pass
 

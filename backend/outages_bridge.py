@@ -239,5 +239,5 @@ async def internet_outages(hours: int = 72, limit: int = 40):
         "error": notes[0] if notes and not items else None,
     }
     _CACHE[key] = (time.time(), out)
-    feed_registry.write("outages", out)
+    feed_registry.write_auto("outages", out)
     return out

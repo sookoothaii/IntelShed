@@ -77,5 +77,5 @@ async def get_cve_kev(limit: int = 30):
         "vulnerabilities": items,
     }
     if not stale and not upstream_err:
-        feed_registry.write("cve", out)
+        feed_registry.write_auto("cve", out)
     return out
