@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { fetchApi } from '../lib/networkFetch';
 
 type Point = { t: string; v: number }
 type Payload = {
@@ -30,7 +31,7 @@ export default function PegelSparkline({ uuid, hours = 24, width = 220, height =
   useEffect(() => {
     let active = true
     setData(null); setError(null)
-    fetch(`/api/pegel/${encodeURIComponent(uuid)}/history?hours=${hours}`)
+    fetchApi(`/api/pegel/${encodeURIComponent(uuid)}/history?hours=${hours}`)
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then(d => { if (active) setData(d) })
       .catch(err => { if (active) setError(err.message || String(err)) })

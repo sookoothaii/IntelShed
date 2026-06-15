@@ -9,13 +9,14 @@ from datetime import datetime, timezone
 from contextlib import contextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Depends
+from auth.security import verify_api_key
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from starlette.datastructures import MutableHeaders
 
 # Rate Limiting
-from middleware.rate_limit import setup_rate_limiting
+from middleware.rate_limit import setup_rate_limiting, rate_limit_general
 
 import globe_snapshot
 import feeds_extra
@@ -1102,7 +1103,8 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
 
 
 @app.post("/api/chat")
-async def chat_proxy(payload: dict):
+@rate_limit_general()
+async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(verify_api_key)):
     """Proxy chat requests to LLM providers. Supports SSE streaming.
 
     Providers: ollama (default), openai, anthropic, groq, openrouter.

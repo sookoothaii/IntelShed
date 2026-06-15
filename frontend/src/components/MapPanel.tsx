@@ -5,6 +5,7 @@ import { layers as protomapsLayers, namedFlavor } from '@protomaps/basemaps'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_SATELLITE_TILES } from '../lib/mapView'
+import { fetchApi } from '../lib/networkFetch';
 import {
   containerHasSize,
   globeHeightToZoom,
@@ -155,7 +156,7 @@ export default function MapPanel({
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/pmtiles/status')
+    fetchApi('/api/pmtiles/status')
       .then((r) => r.json())
       .then((data: StatusResponse) => {
         if (cancelled) return

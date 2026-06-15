@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import type { FocusTarget } from '../lib/focus'
+import { fetchApi } from '../lib/networkFetch';
 
 type Match = {
   entity_id: string
@@ -59,7 +60,7 @@ export default function SanctionsPanel({ onFocus }: Props) {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const r = await fetch('/api/sanctions/status')
+      const r = await fetchApi('/api/sanctions/status')
       setStatus(await r.json())
     } catch (e: any) { setError(`status: ${e.message || e}`) }
   }, [])
@@ -72,7 +73,7 @@ export default function SanctionsPanel({ onFocus }: Props) {
     try {
       const u = new URLSearchParams({ q: query, limit: '15' })
       if (schema) u.set('schema', schema)
-      const r = await fetch(`/api/sanctions/search?${u.toString()}`)
+      const r = await fetchApi(`/api/sanctions/search?${u.toString()}`)
       const d = await r.json()
       setResults(d.results || [])
     } catch (e: any) { setError(`search: ${e.message || e}`); setResults([]) }
@@ -82,7 +83,7 @@ export default function SanctionsPanel({ onFocus }: Props) {
   const refresh = async () => {
     setRefreshing(true); setError(null)
     try {
-      await fetch('/api/sanctions/refresh', { method: 'POST' })
+      await fetchApi('/api/sanctions/refresh', { method: 'POST' })
       setTimeout(fetchStatus, 1500)
     } catch (e: any) { setError(`refresh: ${e.message || e}`) }
     finally { setTimeout(() => setRefreshing(false), 1500) }
@@ -91,7 +92,7 @@ export default function SanctionsPanel({ onFocus }: Props) {
   const screen = useCallback(async () => {
     setScreenLoading(true); setError(null)
     try {
-      const r = await fetch('/api/sanctions/screen/vessels?min_score=0.80&limit=300')
+      const r = await fetchApi('/api/sanctions/screen/vessels?min_score=0.80&limit=300')
       const d = await r.json()
       setScreenHits(d.matches || [])
     } catch (e: any) { setError(`screen: ${e.message || e}`); setScreenHits([]) }
@@ -216,7 +217,7 @@ export function useSanctionedVessels(intervalMs = 90000): Set<string> {
     let active = true
     const run = async () => {
       try {
-        const r = await fetch('/api/sanctions/screen/vessels?min_score=0.85&limit=400')
+        const r = await fetchApi('/api/sanctions/screen/vessels?min_score=0.85&limit=400')
         if (!r.ok) return
         const d = await r.json()
         if (!active) return

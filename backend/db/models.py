@@ -33,7 +33,7 @@ class Base(AsyncAttrs, DeclarativeBase):
 
 class NodeState(Base):
     """Represents the current state of a mesh network node."""
-    __tablename__ = "node_states"
+    __tablename__ = "node_state"
 
     node_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -68,8 +68,8 @@ class NodeState(Base):
     )
 
     __table_args__ = (
-        Index("idx_node_states_last_seen", "last_seen"),
-        Index("idx_node_states_location", "lat", "lon"),
+        Index("idx_node_state_last_seen", "last_seen"),
+        Index("idx_node_state_location", "lat", "lon"),
     )
 
 
@@ -80,7 +80,7 @@ class Briefing(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     node_id: Mapped[str] = mapped_column(
         String(64),
-        ForeignKey("node_states.node_id", ondelete="CASCADE"),
+        ForeignKey("node_state.node_id", ondelete="CASCADE"),
         nullable=False,
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
@@ -111,7 +111,7 @@ class SensorAlert(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     node_id: Mapped[str] = mapped_column(
         String(64),
-        ForeignKey("node_states.node_id", ondelete="CASCADE"),
+        ForeignKey("node_state.node_id", ondelete="CASCADE"),
         nullable=False,
     )
     alert_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -143,7 +143,7 @@ class NodeCommand(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     node_id: Mapped[str] = mapped_column(
         String(64),
-        ForeignKey("node_states.node_id", ondelete="CASCADE"),
+        ForeignKey("node_state.node_id", ondelete="CASCADE"),
         nullable=False,
     )
     command: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -176,7 +176,7 @@ class SensorHistory(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     node_id: Mapped[str] = mapped_column(
         String(64),
-        ForeignKey("node_states.node_id", ondelete="CASCADE"),
+        ForeignKey("node_state.node_id", ondelete="CASCADE"),
         nullable=False,
     )
     temp_c: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

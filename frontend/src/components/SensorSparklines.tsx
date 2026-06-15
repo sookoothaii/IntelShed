@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { fetchApi } from '../lib/networkFetch';
 
 type Series = Record<string, { t: string; v: number }[]>
 
@@ -35,7 +36,7 @@ export default function SensorSparklines({ nodeId, hours = 24 }: { nodeId: strin
     setErr(null)
     ;(async () => {
       try {
-        const r = await fetch(`/api/node/${encodeURIComponent(nodeId)}/sensors/history?hours=${hours}`)
+        const r = await fetchApi(`/api/node/${encodeURIComponent(nodeId)}/sensors/history?hours=${hours}`)
         if (!r.ok) throw new Error(`${r.status}`)
         const d = await r.json()
         if (!cancelled) setSeries(d.series || {})

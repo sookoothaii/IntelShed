@@ -153,9 +153,10 @@ async def health_check() -> bool:
     Returns True if database is accessible, False otherwise.
     """
     try:
+        from sqlalchemy import text
         engine = get_engine()
         async with engine.connect() as conn:
-            await conn.execute("SELECT 1")
+            await conn.execute(text("SELECT 1"))
         return True
     except Exception:
         return False

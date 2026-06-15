@@ -13,7 +13,9 @@ import hashlib
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Request, Depends
+from auth.security import verify_api_key
+from middleware.rate_limit import rate_limit_general
 
 import entity_store
 
@@ -25,7 +27,8 @@ _UA = {"User-Agent": "WorldBase-OSINT/1.0 (research only)"}
 # IP geolocation + basic info (ip-api.com — free, no key, 45 req/min)
 # ---------------------------------------------------------------------------
 @router.get("/ip/{ip}")
-async def ip_lookup(ip: str):
+@rate_limit_general()
+async def ip_lookup(request: Request, ip: str, api_key: str = Depends(verify_api_key)):
     """Geolocate an IP address. No key. Rate-limited."""
     try:
         # Validate IP
@@ -62,7 +65,8 @@ async def ip_lookup(ip: str):
 # Fallback: simple DNS resolution
 # ---------------------------------------------------------------------------
 @router.get("/domain/{domain}")
-async def domain_lookup(domain: str):
+@rate_limit_general()
+async def domain_lookup(request: Request, domain: str, api_key: str = Depends(verify_api_key)):
     """Basic domain info: DNS resolution + IP. No key."""
     # Sanitize domain
     domain = re.sub(r"[^a-zA-Z0-9.-]", "", domain).lower()
@@ -96,7 +100,8 @@ async def domain_lookup(domain: str):
 # Username reconnaissance (simple: check if username exists on platforms)
 # ---------------------------------------------------------------------------
 @router.get("/username/{username}")
-async def username_lookup(username: str):
+@rate_limit_general()
+async def username_lookup(request: Request, username: str, api_key: str = Depends(verify_api_key)):
     """Check username availability on major platforms. No key. Passive only."""
     username = re.sub(r"[^a-zA-Z0-9_.-]", "", username)
     if not username:
@@ -127,7 +132,8 @@ DISPOSABLE_DOMAINS = {
 }
 
 @router.get("/email/{email}")
-async def email_check(email: str):
+@rate_limit_general()
+async def email_check(request: Request, email: str, api_key: str = Depends(verify_api_key)):
     """Basic email validation + disposable domain detection. No key."""
     email = email.lower().strip()
     if "@" not in email:
@@ -156,7 +162,8 @@ async def email_check(email: str):
 # Geo lookup for EXIF-like coordinates (reverse geocoding)
 # ---------------------------------------------------------------------------
 @router.get("/reverse-geocode")
-async def reverse_geocode(lat: float, lon: float):
+@rate_limit_general()
+async def reverse_geocode(request: Request, lat: float, lon: float, api_key: str = Depends(verify_api_key)):
     """Reverse geocode coordinates to location name. No key."""
     try:
         async with httpx.AsyncClient(timeout=10.0, headers=_UA) as client:
@@ -181,7 +188,8 @@ async def reverse_geocode(lat: float, lon: float):
 # Flowsint / investigation → globe pins (client merges into localStorage)
 # ---------------------------------------------------------------------------
 @router.post("/pins/import")
-async def import_pins(payload: dict):
+@rate_limit_general()
+async def import_pins(request: Request, payload: dict, api_key: str = Depends(verify_api_key)):
     """Normalize Flowsint or manual geo entities into OsintPin-shaped objects.
 
     Body: { "pins": [...], "investigation_id": "optional-default" }

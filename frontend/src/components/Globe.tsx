@@ -55,6 +55,7 @@ import PegelSparkline from './PegelSparkline'
 import { canFetch, logFetchError } from '../lib/networkFetch'
 import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
+import { fetchApi } from '../lib/networkFetch';
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
@@ -548,7 +549,7 @@ function EntityContextCard({ entityId }: { entityId: string }) {
   const [ctx, setCtx] = useState<any>(null)
   useEffect(() => {
     let active = true
-    fetch(`/api/entity/${entityId}/context`)
+    fetchApi(`/api/entity/${entityId}/context`)
       .then(r => r.json())
       .then(d => active && setCtx(d))
       .catch(() => {})
@@ -643,7 +644,7 @@ export default function Globe({
     let cancelled = false
     const poll = async () => {
       try {
-        const r = await fetch('/api/health')
+        const r = await fetchApi('/api/health')
         if (!r.ok || cancelled) return
         const d = await r.json()
         if (!cancelled && d.feeds) setFeedHealth(d.feeds)
@@ -792,7 +793,7 @@ export default function Globe({
       const fetchAircraft = async () => {
         if (!feedActive() || !layersRef.current.aircraft || !canFetch()) return
         try {
-          const r = await fetch('/api/aircraft')
+          const r = await fetchApi('/api/aircraft')
           const d = await r.json()
           const states: any[] = d.states || []
           const seen = new Set<string>()
@@ -856,7 +857,7 @@ export default function Globe({
       let satCache: { name: string; rec: any }[] = []
       const loadSatTLEs = async (group: string) => {
         try {
-          const r = await fetch(`/api/satellites?group=${group}&limit=500`)
+          const r = await fetchApi(`/api/satellites?group=${group}&limit=500`)
           const d = await r.json()
           satCache = []
           for (const s of d.satellites || []) {
@@ -1052,7 +1053,7 @@ export default function Globe({
       const fetchQuakes = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.quakes) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/earthquakes?period=day&magnitude=2.5')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/earthquakes?period=day&magnitude=2.5')).json()) as any
           quakeRaw.length = 0
           quakeRaw.push(...(d.earthquakes || []))
           applyTimeline()
@@ -1064,7 +1065,7 @@ export default function Globe({
       const fetchEvents = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.events) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/events?limit=120')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/events?limit=120')).json()) as any
           eventRaw.length = 0
           eventRaw.push(...(d.events || []))
           applyTimeline()
@@ -1083,7 +1084,7 @@ export default function Globe({
       const fetchNodes = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.nodes) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/nodes')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/nodes')).json()) as any
           const nodes: any[] = d.nodes || []
           const seen = new Set<string>()
           for (const n of nodes) {
@@ -1238,7 +1239,7 @@ export default function Globe({
       const fetchMilitary = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.military) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/military')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/military')).json()) as any
           const list: any[] = d.aircraft || []
           const seen = new Set<string>()
           for (const a of list) {
@@ -1314,7 +1315,7 @@ export default function Globe({
       const fetchSpaceweather = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.spaceweather) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/spaceweather')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/spaceweather')).json()) as any
           spaceweatherSrc.entities.removeAll()
           const kp = d.kp_index ?? 0
           // Aurora oval based on Kp (simple ring at auroral latitudes)
@@ -1374,7 +1375,7 @@ export default function Globe({
       const fetchWildfires = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.wildfires) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/wildfires')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/wildfires')).json()) as any
           wildfireSrc.entities.removeAll()
           const fires: any[] = d.fires || []
           for (const f of fires) {
@@ -1425,7 +1426,7 @@ export default function Globe({
       const fetchLightning = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.lightning) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/lightning')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/lightning')).json()) as any
           const strikes: any[] = d.strikes || []
           const now = Date.now()
           // Remove strikes older than 10 minutes
@@ -1480,7 +1481,7 @@ export default function Globe({
       const fetchTransit = async () => {
         if (!feedActive() || !layersRef.current.transit) return
         try {
-          const r = await fetch(`/api/transit/${transitCity}`)
+          const r = await fetchApi(`/api/transit/${transitCity}`)
           const d = await r.json()
           if (d.error) {
             for (const [id, e] of transitMap) { transitSrc.entities.remove(e); transitMap.delete(id) }
@@ -1546,7 +1547,7 @@ export default function Globe({
       const fetchMaritime = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.maritime) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/maritime')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/maritime')).json()) as any
           if (d.error) {
             for (const [id, e] of vesselMap) { maritimeSrc.entities.remove(e); vesselMap.delete(id) }
             if (!cancelled) setStats((p) => ({ ...p, maritime: 0 }))
@@ -1618,7 +1619,7 @@ export default function Globe({
       const fetchGeopolitics = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.geopolitics) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/geopolitics')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/geopolitics')).json()) as any
           geopoliticsSrc.entities.removeAll()
           const disasters: any[] = d.disasters || []
           for (const dis of disasters) {
@@ -1668,7 +1669,7 @@ export default function Globe({
       const fetchGdacs = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.gdacs) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/gdacs')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/gdacs')).json()) as any
           gdacsSrc.entities.removeAll()
           let n = 0
           for (const a of d.alerts || []) {
@@ -1711,7 +1712,7 @@ export default function Globe({
       const fetchHazards = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.hazards) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/hazards?limit=80')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/hazards?limit=80')).json()) as any
           hazardsSrc.entities.removeAll()
           let n = 0
           for (const a of d.alerts || []) {
@@ -1746,7 +1747,7 @@ export default function Globe({
             n++
           }
           try {
-            const gr = await fetch('/api/gdelt/geo?timespan=1d&maxrecords=40')
+            const gr = await fetchApi('/api/gdelt/geo?timespan=1d&maxrecords=40')
             const gd = await gr.json()
             for (const ev of gd.events || []) {
               if (ev.lon == null || ev.lat == null) continue
@@ -1780,7 +1781,7 @@ export default function Globe({
       const fetchOutages = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.outages) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/outages?hours=72&limit=35')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/outages?hours=72&limit=35')).json()) as any
           outagesSrc.entities.removeAll()
           let n = 0
           for (const o of d.items || []) {
@@ -1820,7 +1821,7 @@ export default function Globe({
       const fetchVolcanoes = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.volcanoes) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/volcanoes?active_only=false&limit=350')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/volcanoes?active_only=false&limit=350')).json()) as any
           volcanoSrc.entities.removeAll()
           let n = 0
           for (const v of d.volcanoes || []) {
@@ -1863,7 +1864,7 @@ export default function Globe({
       const fetchAirquality = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.airquality) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/airquality')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/airquality')).json()) as any
           airqualitySrc.entities.removeAll()
           for (const c of d.cities || []) {
             if (c.lon == null || c.lat == null) continue
@@ -1911,7 +1912,7 @@ export default function Globe({
       const fetchEnergy = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.energy) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/energy/de/globe')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/energy/de/globe')).json()) as any
           energySrc.entities.removeAll()
           const pulse = Date.now() / 1000
           for (const p of d.points || []) {
@@ -1965,7 +1966,7 @@ export default function Globe({
       const fetchPegel = async (prefetched?: unknown) => {
         if (!feedActive() || !layersRef.current.pegel) return
         try {
-          const d = (prefetched ?? await (await fetch('/api/pegel')).json()) as any
+          const d = (prefetched ?? await (await fetchApi('/api/pegel')).json()) as any
           pegelSrc.entities.removeAll()
           for (const g of d.gauges || []) {
             if (g.lon == null || g.lat == null) continue
@@ -2019,7 +2020,7 @@ export default function Globe({
         if (!icao) return
         if (trailEntities.has(icao)) return
         try {
-          const r = await fetch(`/api/aircraft/trails?icao24=${encodeURIComponent(icao)}&minutes=30`)
+          const r = await fetchApi(`/api/aircraft/trails?icao24=${encodeURIComponent(icao)}&minutes=30`)
           if (!r.ok) return
           const d = await r.json()
           const pts: any[] = d.points || []
@@ -2055,7 +2056,7 @@ export default function Globe({
       const fetchFusion = async () => {
         if (!feedActive() || !fusionSrc.show) return
         try {
-          const r = await fetch('/api/fusion/heatmap?cell_deg=2&top=80&include_geojson=0')
+          const r = await fetchApi('/api/fusion/heatmap?cell_deg=2&top=80&include_geojson=0')
           if (!r.ok) return
           const d = await r.json()
           fusionSrc.entities.removeAll()
@@ -2428,7 +2429,7 @@ export default function Globe({
         if (!keys.length) return
         try {
           const qs = keys.map((k) => `layers=${k}`).join('&')
-          const d = await (await fetch(`/api/globe/snapshot?${qs}`)).json()
+          const d = await (await fetchApi(`/api/globe/snapshot?${qs}`)).json()
           if (d.quakes) await fetchQuakes(d.quakes)
           if (d.events) await fetchEvents(d.events)
           if (d.nodes) await fetchNodes(d.nodes)
@@ -2540,7 +2541,7 @@ export default function Globe({
 
       timers.push(window.setTimeout(() => {
         if (!feedActive()) return
-        fetch('/api/gibs/latest').then((r) => r.json()).then((d) => { gibsDateRef.current = d.date || '' }).catch(() => {})
+        fetchApi('/api/gibs/latest').then((r) => r.json()).then((d) => { gibsDateRef.current = d.date || '' }).catch(() => {})
       }, 1200))
 
       await loadSatTLEs('starlink')
@@ -2557,7 +2558,7 @@ export default function Globe({
       const fetchSanctions = async () => {
         if (!feedActive() || !layersRef.current.maritime) return
         try {
-          const r = await fetch('/api/sanctions/screen/vessels?min_score=0.85&limit=400')
+          const r = await fetchApi('/api/sanctions/screen/vessels?min_score=0.85&limit=400')
           if (!r.ok) return
           const d = await r.json()
           const mmsi = new Set<string>()

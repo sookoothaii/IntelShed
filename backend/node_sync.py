@@ -14,8 +14,10 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse
+
+from auth.security import verify_api_key
 
 # Pydantic Models for type-safe validation
 from models.node import (
@@ -26,6 +28,14 @@ from models.node import (
     NodeListResponse,
     SensorHistoryResponse,
     CommandPayload,
+)
+
+# Rate limiting
+from middleware.rate_limit import (
+    rate_limit_node_ingest,
+    rate_limit_node_pull,
+    rate_limit_node_command,
+    rate_limit_general
 )
 
 # Enhanced Security (timing-safe HMAC, replay protection)
@@ -133,6 +143,7 @@ def init_node_db():
 # Pi -> PC : ingest edge telemetry
 # ---------------------------------------------------------------------------
 @router.post("/node/ingest")
+@rate_limit_node_ingest()
 async def node_ingest(
     request: Request,
     x_node_token: str = Header(default=""),
@@ -542,7 +553,8 @@ async def _ollama_briefing(prompt: str) -> str:
 
 
 @router.post("/briefing/generate")
-async def generate_briefing():
+@rate_limit_general()
+async def generate_briefing(request: Request, api_key: str = Depends(verify_api_key)):
     """Fuse all feeds and have the local LLM write a world-situation report.
 
     Stored in SQLite; the Pi pulls it via /api/node/pull for offline display.
@@ -644,7 +656,8 @@ def _compress_briefing(text: str, alerts: list) -> str:
 
 
 @router.get("/node/pull")
-async def node_pull(mesh: bool = False, x_node_token: str = Header(default="")):
+@rate_limit_node_pull()
+async def node_pull(request: Request, mesh: bool = False, x_node_token: str = Header(default="")):
     """Single payload the Pi pulls: latest briefing + live critical alerts.
 
     Designed so the off-grid portal can show global situational awareness even
@@ -679,9 +692,10 @@ async def node_pull(mesh: bool = False, x_node_token: str = Header(default="")):
 
 
 @router.get("/node/pull/mesh")
-async def node_pull_mesh(x_node_token: str = Header(default="")):
+@rate_limit_node_pull()
+async def node_pull_mesh(request: Request, x_node_token: str = Header(default="")):
     """Dedicated endpoint: always returns compressed <230 byte briefing for LoRa."""
-    return await node_pull(mesh=True, x_node_token=x_node_token)
+    return await node_pull(request=request, mesh=True, x_node_token=x_node_token)
 
 
 # ---------------------------------------------------------------------------
@@ -715,7 +729,9 @@ def init_command_db():
 
 
 @router.post("/node/{node_id}/command")
+@rate_limit_node_command()
 async def queue_command(
+    request: Request,
     node_id: str,
     payload: CommandPayload,  # Now using Pydantic model
     x_admin_token: str = Header(default=""),
@@ -739,7 +755,9 @@ async def queue_command(
 
 
 @router.get("/node/{node_id}/commands")
+@rate_limit_node_pull()
 async def poll_commands(
+    request: Request,
     node_id: str,
     limit: int = 10,
     x_node_token: str = Header(default=""),
@@ -762,7 +780,9 @@ async def poll_commands(
 
 
 @router.post("/node/command/{command_id}/ack")
+@rate_limit_node_ingest()
 async def ack_command(
+    request: Request,
     command_id: int,
     payload: dict,
     x_node_token: str = Header(default=""),

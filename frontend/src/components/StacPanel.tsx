@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FocusTarget } from '../lib/focus'
+import { fetchApi } from '../lib/networkFetch';
 
 type StacItem = {
   id: string
@@ -39,7 +40,7 @@ export default function StacPanel({ onFocus }: Props) {
   const [selected, setSelected] = useState<StacItem | null>(null)
 
   useEffect(() => {
-    fetch('/api/stac/collections')
+    fetchApi('/api/stac/collections')
       .then(r => r.json())
       .then(d => setCatalog(d))
       .catch(e => setError(String(e)))
@@ -51,7 +52,7 @@ export default function StacPanel({ onFocus }: Props) {
       const u = new URLSearchParams({
         region, collection, days: String(days), cloud_cover_max: String(cloudMax), limit: '24',
       })
-      const r = await fetch(`/api/stac/search?${u.toString()}`)
+      const r = await fetchApi(`/api/stac/search?${u.toString()}`)
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const d = await r.json()
       if (d.error) throw new Error(d.error)

@@ -16,3 +16,23 @@ export function logFetchError(scope: string, label: string): void {
     : 'Browser offline'
   console.warn(`[WorldBase/${scope}] ${label}: ${hint}`)
 }
+
+/**
+ * Centralized fetch wrapper for WorldBase API.
+ * Automatically injects API key if present in localStorage.
+ */
+export async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  if (!canFetch()) {
+    throw new Error('Browser is offline')
+  }
+
+  const apiKey = localStorage.getItem('WORLDBASE_API_KEY')
+  const headers = new Headers(init?.headers)
+  
+  if (apiKey) {
+    headers.set('X-API-Key', apiKey)
+  }
+
+  const updatedInit = { ...init, headers }
+  return fetch(input, updatedInit)
+}

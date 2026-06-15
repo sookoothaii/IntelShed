@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { fetchApi } from '../lib/networkFetch';
 
 interface FirewallEntry {
   timestamp: number
@@ -110,7 +111,7 @@ export default function FirewallPanel({ history }: { history: FirewallEntry[] })
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        const r = await fetch('/api/firewall/status', { method: 'GET' })
+        const r = await fetchApi('/api/firewall/status', { method: 'GET' })
         if (r.ok) {
           const d = await r.json()
           setFirewallStatus(d.status === 'healthy' ? 'online' : 'warn')
@@ -151,7 +152,7 @@ export default function FirewallPanel({ history }: { history: FirewallEntry[] })
     setTestBusy(true)
     setTestResult(null)
     try {
-      const r = await fetch('/api/firewall/test', {
+      const r = await fetchApi('/api/firewall/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: testQuery.trim() }),

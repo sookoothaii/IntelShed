@@ -19,7 +19,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Security
+from fastapi.security import APIKeyHeader
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 # ---------------------------------------------------------------------------
@@ -34,6 +35,20 @@ CLEANUP_INTERVAL_SECONDS = 60
 # Token constants (exported for node_sync compatibility)
 INGEST_TOKEN = os.getenv("NODE_INGEST_TOKEN", "")
 ADMIN_TOKEN = os.getenv("NODE_ADMIN_TOKEN", "") or INGEST_TOKEN
+API_KEY = os.getenv("WORLDBASE_API_KEY", "")
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+async def verify_api_key(api_key: str = Security(api_key_header)):
+    """Verify API key if WORLDBASE_API_KEY is set."""
+    if not API_KEY:
+        return None  # Auth disabled
+    if api_key != API_KEY:
+        raise HTTPException(
+            status_code=HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API Key",
+        )
+    return api_key
 
 
 # ---------------------------------------------------------------------------

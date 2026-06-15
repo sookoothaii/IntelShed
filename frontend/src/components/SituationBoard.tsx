@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FocusTarget } from '../lib/focus'
 import type { OsintPin } from '../lib/osintPins'
+import { fetchApi } from '../lib/networkFetch';
 
 export type SituationItem = {
   id: string
@@ -39,7 +40,7 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
     const load = async () => {
       setLoading(true)
       try {
-        const r = await fetch('/api/situations')
+        const r = await fetchApi('/api/situations')
         const d = await r.json()
         if (!cancelled) setItems(d.items || [])
       } catch {
@@ -108,7 +109,7 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
   const loadEntity = async (entityId: string) => {
     setEntityLoading(true)
     try {
-      const r = await fetch(`/api/entity/${encodeURIComponent(entityId)}/context`)
+      const r = await fetchApi(`/api/entity/${encodeURIComponent(entityId)}/context`)
       setEntityCtx(await r.json())
     } catch {
       setEntityCtx({ error: 'load failed' })
