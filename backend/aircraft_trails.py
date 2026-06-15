@@ -106,10 +106,13 @@ async def snapshot_now(force: bool = False) -> dict:
     if not force and (now - _last_snapshot_ts) < _MIN_INTERVAL_SEC:
         return {"skipped": True, "reason": "rate_limited", "min_interval_sec": _MIN_INTERVAL_SEC}
 
-    try:
-        data, source = await aircraft_provider.fetch_live_states(timeout=25.0)
-    except Exception as e:
-        return {"error": str(e), "stored": 0}
+    data = aircraft_provider.last_known_states()
+    source = (data or {}).get("source")
+    if not data or not data.get("states"):
+        try:
+            data, source = await aircraft_provider.fetch_live_states(timeout=10.0)
+        except Exception as e:
+            return {"error": str(e), "stored": 0}
     states = (data or {}).get("states") or []
     rows: list[tuple] = []
     for raw in states:

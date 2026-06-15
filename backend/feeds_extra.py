@@ -415,14 +415,16 @@ async def geopolitics(limit: int = 40):
 @router.get("/anomalies")
 async def aircraft_anomalies():
     """Scan ADS-B for unusual patterns (OpenSky or adsb.lol)."""
-    try:
-        data, _src = await aircraft_provider.fetch_live_states(timeout=20.0)
-    except Exception as e:
-        return {
-            "analyzed": 0,
-            "anomalies": [],
-            "error": f"Aircraft feed unavailable ({e.__class__.__name__}).",
-        }
+    data = aircraft_provider.last_known_states()
+    if not data or not data.get("states"):
+        try:
+            data, _src = await aircraft_provider.fetch_live_states(timeout=10.0)
+        except Exception as e:
+            return {
+                "analyzed": 0,
+                "anomalies": [],
+                "error": f"Aircraft feed unavailable ({e.__class__.__name__}).",
+            }
 
     states = data.get("states") or []
     anomalies = []
@@ -556,11 +558,13 @@ async def cross_feed_correlations():
     except Exception:
         disasters = []
 
-    try:
-        os_data, _ = await aircraft_provider.fetch_live_states(timeout=15.0)
-        states = (os_data or {}).get("states", [])
-    except Exception:
-        states = []
+    os_data = aircraft_provider.last_known_states()
+    if not os_data or not os_data.get("states"):
+        try:
+            os_data, _ = await aircraft_provider.fetch_live_states(timeout=10.0)
+        except Exception:
+            os_data = None
+    states = (os_data or {}).get("states", [])
 
     MIL_HEX = tuple("ae ad af a1 a2 a3 a4 a5".split())
     for d in disasters:

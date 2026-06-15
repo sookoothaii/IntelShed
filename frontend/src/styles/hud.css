@@ -1222,6 +1222,7 @@ html, body, #root {
   position: relative;
   overflow: hidden;
   z-index: 1;
+  min-height: 0;
 }
 
 .view-layer {
@@ -1250,57 +1251,84 @@ html, body, #root {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr;
   overflow: hidden;
+  min-height: 0;
 }
 
-.hud-main--split .globe-layer.view-layer--active {
-  position: relative;
+.hud-main--split .globe-layer {
+  position: relative !important;
+  inset: unset !important;
   grid-column: 1;
   grid-row: 1;
   width: 100%;
   height: 100%;
-  inset: unset;
-  z-index: 2;
-}
-
-.hud-main--split .split-map-pane {
-  position: relative;
-  grid-column: 2;
-  grid-row: 1;
   min-width: 0;
   min-height: 0;
-  z-index: 2;
-  border-left: 1px solid rgba(0, 255, 163, 0.3);
+  z-index: 1;
   overflow: hidden;
 }
 
-.hud-main--split .split-map-pane .map-wrap {
+.map-pane {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.map-pane--split {
+  position: relative;
+  grid-column: 2;
+  grid-row: 1;
+  z-index: 1;
+  border-left: 1px solid rgba(0, 255, 163, 0.3);
+}
+
+.map-pane--overlay.map-pane--visible {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
   height: 100%;
 }
 
-.hud-main--split .globe-wrap {
-  height: 100%;
+.map-pane--hidden {
+  visibility: hidden;
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
 }
 
-/* Compact globe chrome when half-width */
-.hud-main--split .globe-hud {
+.map-pane--split.map-pane--hidden {
   display: none;
 }
 
-.hud-main--split .globe-controls {
-  width: 168px;
-  max-height: calc(100% - 120px);
-  font-size: 10px;
+.map-pane .map-wrap {
+  height: 100%;
 }
 
+.hud-main--split .globe-wrap,
+.hud-main--split .globe-wrap--split {
+  height: 100%;
+}
+
+/* Split: hide heavy globe chrome — keep canvas interactive */
+.hud-main--split .globe-hud,
+.hud-main--split .globe-controls,
 .hud-main--split .globe-timeline {
-  width: min(420px, calc(100% - 200px));
-  min-width: 200px;
+  display: none;
 }
 
-.globe-layer--split.view-layer--active {
-  width: 50%;
+.hud-main--split .map-mode-bar {
+  left: 75%;
   right: auto;
-  z-index: 3;
+  transform: translateX(-50%);
+  bottom: 16px;
+  max-width: min(44vw, 420px);
+}
+
+.hud-main--split .map-controls {
+  max-width: 200px;
+  font-size: 11px;
+  padding: 8px 10px;
 }
 
 .view-fade--split {

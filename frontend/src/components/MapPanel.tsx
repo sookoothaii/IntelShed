@@ -122,11 +122,15 @@ export default function MapPanel({
   onCameraMove,
   syncCamera,
   mapMode = DEFAULT_MAP_VIEW,
+  visible = true,
+  layoutSplit = false,
 }: {
   focus?: MapFocus
   onCameraMove?: (cam: { lon: number; lat: number; zoom: number; pitch?: number }) => void
   syncCamera?: { lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null
   mapMode?: MapViewMode
+  visible?: boolean
+  layoutSplit?: boolean
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -143,9 +147,13 @@ export default function MapPanel({
 
   const onCameraMoveRef = useRef(onCameraMove)
   const cameraSyncingRef = useRef(false)
+  const syncSuppressUntilRef = useRef(0)
   useEffect(() => {
     onCameraMoveRef.current = onCameraMove
   }, [onCameraMove])
+
+  const shouldSyncCamera = () =>
+    cameraSyncingRef.current || performance.now() < syncSuppressUntilRef.current
 
   useEffect(() => {
     if (_protocolRegistered) return
@@ -179,7 +187,7 @@ export default function MapPanel({
   }, [])
 
   useEffect(() => {
-    if (!containerRef.current || !activeArchive || status !== 'ready') return
+    if (!visible || !containerRef.current || !activeArchive || status !== 'ready') return
     let cancelled = false
     let resizeObserver: ResizeObserver | null = null
 
@@ -299,7 +307,7 @@ export default function MapPanel({
       })
 
       map.on('moveend', () => {
-        if (cameraSyncingRef.current) return
+        if (shouldSyncCamera()) return
         const center = map.getCenter()
         const pos = sanitizeLonLat(center.lng, center.lat)
         if (!pos) return
@@ -338,7 +346,28 @@ export default function MapPanel({
         mapRef.current = null
       }
     }
-  }, [archives, activeArchive, flavor, status])
+  }, [archives, activeArchive, flavor, status, visible])
+
+  useEffect(() => {
+    if (!visible) return
+    const map = mapRef.current
+    const resize = () => {
+      if (!containerRef.current || !map) return
+      if (!containerHasSize(containerRef.current)) return
+      try {
+        map.resize()
+      } catch {
+        /* ignore during teardown */
+      }
+    }
+    requestAnimationFrame(resize)
+    const t1 = window.setTimeout(resize, 120)
+    const t2 = window.setTimeout(resize, 350)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
+  }, [visible, layoutSplit])
 
   useEffect(() => {
     const map = mapRef.current
@@ -359,7 +388,7 @@ export default function MapPanel({
   }, [focus?.ts, focus?.lat, focus?.lon])
 
   useEffect(() => {
-    if (!syncCamera || syncCamera.source === 'map' || !mapRef.current) return
+    if (!visible || !syncCamera || syncCamera.source === 'map' || !mapRef.current) return
     if (!containerHasSize(containerRef.current)) return
     const pos = sanitizeLonLat(syncCamera.lon, syncCamera.lat)
     if (!pos) return
@@ -367,16 +396,17 @@ export default function MapPanel({
     const pitch = Number.isFinite(syncCamera.pitch)
       ? Math.min(85, Math.max(0, syncCamera.pitch!))
       : (mapMode.render3d ? 60 : 0)
+    syncSuppressUntilRef.current = performance.now() + 500
     cameraSyncingRef.current = true
     mapRef.current.jumpTo({
       center: [pos.lon, pos.lat],
       zoom: Math.min(22, Math.max(0, zoom)),
       pitch,
     })
-    requestAnimationFrame(() => {
+    window.setTimeout(() => {
       cameraSyncingRef.current = false
-    })
-  }, [syncCamera, mapMode.render3d])
+    }, 500)
+  }, [syncCamera, mapMode.render3d, visible])
 
   const archive = archives.find((a) => a.name === activeArchive)
   const heavyArchive = isHeavyArchive(archive)

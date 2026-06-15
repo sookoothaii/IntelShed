@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query
 router = APIRouter(prefix="/api/globe", tags=["globe"])
 
 _CACHE: dict[str, tuple[float, dict]] = {}
-_TTL = 15.0
+_TTL = 30.0
 _REFRESH_LOCK = asyncio.Lock()
 
 _ALL_LAYERS = frozenset({

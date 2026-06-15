@@ -21,23 +21,22 @@ import {
   Entity,
   LabelStyle,
   VerticalOrigin,
-  HorizontalOrigin,
-  NearFarScalar,
+  
   DistanceDisplayCondition,
   Math as CMath,
-  PolylineGlowMaterialProperty,
+  
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   PostProcessStage,
   Cartographic,
   CallbackProperty,
   ColorMaterialProperty,
-  ConstantPositionProperty,
+  
   defined,
   MVTDataProvider,
   ImageryLayer,
 } from 'cesium'
-import * as satellite from 'satellite.js'
+
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import {
   NVG_FRAGMENT,
@@ -52,18 +51,16 @@ import type { FocusTarget } from '../lib/focus'
 import type { OsintPin } from '../lib/osintPins'
 import SensorSparklines from './SensorSparklines'
 import PegelSparkline from './PegelSparkline'
-import { canFetch, logFetchError } from '../lib/networkFetch'
+import { useTrailsLayer } from '../hooks/layers/useTrailsLayer';
+import { GlobeLayerManager } from '../hooks/layers/GlobeLayerManager';
+
+import { canFetch } from '../lib/networkFetch';
+
 import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
 import { fetchApi } from '../lib/networkFetch';
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
-
-function parseEventMs(date: string | undefined): number {
-  if (!date) return 0
-  const t = Date.parse(date)
-  return Number.isFinite(t) ? t : 0
-}
 
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
@@ -78,25 +75,6 @@ function fmtTimelineLabel(ms: number): string {
     hour: '2-digit',
     minute: '2-digit',
   })
-}
-
-function feedPos(lon: number, lat: number) {
-  return Cartesian3.fromDegrees(lon, lat, 0)
-}
-
-/** Feed markers on the surface — round via depthTestAgainstTerrain=false on the scene. */
-function feedPoint(
-  pixelSize: number,
-  color: Color,
-  opts?: { outline?: Color; outlineWidth?: number; scaleByDistance?: NearFarScalar },
-) {
-  return {
-    pixelSize,
-    color,
-    outlineColor: opts?.outline ?? Color.WHITE,
-    outlineWidth: opts?.outlineWidth ?? 2,
-    ...(opts?.scaleByDistance ? { scaleByDistance: opts.scaleByDistance } : {}),
-  }
 }
 
 function esriImagery(url: string, credit: string) {
@@ -120,17 +98,16 @@ async function applyGlobeMapMode(
   const scene = viewer.scene
   scene.mode = mode.render3d ? SceneMode.SCENE3D : SceneMode.SCENE2D
 
-  // --- Basemap (preserve NASA GIBS overlay on top if active) ---
+  // --- Basemap (preserve NASA GIBS overlay if active) ---
   const layers = viewer.imageryLayers
   const gibsKeep = refs.gibsOverlay.current
   if (refs.labelOverlay.current) {
     try { layers.remove(refs.labelOverlay.current, false) } catch { /* already removed */ }
     refs.labelOverlay.current = null
   }
-  while (layers.length > (gibsKeep ? 1 : 0)) {
-    const layer = layers.get(0)
-    if (layer === gibsKeep) break
-    layers.remove(layer, false)
+  for (let i = layers.length - 1; i >= 0; i--) {
+    const layer = layers.get(i)
+    if (layer !== gibsKeep) layers.remove(layer, false)
   }
 
   if (mode.basemap === 'streets') {
@@ -593,6 +570,7 @@ export default function Globe({
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
+  const [viewer, setViewer] = useState<Viewer | null>(null)
   const apiRef = useRef<any>({})
   const osintSrcRef = useRef<CustomDataSource | null>(null)
   const focusRef = useRef<FocusTarget | null>(focus ?? null)
@@ -634,6 +612,8 @@ export default function Globe({
   const timelineRef = useRef({ scrubT: 1, hours: 24 })
   const [layers, setLayers] = useState<GlobeLayers>(() => ({ ...VIEW_PRESETS.overview.layers }))
 
+  const trailsApi = useTrailsLayer({ viewer, active: trailsEnabled });
+
   const visibleRef = useRef(visible)
   useEffect(() => { visibleRef.current = visible }, [visible])
   const layersRef = useRef(layers)
@@ -657,20 +637,31 @@ export default function Globe({
 
   const onCameraMoveRef = useRef(onCameraMove)
   const cameraSyncingRef = useRef(false)
+  const syncSuppressUntilRef = useRef(0)
   useEffect(() => { onCameraMoveRef.current = onCameraMove }, [onCameraMove])
+
+  const shouldSyncCamera = () =>
+    cameraSyncingRef.current || performance.now() < syncSuppressUntilRef.current
 
   useEffect(() => {
     if (!visible) return
     const v = viewerRef.current
     if (!v || (v as any).isDestroyed?.()) return
-    const id = requestAnimationFrame(() => {
+    const resize = () => {
       try {
         v.resize()
+        v.scene.requestRender()
       } catch {
         /* ignore during teardown */
       }
-    })
-    return () => cancelAnimationFrame(id)
+    }
+    requestAnimationFrame(resize)
+    const t1 = window.setTimeout(resize, 120)
+    const t2 = window.setTimeout(resize, 350)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
   }, [visible, layoutSplit])
 
   useEffect(() => {
@@ -690,7 +681,15 @@ export default function Globe({
 
   useEffect(() => {
     if (!visible) return
-    apiRef.current.refreshSnapshot?.()
+    const v = viewerRef.current
+    if (!v || (v as any).isDestroyed?.()) return
+    try {
+      v.resolutionScale = Math.min(window.devicePixelRatio, layoutSplit ? 1.0 : 1.5)
+      v.resize()
+      v.scene.requestRender()
+    } catch {
+      /* ignore during teardown */
+    }
   }, [visible, layoutSplit])
 
   useEffect(() => {
@@ -719,6 +718,7 @@ export default function Globe({
         selectionIndicator: false,
       })
       viewerRef.current = viewer
+      setViewer(viewer)
 
       const scene = viewer.scene
       scene.globe.enableLighting = true
@@ -734,6 +734,7 @@ export default function Globe({
       viewer.camera.moveEnd.addEventListener(() => {
         const v = viewerRef.current
         if (!v || (v as any).isDestroyed?.()) return
+        if (shouldSyncCamera()) return
         if (cameraSyncingRef.current) return
         const c = Cartographic.fromCartesian(v.camera.position)
         const pos = sanitizeLonLat(CMath.toDegrees(c.longitude), CMath.toDegrees(c.latitude))
@@ -758,1348 +759,14 @@ export default function Globe({
       })
       resizeObserver.observe(containerRef.current)
 
-      const aircraftSrc = new CustomDataSource('aircraft')
-      const satSrc = new CustomDataSource('satellites')
-      const orbitSrc = new CustomDataSource('orbits')
-      const quakeSrc = new CustomDataSource('quakes')
-      const eventSrc = new CustomDataSource('events')
+      
       const focusSrc = new CustomDataSource('focus')
-      const nodesSrc = new CustomDataSource('nodes')
-      const militarySrc = new CustomDataSource('military')
-      const spaceweatherSrc = new CustomDataSource('spaceweather')
-      const geopoliticsSrc = new CustomDataSource('geopolitics')
-      const wildfireSrc = new CustomDataSource('wildfires')
-      const lightningSrc = new CustomDataSource('lightning')
-      const transitSrc = new CustomDataSource('transit')
-      const maritimeSrc = new CustomDataSource('maritime')
-      const gdacsSrc = new CustomDataSource('gdacs')
-      const hazardsSrc = new CustomDataSource('hazards')
-      const outagesSrc = new CustomDataSource('outages')
-      const volcanoSrc = new CustomDataSource('volcanoes')
-      const airqualitySrc = new CustomDataSource('airquality')
-      const pegelSrc = new CustomDataSource('pegel')
-      const energySrc = new CustomDataSource('energy')
       const osintSrc = new CustomDataSource('osint')
-      const trailsSrc = new CustomDataSource('aircraft-trails')
-      const fusionSrc = new CustomDataSource('fusion-heatmap')
       osintSrcRef.current = osintSrc
-      ;[orbitSrc, quakeSrc, eventSrc, satSrc, aircraftSrc, focusSrc, nodesSrc, militarySrc, spaceweatherSrc, geopoliticsSrc, wildfireSrc, lightningSrc, transitSrc, maritimeSrc, gdacsSrc, hazardsSrc, outagesSrc, volcanoSrc, airqualitySrc, pegelSrc, energySrc, osintSrc, trailsSrc, fusionSrc].forEach((s) => viewer!.dataSources.add(s))
-      fusionSrc.show = false
-
-      const acMap = new Map<string, Entity>()
-      const satMap = new Map<string, Entity>()
-
-      // ---------- AIRCRAFT ----------
-      const fetchAircraft = async () => {
-        if (!feedActive() || !layersRef.current.aircraft || !canFetch()) return
-        try {
-          const r = await fetchApi('/api/aircraft')
-          const d = await r.json()
-          const states: any[] = d.states || []
-          const seen = new Set<string>()
-          aircraftSrc.entities.suspendEvents()
-          for (const s of states) {
-            const lon = s[5], lat = s[6]
-            if (lon == null || lat == null) continue
-            const id = s[0]
-            const alt = Math.max(s[7] ?? s[13] ?? 0, 0)
-            const callsign = (s[1] || '').trim() || id
-            seen.add(id)
-            const pos = Cartesian3.fromDegrees(lon, lat, alt)
-            let e = acMap.get(id)
-            if (e) {
-              ;(e.position as ConstantPositionProperty).setValue(pos)
-            } else {
-              e = aircraftSrc.entities.add({
-                id: 'ac-' + id,
-                position: new ConstantPositionProperty(pos),
-                point: {
-                  pixelSize: 7,
-                  color: s[8] ? Color.GRAY : Color.fromCssColorString('#ffd23f'),
-                  outlineColor: Color.BLACK,
-                  outlineWidth: 1,
-                  scaleByDistance: new NearFarScalar(1e5, 1.6, 1e7, 0.5),
-                },
-                label: {
-                  text: callsign,
-                  font: '600 11px "Courier New"',
-                  fillColor: Color.fromCssColorString('#ffe98a'),
-                  outlineColor: Color.BLACK,
-                  outlineWidth: 2,
-                  style: LabelStyle.FILL_AND_OUTLINE,
-                  verticalOrigin: VerticalOrigin.BOTTOM,
-                  horizontalOrigin: HorizontalOrigin.LEFT,
-                  pixelOffset: new Cartesian2(8, -4),
-                  distanceDisplayCondition: new DistanceDisplayCondition(0, 1.2e6),
-                },
-                properties: {
-                  kind: 'aircraft', icao: id, callsign,
-                  country: s[2], alt, vel: s[9] ?? 0, heading: s[10] ?? 0,
-                } as any,
-              })
-              acMap.set(id, e)
-            }
-          }
-          for (const [id, e] of acMap) {
-            if (!seen.has(id)) { aircraftSrc.entities.remove(e); acMap.delete(id) }
-          }
-          aircraftSrc.entities.resumeEvents()
-          if (!cancelled) {
-            setStats((p) => ({ ...p, aircraft: acMap.size }))
-            if (d.source) setAircraftSource(String(d.source))
-          }
-        } catch (e) {
-          logFetchError('Globe', 'aircraft')
-        }
-      }
-
-      // ---------- SATELLITES ----------
-      let satCache: { name: string; rec: any }[] = []
-      const loadSatTLEs = async (group: string) => {
-        try {
-          const r = await fetchApi(`/api/satellites?group=${group}&limit=500`)
-          const d = await r.json()
-          satCache = []
-          for (const s of d.satellites || []) {
-            try {
-              satCache.push({ name: s.name, rec: satellite.twoline2satrec(s.tle1, s.tle2) })
-            } catch { /* skip */ }
-          }
-          satSrc.entities.removeAll()
-          orbitSrc.entities.removeAll()
-          satMap.clear()
-        } catch (e) {
-          logFetchError('Globe', 'sat TLE')
-        }
-      }
-
-      let lastOrbitDrawMs = 0
-      const ORBIT_REDRAW_MS = 45000
-
-      const propagateSats = (forceOrbits = false) => {
-        if (!feedActive() || satCache.length === 0) return
-        const now = new Date()
-        const gmst = satellite.gstime(now)
-        const seen = new Set<string>()
-        const drawOrbits = forceOrbits || (Date.now() - lastOrbitDrawMs >= ORBIT_REDRAW_MS)
-        if (drawOrbits) {
-          orbitSrc.entities.suspendEvents()
-          orbitSrc.entities.removeAll()
-          lastOrbitDrawMs = Date.now()
-        }
-        let drawn = 0
-        const MAX_ORBITS = 50
-        for (const { name, rec } of satCache) {
-          try {
-            const pv = satellite.propagate(rec, now)
-            if (!pv || !pv.position || typeof pv.position === 'boolean') continue
-            const gd = satellite.eciToGeodetic(pv.position as any, gmst)
-            const lon = CMath.toDegrees(gd.longitude)
-            const lat = CMath.toDegrees(gd.latitude)
-            const alt = gd.height * 1000
-            if (!isFinite(lon) || !isFinite(lat) || !isFinite(alt)) continue
-            seen.add(name)
-            const pos = Cartesian3.fromDegrees(lon, lat, alt)
-            let e = satMap.get(name)
-            if (e) {
-              ;(e.position as ConstantPositionProperty).setValue(pos)
-            } else {
-              e = satSrc.entities.add({
-                id: 'sat-' + name,
-                position: new ConstantPositionProperty(pos),
-                point: {
-                  pixelSize: 5,
-                  color: Color.fromCssColorString('#00e5ff'),
-                  outlineColor: Color.fromCssColorString('#003a44'),
-                  outlineWidth: 1,
-                },
-                label: {
-                  text: name,
-                  font: '600 10px "Courier New"',
-                  fillColor: Color.fromCssColorString('#7df9ff'),
-                  outlineColor: Color.BLACK,
-                  outlineWidth: 2,
-                  style: LabelStyle.FILL_AND_OUTLINE,
-                  verticalOrigin: VerticalOrigin.BOTTOM,
-                  pixelOffset: new Cartesian2(0, -8),
-                  distanceDisplayCondition: new DistanceDisplayCondition(0, 6e7),
-                },
-                properties: { kind: 'satellite', name, alt } as any,
-              })
-              satMap.set(name, e)
-            }
-            if (drawOrbits && drawn < MAX_ORBITS) {
-              drawn++
-              const periodMin = (2 * Math.PI) / rec.no
-              const pts: Cartesian3[] = []
-              for (let i = 0; i <= 80; i++) {
-                const t = new Date(now.getTime() + (periodMin * 60000 * i) / 80)
-                const g = satellite.gstime(t)
-                const p = satellite.propagate(rec, t)
-                if (!p || !p.position || typeof p.position === 'boolean') continue
-                const od = satellite.eciToGeodetic(p.position as any, g)
-                pts.push(Cartesian3.fromDegrees(CMath.toDegrees(od.longitude), CMath.toDegrees(od.latitude), od.height * 1000))
-              }
-              if (pts.length > 2) {
-                orbitSrc.entities.add({
-                  polyline: {
-                    positions: pts,
-                    width: 1.2,
-                    material: new PolylineGlowMaterialProperty({
-                      glowPower: 0.25,
-                      color: Color.fromCssColorString('#00e5ff').withAlpha(0.3),
-                    }),
-                  },
-                })
-              }
-            }
-          } catch { /* skip */ }
-        }
-        for (const [name, e] of satMap) {
-          if (!seen.has(name)) { satSrc.entities.remove(e); satMap.delete(name) }
-        }
-        if (drawOrbits) orbitSrc.entities.resumeEvents()
-        if (!cancelled) setStats((p) => ({ ...p, satellites: satMap.size }))
-      }
-
-      // ---------- EARTHQUAKES + EVENTS (timeline-scrubbed) ----------
-      const quakeRaw: any[] = []
-      const eventRaw: any[] = []
-
-      const renderQuakes = (list: any[]) => {
-        quakeSrc.entities.removeAll()
-        for (const q of list) {
-          if (q.lon == null || q.lat == null) continue
-          const mag = q.mag ?? 0
-          const sev = Math.min(mag / 8, 1)
-          const ent = quakeSrc.entities.add({
-            position: feedPos(q.lon, q.lat),
-            point: feedPoint(4 + mag * 2.5, Color.fromHsl(0.02 + 0.08 * (1 - sev), 1.0, 0.5, 0.9), {
-              outline: Color.BLACK,
-              outlineWidth: 1,
-            }),
-            properties: { kind: 'quake', place: q.place, mag, depth: q.depth, time: q.time } as any,
-          })
-          if (mag >= 5) {
-            const t0 = Date.now()
-            ent.ellipse = ({
-              semiMajorAxis: new CallbackProperty(() => {
-                const ph = ((Date.now() - t0) % 2000) / 2000
-                return 30000 + ph * mag * 90000
-              }, false) as any,
-              semiMinorAxis: new CallbackProperty(() => {
-                const ph = ((Date.now() - t0) % 2000) / 2000
-                return (30000 + ph * mag * 90000) * 0.95
-              }, false) as any,
-              material: new ColorMaterialProperty(
-                new CallbackProperty(() => {
-                  const ph = ((Date.now() - t0) % 2000) / 2000
-                  return Color.fromCssColorString('#ff3b30').withAlpha(0.4 * (1 - ph))
-                }, false) as any
-              ),
-              height: 0,
-            }) as any
-          }
-        }
-        if (!cancelled) setStats((p) => ({ ...p, quakes: list.length }))
-      }
-
-      const eventColor = (cat: string) => {
-        const c = (cat || '').toLowerCase()
-        if (c.includes('fire')) return '#ff6b35'
-        if (c.includes('volcano')) return '#ff2d00'
-        if (c.includes('storm') || c.includes('cyclone')) return '#00d4ff'
-        if (c.includes('ice') || c.includes('snow')) return '#e0f7ff'
-        if (c.includes('flood') || c.includes('water')) return '#4dabf7'
-        return '#ffd23f'
-      }
-
-      const renderEvents = (list: any[]) => {
-        eventSrc.entities.removeAll()
-        let n = 0
-        for (const ev of list) {
-          if (ev.lon == null || ev.lat == null) continue
-          n++
-          const col = Color.fromCssColorString(eventColor(ev.category))
-          eventSrc.entities.add({
-            position: feedPos(ev.lon, ev.lat),
-            point: feedPoint(9, col.withAlpha(0.9), { outlineWidth: 1 }),
-            label: {
-              text: ev.category,
-              font: '600 10px "Courier New"',
-              fillColor: col,
-              outlineColor: Color.BLACK,
-              outlineWidth: 2,
-              style: LabelStyle.FILL_AND_OUTLINE,
-              verticalOrigin: VerticalOrigin.BOTTOM,
-              pixelOffset: new Cartesian2(0, -10),
-              distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e7),
-            },
-            properties: { kind: 'event', title: ev.title, category: ev.category, date: ev.date } as any,
-          })
-        }
-        if (!cancelled) setStats((p) => ({ ...p, events: n }))
-      }
-
-      const applyTimeline = () => {
-        const { scrubT: st, hours } = timelineRef.current
-        const cutoff = timelineCutoffMs(st, hours)
-        const quakes = quakeRaw.filter((q) => (q.time ?? 0) <= cutoff)
-        const events = eventRaw.filter((ev) => parseEventMs(ev.date) <= cutoff)
-        renderQuakes(quakes)
-        renderEvents(events)
-      }
-
-      const fetchQuakes = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.quakes) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/earthquakes?period=day&magnitude=2.5')).json()) as any
-          quakeRaw.length = 0
-          quakeRaw.push(...(d.earthquakes || []))
-          applyTimeline()
-        } catch (e) {
-          logFetchError('Globe', 'quakes')
-        }
-      }
-
-      const fetchEvents = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.events) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/events?limit=120')).json()) as any
-          eventRaw.length = 0
-          eventRaw.push(...(d.events || []))
-          applyTimeline()
-        } catch (e) {
-          logFetchError('Globe', 'events')
-        }
-      }
-
-      // ---------- NODES (Pi + mesh) ----------
-      const nodeMap = new Map<string, Entity>()
-      const tempToColor = (t: number) => {
-        // Green (40°C) → Yellow (55°C) → Red (70°C)
-        const norm = Math.max(0, Math.min(1, (t - 40) / 30))
-        return Color.fromHsl(0.35 * (1 - norm), 1.0, 0.5, 0.95)
-      }
-      const fetchNodes = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.nodes) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/nodes')).json()) as any
-          const nodes: any[] = d.nodes || []
-          const seen = new Set<string>()
-          for (const n of nodes) {
-            if (n.lon == null || n.lat == null) continue
-            const id = n.node_id
-            seen.add(id)
-            const temp = n.health?.cpu_temp_c ?? 0
-            const isOnline = n.online === true
-            const pos = Cartesian3.fromDegrees(n.lon, n.lat, 0)
-            let e = nodeMap.get(id)
-            if (e) {
-              ;(e.position as ConstantPositionProperty).setValue(pos)
-            } else {
-              e = nodesSrc.entities.add({
-                id: 'node-' + id,
-                position: new ConstantPositionProperty(pos),
-                point: {
-                  pixelSize: 14,
-                  color: tempToColor(temp),
-                  outlineColor: Color.BLACK,
-                  outlineWidth: 2,
-                  scaleByDistance: new NearFarScalar(1e4, 1.8, 1e7, 0.6),
-                },
-                label: {
-                  text: n.name || id,
-                  font: '600 11px "Courier New"',
-                  fillColor: Color.fromCssColorString('#00e5a0'),
-                  outlineColor: Color.BLACK,
-                  outlineWidth: 2,
-                  style: LabelStyle.FILL_AND_OUTLINE,
-                  verticalOrigin: VerticalOrigin.BOTTOM,
-                  horizontalOrigin: HorizontalOrigin.CENTER,
-                  pixelOffset: new Cartesian2(0, -14),
-                  distanceDisplayCondition: new DistanceDisplayCondition(0, 2e6),
-                },
-                properties: {
-                  kind: 'node',
-                  node_id: id,
-                  name: n.name || id,
-                  temp,
-                  online: isOnline,
-                  services: n.health?.services || {},
-                  sensors: n.sensors || {},
-                  mesh_count: (n.mesh || []).length,
-                  pihole: n.pihole || {},
-                  age_seconds: n.age_seconds ?? 0,
-                } as any,
-              })
-              // Pulsing ring for online nodes
-              if (isOnline) {
-                const t0 = Date.now()
-                ;(e as any).ellipse = {
-                  semiMajorAxis: new CallbackProperty(() => {
-                    const ph = ((Date.now() - t0) % 2000) / 2000
-                    return 15000 + ph * 40000
-                  }, false),
-                  semiMinorAxis: new CallbackProperty(() => {
-                    const ph = ((Date.now() - t0) % 2000) / 2000
-                    return (15000 + ph * 40000) * 0.97
-                  }, false),
-                  material: new ColorMaterialProperty(
-                    new CallbackProperty(() => {
-                      const ph = ((Date.now() - t0) % 2000) / 2000
-                      return tempToColor(temp).withAlpha(0.35 * (1 - ph))
-                    }, false)
-                  ),
-                  height: 0,
-                }
-              }
-              nodeMap.set(id, e)
-            }
-            // Mesh node points + connection lines
-            for (const m of n.mesh || []) {
-              if (m.lon != null && m.lat != null) {
-                const mPos = Cartesian3.fromDegrees(m.lon, m.lat, 0)
-                // Connection line
-                nodesSrc.entities.add({
-                  id: `link-${id}-${m.id}`,
-                  polyline: {
-                    positions: [pos, mPos],
-                    width: 1.5,
-                    material: new PolylineGlowMaterialProperty({
-                      glowPower: 0.35,
-                      color: Color.fromCssColorString('#00e5a0').withAlpha(0.45),
-                    }),
-                  },
-                })
-                // Mesh node point
-                const meshKey = `mesh-${id}-${m.id}`
-                seen.add(meshKey)
-                const meshEnt = nodesSrc.entities.getById(meshKey)
-                if (!meshEnt) {
-                  nodesSrc.entities.add({
-                    id: meshKey,
-                    position: mPos,
-                    point: {
-                      pixelSize: 6,
-                      color: Color.fromCssColorString('#ffd23f'),
-                      outlineColor: Color.BLACK,
-                      outlineWidth: 1,
-                    },
-                    label: {
-                      text: m.name || m.id || '?',
-                      font: '500 9px "Courier New"',
-                      fillColor: Color.fromCssColorString('#ffd23f'),
-                      outlineColor: Color.BLACK,
-                      outlineWidth: 1,
-                      style: LabelStyle.FILL_AND_OUTLINE,
-                      verticalOrigin: VerticalOrigin.BOTTOM,
-                      horizontalOrigin: HorizontalOrigin.CENTER,
-                      pixelOffset: new Cartesian2(0, -6),
-                      distanceDisplayCondition: new DistanceDisplayCondition(0, 5e5),
-                    },
-                    properties: {
-                      kind: 'mesh_node',
-                      id: m.id,
-                      name: m.name || m.id,
-                      snr: m.snr,
-                      last_seen: m.last_seen,
-                      pi_node: id,
-                    } as any,
-                  })
-                }
-              }
-            }
-          }
-          for (const [id, e] of nodeMap) {
-            if (!seen.has(id)) { nodesSrc.entities.remove(e); nodeMap.delete(id) }
-          }
-          // Cleanup stale mesh nodes
-          const allMeshKeys = new Set<string>()
-          nodesSrc.entities.values.forEach((ent: any) => {
-            const eid = ent.id
-            if (typeof eid === 'string' && eid.startsWith('mesh-')) {
-              allMeshKeys.add(eid)
-            }
-          })
-          for (const mk of allMeshKeys) {
-            if (!seen.has(mk)) {
-              const ent = nodesSrc.entities.getById(mk)
-              if (ent) nodesSrc.entities.remove(ent)
-            }
-          }
-          if (!cancelled) setStats((p) => ({ ...p, nodes: nodeMap.size }))
-        } catch (e) {
-          logFetchError('Globe', 'nodes')
-        }
-      }
-
-      // ---------- MILITARY AIRCRAFT ----------
-      const milMap = new Map<string, Entity>()
-      const fetchMilitary = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.military) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/military')).json()) as any
-          const list: any[] = d.aircraft || []
-          const seen = new Set<string>()
-          for (const a of list) {
-            if (a.lon == null || a.lat == null) continue
-            const id = a.hex
-            seen.add(id)
-            const pos = Cartesian3.fromDegrees(a.lon, a.lat, Math.max(a.alt ?? 0, 0))
-            let e = milMap.get(id)
-            if (e) {
-              ;(e.position as ConstantPositionProperty).setValue(pos)
-            } else {
-              const isEmergency = ['7500', '7600', '7700'].includes(a.squawk || '')
-              e = militarySrc.entities.add({
-                id: 'mil-' + id,
-                position: new ConstantPositionProperty(pos),
-                point: {
-                  pixelSize: isEmergency ? 12 : 8,
-                  color: isEmergency ? Color.fromCssColorString('#ff2d00') : Color.fromCssColorString('#ff6b35'),
-                  outlineColor: Color.BLACK,
-                  outlineWidth: 2,
-                  scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.5),
-                },
-                label: {
-                  text: a.flight || a.hex,
-                  font: '600 11px "Courier New"',
-                  fillColor: isEmergency ? Color.fromCssColorString('#ff2d00') : Color.fromCssColorString('#ff9f7a'),
-                  outlineColor: Color.BLACK,
-                  outlineWidth: 2,
-                  style: LabelStyle.FILL_AND_OUTLINE,
-                  verticalOrigin: VerticalOrigin.BOTTOM,
-                  horizontalOrigin: HorizontalOrigin.LEFT,
-                  pixelOffset: new Cartesian2(8, -4),
-                  distanceDisplayCondition: new DistanceDisplayCondition(0, 1.2e6),
-                },
-                properties: {
-                  kind: 'military', hex: a.hex, flight: a.flight || '', type: a.type || '',
-                  alt: a.alt ?? 0, speed: a.speed ?? 0, squawk: a.squawk || '',
-                } as any,
-              })
-              if (isEmergency) {
-                const t0 = Date.now()
-                ;(e as any).ellipse = {
-                  semiMajorAxis: new CallbackProperty(() => {
-                    const ph = ((Date.now() - t0) % 1200) / 1200
-                    return 20000 + ph * 80000
-                  }, false),
-                  semiMinorAxis: new CallbackProperty(() => {
-                    const ph = ((Date.now() - t0) % 1200) / 1200
-                    return (20000 + ph * 80000) * 0.97
-                  }, false),
-                  material: new ColorMaterialProperty(
-                    new CallbackProperty(() => {
-                      const ph = ((Date.now() - t0) % 1200) / 1200
-                      return Color.fromCssColorString('#ff2d00').withAlpha(0.5 * (1 - ph))
-                    }, false)
-                  ),
-                  height: 0,
-                }
-              }
-              milMap.set(id, e)
-            }
-          }
-          for (const [id, e] of milMap) {
-            if (!seen.has(id)) { militarySrc.entities.remove(e); milMap.delete(id) }
-          }
-          if (!cancelled) setStats((p) => ({ ...p, military: milMap.size }))
-        } catch (e) {
-          logFetchError('Globe', 'military')
-        }
-      }
-
-      // ---------- SPACEWEATHER ----------
-      const fetchSpaceweather = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.spaceweather) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/spaceweather')).json()) as any
-          spaceweatherSrc.entities.removeAll()
-          const kp = d.kp_index ?? 0
-          // Aurora oval based on Kp (simple ring at auroral latitudes)
-          const auroraLat = Math.min(55 + kp * 3, 75)
-          const pts: Cartesian3[] = []
-          for (let i = 0; i <= 128; i++) {
-            const lon = (i / 128) * 360 - 180
-            pts.push(Cartesian3.fromDegrees(lon, auroraLat, 120000))
-          }
-          spaceweatherSrc.entities.add({
-            polyline: {
-              positions: pts,
-              width: 3,
-              material: new PolylineGlowMaterialProperty({
-                glowPower: 0.4,
-                color: Color.fromHsl(0.35 - kp * 0.04, 1.0, 0.5, 0.6),
-              }),
-            },
-          })
-          // Southern hemisphere mirror
-          const ptsS: Cartesian3[] = []
-          for (let i = 0; i <= 128; i++) {
-            const lon = (i / 128) * 360 - 180
-            ptsS.push(Cartesian3.fromDegrees(lon, -auroraLat, 120000))
-          }
-          spaceweatherSrc.entities.add({
-            polyline: {
-              positions: ptsS,
-              width: 3,
-              material: new PolylineGlowMaterialProperty({
-                glowPower: 0.4,
-                color: Color.fromHsl(0.35 - kp * 0.04, 1.0, 0.5, 0.6),
-              }),
-            },
-          })
-          // Kp label at north pole
-          spaceweatherSrc.entities.add({
-            position: Cartesian3.fromDegrees(0, 88, 200000),
-            label: {
-              text: `Kp=${kp}`,
-              font: '600 14px "Courier New"',
-              fillColor: Color.fromCssColorString('#00e5a0'),
-              outlineColor: Color.BLACK,
-              outlineWidth: 2,
-              style: LabelStyle.FILL_AND_OUTLINE,
-              verticalOrigin: VerticalOrigin.CENTER,
-              horizontalOrigin: HorizontalOrigin.CENTER,
-            },
-          })
-          if (!cancelled) setStats((p) => ({ ...p, spaceweather: kp }))
-        } catch (e) {
-          logFetchError('Globe', 'spaceweather')
-        }
-      }
-
-      // ---------- WILDFIRES ----------
-      const fetchWildfires = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.wildfires) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/wildfires')).json()) as any
-          wildfireSrc.entities.removeAll()
-          const fires: any[] = d.fires || []
-          for (const f of fires) {
-            if (f.lon == null || f.lat == null) continue
-            const conf = f.confidence ?? 0
-            const color = conf >= 80 ? '#ff2d00' : conf >= 50 ? '#ff6b35' : '#ffd23f'
-            wildfireSrc.entities.add({
-              position: feedPos(f.lon, f.lat),
-              point: feedPoint(conf >= 80 ? 10 : conf >= 50 ? 8 : 6, Color.fromCssColorString(color).withAlpha(0.9), {
-                outlineWidth: 1,
-                scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.6),
-              }),
-              label: {
-                text: `${f.confidence_label || 'fire'} ${f.confidence ?? '?'}%`,
-                font: '600 9px "Courier New"',
-                fillColor: Color.fromCssColorString(color),
-                outlineColor: Color.BLACK,
-                outlineWidth: 2,
-                style: LabelStyle.FILL_AND_OUTLINE,
-                verticalOrigin: VerticalOrigin.BOTTOM,
-                pixelOffset: new Cartesian2(0, -8),
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 2e6),
-              },
-              properties: {
-                kind: 'wildfire',
-                confidence: f.confidence,
-                confidence_label: f.confidence_label,
-                brightness: f.brightness,
-                frp: f.frp,
-                satellite: f.satellite,
-                acq_date: f.acq_date,
-              } as any,
-            })
-          }
-          if (!cancelled) {
-            const mapped = fires.filter((f) => f.lon != null && f.lat != null).length
-            setStats((p) => ({ ...p, wildfires: d.count ?? mapped }))
-            const src = d.source === 'eonet_fallback' ? 'eonet' : (d.source || '')
-            setFeedHud((p) => ({ ...p, wildfires: src || (d.errors ? 'degraded' : '') }))
-          }
-        } catch (e) {
-          logFetchError('Globe', 'wildfires')
-        }
-      }
-
-      // ---------- LIGHTNING ----------
-      const lightningMap = new Map<string, any>()
-      const fetchLightning = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.lightning) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/lightning')).json()) as any
-          const strikes: any[] = d.strikes || []
-          const now = Date.now()
-          // Remove strikes older than 10 minutes
-          for (const [id, data] of lightningMap) {
-            if (now - data.ts > 600000) {
-              const e = data.entity
-              if (e) lightningSrc.entities.remove(e)
-              lightningMap.delete(id)
-            }
-          }
-          for (const s of strikes) {
-            if (s.lon == null || s.lat == null || !s.time) continue
-            const ts = new Date(s.time).getTime()
-            if (now - ts > 600000) continue
-            const id = `${s.lat.toFixed(3)},${s.lon.toFixed(3)}`
-            if (lightningMap.has(id)) continue
-            const ageSec = (now - ts) / 1000
-            const alpha = Math.max(0.2, 1 - ageSec / 600)
-            const e = lightningSrc.entities.add({
-              position: Cartesian3.fromDegrees(s.lon, s.lat, 0),
-              point: {
-                pixelSize: 10,
-                color: Color.fromCssColorString('#22d3ee').withAlpha(alpha),
-                outlineColor: Color.WHITE,
-                outlineWidth: 1,
-              },
-              properties: {
-                kind: 'lightning',
-                time: s.time,
-                stations: s.stations,
-                participants: s.participants,
-              } as any,
-            })
-            lightningMap.set(id, { entity: e, ts })
-          }
-          if (!cancelled) {
-            if (d.error) {
-              setStats((p) => ({ ...p, lightning: 0 }))
-              setFeedHud((p) => ({ ...p, lightning: 'N/A' }))
-            } else {
-              setStats((p) => ({ ...p, lightning: lightningMap.size }))
-              setFeedHud((p) => ({ ...p, lightning: '' }))
-            }
-          }
-        } catch (e) {
-          logFetchError('Globe', 'lightning')
-        }
-      }
-
-      // ---------- TRANSIT ----------
-      const transitMap = new Map<string, Entity>()
-      const fetchTransit = async () => {
-        if (!feedActive() || !layersRef.current.transit) return
-        try {
-          const r = await fetchApi(`/api/transit/${transitCity}`)
-          const d = await r.json()
-          if (d.error) {
-            for (const [id, e] of transitMap) { transitSrc.entities.remove(e); transitMap.delete(id) }
-            if (!cancelled) setStats((p) => ({ ...p, transit: 0 }))
-            return
-          }
-          const vehicles: any[] = d.vehicles || []
-          const seen = new Set<string>()
-          for (const v of vehicles) {
-            if (v.lon == null || v.lat == null) continue
-            const id = v.id || `${v.lat},${v.lon}`
-            seen.add(id)
-            const pos = Cartesian3.fromDegrees(v.lon, v.lat, 0)
-            let e = transitMap.get(id)
-            if (e) {
-              ;(e.position as ConstantPositionProperty).setValue(pos)
-            } else {
-              e = transitSrc.entities.add({
-                id: 'tr-' + id,
-                position: new ConstantPositionProperty(pos),
-                point: {
-                  pixelSize: 9,
-                  color: Color.fromCssColorString('#ffd23f').withAlpha(0.9),
-                  outlineColor: Color.BLACK,
-                  outlineWidth: 1,
-                  scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.5),
-                },
-                label: {
-                  text: v.route_id || 'BUS',
-                  font: '600 9px "Courier New"',
-                  fillColor: Color.fromCssColorString('#ffd23f'),
-                  outlineColor: Color.BLACK,
-                  outlineWidth: 2,
-                  style: LabelStyle.FILL_AND_OUTLINE,
-                  verticalOrigin: VerticalOrigin.BOTTOM,
-                  horizontalOrigin: HorizontalOrigin.CENTER,
-                  pixelOffset: new Cartesian2(0, -8),
-                  distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e6),
-                },
-                properties: {
-                  kind: 'transit',
-                  id: v.id,
-                  route_id: v.route_id,
-                  bearing: v.bearing,
-                  speed: v.speed,
-                  label: v.label,
-                } as any,
-              })
-              transitMap.set(id, e)
-            }
-          }
-          for (const [id, e] of transitMap) {
-            if (!seen.has(id)) { transitSrc.entities.remove(e); transitMap.delete(id) }
-          }
-          if (!cancelled) setStats((p) => ({ ...p, transit: transitMap.size }))
-        } catch (e) {
-          logFetchError('Globe', 'transit')
-        }
-      }
-
-      // ---------- MARITIME ----------
-      const vesselMap = new Map<string, Entity>()
-      const fetchMaritime = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.maritime) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/maritime')).json()) as any
-          if (d.error) {
-            for (const [id, e] of vesselMap) { maritimeSrc.entities.remove(e); vesselMap.delete(id) }
-            if (!cancelled) setStats((p) => ({ ...p, maritime: 0 }))
-            return
-          }
-          const vessels: any[] = d.vessels || []
-          const seen = new Set<string>()
-          for (const v of vessels) {
-            if (v.lon == null || v.lat == null) continue
-            const id = v.mmsi || `${v.lat},${v.lon}`
-            seen.add(id)
-            const pos = Cartesian3.fromDegrees(v.lon, v.lat, 0)
-            let e = vesselMap.get(id)
-            if (e) {
-              ;(e.position as ConstantPositionProperty).setValue(pos)
-            } else {
-              const flagged = sanctionedRef.current.has(String(v.mmsi || ''))
-              const typeColor = flagged
-                ? '#ff2d00'
-                : (v.type === 'Cargo' ? '#8B4513' : v.type === 'Tanker' ? '#000080' : v.type === 'Passenger' ? '#FF69B4' : v.type === 'Fishing' ? '#32CD32' : '#00e5ff')
-              e = maritimeSrc.entities.add({
-                id: 'vs-' + id,
-                position: new ConstantPositionProperty(pos),
-                point: {
-                  pixelSize: flagged ? 13 : 10,
-                  color: Color.fromCssColorString(typeColor).withAlpha(0.95),
-                  outlineColor: flagged ? Color.fromCssColorString('#ffd23f') : Color.WHITE,
-                  outlineWidth: flagged ? 2 : 1,
-                  scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.5),
-                },
-                label: {
-                  text: `${flagged ? '⚠ ' : ''}${(v.name?.substring(0, 12) || v.type || 'Vessel')}`,
-                  font: '600 9px "Courier New"',
-                  fillColor: Color.fromCssColorString(typeColor),
-                  outlineColor: Color.BLACK,
-                  outlineWidth: 2,
-                  style: LabelStyle.FILL_AND_OUTLINE,
-                  verticalOrigin: VerticalOrigin.BOTTOM,
-                  horizontalOrigin: HorizontalOrigin.CENTER,
-                  pixelOffset: new Cartesian2(0, -10),
-                  distanceDisplayCondition: new DistanceDisplayCondition(0, 2e6),
-                },
-                properties: {
-                  kind: 'maritime',
-                  name: v.name,
-                  mmsi: v.mmsi,
-                  type: v.type,
-                  course: v.course,
-                  speed: v.speed,
-                  destination: v.destination,
-                  flag: v.flag,
-                  length: v.length,
-                  sanctioned: flagged,
-                } as any,
-              })
-              vesselMap.set(id, e)
-            }
-          }
-          for (const [id, e] of vesselMap) {
-            if (!seen.has(id)) { maritimeSrc.entities.remove(e); vesselMap.delete(id) }
-          }
-          if (!cancelled) setStats((p) => ({ ...p, maritime: vesselMap.size }))
-        } catch (e) {
-          logFetchError('Globe', 'maritime')
-        }
-      }
-
-      // ---------- GEOPOLITICS ----------
-      const fetchGeopolitics = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.geopolitics) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/geopolitics')).json()) as any
-          geopoliticsSrc.entities.removeAll()
-          const disasters: any[] = d.disasters || []
-          for (const dis of disasters) {
-            const lat = dis.lat
-            const lon = dis.lon
-            if (lat == null || lon == null) continue
-            geopoliticsSrc.entities.add({
-              position: feedPos(lon, lat),
-              point: feedPoint(10, Color.fromCssColorString('#ff2d00'), { outlineWidth: 1 }),
-              label: {
-                text: dis.name.substring(0, 40),
-                font: '600 10px "Courier New"',
-                fillColor: Color.fromCssColorString('#ff6b35'),
-                outlineColor: Color.BLACK,
-                outlineWidth: 2,
-                style: LabelStyle.FILL_AND_OUTLINE,
-                verticalOrigin: VerticalOrigin.BOTTOM,
-                pixelOffset: new Cartesian2(0, -10),
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e7),
-              },
-              properties: {
-                kind: 'geopolitics',
-                name: dis.name,
-                status: dis.status,
-                id: dis.id,
-                source: dis.source || 'crisis',
-                url: dis.url || '',
-              } as any,
-            })
-          }
-          if (!cancelled) setStats((p) => ({ ...p, geopolitics: disasters.length }))
-        } catch (e) {
-          logFetchError('Globe', 'geopolitics')
-        }
-      }
-
-      // ---------- GDACS ----------
-      const gdacsTypeColor = (title: string) => {
-        const t = (title || '').toLowerCase()
-        if (t.includes('earthquake')) return '#ff6b35'
-        if (t.includes('flood')) return '#22d3ee'
-        if (t.includes('cyclone') || t.includes('typhoon') || t.includes('hurricane')) return '#ffd23f'
-        if (t.includes('tsunami')) return '#ff2d00'
-        if (t.includes('volcano')) return '#ff4d5e'
-        return '#ff6b35'
-      }
-      const fetchGdacs = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.gdacs) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/gdacs')).json()) as any
-          gdacsSrc.entities.removeAll()
-          let n = 0
-          for (const a of d.alerts || []) {
-            if (a.lon == null || a.lat == null) continue
-            const col = Color.fromCssColorString(gdacsTypeColor(a.title))
-            gdacsSrc.entities.add({
-              position: feedPos(a.lon, a.lat),
-              point: feedPoint(11, col.withAlpha(0.95), { outlineWidth: 1 }),
-              properties: {
-                kind: 'gdacs',
-                title: a.title,
-                description: (a.description || '').slice(0, 200),
-                published: a.published,
-                link: a.link,
-              } as any,
-            })
-            n++
-          }
-          const total = d.count ?? (d.alerts || []).length
-          if (!cancelled) {
-            setStats((p) => ({ ...p, gdacs: total }))
-            setFeedHud((p) => ({
-              ...p,
-              gdacs: n < total ? `${n} map` : (d.source ? String(d.source).replace('.org', '') : ''),
-            }))
-          }
-        } catch (e) {
-          logFetchError('Globe', 'gdacs')
-        }
-      }
-
-      const hazardColor = (severity: string) => {
-        const s = (severity || '').toLowerCase()
-        if (s === 'extreme') return '#ff2d00'
-        if (s === 'severe') return '#ff6b35'
-        if (s === 'moderate') return '#ffd23f'
-        return '#22d3ee'
-      }
-
-      const fetchHazards = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.hazards) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/hazards?limit=80')).json()) as any
-          hazardsSrc.entities.removeAll()
-          let n = 0
-          for (const a of d.alerts || []) {
-            if (a.lon == null || a.lat == null) continue
-            const col = Color.fromCssColorString(hazardColor(a.severity))
-            hazardsSrc.entities.add({
-              position: feedPos(a.lon, a.lat),
-              point: feedPoint(10, col.withAlpha(0.92), { outlineWidth: 1 }),
-              label: {
-                text: (a.event || 'HAZARD').slice(0, 28),
-                font: '600 8px "Courier New"',
-                fillColor: col,
-                outlineColor: Color.BLACK,
-                outlineWidth: 2,
-                style: LabelStyle.FILL_AND_OUTLINE,
-                verticalOrigin: VerticalOrigin.BOTTOM,
-                pixelOffset: new Cartesian2(0, -8),
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 8e6),
-              },
-              properties: {
-                kind: 'hazard',
-                event: a.event,
-                headline: a.headline,
-                severity: a.severity,
-                urgency: a.urgency,
-                area_desc: a.area_desc,
-                feed: a.feed,
-                effective: a.effective,
-                expires: a.expires,
-              } as any,
-            })
-            n++
-          }
-          try {
-            const gr = await fetchApi('/api/gdelt/geo?timespan=1d&maxrecords=40')
-            const gd = await gr.json()
-            for (const ev of gd.events || []) {
-              if (ev.lon == null || ev.lat == null) continue
-              hazardsSrc.entities.add({
-                position: Cartesian3.fromDegrees(ev.lon, ev.lat, 0),
-                point: {
-                  pixelSize: 7,
-                  color: Color.fromCssColorString('#c084fc').withAlpha(0.85),
-                  outlineColor: Color.WHITE,
-                  outlineWidth: 1,
-                },
-                properties: {
-                  kind: 'gdelt_geo',
-                  title: ev.name,
-                  url: ev.url,
-                  date: ev.date,
-                } as any,
-              })
-              n++
-            }
-          } catch { /* gdelt geo optional */ }
-          if (!cancelled) {
-            setStats((p) => ({ ...p, hazards: d.count ?? n }))
-            setFeedHud((p) => ({ ...p, hazards: d.geocoded != null && d.geocoded < (d.count ?? n) ? `${d.geocoded} map` : '' }))
-          }
-        } catch (e) {
-          logFetchError('Globe', 'hazards')
-        }
-      }
-
-      const fetchOutages = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.outages) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/outages?hours=72&limit=35')).json()) as any
-          outagesSrc.entities.removeAll()
-          let n = 0
-          for (const o of d.items || []) {
-            if (o.lon == null || o.lat == null) continue
-            const col = Color.fromCssColorString(o.source === 'cloudflare' ? '#ff9f43' : '#a855f7')
-            outagesSrc.entities.add({
-              position: Cartesian3.fromDegrees(o.lon, o.lat, 0),
-              point: {
-                pixelSize: o.kind === 'event' ? 12 : 9,
-                color: col.withAlpha(0.9),
-                outlineColor: Color.WHITE,
-                outlineWidth: 1,
-              },
-              properties: {
-                kind: 'outage',
-                title: o.title,
-                source: o.source,
-                level: o.level,
-                duration_h: o.duration_h,
-                datasource: o.datasource,
-              } as any,
-            })
-            n++
-          }
-          if (!cancelled) {
-            const total = d.count ?? (d.items || []).length
-            setStats((p) => ({ ...p, outages: total }))
-            const src = (d.sources || []).join('+') || 'ioda'
-            const mapNote = d.geocoded != null && d.geocoded < total ? `${d.geocoded} map` : src
-            setFeedHud((p) => ({ ...p, outages: mapNote }))
-          }
-        } catch (e) {
-          logFetchError('Globe', 'outages')
-        }
-      }
-
-      const fetchVolcanoes = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.volcanoes) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/volcanoes?active_only=false&limit=350')).json()) as any
-          volcanoSrc.entities.removeAll()
-          let n = 0
-          for (const v of d.volcanoes || []) {
-            if (v.lon == null || v.lat == null) continue
-            const col = Color.fromCssColorString(v.active ? '#ff4d5e' : '#6b7280')
-            volcanoSrc.entities.add({
-              position: Cartesian3.fromDegrees(v.lon, v.lat, Math.max(v.elevation_m || 0, 0)),
-              point: {
-                pixelSize: v.active ? 10 : 5,
-                color: col.withAlpha(v.active ? 0.95 : 0.55),
-                outlineColor: Color.BLACK,
-                outlineWidth: 1,
-              },
-              properties: {
-                kind: 'volcano',
-                name: v.name,
-                country: v.country,
-                type: v.type,
-                last_eruption: v.last_eruption,
-                elevation_m: v.elevation_m,
-                active: v.active,
-              } as any,
-            })
-            n++
-          }
-          if (!cancelled) setStats((p) => ({ ...p, volcanoes: n }))
-        } catch (e) {
-          logFetchError('Globe', 'volcanoes')
-        }
-      }
-
-      // ---------- AIR QUALITY ----------
-      const aqColor = (pm25: number | null) => {
-        if (pm25 == null) return '#6f8c84'
-        if (pm25 <= 12) return '#00e5a0'
-        if (pm25 <= 35) return '#ffd23f'
-        if (pm25 <= 55) return '#ff6b35'
-        return '#ff2d00'
-      }
-      const fetchAirquality = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.airquality) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/airquality')).json()) as any
-          airqualitySrc.entities.removeAll()
-          for (const c of d.cities || []) {
-            if (c.lon == null || c.lat == null) continue
-            const col = Color.fromCssColorString(aqColor(c.pm25))
-            airqualitySrc.entities.add({
-              position: Cartesian3.fromDegrees(c.lon, c.lat, 0),
-              point: {
-                pixelSize: 12,
-                color: col.withAlpha(0.9),
-                outlineColor: Color.BLACK,
-                outlineWidth: 1,
-              },
-              label: {
-                text: c.city,
-                font: '600 9px "Courier New"',
-                fillColor: col,
-                outlineColor: Color.BLACK,
-                outlineWidth: 2,
-                style: LabelStyle.FILL_AND_OUTLINE,
-                verticalOrigin: VerticalOrigin.BOTTOM,
-                pixelOffset: new Cartesian2(0, -10),
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 2e7),
-              },
-              properties: {
-                kind: 'airquality',
-                city: c.city,
-                pm25: c.pm25,
-                pm10: c.pm10,
-                time: c.time,
-              } as any,
-            })
-          }
-          if (!cancelled) setStats((p) => ({ ...p, airquality: (d.cities || []).length }))
-        } catch (e) {
-          logFetchError('Globe', 'airquality')
-        }
-      }
-
-      const pegelColor = (sev: string) => {
-        if (sev === 'critical') return '#ff2d00'
-        if (sev === 'high') return '#ff6b35'
-        if (sev === 'low') return '#88aaff'
-        return '#4fc3f7'
-      }
-      const fetchEnergy = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.energy) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/energy/de/globe')).json()) as any
-          energySrc.entities.removeAll()
-          const pulse = Date.now() / 1000
-          for (const p of d.points || []) {
-            const col = Color.fromCssColorString(p.color || '#ffd23f')
-            const rpx = p.radius || 12
-            const pulseScale = 1 + 0.15 * Math.sin(pulse * 2 + (p.lon || 0))
-            energySrc.entities.add({
-              position: Cartesian3.fromDegrees(p.lon, p.lat, 0),
-              point: {
-                pixelSize: rpx * pulseScale,
-                color: col.withAlpha(0.92),
-                outlineColor: Color.WHITE.withAlpha(0.6),
-                outlineWidth: 1,
-              },
-              label: {
-                text: `${p.label}\n${p.mw} MW`,
-                font: '600 9px "Courier New"',
-                fillColor: col,
-                outlineColor: Color.BLACK,
-                outlineWidth: 2,
-                style: LabelStyle.FILL_AND_OUTLINE,
-                verticalOrigin: VerticalOrigin.BOTTOM,
-                pixelOffset: new Cartesian2(0, -14),
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 2.5e6),
-              },
-              properties: {
-                kind: 'energy',
-                label: p.label,
-                mw: p.mw,
-                co2_factor: p.co2_factor,
-                price: d.day_ahead_price_eur_mwh,
-                load_mw: d.load_mw,
-                co2_g_per_kwh: d.co2_g_per_kwh,
-              } as any,
-            })
-          }
-          if (!cancelled) {
-            const active = d.active_sources ?? (d.points || []).length
-            const genGw = d.total_generation_mw != null ? `${Math.round(d.total_generation_mw / 1000)}GW` : ''
-            setStats((p) => ({ ...p, energy: active || (d.total_generation_mw ? 1 : 0) }))
-            setFeedHud((p) => ({
-              ...p,
-              energy: d.stale ? 'stale' : (genGw || (d.error ? 'err' : 'smard')),
-            }))
-          }
-        } catch (e) {
-          logFetchError('Globe', 'energy')
-        }
-      }
-
-      const fetchPegel = async (prefetched?: unknown) => {
-        if (!feedActive() || !layersRef.current.pegel) return
-        try {
-          const d = (prefetched ?? await (await fetchApi('/api/pegel')).json()) as any
-          pegelSrc.entities.removeAll()
-          for (const g of d.gauges || []) {
-            if (g.lon == null || g.lat == null) continue
-            const col = Color.fromCssColorString(pegelColor(g.severity))
-            pegelSrc.entities.add({
-              position: Cartesian3.fromDegrees(g.lon, g.lat, 0),
-              point: {
-                pixelSize: g.severity === 'critical' || g.severity === 'high' ? 14 : 10,
-                color: col.withAlpha(0.95),
-                outlineColor: Color.BLACK,
-                outlineWidth: 1,
-              },
-              label: {
-                text: `${g.name}`,
-                font: '600 9px "Courier New"',
-                fillColor: col,
-                outlineColor: Color.BLACK,
-                outlineWidth: 2,
-                style: LabelStyle.FILL_AND_OUTLINE,
-                verticalOrigin: VerticalOrigin.BOTTOM,
-                pixelOffset: new Cartesian2(0, -12),
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e7),
-              },
-              properties: {
-                kind: 'pegel',
-                uuid: g.uuid,
-                name: g.name,
-                water: g.water,
-                value: g.value,
-                unit: g.unit,
-                severity: g.severity,
-                state_mnw_mhw: g.state_mnw_mhw,
-                state_nsw_hsw: g.state_nsw_hsw,
-                timestamp: g.timestamp,
-              } as any,
-            })
-          }
-          if (!cancelled) {
-            setStats((p) => ({ ...p, pegel: d.count ?? (d.gauges || []).length }))
-            setFeedHud((p) => ({ ...p, pegel: d.error ? 'err' : (d.source ? 'pegel' : '') }))
-          }
-        } catch (e) {
-          logFetchError('Globe', 'pegel')
-        }
-      }
-
-      // ---------- AIRCRAFT TRAILS ----------
-      // Local cache so we never re-fetch the same trail while a target is locked.
-      const trailEntities = new Map<string, Entity>()
-      const fetchTrailFor = async (icao: string) => {
-        if (!icao) return
-        if (trailEntities.has(icao)) return
-        try {
-          const r = await fetchApi(`/api/aircraft/trails?icao24=${encodeURIComponent(icao)}&minutes=30`)
-          if (!r.ok) return
-          const d = await r.json()
-          const pts: any[] = d.points || []
-          if (pts.length < 2) return
-          const positions: Cartesian3[] = pts.map(p => Cartesian3.fromDegrees(p.lon, p.lat, Math.max(p.alt ?? 0, 0)))
-          const ent = trailsSrc.entities.add({
-            id: `trail-${icao}`,
-            polyline: {
-              positions,
-              width: 2.5,
-              material: new PolylineGlowMaterialProperty({
-                glowPower: 0.25,
-                color: Color.fromCssColorString('#ffd23f').withAlpha(0.85),
-              }),
-              clampToGround: false,
-            },
-          })
-          trailEntities.set(icao, ent)
-        } catch (e) {
-          // best-effort
-        }
-      }
-      const clearTrail = (icao: string) => {
-        const e = trailEntities.get(icao)
-        if (e) { trailsSrc.entities.remove(e); trailEntities.delete(icao) }
-      }
-      const clearAllTrails = () => {
-        trailsSrc.entities.removeAll()
-        trailEntities.clear()
-      }
-
-      // ---------- FUSION HEATMAP ----------
-      const fetchFusion = async () => {
-        if (!feedActive() || !fusionSrc.show) return
-        try {
-          const r = await fetchApi('/api/fusion/heatmap?cell_deg=2&top=80&include_geojson=0')
-          if (!r.ok) return
-          const d = await r.json()
-          fusionSrc.entities.removeAll()
-          const cells: any[] = d.cells || []
-          for (const c of cells) {
-            const t = Math.min(1, c.score || 0)
-            // Plasma-ish: low cyan → high red.
-            const hueDeg = (1 - t) * 180  // 180=cyan, 0=red
-            const cssColor = `hsla(${hueDeg.toFixed(0)}, 90%, ${(45 + t * 25).toFixed(0)}%, ${(0.18 + t * 0.55).toFixed(2)})`
-            fusionSrc.entities.add({
-              id: `fusion-${c.lat}-${c.lon}`,
-              position: feedPos(c.lon, c.lat),
-              point: feedPoint(8 + t * 14, Color.fromCssColorString(cssColor), {
-                outlineWidth: 1,
-                outline: Color.fromCssColorString('#ffffff').withAlpha(0.35),
-              }),
-              label: t > 0.5 ? {
-                text: `${Math.round(c.intensity)}`,
-                font: '700 11px "Courier New"',
-                fillColor: Color.fromCssColorString('#ffffff'),
-                outlineColor: Color.BLACK,
-                outlineWidth: 2,
-                style: LabelStyle.FILL_AND_OUTLINE,
-                verticalOrigin: VerticalOrigin.CENTER,
-                horizontalOrigin: HorizontalOrigin.CENTER,
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 8e7),
-              } : undefined,
-              properties: {
-                kind: 'fusion_cell',
-                intensity: c.intensity,
-                score: c.score,
-                sources: c.sources?.join(', '),
-                samples: (c.samples || []).map((s: any) => `${s.source}: ${s.label}`).join(' | '),
-              } as any,
-            })
-          }
-          if (!cancelled) setHeatmapMeta({ cells: cells.length, max: d.max_intensity || 0, contrib: d.contributors || {} })
-        } catch (e) {
-          logFetchError('Globe', 'fusion heatmap')
-        }
-      }
+      ;[focusSrc, osintSrc].forEach((s) => viewer!.dataSources.add(s))
 
       // ---------- Interaction ----------
+
       const handler = new ScreenSpaceEventHandler(scene.canvas)
       handler.setInputAction((m: any) => {
         const ray = viewer!.camera.getPickRay(m.endPosition)
@@ -2134,7 +801,7 @@ export default function Globe({
             ],
           })
           viewer!.trackedEntity = ent
-          if (trailsEnabledRef.current && icao) fetchTrailFor(icao)
+          if (trailsEnabledRef.current && icao) trailsApi.fetchTrail(icao)
         } else if (kind === 'satellite') {
           setTarget({
             kind, title: `🛰 ${props.name?.getValue?.()}`,
@@ -2419,41 +1086,9 @@ export default function Globe({
       }
 
       // ---------- Bundled snapshot (one HTTP round-trip for slow feeds) ----------
-      const fetchSnapshot = async () => {
-        if (!feedActive() || !canFetch()) return
-        const l = layersRef.current
-        const keys = (
-          ['quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires',
-            'lightning', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'pegel', 'energy'] as const
-        ).filter((k) => l[k])
-        if (!keys.length) return
-        try {
-          const qs = keys.map((k) => `layers=${k}`).join('&')
-          const d = await (await fetchApi(`/api/globe/snapshot?${qs}`)).json()
-          if (d.quakes) await fetchQuakes(d.quakes)
-          if (d.events) await fetchEvents(d.events)
-          if (d.nodes) await fetchNodes(d.nodes)
-          if (d.military) await fetchMilitary(d.military)
-          if (d.spaceweather) await fetchSpaceweather(d.spaceweather)
-          if (d.geopolitics) await fetchGeopolitics(d.geopolitics)
-          if (d.wildfires) await fetchWildfires(d.wildfires)
-          if (d.lightning) await fetchLightning(d.lightning)
-          if (d.maritime) await fetchMaritime(d.maritime)
-          if (d.gdacs) await fetchGdacs(d.gdacs)
-          if (d.hazards) await fetchHazards(d.hazards)
-          if (d.outages) await fetchOutages(d.outages)
-          if (d.volcanoes) await fetchVolcanoes(d.volcanoes)
-          if (d.airquality) await fetchAirquality(d.airquality)
-          if (d.pegel) await fetchPegel(d.pegel)
-          if (d.energy) await fetchEnergy(d.energy)
-        } catch (e) {
-          logFetchError('Globe', 'snapshot')
-        }
-      }
 
       apiRef.current = {
         applyVision,
-        setSatGroup: async (g: string) => { await loadSatTLEs(g); propagateSats(true) },
         flyTo: (poi: typeof POIS[number]) => {
           if (!viewer) return
           viewer.trackedEntity = undefined
@@ -2497,88 +1132,44 @@ export default function Globe({
               height: 0,
             } as any,
           })
-        },
-        applyTimeline,
-        setLayerVisibility: (l: any) => {
-          aircraftSrc.show = l.aircraft
-          satSrc.show = l.satellites
-          orbitSrc.show = l.satellites && l.orbits
-          quakeSrc.show = l.quakes
-          eventSrc.show = l.events
-          nodesSrc.show = l.nodes
-          militarySrc.show = l.military
-          spaceweatherSrc.show = l.spaceweather
-          geopoliticsSrc.show = l.geopolitics
-          wildfireSrc.show = l.wildfires
-          lightningSrc.show = l.lightning
-          transitSrc.show = l.transit
-          maritimeSrc.show = l.maritime
-          gdacsSrc.show = l.gdacs
-          hazardsSrc.show = l.hazards
-          outagesSrc.show = l.outages
-          volcanoSrc.show = l.volcanoes
-          airqualitySrc.show = l.airquality
-          pegelSrc.show = l.pegel
-          energySrc.show = l.energy
-          if (osintSrcRef.current) osintSrcRef.current.show = l.osint
-          trailsSrc.show = trailsEnabledRef.current
-        },
-        setHeatmap: async (on: boolean) => {
-          fusionSrc.show = on
-          if (on) await fetchFusion()
-          else { fusionSrc.entities.removeAll(); setHeatmapMeta(null) }
-        },
-        clearAllTrails,
-        clearTrail,
-        fetchTrail: fetchTrailFor,
-        refreshSnapshot: fetchSnapshot,
+        }
       }
-
-      apiRef.current.setLayerVisibility?.(layers)
-
-      fetchSnapshot()
-      fetchAircraft()
 
       timers.push(window.setTimeout(() => {
         if (!feedActive()) return
         fetchApi('/api/gibs/latest').then((r) => r.json()).then((d) => { gibsDateRef.current = d.date || '' }).catch(() => {})
       }, 1200))
 
-      await loadSatTLEs('starlink')
-      propagateSats(true)
+      
+      
 
       if (focusRef.current) apiRef.current.focusOn(focusRef.current)
 
-      timers.push(setInterval(fetchSnapshot, 20000))
-      timers.push(setInterval(fetchAircraft, 15000))
-      timers.push(setInterval(propagateSats, 5000))
-      timers.push(setInterval(() => { if (layersRef.current.transit) fetchTransit() }, 45000))
-      timers.push(setInterval(() => { if (fusionSrc.show) fetchFusion() }, 120000))
-
-      const fetchSanctions = async () => {
-        if (!feedActive() || !layersRef.current.maritime) return
-        try {
-          const r = await fetchApi('/api/sanctions/screen/vessels?min_score=0.85&limit=400')
-          if (!r.ok) return
-          const d = await r.json()
-          const mmsi = new Set<string>()
-          for (const m of d.matches || []) {
-            if (m?.vessel?.mmsi) mmsi.add(String(m.vessel.mmsi))
-          }
-          if (!cancelled) setSanctionedMmsi(mmsi)
-        } catch {}
-      }
-      fetchSanctions()
-      timers.push(setInterval(fetchSanctions, 180000))
-
+      
       recoverAfterOnline = () => {
         if (cancelled || !feedActive()) return
-        fetchSnapshot()
-        fetchAircraft()
+        
+        
       }
       window.addEventListener('online', recoverAfterOnline)
 
-      // Basemap + 3D buildings after feeds start (slow Ion assets must not block markers)
+      // Basemap first — must not wait on slow Ion 3D assets
+      if (!cancelled && viewerRef.current === viewer) {
+        await applyGlobeMapMode(viewer, mapModeRef.current, {
+          labelOverlay: labelOverlayRef,
+          osmBuildings: osmBuildingsRef,
+          photoreal: photorealRef,
+          gibsOverlay: gibsImageryRef,
+        })
+        apiRef.current.applyMapMode = () =>
+          applyGlobeMapMode(viewer!, mapModeRef.current, {
+            labelOverlay: labelOverlayRef,
+            osmBuildings: osmBuildingsRef,
+            photoreal: photorealRef,
+            gibsOverlay: gibsImageryRef,
+          })
+      }
+
       ;(async () => {
         if (Ion.defaultAccessToken) {
           try {
@@ -2592,21 +1183,6 @@ export default function Globe({
             console.warn('[Globe] OSM Buildings unavailable:', e)
           }
         }
-        if (!cancelled && viewerRef.current === viewer) {
-          await applyGlobeMapMode(viewer, mapModeRef.current, {
-            labelOverlay: labelOverlayRef,
-            osmBuildings: osmBuildingsRef,
-            photoreal: photorealRef,
-            gibsOverlay: gibsImageryRef,
-          })
-          apiRef.current.applyMapMode = () =>
-            applyGlobeMapMode(viewer!, mapModeRef.current, {
-              labelOverlay: labelOverlayRef,
-              osmBuildings: osmBuildingsRef,
-              photoreal: photorealRef,
-              gibsOverlay: gibsImageryRef,
-            })
-        }
       })()
     })()
 
@@ -2618,7 +1194,11 @@ export default function Globe({
         clearTimeout(id)
         clearInterval(id)
       })
-      if (viewer) { viewer.destroy(); viewerRef.current = null }
+      if (viewer && !(viewer as any).isDestroyed?.()) {
+        try { viewer.destroy() } catch { /* already torn down */ }
+      }
+      viewerRef.current = null
+      setViewer(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transitCity])
@@ -2631,15 +1211,12 @@ export default function Globe({
   useEffect(() => { apiRef.current.applyVision?.(vision) }, [vision])
   useEffect(() => { apiRef.current.setSatGroup?.(satGroup) }, [satGroup])
   useEffect(() => {
-    apiRef.current.setLayerVisibility?.(layers)
-    if (!visible) return
-    const t = window.setTimeout(() => apiRef.current.refreshSnapshot?.(), 400)
-    return () => clearTimeout(t)
+    // Hooks handle layer visibility and fetching.
   }, [layers, visible])
   useEffect(() => { apiRef.current.setHeatmap?.(heatmapOn) }, [heatmapOn])
   useEffect(() => { apiRef.current.applyMapMode?.() }, [mapMode])
   useEffect(() => {
-    if (!trailsEnabled) apiRef.current.clearAllTrails?.()
+    if (!trailsEnabled) trailsApi.clearAllTrails()
   }, [trailsEnabled])
 
   useEffect(() => {
@@ -2719,6 +1296,7 @@ export default function Globe({
     const pitchDeg = Number.isFinite(syncCamera.pitch)
       ? Math.min(0, Math.max(-90, syncCamera.pitch!))
       : (mapMode.render3d ? -45 : -90)
+    syncSuppressUntilRef.current = performance.now() + 500
     cameraSyncingRef.current = true
     try {
       viewer.camera.setView({
@@ -2730,12 +1308,13 @@ export default function Globe({
         },
       })
       viewer.resize()
+      viewer.scene.requestRender()
     } finally {
-      requestAnimationFrame(() => {
+      window.setTimeout(() => {
         cameraSyncingRef.current = false
-      })
+      }, 500)
     }
-  }, [syncCamera, mapMode.render3d])
+  }, [syncCamera, mapMode.render3d, visible, layoutSplit])
 
   useEffect(() => {
     timelineRef.current = { scrubT, hours: timelineHours }
@@ -2838,7 +1417,25 @@ export default function Globe({
   }
 
   return (
-    <div className={`globe-wrap vision-${vision}`}>
+    <div className={`globe-wrap vision-${vision}${layoutSplit ? ' globe-wrap--split' : ''}`}>
+      
+      <GlobeLayerManager
+        viewer={viewer}
+        layers={layers}
+        feedActive={visible}
+        canFetch={canFetch()}
+        setStats={setStats}
+        setFeedHud={setFeedHud}
+        satGroup={satGroup}
+        orbitsActive={layers.orbits}
+        transitCity={transitCity}
+        scrubT={scrubT}
+        timelineHours={timelineHours}
+        setAircraftSource={setAircraftSource}
+        heatmapOn={heatmapOn}
+        setHeatmapMeta={setHeatmapMeta}
+        setSanctionedMmsi={setSanctionedMmsi}
+      />
       <div ref={containerRef} className="globe-canvas" />
 
       <div className="reticle">

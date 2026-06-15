@@ -68,7 +68,14 @@ In **MAP** view, pick the archive in the dropdown. Default is **`thailand`** for
 
 ### Split view
 
-**◫ SPLIT** in the HUD shows Globe (left) and Map (right) with linked camera sync. Use for tactical overview + precise 2D basemap.
+**◫ SPLIT** in the HUD shows Globe (left) and Map (right) with linked camera sync.
+
+- Both panes stay **mounted** (no remount on toggle — MapLibre keeps its state).
+- CSS **grid** layout (`hud-main--split`) — no overlapping absolute layers over the WebGL canvas.
+- On the globe half, heavy chrome (telemetry, controls, timeline) is hidden for a larger interactive area.
+- First split open may briefly load PMTiles on the right; later toggles are instant.
+
+Use for tactical overview (3D feeds) + precise 2D basemap side by side.
 
 ### Optional LLM firewall
 
@@ -96,7 +103,7 @@ Most feeds are **fail-soft** (stale cache or empty payload on upstream errors �
 
 | Tag | Layers | Key |
 |-----|--------|-----|
-| `no-key` | Aircraft (adsb.lol), USGS, EONET, GDACS, SMARD, IODA outages, pegel, ISS, CelesTrak | — |
+| `no-key` | Aircraft (adsb.fi / adsb.lol), USGS, EONET, GDACS, SMARD, IODA outages, pegel, ISS, CelesTrak | — |
 | `recommended` | NASA FIRMS wildfires, Cloudflare Radar outages | free signup |
 | `optional` | OpenSky OAuth, ENTSO-E EU energy, Blitzortung lightning, AIS, ReliefWeb | varies |
 | `required` | Cesium terrain/imagery | [Ion token](https://ion.cesium.com/tokens) |

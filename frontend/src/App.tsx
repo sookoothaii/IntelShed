@@ -178,6 +178,10 @@ export default function App() {
     setView('chat')
   }
 
+  const globeVisible = splitView || view === 'globe'
+
+  const mapVisible = splitView || view === 'map'
+
   const globeSharedProps = {
     focus,
     onAskAI: handleAskAI,
@@ -186,6 +190,25 @@ export default function App() {
     onCameraMove: handleGlobeMove,
     syncCamera,
     mapMode,
+    layoutSplit: splitView,
+    visible: globeVisible,
+  }
+
+  const mapPanelProps = {
+    focus: focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null,
+    onCameraMove: handleMapMove,
+    syncCamera,
+    mapMode,
+    visible: mapVisible,
+    layoutSplit: splitView,
+  }
+
+  const toggleSplitView = () => {
+    setSplitView((on) => {
+      const next = !on
+      if (next && view !== 'globe' && view !== 'map') setView('globe')
+      return next
+    })
   }
 
   useEffect(() => {
@@ -213,7 +236,7 @@ export default function App() {
           {NAV_ITEMS.map((n) => (
             <button
               key={n.id}
-              className={view === n.id ? 'active' : ''}
+              className={view === n.id || (splitView && n.id === 'globe') ? 'active' : ''}
               onClick={() => {
                 if (n.id === 'data' || n.id === 'firewall' || n.id === 'osint' || n.id === 'chat') {
                   setSplitView(false)
@@ -225,7 +248,7 @@ export default function App() {
               {n.label}
             </button>
           ))}
-          <button className={splitView ? 'active' : ''} onClick={() => setSplitView(!splitView)} style={{ marginLeft: 16 }}>
+          <button className={splitView ? 'active' : ''} onClick={toggleSplitView} style={{ marginLeft: 16 }}>
             ◫ SPLIT
           </button>
         </nav>
@@ -249,70 +272,66 @@ export default function App() {
       )}
       {analysisOpen && <FullAnalysisOverlay onClose={() => setAnalysisOpen(false)} onFocus={focusOnMap} />}
 
-      <main className="hud-main">
-        <div key={view} className="view-fade">
-          {splitView ? (
-            <div className="split-view">
-              <div className="split-pane">
-                <Globe {...globeSharedProps} />
-              </div>
-              <div className="split-pane split-pane-right">
-                <MapPanel
-                  focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null}
-                  onCameraMove={handleMapMove}
-                  syncCamera={syncCamera}
-                  mapMode={mapMode}
-                />
-              </div>
-            </div>
-          ) : (
-            <>
-              {view === 'globe' && <Globe {...globeSharedProps} />}
-              {view === 'map' && (
-                <MapPanel
-                  focus={focus ? { lat: focus.lat, lon: focus.lon, ts: focus.ts } : null}
-                  onCameraMove={handleMapMove}
-                  syncCamera={syncCamera}
-                  mapMode={mapMode}
-                />
-              )}
-              {view === 'data' && <DataPanel onFocus={focusOnMap} />}
-              {view === 'chat' && (
-                <ChatPanel
-                  askAI={askAI}
-                  onClearAsk={() => setAskAI(null)}
-                  onFirewallResult={(r) => setFirewallHistory((h) => [r, ...h].slice(0, 100))}
-                  onClientAction={(act) => {
-                    if (act?.type === 'focus_globe' && act.lat != null && act.lon != null) {
-                      focusOnMap({
-                        kind: act.kind || 'ai_focus',
-                        lat: act.lat,
-                        lon: act.lon,
-                        height: 400000,
-                        title: act.title || 'AI focus',
-                        lines: act.lines || [],
-                      })
-                    }
-                  }}
-                />
-              )}
-              {view === 'firewall' && <FirewallPanel history={firewallHistory} />}
-              {view === 'osint' && (
-                <OsintPanel
-                  onFocus={focusOnMap}
-                  onAddPin={addOsintPin}
-                  onImportPins={(pins) => setOsintPins((prev) => mergeImportedPins(prev, pins))}
-                  pinCount={osintPins.length}
-                />
-              )}
-            </>
-          )}
+      <main className={splitView ? 'hud-main hud-main--split' : 'hud-main'}>
+        <div
+          className={[
+            'view-layer',
+            'globe-layer',
+            globeVisible ? 'view-layer--active' : 'view-layer--hidden',
+          ].join(' ')}
+        >
+          <Globe {...globeSharedProps} />
+        </div>
+
+        {splitView ? null : view !== 'globe' && view !== 'map' ? (
+          <div key={view} className="view-fade">
+            {view === 'data' && <DataPanel onFocus={focusOnMap} />}
+            {view === 'chat' && (
+              <ChatPanel
+                askAI={askAI}
+                onClearAsk={() => setAskAI(null)}
+                onFirewallResult={(r) => setFirewallHistory((h) => [r, ...h].slice(0, 100))}
+                onClientAction={(act) => {
+                  if (act?.type === 'focus_globe' && act.lat != null && act.lon != null) {
+                    focusOnMap({
+                      kind: act.kind || 'ai_focus',
+                      lat: act.lat,
+                      lon: act.lon,
+                      height: 400000,
+                      title: act.title || 'AI focus',
+                      lines: act.lines || [],
+                    })
+                  }
+                }}
+              />
+            )}
+            {view === 'firewall' && <FirewallPanel history={firewallHistory} />}
+            {view === 'osint' && (
+              <OsintPanel
+                onFocus={focusOnMap}
+                onAddPin={addOsintPin}
+                onImportPins={(pins) => setOsintPins((prev) => mergeImportedPins(prev, pins))}
+                pinCount={osintPins.length}
+              />
+            )}
+          </div>
+        ) : null}
+
+        <div
+          className={[
+            'map-pane',
+            splitView ? 'map-pane--split' : 'map-pane--overlay',
+            mapVisible ? 'map-pane--visible' : 'map-pane--hidden',
+          ].join(' ')}
+        >
+          <MapPanel {...mapPanelProps} />
         </div>
 
         {showMapChrome && (
           <MapModeBar
             mode={mapMode}
             onChange={setMapMode}
+            compact={splitView}
             onRequestGlobe={() => {
               if (!splitView && view === 'map') setView('globe')
             }}

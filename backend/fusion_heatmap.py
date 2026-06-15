@@ -190,7 +190,9 @@ async def _gather_aircraft_density(cell_deg: float) -> list[dict]:
     out: list[dict] = []
     try:
         import aircraft_provider
-        data, _src = await aircraft_provider.fetch_live_states(timeout=15.0)
+        data = aircraft_provider.last_known_states()
+        if not data or not data.get("states"):
+            data, _src = await aircraft_provider.fetch_live_states(timeout=10.0)
     except Exception:
         return []
     counts: dict[tuple[float, float], int] = {}

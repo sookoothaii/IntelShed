@@ -1,7 +1,7 @@
 # LLM Handoff — WorldBase
 
 > **Operator + agent reference.** User docs: [`README.md`](README.md) · [`docs/FEEDS.md`](docs/FEEDS.md) · [`docs/API-KEYS.md`](docs/API-KEYS.md) · [`docs/SETUP.md`](docs/SETUP.md)  
-> Last updated: 2026-06-08 | Stack: qwen3:8b/14b, RAG, feed_registry, globe_snapshot, /api/health/ping, fail-soft feeds
+> Last updated: 2026-06-15 | Stack: qwen3:8b/14b, RAG, feed_registry, globe_snapshot, layer hooks, adsb.fi aircraft fallback
 
 ## Project Overview
 
@@ -44,12 +44,13 @@ worldbase/
 │   └── worldbase.db         # SQLite (node_state, briefings, sensor_alerts, feed_cache, rag_chunks)
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx          # Views: Globe, MAP, DATA, AI, FIREWALL, OSINT; split-view layout
-│   │   ├── styles/hud.css   # HUD, telemetry, split-view, map mode bar
+│   │   ├── App.tsx          # Views: Globe, MAP, DATA, AI, FIREWALL, OSINT; split grid layout
+│   │   ├── hooks/layers/    # 21 use*Layer hooks + GlobeLayerManager + layerUtils.ts
+│   │   ├── styles/hud.css   # HUD, telemetry, split grid, map mode bar
 │   │   ├── lib/mapView.ts   # Shared basemap + 2D/3D mode state
 │   │   └── components/
-│   │       ├── Globe.tsx    # Cesium 3D, grouped LIVE TELEMETRY, layer-aware snapshot polling
-│   │       ├── MapPanel.tsx # MapLibre 2D PMTiles + Protomaps sprites (basemaps-assets)
+│   │       ├── Globe.tsx    # Cesium 3D, viewer state, basemap, vision modes
+│   │       ├── MapPanel.tsx # MapLibre 2D PMTiles (persistent instance)
 │   │       └── MapModeBar.tsx  # KARTE/SATELLIT/HYBRID/GELÄNDE + 2D/3D toggle
 │   └── public/favicon.svg
 ├── data/pmtiles/            # Offline archives (gitignored blobs; see download script)
@@ -63,7 +64,7 @@ worldbase/
 ### Core Feeds
 | Endpoint | What | Cache TTL | Source |
 |----------|------|-----------|--------|
-| `/aircraft` | Live aircraft (OpenSky) | 15s | OpenSky |
+| `/aircraft` | Live aircraft (OpenSky → adsb.fi / adsb.lol) | 45s | adsb.fi + adsb.lol |
 | `/satellites` | ISS + others (CelesTrak) | 60s | CelesTrak |
 | `/earthquakes` | USGS seismic | 60s | USGS |
 | `/events` | Natural events (NASA EONET) | 300s | EONET |
@@ -168,7 +169,7 @@ worldbase/
 |----------|------|
 | `/health` | Status + per-feed freshness, count, source, error (SQLite `feed_cache` + `feed_registry.py`) |
 | `/health/ping` | Fast liveness probe for HUD status bar (no feed parsing) |
-| `/globe/snapshot?layers=...` | Parallel bundle of slow globe feeds (15s cache, refresh lock) |
+| `/globe/snapshot?layers=...` | Parallel bundle of slow globe feeds (30s cache, refresh lock) |
 | `/chat` | SSE streaming LLM chat with web search + optional firewall scan |
 
 ---
@@ -192,20 +193,20 @@ CREATE TABLE feed_cache (key TEXT PRIMARY KEY, value TEXT, cached_at TEXT);
 - **FullAnalysisOverlay**: The big red "FULL SITUATION" button. Fetches ALL 13 feeds in parallel, 2-column layout, auto-refresh 30s toggle.
 
 ### `Globe.tsx`
-- Many CustomDataSources (aircraft, satellites, seismic, events, military, spaceweather, geopolitics, nodes, …)
-- **LIVE TELEMETRY** panel: grouped feeds (MOTION/GEO/ENV/INFRA/INTEL), hover tooltips, click toggles layers
-- Layer-aware polling via **`/api/globe/snapshot`** (one HTTP round-trip when visible)
-- Pauses render loop + feed polling when globe layer hidden (`visible` prop)
-- Lighter default layers (military, maritime, transit, pegel, etc. off by default)
-- Emergency squawk pulsating ring (7500/7600/7700 = red)
-- Kp-based aurora oval rings
-- Ask AI button in target panel
-- Time slider (quakes + events, 6/12/24h)
+- Cesium viewer init, basemap (`applyGlobeMapMode`), vision shaders, timeline, HUD chrome
+- **Layer rendering** via `hooks/layers/GlobeLayerManager.tsx` (21 `use*Layer` hooks)
+- `layerUtils.ts`: safe `attachDataSource` / `detachDataSource` (split teardown)
+- `viewer` React state — hooks re-run after async Cesium init
+- Pauses render loop when hidden; `resolutionScale` 1.0 in split, 1.5 full-screen
+- **LIVE TELEMETRY** panel: grouped feeds, health dots, presets
+- Emergency squawk ring (7500/7600/7700); time slider (quakes + events)
 
-### Split view (`App.tsx`)
-- **◫ SPLIT** — side-by-side `split-view` + two `split-pane` (Globe left, MapPanel right)
-- Bidirectional camera sync via `syncCamera` state
-- Do **not** use overlapping absolute layers (breaks globe interaction and map tiles)
+### Split view (`App.tsx` + `hud.css`) — current (2026-06-15)
+- **◫ SPLIT** — CSS grid (`hud-main--split`): globe col 1, map col 2
+- **Globe + MapPanel always mounted** — toggle = CSS only (no MapLibre remount)
+- **No empty `view-fade` on GLOBE** — overlay blocked scroll/wheel (fixed)
+- Camera sync with **500 ms suppress** after programmatic jumps
+- Resize at 0 / 120 / 350 ms on layout change; split hides heavy globe chrome
 
 ---
 
@@ -277,7 +278,7 @@ cd backend
 
 # Frontend (dev)
 cd frontend
-npm run dev                          # http://localhost:5173
+npm run dev                          # http://localhost:5176 (Vite proxy → :8002)
 
 # Frontend (production build)
 npm run build                      # outputs dist/
@@ -313,7 +314,28 @@ Stack: `docker-compose.yml` — `web` (Caddy SPA + `/api` proxy), `backend` (Fas
 | `WORLDBASE_BIND_HOST` | `127.0.0.1` | Uvicorn bind; `0.0.0.0` when Pi on LAN **with** token |
 | `WORLDBASE_BRIEFING_INTERVAL` | 600 | Autopilot briefing interval (seconds) |
 | `WORLDBASE_SELF` | http://localhost:8002 | Self-referential URL for briefing |
-| `WORLDBASE_PORT` (Pi) | 8002 | Pi push/pull target (was 8000 — root cause of offline node) |
+| `ADSB_PRIMARY` | `auto` | `adsb.fi`, `adsb.lol`, or `auto` (parallel lol + sequential fi) |
+| `ADSB_TOTAL_TIMEOUT` | `14` | Regional fetch budget (seconds) |
+| `ADSB_NODE_TIMEOUT` | `6` | Per-region HTTP timeout (seconds) |
+| `WORLDBASE_PORT` (Pi) | 8002 | Pi push/pull target |
+
+---
+
+## Done (2026-06-15) — Globe stability, split view, aircraft
+
+### Frontend
+- Layer refactor → `frontend/src/hooks/layers/` (21 hooks + `GlobeLayerManager`)
+- Globe overlay fix (empty `view-fade` blocked interaction)
+- Split: CSS grid, persistent `MapPanel`, resize + camera-sync debounce
+- Esri basemap before Ion 3D buildings; aircraft poll 45 s
+
+### Backend
+- `adsb_client.py`: adsb.fi fallback, sequential regional fetch, `ADSB_PRIMARY`
+- `/api/aircraft`: stale-while-revalidate, 45 s cache; `globe_snapshot` 30 s TTL
+
+### Verified
+- Operator UI **localhost:5176** — globe + split OK
+- Backend **:8002** — aircraft ~300 states via **adsb.fi**; `npm run build` green
 
 ---
 
@@ -528,20 +550,19 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 | Crypto shows `$—` | Wrong field names | Use `v.usd` / `v.usd_24h_change` |
 | Spaceweather `—` | Fields don't exist | Use `aurora_visible_midlat` / `hf_radio_impact` |
 | Website not reachable | Backend not running | `.\start.ps1` (use **LiteralPath** if path has spaces) |
-| Frontend only on `localhost:5176` | Vite binds `::1` | Use `http://localhost:5176`, not `127.0.0.1:5176` |
+| Frontend OK on `localhost:5176` but not `127.0.0.1` | Vite binds IPv6 (`::1`) | Use **http://localhost:5176** in browser |
 | Pi `Ingest FAILED` HTTP 403 | Token mismatch | `setup-node-security.ps1` on PC + Pi override from `pi-node-token.conf` |
 | `borg list /mnt/usb` fails | Repo removed 2026-06-03 | Use `/mnt/sdcard/borg-repo`; tar backups on SD |
 | Pi disk alert in UI | Root was >85% | See `offgrid-raspi/docs/pi-storage-layout.md`; run `pi-disk-maintenance.sh` |
 | `borg` lock timeout on Pi | Stuck `borg list`/`check` | `pgrep -a borg`; `kill`; `borg break-lock $BORG_REPO` |
-| AIRCRAFT = 0, OpenSky error | No OAuth + rate limit | Automatic **adsb.lol** fallback; optional credentials in `backend/.env` |
-| CRISES at 0,0 or empty | ReliefWeb v1 dead (410) | Uses **GDACS** + geocoding; set `RELIEFWEB_APPNAME` for v2 |
-| HUD shows `adsb.lol` under AIRCRAFT | Working as designed | OpenSky not configured — free global ADS-B active |
-| Globe sluggish / API queue | SQLite blocking event loop (old) | Fixed — use latest; restart `.\start.ps1`; check `/api/globe/snapshot` |
-| Split: globe not interactive | Overlay/grid layout over WebGL | Use `split-view` + `split-pane` only (see Split view section) |
-| MapLibre `capital`/`townspot` warnings | Missing Protomaps sprites | Fixed in MapPanel — reload; needs `basemaps-assets` CDN or offline sprite host |
-| MAP shows Thailand not world | Default archive for speed | Select **planet_full** in MAP archive dropdown (~130 GB) |
-| 🛡️ firewall does nothing | HAK_GAL not running on :8001 | Start orchestrator `start.ps1`; set `FIREWALL_HOST=localhost:8001` |
-| `/api/firewall/status` unreachable | Fail-open by design | Chat works without scan; start external firewall service |
+| Split: black right pane / reload every toggle | MapPanel remounted on toggle (old) | Fixed — single MapPanel instance; CSS grid only |
+| Split: globe jitter when panning | Camera sync feedback loop | Fixed — 500 ms suppress after programmatic sync |
+| Globe: no scroll / no map tiles | Empty `view-fade` over canvas | Fixed — no overlay when `view === 'globe'` |
+| AIRCRAFT = 0, slow timeout | adsb.lol unreachable from network | **adsb.fi** fallback; optional `ADSB_PRIMARY=adsb.fi` |
+| HUD shows `adsb.fi` under AIRCRAFT | Working as designed | adsb.lol empty/slow — fi regional grid active |
+| CRISES at 0,0 or empty | ReliefWeb v1 dead (410) | GDACS + geocoding; optional `RELIEFWEB_APPNAME` |
+| MAP shows Thailand not world | Default archive for speed | Select **planet_full** in dropdown (~130 GB) |
+| 🛡️ firewall inactive | HAK_GAL not on :8001 | Start orchestrator; `FIREWALL_HOST=localhost:8001` |
 
 ---
 
@@ -549,6 +570,7 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 
 - Main app: `D:\MCP Mods\worldbase\frontend\src\App.tsx`
 - Globe: `D:\MCP Mods\worldbase\frontend\src\components\Globe.tsx`
+- Layer hooks: `D:\MCP Mods\worldbase\frontend\src\hooks\layers\`
 - Styles: `D:\MCP Mods\worldbase\frontend\src\styles\hud.css`
 - Backend feeds: `D:\MCP Mods\worldbase\backend\feeds_extra.py`
 - Node sync: `D:\MCP Mods\worldbase\backend\node_sync.py`

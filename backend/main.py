@@ -321,6 +321,32 @@ async def _briefing_autopilot():
         await asyncio.sleep(_BRIEFING_INTERVAL)
 
 
+async def _aircraft_warmup():
+    """Prime aircraft cache on boot so first UI load is fast."""
+    await asyncio.sleep(2)
+    try:
+        data, source = await aircraft_provider.fetch_live_states(timeout=14.0)
+        _cache_set("aircraft", data)
+        n = len(data.get("states") or [])
+        print(f"[WARMUP] aircraft cache primed ({n} states, {source})", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] aircraft cache skipped: {e}", flush=True)
+
+
+_AIRCRAFT_REFRESH_TASK: asyncio.Task | None = None
+
+
+async def _refresh_aircraft_cache() -> None:
+    global _AIRCRAFT_REFRESH_TASK
+    try:
+        data, _source = await aircraft_provider.fetch_live_states(timeout=14.0)
+        _cache_set("aircraft", data)
+    except Exception:
+        pass
+    finally:
+        _AIRCRAFT_REFRESH_TASK = None
+
+
 @app.on_event("startup")
 def on_startup():
     init_db()
@@ -337,6 +363,7 @@ def on_startup():
         _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
     else:
         print("[AUTOPILOT] Briefing autopilot disabled (WORLDBASE_BRIEFING_AUTOPILOT=0)", flush=True)
+    asyncio.create_task(_aircraft_warmup())
     asyncio.create_task(_phase1_background_tasks())
     asyncio.create_task(_aircraft_trail_loop())
     asyncio.create_task(_situations_prewarm())
@@ -494,6 +521,11 @@ def _cache_set(key: str, value):
     _CACHE[key] = (time.time(), value)
 
 
+def _cache_get_stale(key: str):
+    item = _CACHE.get(key)
+    return item[1] if item else None
+
+
 # ---------------------------------------------------------------------------
 # Chat context: inject live world state into LLM prompts
 # ---------------------------------------------------------------------------
@@ -636,31 +668,44 @@ async def build_chat_context() -> str:
 
 @app.get("/api/aircraft")
 async def get_aircraft(limit: int = 800):
-    """Live aircraft: OpenSky (OAuth) when configured, else adsb.lol grid (free, ODbL)."""
+    """Live aircraft: OpenSky (OAuth) when configured, else adsb.lol/adsb.fi grid."""
+    import asyncio
+
+    global _AIRCRAFT_REFRESH_TASK
+
     cache_key = "aircraft"
-    cached = _cache_get(cache_key, ttl=30.0)
+    cached = _cache_get(cache_key, ttl=45.0)
     source = "cache"
     if cached is None:
-        try:
-            cached, source = await aircraft_provider.fetch_live_states()
-            _cache_set(cache_key, cached)
-        except Exception as e:
-            stale = _CACHE.get(cache_key)
-            if stale:
-                cached = stale[1]
-                source = cached.get("source", "stale")
-            else:
-                return {
-                    "count": 0,
-                    "timestamp": None,
-                    "states": [],
-                    "source": None,
-                    "error": (
-                        f"Aircraft feeds unavailable ({e.__class__.__name__}). "
-                        "Optional: OPENSKY_CLIENT_ID/SECRET in backend/.env; "
-                        "otherwise adsb.lol is used automatically."
-                    ),
-                }
+        stale = _cache_get_stale(cache_key) or aircraft_provider.last_known_states()
+        if stale:
+            if _AIRCRAFT_REFRESH_TASK is None or _AIRCRAFT_REFRESH_TASK.done():
+                _AIRCRAFT_REFRESH_TASK = asyncio.create_task(_refresh_aircraft_cache())
+            cached = stale
+            source = stale.get("source", "stale")
+        else:
+            try:
+                cached, source = await asyncio.wait_for(
+                    aircraft_provider.fetch_live_states(timeout=12.0),
+                    timeout=14.0,
+                )
+                _cache_set(cache_key, cached)
+            except Exception as e:
+                if stale:
+                    cached = stale
+                    source = cached.get("source", "stale")
+                else:
+                    return {
+                        "count": 0,
+                        "timestamp": None,
+                        "states": [],
+                        "source": None,
+                        "error": (
+                            f"Aircraft feeds unavailable ({e.__class__.__name__}). "
+                            "Optional: OPENSKY_CLIENT_ID/SECRET in backend/.env; "
+                            "otherwise adsb.fi / adsb.lol is used automatically."
+                        ),
+                    }
     else:
         source = cached.get("source", "cache")
 
