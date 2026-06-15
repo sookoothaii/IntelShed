@@ -1,7 +1,7 @@
 # LLM Handoff — WorldBase
 
 > **Operator + agent reference.** User docs: [`README.md`](README.md) · [`docs/FEEDS.md`](docs/FEEDS.md) · [`docs/API-KEYS.md`](docs/API-KEYS.md) · [`docs/SETUP.md`](docs/SETUP.md)  
-> Last updated: 2026-06-15 | Stack: qwen3:8b/14b, RAG, feed_registry, globe_snapshot, layer hooks, adsb.fi aircraft fallback
+> Last updated: 2026-06-15 (evening) | Stack: qwen3:8b, main merged, Pi sync live (DHT+mesh+GPS), smoke 23/23
 
 ## Project Overview
 
@@ -137,7 +137,9 @@ worldbase/
 | `/node/{id}/commands` | GET pending commands (Pi). Requires `X-Node-Token` |
 | `/alerts` | GET sensor alerts (threshold-based) |
 
-**Pi scripts:** `offgrid-raspi/scripts/worldbase_push.py`, `worldbase_pull.py` — deploy + token: `scripts/setup-node-security.ps1`, `offgrid-raspi/scripts/pi-node-token.conf`, `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`.
+**Pi scripts:** `offgrid-raspi/scripts/worldbase_push.py`, `worldbase_pull.py` — deploy + token: `scripts/setup-node-security.ps1`, `scripts/sync-pi.ps1`, `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`.
+
+**Pi state files (push reads):** `esp32_state.json` (DHT USB), `mesh_state.json`, `gps_location.json` — **not** legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json`. Portal briefing: `/var/lib/offgrid/briefing_latest.json` (PC first).
 
 ### Flowsint (local Docker)
 | Item | Detail |
@@ -218,20 +220,24 @@ CREATE TABLE feed_cache (key TEXT PRIMARY KEY, value TEXT, cached_at TEXT);
 ```
 Frontend uses `v.usd ?? v.price` and `v.usd_24h_change ?? v.change_24h`.
 
-### Node Health Object (from `/api/nodes`)
+### Node object (from `/api/nodes`) — 2026-06-15 live
 ```json
 {
+  "node_id": "offgrid-pi",
+  "online": true,
+  "lat": 9.55,
+  "lon": 100.05,
+  "sensors": {"temp_c": 27.8, "humidity_pct": 38, "node_id": "esp32_dht_usb"},
+  "mesh": [{"id": "d9b0", "lat": 9.55, "lon": 100.05, "sats": 22}],
   "health": {
-    "cpu_temp_c": 43.8,
-    "load_1m": 0.52,
-    "ram_pct": 69.0,
-    "disk_pct": 71,
-    "services": {...}
-  },
-  "sensors": {}  // often empty from Pi
+    "cpu_temp_c": 48.7,
+    "ram_pct": 72.6,
+    "disk_pct": 72,
+    "services": {"offgrid-mesh": "active", "offgrid-sensor-ingest": "active"}
+  }
 }
 ```
-**IMPORTANT**: CPU temp is at `health.cpu_temp_c`, NOT `sensors.temp_c` or `sensors.cpu_temp`.
+**IMPORTANT:** Room DHT is `sensors.temp_c` / `sensors.humidity_pct`. Pi CPU is `health.cpu_temp_c` — not `sensors.cpu_temp`.
 
 ### Military Aircraft (`/api/military`)
 ```json
@@ -321,6 +327,30 @@ Stack: `docker-compose.yml` — `web` (Caddy SPA + `/api` proxy), `backend` (Fas
 
 ---
 
+## Done (2026-06-15) — merge, Pi organism, repo hygiene
+
+### Git / CI
+- **PR #1 merged** — `feature/cesium-1.142-eval` → `main` (CI green, smoke 23/23)
+- `.gitignore`: `*.db-shm`, `*.db-wal`; `ADSB_PRIMARY` in `backend/.env.example`
+- Submodule `offgrid-raspi` @ `91683d8`
+
+### Pi ↔ PC sync (live)
+- **`worldbase_push.py`**: reads OGN paths (`esp32_state.json`, `mesh_state.json`, `gps_location.json`)
+- **Buffer fix**: no replay after successful push (stale empty samples overwrote good ingest)
+- **`offgrid-portal`**: PC `briefing_latest.json` first (`brief.source = worldbase-pc`), local `world_brief` fallback
+- Stale `test` node removed from `node_state`
+- Pi root disk **72%** after maintenance; SD **89%** (ZIM + arduino cache — expected)
+
+### Deploy note
+- SCP from Windows → **LF-encode** Python scripts before Pi install (CRLF breaks `#!/usr/bin/env python3`)
+
+### Verified
+- `/api/nodes`: DHT + 2 mesh nodes + GPS
+- Push log: `sensors=3 mesh=2 gps=yes`
+- Portal `/api/status`: `"source": "worldbase-pc"`
+
+---
+
 ## Done (2026-06-15) — Globe stability, split view, aircraft
 
 ### Frontend
@@ -369,17 +399,17 @@ Stack: `docker-compose.yml` — `web` (Caddy SPA + `/api` proxy), `backend` (Fas
 
 ---
 
-## Ecosystem (2026-06-04)
+## Ecosystem (2026-06-15)
 
 | Component | Location | Status |
 |-----------|----------|--------|
-| WorldBase PC | `192.168.1.111:8002` API, `:5176` UI (`localhost` — Vite may bind `::1`) | Running |
-| HAK_GAL Firewall | `localhost:8001` (Orchestrator) | **Manual start** — not auto-launched by `start.ps1`. When down, WorldBase **fail-open** (chat passes un scanned). Start: `...\llm-security-firewall\detectors\orchestrator\start.ps1` |
-| Flowsint Docker | `:5173` UI, `:5001` API | Healthy; embed in OSINT tab |
-| Off-Grid Pi | `192.168.1.121`, SSH `~/.ssh/offgrid-pi` | push/pull **Ingest OK**, token deployed |
-| Borg (Pi) | `/mnt/sdcard/borg-repo` | Re-init 2026-06-04; timer enabled; key in `/mnt/sdcard/borg-key-backup/` |
-| Project backup (Pi) | `/mnt/sdcard/offgrid-project-backup/*.tar.gz` | Daily 03:30, timer active |
-| `/mnt/usb` (Pi) | **removed** | No directory — old root Borg gone |
+| WorldBase PC | `192.168.1.111:8002` API, `:5176` UI | **main** @ `217a485`, smoke 23/23 |
+| HAK_GAL Firewall | `localhost:8001` | Manual start; fail-open when down |
+| Flowsint Docker | `:5173` UI, `:5001` API | Embed in OSINT tab |
+| Off-Grid Pi | `192.168.1.121`, SSH `~/.ssh/offgrid-pi` | push/pull OK; DHT+mesh+GPS live |
+| Pi portal | `:8093` | PC briefing primary in GEOPOL |
+| Borg (Pi) | `/mnt/sdcard/borg-repo` | ~1.7 GB on SD |
+| Project backup (Pi) | `/mnt/sdcard/offgrid-project-backup/` | Daily 03:30; **keep 14** (maintenance script) |
 
 **Pi ops (from Windows PC):**
 ```powershell
@@ -396,10 +426,10 @@ journalctl -u worldbase_push -n 3 --no-pager
 
 Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 
-| Volume | Mount | 2026-06-03 |
+| Volume | Mount | 2026-06-15 |
 |--------|-------|------------|
-| USB root SSD | `/` (`sda2` ~28G) | **~71%** used, ~7.9G free (was ~91% before Borg removal) |
-| SD card | `/mnt/sdcard` (`mmcblk0p1` ~30G) | **~83%** used; ZIM/models/maps + daily `offgrid-project-backup` tarballs |
+| USB root SSD | `/` (`sda2` ~28G) | **~72%** used, ~7.5G free |
+| SD card | `/mnt/sdcard` (`mmcblk0p1` ~30G) | **~89%** used; ZIM ~14G, `.arduino15` ~7G, models ~1.7G |
 
 - **ZIM/maps/models** already symlinked to SD — not on root.
 - **Borg** on SD: `/mnt/sdcard/borg-repo` (live 2026-06-04). Old `/mnt/usb` on root **deleted** — `borg list /mnt/usb` → repo does not exist.
@@ -515,16 +545,18 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **Firewall**: HAK_GAL v6 semantic-first (`all-MiniLM-L6-v2` centroids). WorldBase passes `session_id: worldbase` only; optional future: WorldBase context in scan payload.
 
 **Backlog (next session):**
-1. **MAP default archive** — auto-select `planet_full` when `size_mb >= 95_000` (+ loading indicator on first MapLibre init)
-2. **Telemetry presets** — Overview / DE Infra / OSINT (layer + telemetry group sets)
-3. **Firewall autostart** — optional flag in `start.ps1` or header status dot when `:8001` down
-4. **Firewall context** — pass WorldBase intent (CVE analysis, situation board) to reduce false blocks
-5. **`sqlite-vec`** spike in `rag_memory.py` (replace O(n) cosine over 500 rows)
-6. **TiTiler** + **yente** self-host (unchanged from prior backlog)
-7. **Heatmap → Briefing**: top-3 fusion cells in LLM context
-8. **PR**: merge `feature/cesium-1.142-eval` → `main`
+1. **Telemetry presets** — Overview / DE Infra / OSINT (layer + telemetry group sets)
+2. **Firewall autostart** — optional flag in `start.ps1` or header status dot when `:8001` down
+3. **`sqlite-vec`** spike in `rag_memory.py`
+4. **TiTiler** + **yente** self-host
+5. **Heatmap → Briefing** — top-3 fusion cells in LLM context
+6. **Pi SD headroom** — optional `.arduino15` cache review (~7 GB)
+7. **LF deploy helper** — `scripts/deploy-pi-sync.ps1` (avoid CRLF trap)
 
 **Removed from backlog (done):**
+- ~~PR `feature/cesium-1.142-eval` → `main`~~ — merged PR #1
+- ~~Pi push empty sensors/mesh~~ — OGN path fix + buffer replay fix
+- ~~Portal dual briefing~~ — PC `briefing_latest.json` primary
 - ~~`world-full` download~~ — `planet_full.pmtiles` on disk (~130 GB)
 
 **Done (2026-06-03):** Flowsint embed; `/api/flowsint/health`. OSINT pins + localStorage; `/api/pegel`; Ollama `keep_alive: 5m`.
@@ -562,6 +594,9 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 | HUD shows `adsb.fi` under AIRCRAFT | Working as designed | adsb.lol empty/slow — fi regional grid active |
 | CRISES at 0,0 or empty | ReliefWeb v1 dead (410) | GDACS + geocoding; optional `RELIEFWEB_APPNAME` |
 | MAP shows Thailand not world | Default archive for speed | Select **planet_full** in dropdown (~130 GB) |
+| Pi `sensors`/`mesh` empty on PC | Old push paths or stale buffer replay | Deploy `worldbase_push.py` @ `91683d8+`; `rm worldbase_push_buffer.jsonl`; see `WORLDBASE_PI_SYNC.md` |
+| Portal `env: python3\r` after deploy | CRLF from Windows SCP | LF-encode before scp; **never** `tr -d '\r'` (corrupts shebang) |
+| Portal GEOPOL shows local brief only | Old portal or pull down | `briefing_latest.json` present; portal `brief.source` should be `worldbase-pc` |
 | 🛡️ firewall inactive | HAK_GAL not on :8001 | Start orchestrator; `FIREWALL_HOST=localhost:8001` |
 
 ---
@@ -588,6 +623,9 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - Bridges: `cap_bridge.py`, `anomaly_river.py`, `rag_memory.py`, `outages_bridge.py`, `volcano_bridge.py`, `gibs_bridge.py`, `duckdb_fusion.py`
 - Phase 2: `backend/stac_bridge.py`, `sanctions_bridge.py`, `aircraft_trails.py`, `fusion_heatmap.py`
 - Frontend Phase 2 components: `frontend/src/components/{PegelSparkline,StacPanel,SanctionsPanel}.tsx`
-- Backlog: *Backlog (next session)* section in this file
+- Pi sync doc: `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`
+- Pi push: `offgrid-raspi/scripts/worldbase_push.py` → `/usr/local/bin/` on Pi
+- Pi portal: `offgrid-raspi/offgrid/bin/offgrid-portal` → windsurf project on Pi
+- Pi maintenance: `offgrid-raspi/scripts/pi-disk-maintenance.sh`
 - DB: `D:\MCP Mods\worldbase\backend\worldbase.db`
 - Sanctions CSV cache: `D:\MCP Mods\worldbase\data\sanctions\targets.simple.csv` (~450 MB, CC-BY, auto-refresh 24 h)

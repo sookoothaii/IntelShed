@@ -163,7 +163,14 @@ WorldBase builds on ideas and patterns from the open geospatial OSINT community.
 
 ## Pi edge (submodule)
 
-`offgrid-raspi/` — sync docs: [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md)
+`offgrid-raspi/` @ `91683d8` — full sync guide: [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md)
+
+| Check | Command |
+|-------|---------|
+| Nodes on PC | `Invoke-RestMethod http://127.0.0.1:8002/api/nodes` |
+| Deploy token + HTTP | `.\scripts\sync-pi.ps1` |
+| Pi maintenance | `sudo bash pi-disk-maintenance.sh` (on Pi) |
+| Smoke test | `.\scripts\smoke-test.ps1` → expect **23/23 PASS** |
 
 ---
 
