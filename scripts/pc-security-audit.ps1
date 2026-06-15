@@ -92,4 +92,4 @@ if (-not $issues.Count) {
     $issues | ForEach-Object { Write-Host "  $_" }
 }
 Write-Host ''
-Write-Host 'Pi checklist: offgrid security-harden, portal auth, mqtt-harden — see docs/SECURITY_OPERATIONS.md' -ForegroundColor DarkGray
+Write-Host 'Pi checklist: offgrid security-harden, portal auth, mqtt-harden — see LLM_HANDOFF.md' -ForegroundColor DarkGray

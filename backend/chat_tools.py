@@ -185,6 +185,88 @@ def parse_tool_arguments(raw: Any) -> dict:
     return {}
 
 
+def _ollama_chat_body(model: str, messages: list, *, stream: bool, with_tools: bool) -> dict:
+    body: dict = {
+        "model": model,
+        "messages": messages,
+        "stream": stream,
+        "keep_alive": __import__("ollama_config").keep_alive(),
+    }
+    if with_tools:
+        body["tools"] = OLLAMA_TOOLS
+    if "qwen3" in (model or "").lower():
+        body["think"] = False
+    return body
+
+
+async def stream_ollama_with_tools(
+    host: str,
+    model: str,
+    messages: list,
+    max_rounds: int = 4,
+):
+    """Stream Ollama chat with tools — yields token/status/client_action/done events."""
+    working = list(messages)
+    url = f"http://{host}/api/chat"
+    timeout = __import__("ollama_config").chat_timeout()
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for _ in range(max_rounds):
+            tool_calls_final: list = []
+            content_final = ""
+            yield {"status": "generating"}
+
+            async with client.stream(
+                "POST",
+                url,
+                json=_ollama_chat_body(model, working, stream=True, with_tools=True),
+            ) as r:
+                r.raise_for_status()
+                async for line in r.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if data.get("done"):
+                        msg = data.get("message") or {}
+                        tool_calls_final = msg.get("tool_calls") or []
+                        if not content_final:
+                            content_final = msg.get("content") or ""
+                        break
+                    chunk = (data.get("message") or {}).get("content", "")
+                    if chunk:
+                        content_final += chunk
+                        yield {"token": chunk}
+
+            if tool_calls_final:
+                working.append({
+                    "role": "assistant",
+                    "content": content_final,
+                    "tool_calls": tool_calls_final,
+                })
+                for tc in tool_calls_final:
+                    fn = tc.get("function") or {}
+                    tname = fn.get("name", "")
+                    targs = parse_tool_arguments(fn.get("arguments"))
+                    yield {"status": "tool", "tool": tname}
+                    out = await execute_tool(tname, targs)
+                    if out.get("client_action"):
+                        yield {"client_action": out["client_action"]}
+                    working.append({
+                        "role": "tool",
+                        "content": json.dumps(out.get("result", out), default=str)[:8000],
+                    })
+                continue
+
+            yield {"done": True}
+            return
+
+    yield {"token": "Tool loop limit reached."}
+    yield {"done": True}
+
+
 async def run_ollama_with_tools(
     host: str,
     model: str,
@@ -196,11 +278,12 @@ async def run_ollama_with_tools(
     working = list(messages)
     url = f"http://{host}/api/chat"
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    timeout = __import__("ollama_config").chat_timeout()
+    async with httpx.AsyncClient(timeout=timeout) as client:
         for _ in range(max_rounds):
             r = await client.post(
                 url,
-                json={"model": model, "messages": working, "stream": False, "tools": OLLAMA_TOOLS, "keep_alive": "5m"},
+                json=_ollama_chat_body(model, working, stream=False, with_tools=True),
             )
             r.raise_for_status()
             data = r.json()

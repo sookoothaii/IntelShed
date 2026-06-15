@@ -1,6 +1,9 @@
 # WorldBase Windows Starter
 # Kills alte Prozesse, startet Backend + Frontend frisch
 # Paths with spaces (e.g. D:\MCP Mods\worldbase) are handled via -LiteralPath / WorkingDirectory
+param(
+    [switch]$SkipSmoke
+)
 
 $ErrorActionPreference = 'Stop'
 $Root = $PSScriptRoot
@@ -28,13 +31,13 @@ Write-Host '=====================================' -ForegroundColor Cyan
 Write-Host ''
 
 # Kill alte Prozesse
-Write-Host '[0/3] Cleaning up...' -ForegroundColor Yellow
+Write-Host '[0/4] Cleaning up...' -ForegroundColor Yellow
 Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*uvicorn*main:app*' } | Stop-Process -Force -ErrorAction SilentlyContinue
 Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*vite*' } | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep 2
 
 # Backend
-Write-Host '[1/3] Backend...' -ForegroundColor Cyan
+Write-Host '[1/4] Backend...' -ForegroundColor Cyan
 $backendPath = Join-Path $Root 'backend'
 $venvPython = Join-Path $backendPath 'venv\Scripts\python.exe'
 
@@ -67,7 +70,7 @@ Start-LoggedPowerShell -Title 'Backend :8002' -WorkingDirectory $backendPath -Co
 Start-Sleep 3
 
 # Frontend
-Write-Host '[2/3] Frontend...' -ForegroundColor Cyan
+Write-Host '[2/4] Frontend...' -ForegroundColor Cyan
 $frontendPath = Join-Path $Root 'frontend'
 if (-not (Test-Path -LiteralPath (Join-Path $frontendPath 'node_modules'))) {
     Write-Host '  npm install...' -ForegroundColor DarkGray
@@ -79,8 +82,31 @@ if (-not (Test-Path -LiteralPath (Join-Path $frontendPath 'node_modules'))) {
 Start-LoggedPowerShell -Title 'Frontend :5176' -WorkingDirectory $frontendPath -Command 'npm run dev -- --port 5176'
 Start-Sleep 2
 
+if (-not $SkipSmoke) {
+    Write-Host '[3/4] Smoke test (backend warm-up ~45s)...' -ForegroundColor Cyan
+    $ready = $false
+    foreach ($i in 1..18) {
+        try {
+            $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8002/api/health' -TimeoutSec 5
+            if ($h.status -eq 'ok') { $ready = $true; break }
+        } catch { }
+        Start-Sleep 3
+    }
+    if ($ready) {
+        $smoke = Join-Path $Root 'scripts\smoke-test.ps1'
+        & $smoke
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host '  Smoke test failed - stack is running; fix before release.' -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host '  Backend not ready - skip smoke (run .\scripts\smoke-test.ps1 manually)' -ForegroundColor Yellow
+    }
+} else {
+    Write-Host '[3/4] Smoke test skipped (-SkipSmoke)' -ForegroundColor DarkGray
+}
+
 # Browser
-Write-Host '[3/3] Browser...' -ForegroundColor Cyan
+Write-Host '[4/4] Browser...' -ForegroundColor Cyan
 Start-Process 'http://localhost:5176'
 
 Write-Host ''

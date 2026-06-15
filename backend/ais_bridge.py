@@ -10,6 +10,7 @@ Endpoints:
   GET /api/maritime/ports    — tracked port regions
 """
 
+import asyncio
 import os
 import time
 from datetime import datetime, timezone
@@ -31,6 +32,8 @@ PORT_REGIONS: dict[str, dict] = {
 
 _CACHE: dict[str, tuple[float, dict]] = {}
 TTL = 45  # seconds
+_FETCH_TIMEOUT = 6.0
+_REFRESH_LOCK = asyncio.Lock()
 
 
 def _vessel_type_label(type_code: int | None) -> str:
@@ -73,7 +76,7 @@ async def _fetch_myshiptracking(region: str, box: dict) -> list[dict]:
         f"&minLon={box['min_lon']}&maxLon={box['max_lon']}"
     )
     try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT, follow_redirects=True) as client:
             r = await client.get(url, headers={"User-Agent": "WorldBase/1.0"})
             r.raise_for_status()
             data = r.json()
@@ -117,7 +120,7 @@ async def _fetch_aishub() -> list[dict]:
         return []
     url = f"https://data.aishub.net/ws.php?username={key}&format=1&output=json&compress=0"
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT) as client:
             r = await client.get(url)
             r.raise_for_status()
             data = r.json()
@@ -158,49 +161,20 @@ def _demo_fleet() -> list[dict]:
     ]
 
 
-@router.get("")
-async def get_maritime():
-    """Return live vessel positions from all tracked regions."""
-    cache_key = "maritime:all"
-    cached = _CACHE.get(cache_key)
-    if cached and (time.time() - cached[0]) < TTL:
-        return cached[1]
-
-    all_vessels: list[dict] = []
-    errors: list[str] = []
-
-    # 1. Try MyShipTracking per region
-    for region, box in PORT_REGIONS.items():
-        try:
-            vs = await _fetch_myshiptracking(region, box)
-            all_vessels.extend(vs)
-        except Exception as exc:
-            errors.append(f"{region}: {exc}")
-
-    # 2. Try AISHub global
-    try:
-        vs = await _fetch_aishub()
-        all_vessels.extend(vs)
-    except Exception as exc:
-        errors.append(f"aishub: {exc}")
-
-    # 3. If nothing, use demo fleet
-    demo_mode = False
-    if not all_vessels:
-        all_vessels = _demo_fleet()
-        demo_mode = True
-        errors.append("All live sources failed — returning demo fleet")
-
-    # Deduplicate by MMSI
-    seen = set()
-    deduped = []
+def _dedupe_vessels(all_vessels: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    deduped: list[dict] = []
     for v in all_vessels:
         mmsi = v.get("mmsi", "")
         if mmsi and mmsi in seen:
             continue
         seen.add(mmsi)
         deduped.append(v)
+    return deduped
 
+
+def _build_result(all_vessels: list[dict], *, demo_mode: bool, errors: list[str] | None, stale: bool = False) -> dict:
+    deduped = _dedupe_vessels(all_vessels)
     result = {
         "count": len(deduped),
         "vessels": deduped,
@@ -209,9 +183,70 @@ async def get_maritime():
         "errors": errors if errors else None,
         "cached_at": datetime.now(timezone.utc).isoformat(),
     }
-
-    _CACHE[cache_key] = (time.time(), result)
+    if stale:
+        result["stale"] = True
     return result
+
+
+async def _fetch_live_vessels() -> tuple[list[dict], list[str]]:
+    """Query all regions in parallel — bounded by _FETCH_TIMEOUT per request."""
+    errors: list[str] = []
+    region_tasks = [
+        _fetch_myshiptracking(region, box) for region, box in PORT_REGIONS.items()
+    ]
+    region_results = await asyncio.gather(*region_tasks, return_exceptions=True)
+    all_vessels: list[dict] = []
+    for region, res in zip(PORT_REGIONS.keys(), region_results):
+        if isinstance(res, Exception):
+            errors.append(f"{region}: {res}")
+            continue
+        all_vessels.extend(res)
+
+    try:
+        all_vessels.extend(await _fetch_aishub())
+    except Exception as exc:
+        errors.append(f"aishub: {exc}")
+
+    return all_vessels, errors
+
+
+@router.get("")
+async def get_maritime():
+    """Return live vessel positions from all tracked regions."""
+    cache_key = "maritime:all"
+    cached = _CACHE.get(cache_key)
+    if cached and (time.time() - cached[0]) < TTL:
+        return cached[1]
+
+    stale_payload = cached[1] if cached else None
+
+    async with _REFRESH_LOCK:
+        cached = _CACHE.get(cache_key)
+        if cached and (time.time() - cached[0]) < TTL:
+            return cached[1]
+
+        try:
+            all_vessels, errors = await asyncio.wait_for(
+                _fetch_live_vessels(),
+                timeout=_FETCH_TIMEOUT + 2.0,
+            )
+        except asyncio.TimeoutError:
+            if stale_payload:
+                out = dict(stale_payload)
+                out["stale"] = True
+                out["errors"] = (stale_payload.get("errors") or []) + ["upstream timeout — serving stale cache"]
+                return out
+            all_vessels, errors = [], ["upstream timeout"]
+
+        demo_mode = False
+        if not all_vessels:
+            all_vessels = _demo_fleet()
+            demo_mode = True
+            errors.append("All live sources failed — returning demo fleet")
+
+        result = _build_result(all_vessels, demo_mode=demo_mode, errors=errors or None)
+        _CACHE[cache_key] = (time.time(), result)
+        return result
 
 
 @router.get("/ports")

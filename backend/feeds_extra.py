@@ -5,7 +5,10 @@ Every feed is fail-soft: on any upstream error it serves the last good value
 required for any source here.
 """
 
+import asyncio
+import json
 import os
+import sqlite3
 import time
 from datetime import datetime, timezone
 
@@ -21,18 +24,20 @@ router = APIRouter(prefix="/api", tags=["feeds-extra"])
 
 # Module-local TTL cache (independent of main.py)
 _CACHE: dict = {}
-_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
+_DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
+)
 
 
-def _get(key: str, ttl: float):
-    # 1. Check in-memory cache first
-    item = _CACHE.get(key)
-    if item and (time.time() - item[0]) < ttl:
-        return item[1]
-    # 2. Fall back to SQLite cache
+def _db_connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(_DB_PATH, timeout=5.0)
+    conn.execute("PRAGMA busy_timeout=5000")
+    return conn
+
+
+def _db_get(key: str, ttl: float):
     try:
-        import sqlite3
-        conn = sqlite3.connect(_DB_PATH)
+        conn = _db_connect()
         c = conn.cursor()
         c.execute("SELECT value, cached_at FROM feed_cache WHERE key = ?", (key,))
         row = c.fetchone()
@@ -41,21 +46,15 @@ def _get(key: str, ttl: float):
             cached_at = datetime.fromisoformat(row[1])
             age = (datetime.now(timezone.utc) - cached_at.replace(tzinfo=timezone.utc)).total_seconds()
             if age < ttl:
-                import json
-                val = json.loads(row[0])
-                _CACHE[key] = (time.time(), val)  # warm memory cache
-                return val
+                return json.loads(row[0])
     except Exception:
         pass
     return None
 
 
-def _set(key: str, value):
-    _CACHE[key] = (time.time(), value)
-    # Persist to SQLite
+def _db_set(key: str, value):
     try:
-        import sqlite3, json
-        conn = sqlite3.connect(_DB_PATH)
+        conn = _db_connect()
         c = conn.cursor()
         c.execute(
             "INSERT OR REPLACE INTO feed_cache (key, value, cached_at) VALUES (?, ?, ?)",
@@ -67,14 +66,9 @@ def _set(key: str, value):
         pass
 
 
-def _stale(key: str):
-    item = _CACHE.get(key)
-    if item:
-        return item[1]
-    # Fall back to SQLite
+def _db_stale(key: str):
     try:
-        import sqlite3, json
-        conn = sqlite3.connect(_DB_PATH)
+        conn = _db_connect()
         c = conn.cursor()
         c.execute("SELECT value FROM feed_cache WHERE key = ?", (key,))
         row = c.fetchone()
@@ -84,6 +78,28 @@ def _stale(key: str):
     except Exception:
         pass
     return None
+
+
+async def _get(key: str, ttl: float):
+    item = _CACHE.get(key)
+    if item and (time.time() - item[0]) < ttl:
+        return item[1]
+    val = await asyncio.to_thread(_db_get, key, ttl)
+    if val is not None:
+        _CACHE[key] = (time.time(), val)
+    return val
+
+
+async def _set(key: str, value):
+    _CACHE[key] = (time.time(), value)
+    await asyncio.to_thread(_db_set, key, value)
+
+
+async def _stale(key: str):
+    item = _CACHE.get(key)
+    if item:
+        return item[1]
+    return await asyncio.to_thread(_db_stale, key)
 
 
 _UA = {"User-Agent": "WorldBase/1.0 (spatial intelligence dashboard)"}
@@ -96,7 +112,7 @@ _UA = {"User-Agent": "WorldBase/1.0 (spatial intelligence dashboard)"}
 async def space_weather():
     """Planetary K-index + solar wind summary (cached 5 min). No key."""
     key = "spaceweather"
-    cached = _get(key, ttl=300.0)
+    cached = await _get(key, ttl=300.0)
     if cached is not None:
         return cached
     try:
@@ -149,10 +165,10 @@ async def space_weather():
             "hf_radio_impact": (kp_val or 0) >= 5,
             "history": history,
         }
-        _set(key, out)
+        await _set(key, out)
         return out
     except Exception as e:
-        stale = _stale(key)
+        stale = await _stale(key)
         if stale:
             return stale
         return {"kp_index": None, "scale": "unknown", "error": str(e)}
@@ -165,7 +181,7 @@ async def space_weather():
 async def markets():
     """Crypto prices + major forex rates + key macro (cached 60s). No key."""
     key = "markets"
-    cached = _get(key, ttl=60.0)
+    cached = await _get(key, ttl=60.0)
     if cached is not None:
         return cached
     out = {"crypto": {}, "forex": {}, "updated": datetime.now(timezone.utc).isoformat()}
@@ -193,10 +209,10 @@ async def markets():
                     out["forex"] = fx.json()
             except Exception:
                 pass
-        _set(key, out)
+        await _set(key, out)
         return out
     except Exception as e:
-        stale = _stale(key)
+        stale = await _stale(key)
         if stale:
             return stale
         out["error"] = str(e)
@@ -210,7 +226,7 @@ async def markets():
 async def military_aircraft():
     """Military + interesting aircraft worldwide via adsb.fi (cached 20s). No key."""
     key = "military"
-    cached = _get(key, ttl=20.0)
+    cached = await _get(key, ttl=20.0)
     if cached is not None:
         return cached
     ac: list[dict] = []
@@ -225,7 +241,7 @@ async def military_aircraft():
             ac = await adsb_client.fetch_mil_states()
             source = "adsb.lol"
         except Exception as e:
-            stale = _stale(key)
+            stale = await _stale(key)
             if stale:
                 return stale
             return {"count": 0, "aircraft": [], "error": str(e)}
@@ -249,7 +265,7 @@ async def military_aircraft():
             if a.get("lat") is not None and a.get("lon") is not None
         ],
     }
-    _set(key, out)
+    await _set(key, out)
     return out
 
 
@@ -260,7 +276,7 @@ async def military_aircraft():
 async def point_weather(lat: float, lon: float):
     """Current weather + 24h outlook for any coordinate (cached 10 min). No key."""
     key = f"weather:{round(lat, 2)}:{round(lon, 2)}"
-    cached = _get(key, ttl=600.0)
+    cached = await _get(key, ttl=600.0)
     if cached is not None:
         return cached
     try:
@@ -286,10 +302,10 @@ async def point_weather(lat: float, lon: float):
             "units": data.get("current_units", {}),
             "timezone": data.get("timezone"),
         }
-        _set(key, out)
+        await _set(key, out)
         return out
     except Exception as e:
-        stale = _stale(key)
+        stale = await _stale(key)
         if stale:
             return stale
         return {"lat": lat, "lon": lon, "current": {}, "error": str(e)}
@@ -302,7 +318,7 @@ async def point_weather(lat: float, lon: float):
 async def geopolitics(limit: int = 40):
     """Humanitarian crises on the globe — GDACS (coords) + ReliefWeb v2 when appname approved."""
     key = "geopolitics"
-    cached = _get(key, ttl=1800.0)
+    cached = await _get(key, ttl=1800.0)
     if cached is not None:
         return cached
 
@@ -389,7 +405,7 @@ async def geopolitics(limit: int = 40):
             else None
         ),
     }
-    _set(key, out)
+    await _set(key, out)
     return out
 
 
@@ -399,14 +415,16 @@ async def geopolitics(limit: int = 40):
 @router.get("/anomalies")
 async def aircraft_anomalies():
     """Scan ADS-B for unusual patterns (OpenSky or adsb.lol)."""
-    try:
-        data, _src = await aircraft_provider.fetch_live_states(timeout=20.0)
-    except Exception as e:
-        return {
-            "analyzed": 0,
-            "anomalies": [],
-            "error": f"Aircraft feed unavailable ({e.__class__.__name__}).",
-        }
+    data = aircraft_provider.last_known_states()
+    if not data or not data.get("states"):
+        try:
+            data, _src = await aircraft_provider.fetch_live_states(timeout=10.0)
+        except Exception as e:
+            return {
+                "analyzed": 0,
+                "anomalies": [],
+                "error": f"Aircraft feed unavailable ({e.__class__.__name__}).",
+            }
 
     states = data.get("states") or []
     anomalies = []
@@ -540,18 +558,26 @@ async def cross_feed_correlations():
     except Exception:
         disasters = []
 
-    try:
-        os_data, _ = await aircraft_provider.fetch_live_states(timeout=15.0)
-        states = (os_data or {}).get("states", [])
-    except Exception:
-        states = []
+    os_data = aircraft_provider.last_known_states()
+    if not os_data or not os_data.get("states"):
+        try:
+            os_data, _ = await aircraft_provider.fetch_live_states(timeout=10.0)
+        except Exception:
+            os_data = None
+    states = (os_data or {}).get("states", [])
 
     MIL_HEX = tuple("ae ad af a1 a2 a3 a4 a5".split())
     for d in disasters:
         fields = d.get("fields", {})
         dis_name = fields.get("name", "")
-        # Rough: place at 0,0 if no coords; in production geocode country name
-        dlon, dlat = 0, 0
+        countries = fields.get("country") or []
+        country_name = ""
+        if countries:
+            c0 = countries[0]
+            country_name = c0.get("name", "") if isinstance(c0, dict) else str(c0)
+        dlat, dlon = geo_centroids.resolve_lat_lon(name=country_name or dis_name)
+        if dlat is None:
+            continue
         mil_count = 0
         for s in states:
             if not s or len(s) < 17:
@@ -649,7 +675,7 @@ async def cross_feed_correlations():
 async def air_quality():
     """Global air quality PM2.5 + PM10 from Open-Meteo. Cached 1h. No key."""
     key = "airquality"
-    cached = _get(key, ttl=3600.0)
+    cached = await _get(key, ttl=3600.0)
     if cached is not None:
         return cached
     try:
@@ -678,52 +704,74 @@ async def air_quality():
                 except Exception:
                     continue
         out = {"cities": results, "updated": datetime.now(timezone.utc).isoformat()}
-        _set(key, out)
+        await _set(key, out)
         return out
     except Exception as e:
-        stale = _stale(key)
+        stale = await _stale(key)
         if stale:
             return stale
         return {"cities": [], "error": str(e)}
 
 
 # ---------------------------------------------------------------------------
-# Tsunami / Cyclone — GDACS RSS (no key)
+# Tsunami / Cyclone / Flood — GDACS JSON API (no key)
 # ---------------------------------------------------------------------------
+def _gdacs_active(props: dict) -> bool:
+    if str(props.get("iscurrent", "")).lower() == "true":
+        level = (props.get("alertlevel") or "").lower()
+        return level in ("red", "orange")
+    return (props.get("alertlevel") or "").lower() in ("red", "orange")
+
+
 @router.get("/gdacs")
 async def gdacs_alerts():
-    """GDACS humanitarian alerts (tsunami, cyclone, flood, earthquake). Cached 15m. No key."""
-    key = "gdacs"
-    cached = _get(key, ttl=900.0)
+    """GDACS humanitarian alerts via JSON API (coords included). Cached 15m. No key."""
+    key = "gdacs_v3"
+    cached = await _get(key, ttl=900.0)
     if cached is not None:
+        cached.setdefault("source", "gdacs.org")
+        if "count_mapped" not in cached and cached.get("alerts"):
+            cached["count_mapped"] = sum(1 for i in cached["alerts"] if i.get("lat") is not None)
         return cached
     try:
-        import xml.etree.ElementTree as ET
-        async with httpx.AsyncClient(timeout=20.0, headers=_UA) as client:
-            r = await client.get("https://www.gdacs.org/xml/rss.xml")
+        async with httpx.AsyncClient(timeout=25.0, headers=_UA) as client:
+            r = await client.get("https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH")
             r.raise_for_status()
-            root = ET.fromstring(r.text)
+            data = r.json()
         items = []
-        ns = {"content": "http://purl.org/rss/1.0/modules/content/"}
-        for item in root.findall(".//item")[:20]:
-            title = item.findtext("title", "")
-            link = item.findtext("link", "")
-            desc = item.findtext("description", "")
-            pub = item.findtext("pubDate", "")
-            # Extract lat/lon from description if present
-            lat = None
-            lon = None
-            import re
-            m = re.search(r"Lat=([\d.+-]+)\s+Lon=([\d.+-]+)", desc)
-            if m:
-                lat = float(m.group(1))
-                lon = float(m.group(2))
-            items.append({"title": title, "link": link, "description": desc, "published": pub, "lat": lat, "lon": lon})
-        out = {"count": len(items), "alerts": items}
-        _set(key, out)
+        for feat in data.get("features", []):
+            props = feat.get("properties") or {}
+            if not _gdacs_active(props):
+                continue
+            geom = feat.get("geometry") or {}
+            coords = geom.get("coordinates") or []
+            lat = lon = None
+            if len(coords) >= 2:
+                lon, lat = float(coords[0]), float(coords[1])
+            url_obj = props.get("url") or {}
+            items.append({
+                "title": props.get("name") or props.get("eventname") or "GDACS alert",
+                "link": url_obj.get("report") or "",
+                "description": props.get("htmldescription") or props.get("description") or "",
+                "published": props.get("datemodified") or "",
+                "lat": lat,
+                "lon": lon,
+                "alertlevel": props.get("alertlevel"),
+                "eventtype": props.get("eventtype"),
+            })
+            if len(items) >= 25:
+                break
+        out = {
+            "count": len(items),
+            "count_mapped": sum(1 for i in items if i.get("lat") is not None),
+            "alerts": items,
+            "source": "gdacs.org",
+            "updated": datetime.now(timezone.utc).isoformat(),
+        }
+        await _set(key, out)
         return out
     except Exception as e:
-        stale = _stale(key)
+        stale = await _stale(key)
         if stale:
             return stale
         return {"count": 0, "alerts": [], "error": str(e)}

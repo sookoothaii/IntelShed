@@ -1,10 +1,15 @@
 # LLM Handoff — WorldBase
-> Last updated: 2026-06-06 | Phase 1+2 Gold stack: Ollama Qwen3, River, RAG, hazards, outages, PMTiles Thailand+world
+
+> **Operator + agent reference.** User docs: [`README.md`](README.md) · [`docs/FEEDS.md`](docs/FEEDS.md) · [`docs/API-KEYS.md`](docs/API-KEYS.md) · [`docs/SETUP.md`](docs/SETUP.md)  
+> Last updated: 2026-06-15 | Stack: qwen3:8b/14b, RAG, feed_registry, globe_snapshot, layer hooks, adsb.fi aircraft fallback
 
 ## Project Overview
-WorldBase is a spatial intelligence dashboard: React + CesiumJS globe on the frontend, FastAPI backend with 20+ data feeds. No API keys required for any source. All feeds are fail-soft (serve stale cache or empty payload on upstream error).
+
+WorldBase is a spatial intelligence dashboard: React + CesiumJS globe, FastAPI backend with 30+ feeds. **Fail-soft** — upstream errors → stale cache or `{ count: 0, error }`, not HTTP 500.
 
 **Philosophy**: Positive intelligence — help make better decisions, not attack.
+
+**Inspiration**: Bilawal Sidhu *WorldView*, [K-AI-STACK/WorldView](https://github.com/K-AI-STACK/WorldView), [kevtoe/worldview](https://github.com/kevtoe/worldview), [petieclark/worldview](https://github.com/petieclark/worldview), offgrid-raspi.
 
 ---
 
@@ -28,20 +33,28 @@ WorldBase is a spatial intelligence dashboard: React + CesiumJS globe on the fro
 ```
 worldbase/
 ├── backend/
-│   ├── main.py              # FastAPI app, /api/chat (SSE streaming), /api/health
-│   ├── feeds_extra.py       # 13 feed endpoints + anomaly/correlation detection
+│   ├── main.py              # FastAPI app, /api/chat (SSE streaming), /api/health, /api/health/ping
+│   ├── feeds_extra.py       # Extended feeds (async SQLite via asyncio.to_thread + WAL)
+│   ├── feed_registry.py     # Shared feed_cache writes for /api/health provenance
+│   ├── globe_snapshot.py    # GET /api/globe/snapshot — bundled parallel feed fetch (15s cache)
+│   ├── firewall_bridge.py   # Optional HAK_GAL LLM firewall on :8001
 │   ├── node_sync.py         # Pi↔PC sync, sensor alerts, HMAC auth, mesh briefing
-│   ├── osint_tools.py       # NEW: IP/Domain/Username/Email/Reverse-geocode
-│   ├── requirements.txt     # dnspython added for DNS lookups
-│   └── worldbase.db         # SQLite (node_state, briefings, sensor_alerts, feed_cache)
+│   ├── osint_tools.py       # IP/Domain/Username/Email/Reverse-geocode
+│   ├── rag_memory.py        # Ollama nomic-embed + SQLite cosine RAG (2000 chunk cap)
+│   └── worldbase.db         # SQLite (node_state, briefings, sensor_alerts, feed_cache, rag_chunks)
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx          # Main app: DATA panel (12 tabs), ChatPanel, FullAnalysisOverlay
-│   │   ├── styles/hud.css   # ALL styles including new analysis overlay
+│   │   ├── App.tsx          # Views: Globe, MAP, DATA, AI, FIREWALL, OSINT; split grid layout
+│   │   ├── hooks/layers/    # 21 use*Layer hooks + GlobeLayerManager + layerUtils.ts
+│   │   ├── styles/hud.css   # HUD, telemetry, split grid, map mode bar
+│   │   ├── lib/mapView.ts   # Shared basemap + 2D/3D mode state
 │   │   └── components/
-│   │       └── Globe.tsx    # CesiumJS: 9 DataSources, entity rendering, Ask AI
-│   └── dist/                # Built frontend (served by backend)
-└── offgrid-raspi/           # Pi scripts (not in this workspace)
+│   │       ├── Globe.tsx    # Cesium 3D, viewer state, basemap, vision modes
+│   │       ├── MapPanel.tsx # MapLibre 2D PMTiles (persistent instance)
+│   │       └── MapModeBar.tsx  # KARTE/SATELLIT/HYBRID/GELÄNDE + 2D/3D toggle
+│   └── public/favicon.svg
+├── data/pmtiles/            # Offline archives (gitignored blobs; see download script)
+└── offgrid-raspi/           # Pi scripts (submodule)
 ```
 
 ---
@@ -51,7 +64,7 @@ worldbase/
 ### Core Feeds
 | Endpoint | What | Cache TTL | Source |
 |----------|------|-----------|--------|
-| `/aircraft` | Live aircraft (OpenSky) | 15s | OpenSky |
+| `/aircraft` | Live aircraft (OpenSky → adsb.fi / adsb.lol) | 45s | adsb.fi + adsb.lol |
 | `/satellites` | ISS + others (CelesTrak) | 60s | CelesTrak |
 | `/earthquakes` | USGS seismic | 60s | USGS |
 | `/events` | Natural events (NASA EONET) | 300s | EONET |
@@ -66,16 +79,52 @@ worldbase/
 | `/military` | Military aircraft (adsb.fi) | 20s | adsb.fi |
 | `/nodes` | Pi node telemetry | DB | Local |
 | `/airquality` | PM2.5/PM10 (6 cities) | 3600s | Open-Meteo |
-| `/gdacs` | Humanitarian alerts | 900s | GDACS RSS |
+| `/gdacs` | Humanitarian alerts (red/orange) | 900s | gdacs.org JSON API |
 | `/pegel` | German river gauges (Pegelonline) | 900s | pegelonline.wsv.de |
 
 ### Intelligence Engine
 | Endpoint | What |
 |----------|------|
 | `/anomalies` | Aircraft anomaly detection (6 patterns) |
+| `/anomalies/river` | Online River HalfSpaceTrees / z-score per feed |
 | `/correlations` | Cross-feed correlation (nuclear-quake, military-surge, seismic-cluster) |
 | `/briefing` | Latest LLM-generated situation briefing |
 | `/briefing/generate` | Force new briefing generation |
+| `/situations` | Unified situation board (parallel fetch) |
+| `/fusion/heatmap` | **Killer-Feature**: 8-feed signal aggregation onto lat/lon grid |
+| `/memory/{search,stats,index/pulse}` | RAG over briefings + GDELT + hazards + situations + volcanoes + STAC + sanctions |
+
+### Imagery & Maps
+| Endpoint | What | Source |
+|----------|------|--------|
+| `/stac/collections` | STAC catalog + region presets | static |
+| `/stac/search` | Sentinel-2 / Landsat search (bbox + date + cloud) | Element84 EarthSearch (free) |
+| `/stac/item/{id}` | STAC item detail | Element84 |
+| `/stac/thumbnail?id=...` | CORS-safe thumbnail proxy | Element84 |
+| `/pmtiles/{status,file/{name}}` | Local Protomaps PMTiles serve | local |
+| `/gibs/{layers,latest}` | NASA GIBS WMTS catalog + token | NASA |
+
+### Maritime intelligence
+| Endpoint | What |
+|----------|------|
+| `/maritime` | Live AIS vessel positions (port regions) |
+| `/maritime/ports` | Tracked port bbox list |
+| `/sanctions/status` | Local CSV freshness + index size |
+| `/sanctions/refresh` | Force re-download of OpenSanctions default CSV |
+| `/sanctions/search?q=` | Local fuzzy match (Person/Company/Vessel) |
+| `/sanctions/screen/vessels` | AIS ↔ OpenSanctions cross-match |
+
+### Aircraft trails
+| Endpoint | What |
+|----------|------|
+| `/aircraft/trails?icao24=...&minutes=30` | Persisted 30 min trail per ICAO24 |
+| `/aircraft/trails/stats` | Row count, distinct aircraft, oldest/newest |
+| `/aircraft/trails/snapshot` | Manual trigger (rate-limited) |
+
+### Pegel sparklines
+| Endpoint | What |
+|----------|------|
+| `/pegel/{uuid}/history?hours=24` | Time series for SVG sparkline rendering |
 
 ### Pi↔PC Sync (`node_sync.py`)
 | Endpoint | What |
@@ -88,7 +137,7 @@ worldbase/
 | `/node/{id}/commands` | GET pending commands (Pi). Requires `X-Node-Token` |
 | `/alerts` | GET sensor alerts (threshold-based) |
 
-**Pi scripts:** `offgrid-raspi/scripts/worldbase_push.py`, `worldbase_pull.py` — deploy + token: `scripts/setup-node-security.ps1`, `offgrid-raspi/scripts/pi-node-token.conf`, `docs/WORLDBASE_PI_SYNC.md`.
+**Pi scripts:** `offgrid-raspi/scripts/worldbase_push.py`, `worldbase_pull.py` — deploy + token: `scripts/setup-node-security.ps1`, `offgrid-raspi/scripts/pi-node-token.conf`, `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`.
 
 ### Flowsint (local Docker)
 | Item | Detail |
@@ -97,7 +146,7 @@ worldbase/
 | Setup | `scripts/setup-flowsint.ps1`, `scripts/start-flowsint.ps1` |
 | UI | http://localhost:5173 (WorldBase Vite stays on **5176**) |
 | Health | `GET /api/flowsint/health` |
-| Doc | `docs/FLOWSINT_INTEGRATION.md` |
+| Setup | `scripts/setup-flowsint.ps1`, `scripts/start-flowsint.ps1` |
 
 ### OSINT (`osint_tools.py`)
 | Endpoint | What | Source |
@@ -108,11 +157,20 @@ worldbase/
 | `/osint/email/{email}` | Disposable domain + MX check | Local |
 | `/osint/reverse-geocode` | Lat/lon → location name | BigDataCloud |
 
+### Firewall (`firewall_bridge.py`)
+| Endpoint | What |
+|----------|------|
+| `/firewall/status` | HAK_GAL reachability + `enabled` (requires `FIREWALL_HOST` in `.env`) |
+| `/firewall/test` | POST `{"query":"..."}` — direct firewall scan |
+| `/chat` + `firewall: true` | User message scanned before Ollama; blocks on `risk_score > 0.7` |
+
 ### System
 | Endpoint | What |
 |----------|------|
-| `/health` | Status + per-feed freshness timestamps |
-| `/chat` | SSE streaming LLM chat with web search |
+| `/health` | Status + per-feed freshness, count, source, error (SQLite `feed_cache` + `feed_registry.py`) |
+| `/health/ping` | Fast liveness probe for HUD status bar (no feed parsing) |
+| `/globe/snapshot?layers=...` | Parallel bundle of slow globe feeds (30s cache, refresh lock) |
+| `/chat` | SSE streaming LLM chat with web search + optional firewall scan |
 
 ---
 
@@ -135,11 +193,20 @@ CREATE TABLE feed_cache (key TEXT PRIMARY KEY, value TEXT, cached_at TEXT);
 - **FullAnalysisOverlay**: The big red "FULL SITUATION" button. Fetches ALL 13 feeds in parallel, 2-column layout, auto-refresh 30s toggle.
 
 ### `Globe.tsx`
-- 9 CustomDataSources: aircraft, satellites, seismic, events, iss, military, spaceweather, geopolitics, nodes
-- Emergency squawk pulsating ring (7500/7600/7700 = red)
-- Kp-based aurora oval rings
-- Ask AI button in target panel
-- HUD stats overlay
+- Cesium viewer init, basemap (`applyGlobeMapMode`), vision shaders, timeline, HUD chrome
+- **Layer rendering** via `hooks/layers/GlobeLayerManager.tsx` (21 `use*Layer` hooks)
+- `layerUtils.ts`: safe `attachDataSource` / `detachDataSource` (split teardown)
+- `viewer` React state — hooks re-run after async Cesium init
+- Pauses render loop when hidden; `resolutionScale` 1.0 in split, 1.5 full-screen
+- **LIVE TELEMETRY** panel: grouped feeds, health dots, presets
+- Emergency squawk ring (7500/7600/7700); time slider (quakes + events)
+
+### Split view (`App.tsx` + `hud.css`) — current (2026-06-15)
+- **◫ SPLIT** — CSS grid (`hud-main--split`): globe col 1, map col 2
+- **Globe + MapPanel always mounted** — toggle = CSS only (no MapLibre remount)
+- **No empty `view-fade` on GLOBE** — overlay blocked scroll/wheel (fixed)
+- Camera sync with **500 ms suppress** after programmatic jumps
+- Resize at 0 / 120 / 350 ms on layout change; split hides heavy globe chrome
 
 ---
 
@@ -211,11 +278,22 @@ cd backend
 
 # Frontend (dev)
 cd frontend
-npm run dev                          # http://localhost:5173
+npm run dev                          # http://localhost:5176 (Vite proxy → :8002)
 
 # Frontend (production build)
 npm run build                      # outputs dist/
+
+# Automated smoke test (backend APIs, Ollama chat, Vite proxy, build)
+.\scripts\smoke-test.ps1           # expect FAIL 0 after .\start.ps1
 ```
+
+### Docker (optional — Pi HTTPS sync)
+
+```powershell
+.\scripts\start-docker.ps1   # Caddy :443 TLS + backend on 127.0.0.1:8002
+```
+
+Stack: `docker-compose.yml` — `web` (Caddy SPA + `/api` proxy), `backend` (FastAPI, SQLite volume). Pi synct über HTTPS mit gleichem `NODE_INGEST_TOKEN`. Secure-by-default: `WORLDBASE_REQUIRE_NODE_TOKEN=1`.
 
 ---
 
@@ -223,14 +301,41 @@ npm run build                      # outputs dist/
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `OLLAMA_HOST` | localhost:11434 | Ollama host(s), comma-separated |
-| `OLLAMA_MODEL` | qwen2.5:14b | Default LLM model |
+| `OLLAMA_HOST` | **127.0.0.1:11434** | Ollama host(s), comma-separated. **Windows:** `127.0.0.1` zuverlässiger als `localhost` (IPv6). Backend probiert beide automatisch. |
+| `OLLAMA_MODEL` | qwen3:8b | Default chat model (`/api/models` filtert Embed-Modelle raus) |
+| `OLLAMA_EMBED_MODEL` | nomic-embed-text | RAG embeddings only — nicht im Chat-Dropdown |
+| `OLLAMA_KEEP_ALIVE` | `1m` | `0` = Modell sofort aus VRAM; `5m` war früher Default (zu aggressiv mit Globe) |
+| `WORLDBASE_BRIEFING_AUTOPILOT` | `1` | `0` = kein Hintergrund-Briefing (spart VRAM) |
+| `WORLDBASE_RAG_AUTOPILOT` | `1` | `0` = kein Hintergrund-RAG-Embed |
+| `WORLDBASE_BRIEFING_INTERVAL` | `600` | Sekunden zwischen Autopilot-Briefings |
+| `FIREWALL_HOST` | `localhost:8001` | leer = HAK_GAL Firewall aus |
 | `NODE_INGEST_TOKEN` | "" (empty) | HMAC + shared secret for ingest/pull/commands |
 | `NODE_ADMIN_TOKEN` | (falls back to ingest) | `X-Admin-Token` for `/node/{id}/command` |
 | `WORLDBASE_BIND_HOST` | `127.0.0.1` | Uvicorn bind; `0.0.0.0` when Pi on LAN **with** token |
 | `WORLDBASE_BRIEFING_INTERVAL` | 600 | Autopilot briefing interval (seconds) |
 | `WORLDBASE_SELF` | http://localhost:8002 | Self-referential URL for briefing |
-| `WORLDBASE_PORT` (Pi) | 8002 | Pi push/pull target (was 8000 — root cause of offline node) |
+| `ADSB_PRIMARY` | `auto` | `adsb.fi`, `adsb.lol`, or `auto` (parallel lol + sequential fi) |
+| `ADSB_TOTAL_TIMEOUT` | `14` | Regional fetch budget (seconds) |
+| `ADSB_NODE_TIMEOUT` | `6` | Per-region HTTP timeout (seconds) |
+| `WORLDBASE_PORT` (Pi) | 8002 | Pi push/pull target |
+
+---
+
+## Done (2026-06-15) — Globe stability, split view, aircraft
+
+### Frontend
+- Layer refactor → `frontend/src/hooks/layers/` (21 hooks + `GlobeLayerManager`)
+- Globe overlay fix (empty `view-fade` blocked interaction)
+- Split: CSS grid, persistent `MapPanel`, resize + camera-sync debounce
+- Esri basemap before Ion 3D buildings; aircraft poll 45 s
+
+### Backend
+- `adsb_client.py`: adsb.fi fallback, sequential regional fetch, `ADSB_PRIMARY`
+- `/api/aircraft`: stale-while-revalidate, 45 s cache; `globe_snapshot` 30 s TTL
+
+### Verified
+- Operator UI **localhost:5176** — globe + split OK
+- Backend **:8002** — aircraft ~300 states via **adsb.fi**; `npm run build` green
 
 ---
 
@@ -269,6 +374,7 @@ npm run build                      # outputs dist/
 | Component | Location | Status |
 |-----------|----------|--------|
 | WorldBase PC | `192.168.1.111:8002` API, `:5176` UI (`localhost` — Vite may bind `::1`) | Running |
+| HAK_GAL Firewall | `localhost:8001` (Orchestrator) | **Manual start** — not auto-launched by `start.ps1`. When down, WorldBase **fail-open** (chat passes un scanned). Start: `...\llm-security-firewall\detectors\orchestrator\start.ps1` |
 | Flowsint Docker | `:5173` UI, `:5001` API | Healthy; embed in OSINT tab |
 | Off-Grid Pi | `192.168.1.121`, SSH `~/.ssh/offgrid-pi` | push/pull **Ingest OK**, token deployed |
 | Borg (Pi) | `/mnt/sdcard/borg-repo` | Re-init 2026-06-04; timer enabled; key in `/mnt/sdcard/borg-key-backup/` |
@@ -314,7 +420,7 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 
 ## Next Steps (Ideas)
 
-**Mission doc:** `docs/NEXT_LLM_MISSION.md` (Phase B–D checklist + copy-paste agent prompt).
+**Backlog:** see section *Backlog (next session)* below.
 
 **Done (2026-06-04) — Phase A “Positive Palantir”:**
 - `POST /api/osint/pins/import` + Flowsint JSON paste in OSINT tab → `osintPins` / globe
@@ -355,21 +461,77 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
   - Stack: `planet_z6.pmtiles` (~42 MB world) + `thailand.pmtiles` (~427 MB detail)
   - Regions: `stack`, `thailand`, `world-z10`, `world-full -Force`, `asean`
   - Serve: `http://127.0.0.1:8088` — MapLibre ZXY MVT (not yet wired into Cesium globe)
-- **Docker** (optional): `docker-compose.yml`, `docs/DOCKER_DEPLOY.md`, `scripts/start-docker.ps1`
-- Doc: **`docs/PHASE1_INTEGRATION.md`**
+- **Docker** (optional): `docker-compose.yml`, `scripts/start-docker.ps1`
+
+**Done (2026-06-06) — Stufe B: RAG, Entity-Card, Cesium Eval & Split-View:**
+- **RAG Erweiterung**: `rag_memory.py` indexiert `hazards`, `situations` und `volcanoes` automatisch. SQLite Ringbuffer (2000 Chunks) statt `sqlite-vec` für O(n) Cosine-Search.
+- **Entity-Context-Card**: Globe-Clicks zeigen verbundene Datensätze (`GET /api/entity/{id}/context`) im `Globe.tsx` Target-Panel an (`EntityContextCard`).
+- **Cesium 1.142 Eval**: Update auf `cesium@1.142.0` auf Branch `feature/cesium-1.142-eval` und Einbau des nativen `MVTDataProvider` als experimentellen Globe-Layer.
+- **Split-View**: GLOBE und MAP können nun nebeneinander angezeigt werden, inklusive asynchronem, bidirektionalem Camera-Sync.
+
+**Done (2026-06-06) — Stufe C: Phase 2 Fusion komplett:**
+- **CRITICAL BUGFIX `rag_memory.py`**: 5 Funktionen waren versehentlich um 4 Spaces eingerückt → Modul-Level fehlte, ganzer RAG-Stack hätte zur Laufzeit `AttributeError` geworfen. Korrigiert. Außerdem `cap_bridge.get_hazards` / `volcano_bridge.get_volcanoes` durch echte Funktionsnamen (`hazards_active`, `holocene_volcanoes`) ersetzt. **Phase B war ohne diesen Fix nicht funktional.**
+- **STAC / Sentinel-2** (`backend/stac_bridge.py`): Element84 EarthSearch (kostenlos, kein Key). Endpoints: `/api/stac/{collections,search,item/{id},thumbnail}`. Region-Presets: `thailand`, `bangkok`, `phuket`, `mekong-delta`, `germany`, `rhein`. Range-aware Thumbnail-Proxy mit ETag. Optional `TITILER_URL` → echte NDVI/True-Color Kacheln. Bridge cached intern (5 min search, 10 min thumbnails).
+- **OpenSanctions** (`backend/sanctions_bridge.py`): Lokal-first ohne paid API. Lädt CC-BY `default/targets.simple.csv` (~450 MB) einmal pro 24 h, parst in In-Memory Index (by_name + by_id_token), Jaccard+Substring Fuzzy-Match, IMO/MMSI Identifier-Lookup. Endpoints: `/api/sanctions/{status,refresh,search,screen/vessels}`. Fallback auf self-hosted `yente` (`OPENSANCTIONS_YENTE_URL`) wenn gesetzt. Background ingest in RAG.
+- **Aircraft Trails** (`backend/aircraft_trails.py`): Background-Snapshot alle 30 s aus `aircraft_provider`. SQLite `aircraft_trail` Tabelle mit (icao24, lat, lon, alt, speed, heading, t). Auto-Prune ≥ 6 h, Hard-Cap 200 k Rows. Endpoints: `/api/aircraft/{trails,trails/stats,trails/snapshot}`.
+- **Pegel Sparklines** (`backend/pegel_bridge.py`): Neuer Endpoint `/api/pegel/{uuid}/history?hours=24` über pegelonline `measurements.json`. Frontend `frontend/src/components/PegelSparkline.tsx` ist ein dependency-freier SVG-Renderer.
+- **FUSION HEATMAP** (`backend/fusion_heatmap.py`, neu, **Killer-Feature**): aggregiert quakes + GDACS + hazards + volcanoes + aircraft-anomalies + outages + pegel + aircraft-density auf konfigurierbares Lat/Lon-Grid. Endpoint: `/api/fusion/heatmap?cell_deg=2&top=60&include_geojson=0|1`. Globe-Layer mit Rectangle-Entities + HSL-Plasma-Skala + Legende.
+- **Situation Board First-Load**: Startup pre-warms River + Situations + Fusion-Heatmap, sodass der erste Klick instant ist.
+- **Frontend DATA-Tabs**: `stac` und `sanctions` neu hinzugekommen (siehe `frontend/src/components/{StacPanel,SanctionsPanel}.tsx`). Pegel-Tab als Card-Grid mit eingebetteten Sparklines.
+- **Globe-Layer**: AIRCRAFT TRAILS Toggle, FUSION HEATMAP Toggle, sanktionierte Vessels rot mit ⚠-Outline + Watchlist-Counter im Layer-Block.
+
+**Done (2026-06-06) — HAK_GAL Firewall + Joint-Stack-Test (WorldBase + Firewall):**
+- **`backend/.env`**: `FIREWALL_HOST=localhost:8001` gesetzt → `/api/firewall/status` meldet `enabled: true`
+- **Firewall-Reparatur (PC)**: kaputte `scipy`/`scikit-learn`-Installation (Import `compose_quat`) behoben via `pip install --no-cache-dir scipy==1.15.3 scikit-learn==1.7.2`
+- **Smoke-Test** `.\scripts\smoke-test.ps1`: **17/17 PASS** (Backend, Fusion, Feeds, Vite-Proxy, Ollama-Chat, Frontend-Build)
+- **Firewall-Integration**: `/api/firewall/status` → `healthy`; `/api/firewall/test` harmlos → erlaubt; Jailbreak-Prompt → `blocked: true`, `risk_score: 1.0`
+- **Chat mit `firewall: true`**: harmloser Prompt → Ollama antwortet; Jailbreak → **FIREWALL BLOCK** (kein LLM-Aufruf)
+- **VRAM (RTX 3080 Ti)**: ~11–13 GB mit Firewall-Modellen + `nomic-embed-text`; `OLLAMA_KEEP_ALIVE=1m`, `WORLDBASE_BRIEFING_INTERVAL=1800` in `.env`
+- **Start Firewall**: `D:\MCP Mods\HAK_GAL_HEXAGONAL\standalone_packages\llm-security-firewall\detectors\orchestrator\start.ps1`
+
+**Done (2026-06-06) — Stufe D: Google-Maps-Modus + Ollama-Zuverlässigkeit:**
+- **`MapModeBar`** (`frontend/src/components/MapModeBar.tsx`): Globale Leiste unten rechts — **KARTE / SATELLIT / HYBRID / GELÄNDE**, **2D / 3D**, **GEBÄUDE**, optional **PHOTO 3D** (Cesium Ion Google Photorealistic Tiles, Asset 2275207).
+- **`mapView.ts`**: Shared State zwischen Globe (Cesium) und MapPanel (MapLibre); Esri World Imagery + Hillshade (kostenlos, kein Key).
+- **Globe**: OSM 3D-Gebäude (`createOsmBuildingsAsync`), GPU-Tuning (`maximumScreenSpaceError`, FXAA, `resolutionScale`), Basemap-Umschalter ersetzt Cesium `baseLayerPicker`.
+- **MapPanel**: Satellit/Hybrid/Gelände-Raster, `fill-extrusion` Gebäude aus PMTiles, Pitch 60° im 3D-Modus, Kamera-Sync inkl. Pitch.
+- **Ollama-Fix**: `OLLAMA_HOST=127.0.0.1:11434`, Host-Fallbacks, `/api/models` Timeout 12 s + 20 s Cache, Embed-Modelle aus Chat-Liste gefiltert, Vite-Proxy → `127.0.0.1:8002` (120 s Timeout). AI-Tab: deutsche Fehler + **↻ ERNEUT PRÜFEN**.
+- **Start**: immer `.\start.ps1` → Frontend **:5176** (nicht direkt :8002 — dort gibt es keine UI).
+
+**Done (2026-06-08) — Performance, offline planet, operator UI (`34975b4`):**
+- **`feeds_extra.py`**: SQLite reads/writes via `asyncio.to_thread` + WAL — no longer blocks the event loop
+- **`globe_snapshot.py`**: `GET /api/globe/snapshot` — parallel feed bundle, 15s cache, refresh lock
+- **`ais_bridge.py`**: parallel upstream fetch, 6s timeout, stale cache, refresh lock
+- **`main.py`**: `/api/health/ping`; aircraft cache 30s; WAL in `init_db`
+- **`feed_registry.py`**: shared `feed_cache` persistence for health provenance
+- **Globe**: `visibleRef` pauses render + polling when hidden; snapshot replaces ~15 parallel fetches; lighter default layers
+- **Split view**: restored git-style `split-view` / `split-pane` layout (stable pan/zoom + events)
+- **Telemetry HUD**: grouped LIVE TELEMETRY, feed health dots, ACTIVE/ALL filter, hover tooltips (incl. dynamic Kp text)
+- **MapPanel**: Protomaps sprites from `basemaps-assets` + `styleimagemissing` fallback
+- **PMTiles**: `planet_full.pmtiles` ~**130 GB** downloaded (`.\scripts\download-pmtiles.ps1 -Region world-full -Force`); MAP archive dropdown defaults to **`thailand`** for fast load — select **`planet_full`** manually for global basemap
+- **Smoke test**: `.\scripts\smoke-test.ps1` → **23/23 PASS** (verified after restart)
+
+**Architecture notes (2026-06-08):**
+- **Turbopuffer**: not used — stay local/offline-first for RAG (`rag_memory.py`) and firewall (HAK_GAL centroids). Next RAG step: `sqlite-vec` locally, not cloud vector DB.
+- **Firewall**: HAK_GAL v6 semantic-first (`all-MiniLM-L6-v2` centroids). WorldBase passes `session_id: worldbase` only; optional future: WorldBase context in scan payload.
 
 **Backlog (next session):**
-1. **PMTiles in Cesium** or MapLibre side-by-side basemap (vector MVT from `pmtiles serve`)
-2. **`world-z10`** download if user wants global detail (~1 GB): `.\scripts\download-pmtiles.ps1 -Region world-z10`
-3. **TiTiler/STAC**, OpenSanctions/yente, IODA+CF with `CLOUDFLARE_API_TOKEN`
-4. **GTFS DE live positions** — VBB often trip-updates-only
-5. OpenSky / ReliefWeb optional keys; Pegel sparklines; aircraft trails
+1. **MAP default archive** — auto-select `planet_full` when `size_mb >= 95_000` (+ loading indicator on first MapLibre init)
+2. **Telemetry presets** — Overview / DE Infra / OSINT (layer + telemetry group sets)
+3. **Firewall autostart** — optional flag in `start.ps1` or header status dot when `:8001` down
+4. **Firewall context** — pass WorldBase intent (CVE analysis, situation board) to reduce false blocks
+5. **`sqlite-vec`** spike in `rag_memory.py` (replace O(n) cosine over 500 rows)
+6. **TiTiler** + **yente** self-host (unchanged from prior backlog)
+7. **Heatmap → Briefing**: top-3 fusion cells in LLM context
+8. **PR**: merge `feature/cesium-1.142-eval` → `main`
+
+**Removed from backlog (done):**
+- ~~`world-full` download~~ — `planet_full.pmtiles` on disk (~130 GB)
 
 **Done (2026-06-03):** Flowsint embed; `/api/flowsint/health`. OSINT pins + localStorage; `/api/pegel`; Ollama `keep_alive: 5m`.
 
 ## 2026-06-04 session
 
-- **Security:** `NODE_INGEST_TOKEN` + protected node APIs; `scripts/setup-node-security.ps1`, `pc-security-audit.ps1`; `docs/SECURITY_OPERATIONS.md`
+- **Security:** `NODE_INGEST_TOKEN` + protected node APIs; `scripts/setup-node-security.ps1`, `scripts/pc-security-audit.ps1`; Pi: `offgrid security-harden`, UFW, Portal-Auth optional
 - **Pi (SSH):** token overrides, HMAC push/pull scripts, `offgrid security-harden`, llama `127.0.0.1`, Borg → `/mnt/sdcard/borg-repo`
 - **Flowsint:** Docker prod stack; CRLF fix in `setup-flowsint.ps1` for `entrypoint.sh`; iframe embed OK in WorldBase
 - **start.ps1:** paths with spaces (`D:\MCP Mods\worldbase`) via `-LiteralPath`
@@ -388,14 +550,19 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 | Crypto shows `$—` | Wrong field names | Use `v.usd` / `v.usd_24h_change` |
 | Spaceweather `—` | Fields don't exist | Use `aurora_visible_midlat` / `hf_radio_impact` |
 | Website not reachable | Backend not running | `.\start.ps1` (use **LiteralPath** if path has spaces) |
-| Frontend only on `localhost:5176` | Vite binds `::1` | Use `http://localhost:5176`, not `127.0.0.1:5176` |
+| Frontend OK on `localhost:5176` but not `127.0.0.1` | Vite binds IPv6 (`::1`) | Use **http://localhost:5176** in browser |
 | Pi `Ingest FAILED` HTTP 403 | Token mismatch | `setup-node-security.ps1` on PC + Pi override from `pi-node-token.conf` |
 | `borg list /mnt/usb` fails | Repo removed 2026-06-03 | Use `/mnt/sdcard/borg-repo`; tar backups on SD |
 | Pi disk alert in UI | Root was >85% | See `offgrid-raspi/docs/pi-storage-layout.md`; run `pi-disk-maintenance.sh` |
 | `borg` lock timeout on Pi | Stuck `borg list`/`check` | `pgrep -a borg`; `kill`; `borg break-lock $BORG_REPO` |
-| AIRCRAFT = 0, OpenSky error | No OAuth + rate limit | Automatic **adsb.lol** fallback; optional credentials in `backend/.env` |
-| CRISES at 0,0 or empty | ReliefWeb v1 dead (410) | Uses **GDACS** + geocoding; set `RELIEFWEB_APPNAME` for v2 |
-| HUD shows `adsb.lol` under AIRCRAFT | Working as designed | OpenSky not configured — free global ADS-B active |
+| Split: black right pane / reload every toggle | MapPanel remounted on toggle (old) | Fixed — single MapPanel instance; CSS grid only |
+| Split: globe jitter when panning | Camera sync feedback loop | Fixed — 500 ms suppress after programmatic sync |
+| Globe: no scroll / no map tiles | Empty `view-fade` over canvas | Fixed — no overlay when `view === 'globe'` |
+| AIRCRAFT = 0, slow timeout | adsb.lol unreachable from network | **adsb.fi** fallback; optional `ADSB_PRIMARY=adsb.fi` |
+| HUD shows `adsb.fi` under AIRCRAFT | Working as designed | adsb.lol empty/slow — fi regional grid active |
+| CRISES at 0,0 or empty | ReliefWeb v1 dead (410) | GDACS + geocoding; optional `RELIEFWEB_APPNAME` |
+| MAP shows Thailand not world | Default archive for speed | Select **planet_full** in dropdown (~130 GB) |
+| 🛡️ firewall inactive | HAK_GAL not on :8001 | Start orchestrator; `FIREWALL_HOST=localhost:8001` |
 
 ---
 
@@ -403,6 +570,7 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 
 - Main app: `D:\MCP Mods\worldbase\frontend\src\App.tsx`
 - Globe: `D:\MCP Mods\worldbase\frontend\src\components\Globe.tsx`
+- Layer hooks: `D:\MCP Mods\worldbase\frontend\src\hooks\layers\`
 - Styles: `D:\MCP Mods\worldbase\frontend\src\styles\hud.css`
 - Backend feeds: `D:\MCP Mods\worldbase\backend\feeds_extra.py`
 - Node sync: `D:\MCP Mods\worldbase\backend\node_sync.py`
@@ -411,8 +579,15 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - Aircraft: `backend/aircraft_provider.py`, `backend/adsb_client.py`, `backend/opensky_client.py`
 - Crises geo: `backend/geo_centroids.py`
 - GDELT: `backend/gdelt_bridge.py` (pulse + geo)
-- Phase 1+2: `docs/PHASE1_INTEGRATION.md`
-- PMTiles: `scripts/download-pmtiles.ps1`, `scripts/start-pmtiles-serve.ps1`, `backend/pmtiles_bridge.py`
+- Phase 1+2 bridges: see *Done (2026-06-04–06)* sections above
+- PMTiles backend: `backend/pmtiles_bridge.py` (status + Range-aware file endpoint)
+- PMTiles frontend: `frontend/src/components/MapPanel.tsx`
+- PMTiles data: `data/pmtiles/planet_full.pmtiles` (~130 GB), `thailand.pmtiles`, `planet_z6.pmtiles`
+- PMTiles tooling: `scripts/download-pmtiles.ps1`, `scripts/start-pmtiles-serve.ps1` (optional ZXY on :8088)
+- Performance: `backend/globe_snapshot.py`, `backend/feed_registry.py`, `backend/ais_bridge.py` (parallel)
 - Bridges: `cap_bridge.py`, `anomaly_river.py`, `rag_memory.py`, `outages_bridge.py`, `volcano_bridge.py`, `gibs_bridge.py`, `duckdb_fusion.py`
-- Mission: `docs/NEXT_LLM_MISSION.md`
+- Phase 2: `backend/stac_bridge.py`, `sanctions_bridge.py`, `aircraft_trails.py`, `fusion_heatmap.py`
+- Frontend Phase 2 components: `frontend/src/components/{PegelSparkline,StacPanel,SanctionsPanel}.tsx`
+- Backlog: *Backlog (next session)* section in this file
 - DB: `D:\MCP Mods\worldbase\backend\worldbase.db`
+- Sanctions CSV cache: `D:\MCP Mods\worldbase\data\sanctions\targets.simple.csv` (~450 MB, CC-BY, auto-refresh 24 h)

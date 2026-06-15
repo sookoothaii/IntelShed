@@ -1,14 +1,17 @@
-"""River gauge levels — Pegelonline (WSV Germany, no API key)."""
+"""River gauge levels — Pegelonline (WSV Germany, no API key).
+
+Adds 24h history endpoint for sparkline rendering in the dashboard.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter(prefix="/api", tags=["pegel"])
 
@@ -98,20 +101,106 @@ async def get_pegel():
     _cache["ts"] = now
 
     try:
-        import json
-        import sqlite3
-        import os
-
-        db = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.db")
-        conn = sqlite3.connect(db)
-        c = conn.cursor()
-        c.execute(
-            "INSERT OR REPLACE INTO feed_cache (key, value, cached_at) VALUES (?, ?, ?)",
-            ("pegel", json.dumps(payload), datetime.now(timezone.utc).isoformat()),
-        )
-        conn.commit()
-        conn.close()
+        import feed_registry
+        
+        # Try PostgreSQL first if configured, fallback to SQLite
+        if feed_registry.is_postgres_mode():
+            from db.database import get_db_context
+            
+            async def _write_pg():
+                async with get_db_context() as db:
+                    await feed_registry.async_write(db, "pegel", payload)
+            
+            # Run async write directly since we are in an async function
+            try:
+                await _write_pg()
+            except Exception:
+                pass  # Fallback to SQLite on error
+        else:
+            feed_registry.write_auto("pegel", payload)
     except Exception:
         pass
 
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# 24h history for sparklines (no key required — pegelonline measurements.json)
+# ---------------------------------------------------------------------------
+_HISTORY_TTL = 600.0
+_HISTORY_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def _station_by_uuid(uuid: str) -> dict | None:
+    for st in _STATIONS:
+        if st["uuid"].lower() == uuid.lower():
+            return st
+    return None
+
+
+@router.get("/pegel/{uuid}/history")
+async def pegel_history(uuid: str, hours: int = Query(24, ge=1, le=168)):
+    """Return the last N hours of W/Q measurements for one curated gauge.
+
+    Falls back to whichever series is configured for the station (most are W,
+    a few are Q like Dresden). Caches per (uuid, hours) for 10 minutes.
+    """
+    st = _station_by_uuid(uuid)
+    if not st:
+        raise HTTPException(404, f"unknown gauge uuid {uuid} — call /api/pegel first to discover ids")
+    key = f"{uuid}|{hours}"
+    now = time.time()
+    cached = _HISTORY_CACHE.get(key)
+    if cached and (now - cached[0]) < _HISTORY_TTL:
+        return cached[1]
+
+    start = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M%z")
+    url = f"{_BASE}/stations/{uuid}/{st['series']}/measurements.json"
+    params = {"start": start}
+    try:
+        async with httpx.AsyncClient(headers=_UA, follow_redirects=True, timeout=15.0) as client:
+            r = await client.get(url, params=params)
+            if r.status_code != 200:
+                raise HTTPException(r.status_code, f"pegelonline returned {r.status_code}")
+            raw = r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"pegelonline fetch failed: {e}") from e
+
+    series = []
+    for m in raw or []:
+        ts = m.get("timestamp")
+        val = m.get("value")
+        if ts is None or val is None:
+            continue
+        try:
+            series.append({"t": ts, "v": float(val)})
+        except (ValueError, TypeError):
+            continue
+
+    values = [p["v"] for p in series]
+    summary = None
+    if values:
+        summary = {
+            "min": round(min(values), 2),
+            "max": round(max(values), 2),
+            "first": round(values[0], 2),
+            "last": round(values[-1], 2),
+            "delta": round(values[-1] - values[0], 2),
+        }
+
+    payload = {
+        "uuid": uuid,
+        "name": st["name"],
+        "water": st["water"],
+        "series_kind": st["series"],
+        "unit": st["unit"],
+        "hours": hours,
+        "count": len(series),
+        "points": series,
+        "summary": summary,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _HISTORY_CACHE[key] = (now, payload)
     return payload

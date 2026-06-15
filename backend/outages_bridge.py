@@ -5,11 +5,14 @@ from __future__ import annotations
 import os
 import re
 import time
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter
 
 import geo_centroids
+
+import feed_registry
 
 router = APIRouter(prefix="/api/outages", tags=["outages"])
 
@@ -137,13 +140,19 @@ async def _fetch_ioda(client: httpx.AsyncClient, hours: int, limit: int) -> tupl
     return merged[:limit], err
 
 
-async def _fetch_cloudflare(client: httpx.AsyncClient, limit: int) -> tuple[list[dict], str | None]:
+async def _fetch_cloudflare(
+    client: httpx.AsyncClient, limit: int, hours: int = 72
+) -> tuple[list[dict], str | None]:
     if not _CF_TOKEN:
         return [], "cloudflare: set CLOUDFLARE_API_TOKEN for Radar anomalies (free account)"
+    days = max(1, min(30, (hours + 23) // 24))
     try:
         r = await client.get(
             "https://api.cloudflare.com/client/v4/radar/traffic_anomalies",
-            params={"limit": limit, "status": "VERIFIED"},
+            params={
+                "limit": limit,
+                "dateRange": f"{days}d",
+            },
             headers={"Authorization": f"Bearer {_CF_TOKEN}", **_UA},
             timeout=30.0,
         )
@@ -152,29 +161,40 @@ async def _fetch_cloudflare(client: httpx.AsyncClient, limit: int) -> tuple[list
         if not body.get("success"):
             return [], f"cloudflare: {body.get('errors')}"
         out = []
-        for row in body.get("result", {}).get("trafficAnomalies") or body.get("result") or []:
-            if isinstance(row, dict):
-                locs = row.get("locations") or {}
-                code = locs.get("code") or (row.get("locationDetails") or {}).get("code")
-                name = locs.get("name") or row.get("title") or "Traffic anomaly"
-                iso2 = (code or "")[:2].upper() if code else None
-                lat, lon = (None, None)
-                if iso2 and iso2 in _ISO2_ISO3:
-                    lat, lon = geo_centroids.resolve_lat_lon(iso3=_ISO2_ISO3[iso2])
-                if lat is None:
-                    lat, lon = geo_centroids.resolve_lat_lon(name=name)
-                if lat is None:
-                    continue
-                out.append({
-                    "source": "cloudflare",
-                    "title": str(name)[:120],
-                    "status": row.get("status"),
-                    "type": row.get("type"),
-                    "start": row.get("startDate"),
-                    "end": row.get("endDate"),
-                    "lat": lat,
-                    "lon": lon,
-                })
+        rows = body.get("result", {}).get("trafficAnomalies") or body.get("result") or []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            locs = row.get("locations") or {}
+            asn_locs = (row.get("asnDetails") or {}).get("locations") or {}
+            loc_detail = row.get("locationDetails") or {}
+            code = locs.get("code") or asn_locs.get("code") or loc_detail.get("code")
+            name = (
+                locs.get("name")
+                or asn_locs.get("name")
+                or loc_detail.get("name")
+                or (row.get("asnDetails") or {}).get("name")
+                or row.get("title")
+                or "Traffic anomaly"
+            )
+            iso2 = (code or "")[:2].upper() if code else None
+            lat, lon = (None, None)
+            if iso2 and iso2 in _ISO2_ISO3:
+                lat, lon = geo_centroids.resolve_lat_lon(iso3=_ISO2_ISO3[iso2])
+            if lat is None:
+                lat, lon = geo_centroids.resolve_lat_lon(name=name)
+            if lat is None:
+                continue
+            out.append({
+                "source": "cloudflare",
+                "title": str(name)[:120],
+                "status": row.get("status"),
+                "type": row.get("type"),
+                "start": row.get("startDate"),
+                "end": row.get("endDate"),
+                "lat": lat,
+                "lon": lon,
+            })
         return out[:limit], None
     except Exception as e:
         return [], f"cloudflare: {e}"
@@ -198,21 +218,26 @@ async def internet_outages(hours: int = 72, limit: int = 40):
         items.extend(ioda)
         if ioda_err:
             notes.append(ioda_err)
-        cf, cf_note = await _fetch_cloudflare(client, max(10, limit // 2))
+        cf, cf_note = await _fetch_cloudflare(client, max(10, limit // 2), hours)
         if cf:
             items.extend(cf)
         elif cf_note:
             notes.append(cf_note)
 
     geocoded = sum(1 for i in items if i.get("lat") is not None)
+    now_iso = datetime.now(timezone.utc).isoformat()
     out = {
         "count": len(items),
         "geocoded": geocoded,
         "items": items,
         "sources": ["ioda"] + (["cloudflare"] if _CF_TOKEN else []),
+        "upstream": ["ioda.inetintel.cc.gatech.edu"] + (["cloudflare.com/radar"] if _CF_TOKEN else []),
         "hours": hours,
         "notes": notes or None,
-        "cached_at": time.time(),
+        "updated": now_iso,
+        "cached_at": now_iso,
+        "error": notes[0] if notes and not items else None,
     }
     _CACHE[key] = (time.time(), out)
+    feed_registry.write_auto("outages", out)
     return out

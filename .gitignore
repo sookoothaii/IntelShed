@@ -18,8 +18,13 @@ build/
 data/pmtiles/
 tools/pmtiles/
 
+# OpenSanctions bulk CSV cache (CC-BY, auto-downloaded by sanctions_bridge.py)
+data/sanctions/
+
 # Databases & caches
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 backend/data/tle/*.tle
@@ -45,3 +50,8 @@ flowsint/
 # Logs
 *.log
 npm-debug.log*
+
+# Local-only docs (tracked: README.md + LLM_HANDOFF.md only)
+docs/
+GAP_REPORT.md
+PROJECT.md
