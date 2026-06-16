@@ -1,7 +1,7 @@
 # LLM Handoff — WorldBase
 
 > **Operator + agent reference.** Agent quick start: [`AGENTS.md`](AGENTS.md) · User docs: [`README.md`](README.md) · [`docs/FEEDS.md`](docs/FEEDS.md) · [`docs/API-KEYS.md`](docs/API-KEYS.md) · [`docs/SETUP.md`](docs/SETUP.md)  
-> Last updated: 2026-06-15 (late evening) | Stack: qwen3:8b, main, Pi sync live, SD ~64%, smoke 23/23
+> Last updated: 2026-06-17 | Stack: qwen3:8b, main, Pi sync live, SD ~65%, smoke **25/25**, PC IP **192.168.1.111** (DHCP reservation, MAC `4C:03:4F:BB:C7:9F`)
 
 ## Project Overview
 
@@ -139,7 +139,15 @@ worldbase/
 
 **Pi scripts:** `offgrid-raspi/scripts/worldbase_push.py`, `worldbase_pull.py` — deploy + token: `scripts/setup-node-security.ps1`, `scripts/sync-pi.ps1`, `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`.
 
-**Pi state files (push reads):** `esp32_state.json` (DHT USB), `mesh_state.json`, `gps_location.json` — **not** legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json`. Portal briefing: `/var/lib/offgrid/briefing_latest.json` (PC first).
+**Pi state files (push reads, in order):**
+
+1. `$OFFGRID_CONTENT/telemetry/esp32_state.json` (canonical OGN content path) — DHT/USB
+2. `/var/lib/offgrid/sensor_node.json` (fallback)
+3. `/var/lib/offgrid/sensor_data.json` (legacy fallback, last resort)
+4. `/var/lib/offgrid/mesh_state.json` (mesh)
+5. `/var/lib/offgrid/gps_location.json` (GPS)
+
+Legacy `mesh_nodes.json` / `gps.json` are **not** used. Portal briefing: `/var/lib/offgrid/briefing_latest.json` (PC first).
 
 ### Flowsint & Yente (local Docker)
 | Item | Detail |
@@ -404,7 +412,7 @@ Stack: `docker-compose.yml` — `web` (Caddy SPA + `/api` proxy), `backend` (Fas
 
 | Component | Location | Status |
 |-----------|----------|--------|
-| WorldBase PC | `192.168.1.111:8002` API, `:5176` UI | **main** @ `217a485`, smoke 23/23 |
+| WorldBase PC | `192.168.1.111:8002` API (DHCP-reserved), `:5176` UI | **main**, smoke 25/25 |
 | HAK_GAL Firewall | `localhost:8001` | Manual start; fail-open when down |
 | Flowsint Docker | `:5173` UI, `:5001` API | Embed in OSINT tab |
 | Off-Grid Pi | `192.168.1.121`, SSH `~/.ssh/offgrid-pi` | push/pull OK; DHT+mesh+GPS live |
@@ -540,7 +548,7 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **Telemetry HUD**: grouped LIVE TELEMETRY, feed health dots, ACTIVE/ALL filter, hover tooltips (incl. dynamic Kp text)
 - **MapPanel**: Protomaps sprites from `basemaps-assets` + `styleimagemissing` fallback
 - **PMTiles**: `planet_full.pmtiles` ~**130 GB** downloaded (`.\scripts\download-pmtiles.ps1 -Region world-full -Force`); MAP archive dropdown defaults to **`thailand`** for fast load — select **`planet_full`** manually for global basemap
-- **Smoke test**: `.\scripts\smoke-test.ps1` → **23/23 PASS** (verified after restart)
+- **Smoke test**: `.\scripts\smoke-test.ps1` → **25/25 PASS** (verified 2026-06-17)
 
 **Architecture notes (2026-06-08):**
 - **Turbopuffer**: not used — stay local/offline-first for RAG (`rag_memory.py`) and firewall (HAK_GAL centroids). Next RAG step: `sqlite-vec` locally, not cloud vector DB.

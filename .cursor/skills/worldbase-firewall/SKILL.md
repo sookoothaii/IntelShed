@@ -1,7 +1,6 @@
 ---
 name: worldbase-firewall
 description: Understand and interact with the HAK_GAL LLM security firewall. Use when the user specifically asks to enable, debug, or integrate the firewall, or when encountering port 8001 connection issues.
-disable-model-invocation: true
 ---
 
 # HAK_GAL Security Firewall Integration

@@ -1,7 +1,6 @@
 ---
 name: worldbase-briefing
 description: Test and validate the WorldBase briefing pipeline, Operator region classification, and Pi node sync. Use when modifying operator_briefing.py, node_sync.py, or when asked to verify briefing generation or node pull.
-disable-model-invocation: true
 ---
 
 # WorldBase Briefing Pipeline Validation

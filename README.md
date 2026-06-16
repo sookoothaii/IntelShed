@@ -173,7 +173,7 @@ WorldBase is not a standalone invention. It exists entirely because of the gener
 | Nodes on PC | `Invoke-RestMethod http://127.0.0.1:8002/api/nodes` |
 | Deploy token + HTTP | `.\scripts\sync-pi.ps1` |
 | Pi maintenance | `sudo bash pi-disk-maintenance.sh` (on Pi) |
-| Smoke test | `.\scripts\smoke-test.ps1` → expect **23/23 PASS** |
+| Smoke test | `.\scripts\smoke-test.ps1` → expect **25/25 PASS** |
 
 ---
 

@@ -94,7 +94,14 @@ Unit tests (no network): `python -m unittest test_operator_briefing -v` in `back
 - PC: `backend/node_sync.py`, `scripts/deploy-pi-sync.ps1`
 - Pi: `offgrid-raspi/scripts/worldbase_push.py`, `worldbase_pull.py`
 
-Push paths: `esp32_state.json`, `mesh_state.json`, `gps_location.json` — not legacy `sensor_data.json`.
+Push reads:
+
+- `$OFFGRID_CONTENT/telemetry/esp32_state.json` (canonical OGN path) — DHT/USB
+- `/var/lib/offgrid/sensor_node.json` (fallback)
+- `/var/lib/offgrid/mesh_state.json`
+- `/var/lib/offgrid/gps_location.json`
+
+Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See `worldbase_push.py` for the resolution order.
 
 ---
 

@@ -1,26 +1,24 @@
 ---
-description: WorldBase operator UI and git-facing text stay English
-globs:
-  - frontend/src/**/*
-  - backend/**/*.py
-  - README.md
-  - docs/**/*
-  - backend/.env.example
+description: WorldBase repo-facing text stays English; only direct chat with the maintainer is German
+alwaysApply: true
 ---
 
 # English-only operator surface
 
-WorldBase is an English-first open-source project. Keep these in **English**:
+WorldBase is an English-first open-source project. Everything that lives in the repo must be in **English**, including:
 
 - User-visible UI strings (labels, tooltips, errors, buttons, panel titles)
 - Briefing prompt section labels: LOCAL / REGION / GLOBAL / RECOMMENDATION
 - Default env values in `.env.example` (`WORLDBASE_BRIEFING_LANG=en`)
 - Commit messages and PR descriptions
+- Code comments, docstrings, log messages
+- Cursor assets: `.cursor/skills/**/SKILL.md`, `.cursor/rules/**/*.mdc`, `.cursor/hooks/**/*`
+- Root-level docs: `README.md`, `AGENTS.md`, `docs/**/*`
 
 **Exceptions**
 
-- `WORLDBASE_BRIEFING_LANG=de` may produce German briefing output via `operator_briefing.py`
-- `LLM_HANDOFF.md` may stay bilingual (operator notes for local use)
-- Chat with the maintainer can be any language
+- `WORLDBASE_BRIEFING_LANG=de` may produce German briefing output at runtime via `operator_briefing.py` (env-controlled, not source code)
+- `LLM_HANDOFF.md` may stay bilingual — historical operator notes for local use only
+- Chat between agent and maintainer can be German (per user-level rule); only the artifacts written to disk must be English
 
 When adding strings, match existing HUD style: short uppercase labels, plain tooltips.
