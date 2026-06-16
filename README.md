@@ -77,6 +77,14 @@ In **MAP** view, pick the archive in the dropdown. Default is **`thailand`** for
 
 Use for tactical overview (3D feeds) + precise 2D basemap side by side.
 
+### Screenshots
+
+| GLOBE | MAP | DATA | SPLIT |
+|-------|-----|------|-------|
+| ![Globe — Starlink orbits](docs/screenshots/globe-starlink-orbits.png) | ![MAP — PMTiles profile](docs/screenshots/map-pmtiles-profile.png) | ![DATA — quakes feed](docs/screenshots/data-quakes-feed.png) | ![SPLIT — globe + map](docs/screenshots/split-globe-map-sync.png) |
+
+Full set: [`docs/screenshots/`](docs/screenshots/README.md)
+
 ### Optional LLM firewall
 
 Set `FIREWALL_HOST=localhost:8001` in `backend/.env` and start HAK_GAL separately:
