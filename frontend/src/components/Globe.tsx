@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
 import {
   clampCameraHeight,
   containerHasSize,
+  mapPitchToCesiumDeg,
   sanitizeLonLat,
   zoomToGlobeHeight,
 } from '../lib/cameraSync'
@@ -345,7 +346,11 @@ type ViewPreset = {
   collapsed: Record<string, boolean>
   trails: boolean
   compact: boolean
+  heatmap: boolean
 }
+
+/** Quick preset buttons (FULL stays in advanced layers panel). */
+const TELEMETRY_QUICK_PRESETS: ViewPresetId[] = ['overview', 'de_infra', 'osint']
 
 const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
   overview: {
@@ -376,6 +381,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
     collapsed: { motion: false, geo: false, env: false, infra: true, intel: true },
     trails: false,
     compact: true,
+    heatmap: true,
   },
   de_infra: {
     label: 'DE INFRA',
@@ -405,6 +411,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
     collapsed: { motion: true, geo: false, env: true, infra: false, intel: true },
     trails: false,
     compact: true,
+    heatmap: false,
   },
   osint: {
     label: 'OSINT',
@@ -434,6 +441,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
     collapsed: { motion: true, geo: true, env: true, infra: true, intel: false },
     trails: false,
     compact: false,
+    heatmap: false,
   },
   full: {
     label: 'FULL',
@@ -463,6 +471,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
     collapsed: { motion: false, geo: false, env: false, infra: false, intel: false },
     trails: true,
     compact: false,
+    heatmap: true,
   },
 }
 
@@ -602,7 +611,7 @@ export default function Globe({
   const [viewPreset, setViewPreset] = useState<ViewPresetId>('overview')
   const [layersPanelOpen, setLayersPanelOpen] = useState(false)
   const [trailsEnabled, setTrailsEnabled] = useState(VIEW_PRESETS.overview.trails)
-  const [heatmapOn, setHeatmapOn] = useState(false)
+  const [heatmapOn, setHeatmapOn] = useState(VIEW_PRESETS.overview.heatmap)
   const [heatmapMeta, setHeatmapMeta] = useState<{ cells: number; max: number; contrib: Record<string, number> } | null>(null)
   const [sanctionedMmsi, setSanctionedMmsi] = useState<Set<string>>(new Set())
   const sanctionedRef = useRef<Set<string>>(new Set())
@@ -618,6 +627,24 @@ export default function Globe({
   useEffect(() => { visibleRef.current = visible }, [visible])
   const layersRef = useRef(layers)
   useEffect(() => { layersRef.current = layers }, [layers])
+
+  const applyViewPreset = useCallback((id: ViewPresetId) => {
+    const preset = VIEW_PRESETS[id]
+    setLayers({ ...preset.layers })
+    setTelemetryCollapsed({ ...preset.collapsed })
+    setTelemetryCompact(preset.compact)
+    setTrailsEnabled(preset.trails)
+    setHeatmapOn(preset.heatmap)
+    setViewPreset(id)
+  }, [])
+
+  const prevSplitRef = useRef(layoutSplit)
+  useEffect(() => {
+    if (layoutSplit && !prevSplitRef.current) {
+      applyViewPreset('overview')
+    }
+    prevSplitRef.current = layoutSplit
+  }, [layoutSplit, applyViewPreset])
 
   useEffect(() => {
     if (!visible) return
@@ -1294,7 +1321,7 @@ export default function Globe({
       ? clampCameraHeight(syncCamera.height)
       : zoomToGlobeHeight(syncCamera.zoom ?? 4)
     const pitchDeg = Number.isFinite(syncCamera.pitch)
-      ? Math.min(0, Math.max(-90, syncCamera.pitch!))
+      ? mapPitchToCesiumDeg(syncCamera.pitch!, mapMode.render3d ? -45 : -90)
       : (mapMode.render3d ? -45 : -90)
     syncSuppressUntilRef.current = performance.now() + 500
     cameraSyncingRef.current = true
@@ -1366,15 +1393,6 @@ export default function Globe({
 
   const toggle = (k: LayerKey) => setLayers((l) => ({ ...l, [k]: !l[k] }))
 
-  const applyViewPreset = (id: ViewPresetId) => {
-    const preset = VIEW_PRESETS[id]
-    setLayers({ ...preset.layers })
-    setTelemetryCollapsed({ ...preset.collapsed })
-    setTelemetryCompact(preset.compact)
-    setTrailsEnabled(preset.trails)
-    setViewPreset(id)
-  }
-
   const toggleTelemetryGroup = (id: string) => {
     setTelemetryCollapsed((c) => ({ ...c, [id]: !c[id] }))
   }
@@ -1444,11 +1462,31 @@ export default function Globe({
         <span className="bracket bl" /><span className="bracket br" />
       </div>
 
+      {layoutSplit && (
+        <div className="globe-split-bar">
+          <span className="globe-split-bar-title">TELEMETRY</span>
+          <div className="telemetry-presets">
+            {TELEMETRY_QUICK_PRESETS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                className={['telemetry-preset', viewPreset === id ? 'telemetry-preset--on' : ''].join(' ')}
+                onClick={() => applyViewPreset(id)}
+                title={`Preset: ${VIEW_PRESETS[id].label}`}
+              >
+                {VIEW_PRESETS[id].label}
+              </button>
+            ))}
+          </div>
+          <span className="telemetry-summary">{layerCount} layers · {freshFeeds || '—'} fresh</span>
+        </div>
+      )}
+
       <div className="globe-hud">
         <div className="telemetry-head">
           <div className="hud-title">LIVE TELEMETRY</div>
           <div className="telemetry-presets">
-            {(Object.keys(VIEW_PRESETS) as ViewPresetId[]).map((id) => (
+            {TELEMETRY_QUICK_PRESETS.map((id) => (
               <button
                 key={id}
                 type="button"
@@ -1568,6 +1606,14 @@ export default function Globe({
               <label className={trailsEnabled ? 'on' : ''} style={{ color: '#ffd23f', marginTop: 4 }}>
                 <input type="checkbox" checked={trailsEnabled} onChange={() => setTrailsEnabled(v => !v)} />AIRCRAFT TRAILS
               </label>
+              <button
+                type="button"
+                className="web-search"
+                style={{ marginTop: 6, fontSize: 10 }}
+                onClick={() => applyViewPreset('full')}
+              >
+                APPLY FULL PRESET
+              </button>
               <label className={heatmapOn ? 'on' : ''} style={{ color: '#ff6b35' }}>
                 <input type="checkbox" checked={heatmapOn} onChange={() => setHeatmapOn(v => !v)} />FUSION HEATMAP
               </label>

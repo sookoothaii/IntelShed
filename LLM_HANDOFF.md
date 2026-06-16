@@ -1,7 +1,7 @@
 # LLM Handoff — WorldBase
 
 > **Operator + agent reference.** User docs: [`README.md`](README.md) · [`docs/FEEDS.md`](docs/FEEDS.md) · [`docs/API-KEYS.md`](docs/API-KEYS.md) · [`docs/SETUP.md`](docs/SETUP.md)  
-> Last updated: 2026-06-15 (evening) | Stack: qwen3:8b, main merged, Pi sync live (DHT+mesh+GPS), smoke 23/23
+> Last updated: 2026-06-15 (late evening) | Stack: qwen3:8b, main, Pi sync live, SD ~64%, smoke 23/23
 
 ## Project Overview
 
@@ -429,7 +429,7 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 | Volume | Mount | 2026-06-15 |
 |--------|-------|------------|
 | USB root SSD | `/` (`sda2` ~28G) | **~72%** used, ~7.5G free |
-| SD card | `/mnt/sdcard` (`mmcblk0p1` ~30G) | **~89%** used; ZIM ~14G, `.arduino15` ~7G, models ~1.7G |
+| SD card | `/mnt/sdcard` (`mmcblk0p1` ~30G) | **~64%** used (~11G free); ZIM ~14G, models ~1.7G; `.arduino15` removed 2026-06-15 |
 
 - **ZIM/maps/models** already symlinked to SD — not on root.
 - **Borg** on SD: `/mnt/sdcard/borg-repo` (live 2026-06-04). Old `/mnt/usb` on root **deleted** — `borg list /mnt/usb` → repo does not exist.
@@ -545,19 +545,29 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **Firewall**: HAK_GAL v6 semantic-first (`all-MiniLM-L6-v2` centroids). WorldBase passes `session_id: worldbase` only; optional future: WorldBase context in scan payload.
 
 **Backlog (next session):**
-1. **Telemetry presets** — Overview / DE Infra / OSINT (layer + telemetry group sets)
-2. **Firewall autostart** — optional flag in `start.ps1` or header status dot when `:8001` down
-3. **`sqlite-vec`** spike in `rag_memory.py`
-4. **TiTiler** + **yente** self-host
-5. **Heatmap → Briefing** — top-3 fusion cells in LLM context
-6. **Pi SD headroom** — optional `.arduino15` cache review (~7 GB)
-7. **LF deploy helper** — `scripts/deploy-pi-sync.ps1` (avoid CRLF trap)
+1. **Firewall autostart** — optional flag in `start.ps1` or header status dot when `:8001` down
+2. **`sqlite-vec`** spike in `rag_memory.py`
+3. **TiTiler** + **yente** self-host
 
-**Removed from backlog (done):**
+**Removed from backlog (done 2026-06-15 late):**
+- ~~Telemetry presets~~ — Overview / DE Infra / OSINT quick bar; split auto-overview + `globe-split-bar`
+- ~~Heatmap → Briefing~~ — `top_hotspots_for_llm()` in briefing, chat context, `/api/briefing` + `/api/node/pull`
+- ~~Pi SD `.arduino15`~~ — removed (~7 GB); SD 89% → 64%
+- ~~LF deploy helper~~ — `scripts/deploy-pi-sync.ps1` (push/pull/portal, `-TrimArduino`, `-Portal`)
+- ~~Split globe camera~~ — `mapPitchToCesiumDeg` / `cesiumPitchToMapDeg` in `cameraSync.ts`
+
+**Removed from backlog (done earlier):**
 - ~~PR `feature/cesium-1.142-eval` → `main`~~ — merged PR #1
 - ~~Pi push empty sensors/mesh~~ — OGN path fix + buffer replay fix
 - ~~Portal dual briefing~~ — PC `briefing_latest.json` primary
 - ~~`world-full` download~~ — `planet_full.pmtiles` on disk (~130 GB)
+
+**Done (2026-06-15 late) — Ops + intelligence UX:**
+- **`scripts/deploy-pi-sync.ps1`**: LF-safe SCP of `worldbase_push.py`, `worldbase_pull.py`, optional `-Portal`, `-TrimArduino`; clears push buffer; restarts systemd
+- **Pi SD**: removed `/mnt/sdcard/.arduino15` (~6.9 GB); SD ~64% used, ~11 GB free
+- **Fusion → briefing**: `fusion_heatmap.top_hotspots_for_llm()`; top-3 cells in LLM prompt, SQLite `sources.fusion_hotspots`, `/api/node/pull`, `build_chat_context()`
+- **Telemetry presets**: OVERVIEW / DE INFRA / OSINT quick buttons; Overview enables fusion heatmap; split auto-overview + compact `globe-split-bar`
+- **Split camera sync**: MapLibre pitch 0° (down) ↔ Cesium −90°; fixes globe staring into space on split
 
 **Done (2026-06-03):** Flowsint embed; `/api/flowsint/health`. OSINT pins + localStorage; `/api/pegel`; Ollama `keep_alive: 5m`.
 

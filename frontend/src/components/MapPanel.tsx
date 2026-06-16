@@ -9,6 +9,8 @@ import { fetchApi } from '../lib/networkFetch';
 import {
   containerHasSize,
   globeHeightToZoom,
+  mapPitchToCesiumDeg,
+  cesiumPitchToMapDeg,
   sanitizeLonLat,
 } from '../lib/cameraSync'
 
@@ -394,7 +396,7 @@ export default function MapPanel({
     if (!pos) return
     const zoom = syncCamera.zoom ?? globeHeightToZoom(syncCamera.height ?? 400_000)
     const pitch = Number.isFinite(syncCamera.pitch)
-      ? Math.min(85, Math.max(0, syncCamera.pitch!))
+      ? cesiumPitchToMapDeg(syncCamera.pitch!, mapMode.render3d ? 60 : 0)
       : (mapMode.render3d ? 60 : 0)
     syncSuppressUntilRef.current = performance.now() + 500
     cameraSyncingRef.current = true

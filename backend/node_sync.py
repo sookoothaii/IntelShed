@@ -362,7 +362,6 @@ async def _gather_snapshot() -> dict:
         ("volcanoes", "/api/volcanoes?active_only=true&limit=30"),
         ("cve", "/api/cve?limit=15"),
         ("nodes", "/api/nodes"),
-        ("fusion", "/api/fusion/heatmap?cell_deg=2&top=10&include_geojson=0"),
     )
 
     async with httpx.AsyncClient(timeout=45.0) as client:
@@ -380,31 +379,6 @@ async def _gather_snapshot() -> dict:
             if data is not None:
                 snap[name] = data
     return snap
-
-
-def _format_fusion_hotspots(snap: dict) -> str:
-    """Top fusion-grid cells for the LLM briefing (spatial situational awareness)."""
-    cells = (snap.get("fusion", {}) or {}).get("cells") or []
-    if not cells:
-        return "- No ranked fusion hotspots."
-    lines = []
-    for i, c in enumerate(cells[:3], 1):
-        lat, lon = c.get("lat"), c.get("lon")
-        if lat is None or lon is None:
-            continue
-        score = c.get("score", 0)
-        sources = ", ".join(c.get("sources") or [])
-        samples = "; ".join(
-            (s.get("label") or "")[:60]
-            for s in (c.get("samples") or [])[:2]
-            if s.get("label")
-        )
-        tail = f" — {samples}" if samples else ""
-        lines.append(
-            f"- #{i} {lat:.1f}N {lon:.1f}E score={score:.2f} "
-            f"[{sources}]{tail}"
-        )
-    return "\n".join(lines) or "- No ranked fusion hotspots."
 
 
 def _compile_alerts(snap: dict) -> list:
@@ -570,8 +544,11 @@ async def generate_briefing_internal():
 
 
 async def _generate_briefing_unlocked():
+    import fusion_heatmap
+
     snap = await _gather_snapshot()
     alerts = _compile_alerts(snap)
+    fusion_hotspots, fusion_lines = await fusion_heatmap.top_hotspots_for_llm(top=3)
 
     top_alerts = sorted(
         alerts,
@@ -589,7 +566,6 @@ async def _generate_briefing_unlocked():
         f"- {n.get('name')}: {'online' if n.get('online') else 'OFFLINE'}, CPU {n.get('health', {}).get('cpu_temp_c', '?')}C"
         for n in nodes[:3]
     ) or "- none"
-    fusion_lines = _format_fusion_hotspots(snap)
     prompt = (
         "You are the situational-awareness officer of a small off-grid intelligence "
         "node. Write a concise (max 150 words) world-situation briefing in plain text "
@@ -599,20 +575,25 @@ async def _generate_briefing_unlocked():
         f"Space weather: Kp={sw.get('kp_index')} ({sw.get('scale')}).\n"
         f"Crypto (USD): {json.dumps(mk)[:300]}\n"
         f"Edge nodes:\n{node_lines}\n"
-        f"Fusion hotspots (8-feed spatial grid, top cells):\n{fusion_lines}\n"
+        f"Fusion hotspots (8-feed spatial grid, top 3 cells):\n{fusion_lines}\n"
         f"CISA KEV (exploited CVEs):\n{cve_lines}\n"
         f"Critical alerts:\n{alert_lines}\n\n"
         "Briefing:"
     )
     text = await _ollama_briefing(prompt)
     if not text:
-        text = "LLM unavailable. Raw alerts:\n" + alert_lines
+        text = (
+            "LLM unavailable. Fusion hotspots:\n"
+            + fusion_lines
+            + "\nCritical alerts:\n"
+            + alert_lines
+        )
 
     now = datetime.now(timezone.utc).isoformat()
     with _db() as conn:
         conn.execute(
             "INSERT INTO briefings (created_at, text, sources) VALUES (?,?,?)",
-            (now, text, json.dumps({"alerts": alerts})),
+            (now, text, json.dumps({"alerts": alerts, "fusion_hotspots": fusion_hotspots})),
         )
         conn.commit()
     try:
@@ -620,7 +601,12 @@ async def _generate_briefing_unlocked():
         await rag_memory.ingest_briefing(text, now)
     except Exception:
         pass
-    return {"created_at": now, "text": text, "alerts": alerts}
+    return {
+        "created_at": now,
+        "text": text,
+        "alerts": alerts,
+        "fusion_hotspots": fusion_hotspots,
+    }
 
 
 @router.get("/briefing")
@@ -637,7 +623,12 @@ async def latest_briefing():
         sources = json.loads(row["sources"]) if row["sources"] else {}
     except Exception:
         pass
-    return {"created_at": row["created_at"], "text": row["text"], "alerts": sources.get("alerts", [])}
+    return {
+        "created_at": row["created_at"],
+        "text": row["text"],
+        "alerts": sources.get("alerts", []),
+        "fusion_hotspots": sources.get("fusion_hotspots", []),
+    }
 
 
 def _compress_briefing(text: str, alerts: list) -> str:
@@ -668,9 +659,13 @@ async def node_pull(request: Request, mesh: bool = False, x_node_token: str = He
     """
     _verify_node_secret(x_node_token)
     brief = await latest_briefing()
+    fusion_hotspots = brief.get("fusion_hotspots") or []
     try:
         snap = await _gather_snapshot()
         alerts = _compile_alerts(snap)
+        if not fusion_hotspots:
+            import fusion_heatmap
+            fusion_hotspots, _ = await fusion_heatmap.top_hotspots_for_llm(top=3)
     except Exception:
         alerts = brief.get("alerts", [])
 
@@ -688,6 +683,7 @@ async def node_pull(request: Request, mesh: bool = False, x_node_token: str = He
         "briefing": brief.get("text"),
         "briefing_at": brief.get("created_at"),
         "alerts": alerts,
+        "fusion_hotspots": fusion_hotspots,
     }
 
 

@@ -322,3 +322,64 @@ async def fusion_heatmap(
 
     _CACHE[cache_key] = (now, payload)
     return payload
+
+
+def _lat_lon_label(lat: float, lon: float) -> str:
+    ns = "N" if lat >= 0 else "S"
+    ew = "E" if lon >= 0 else "W"
+    return f"{abs(lat):.1f}°{ns} {abs(lon):.1f}°{ew}"
+
+
+def format_hotspots_for_llm(cells: list[dict], top: int = 3) -> str:
+    """Top fusion-grid cells as plain text for LLM briefing / chat context."""
+    if not cells:
+        return "- No ranked fusion hotspots."
+    lines: list[str] = []
+    for i, c in enumerate(cells[:top], 1):
+        lat, lon = c.get("lat"), c.get("lon")
+        if lat is None or lon is None:
+            continue
+        score = c.get("score", 0)
+        sources = ", ".join(c.get("sources") or [])
+        samples = "; ".join(
+            (s.get("label") or "")[:60]
+            for s in (c.get("samples") or [])[:2]
+            if s.get("label")
+        )
+        tail = f" — {samples}" if samples else ""
+        lines.append(
+            f"- #{i} {_lat_lon_label(float(lat), float(lon))} score={score:.2f} "
+            f"[{sources}]{tail}"
+        )
+    return "\n".join(lines) or "- No ranked fusion hotspots."
+
+
+def slim_hotspot_cells(cells: list[dict], top: int = 3) -> list[dict]:
+    """Compact fusion cells for JSON (briefing sources, Pi pull)."""
+    out: list[dict] = []
+    for c in cells[:top]:
+        lat, lon = c.get("lat"), c.get("lon")
+        if lat is None or lon is None:
+            continue
+        out.append({
+            "lat": lat,
+            "lon": lon,
+            "score": c.get("score"),
+            "intensity": c.get("intensity"),
+            "sources": c.get("sources") or [],
+            "samples": [
+                {"source": s.get("source"), "label": (s.get("label") or "")[:80]}
+                for s in (c.get("samples") or [])[:2]
+            ],
+        })
+    return out
+
+
+async def top_hotspots_for_llm(
+    cell_deg: float = 2.0,
+    top: int = 3,
+) -> tuple[list[dict], str]:
+    """Fetch ranked fusion cells and format for LLM prompts."""
+    data = await fusion_heatmap(cell_deg=cell_deg, top=max(top, 10), include_geojson=0)
+    cells = (data.get("cells") or [])[:top]
+    return slim_hotspot_cells(cells, top=top), format_hotspots_for_llm(cells, top=top)

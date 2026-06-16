@@ -31,6 +31,22 @@ export function sanitizeLonLat(
   return { lon: lng, lat }
 }
 
+export const MAP_PITCH_MAX = 85
+
+/** MapLibre pitch 0 = straight down; Cesium pitch -90 = straight down. */
+export function mapPitchToCesiumDeg(mapPitch: number, fallback = -45): number {
+  if (!Number.isFinite(mapPitch)) return fallback
+  const mp = Math.min(MAP_PITCH_MAX, Math.max(0, mapPitch))
+  return mp - 90
+}
+
+/** Inverse: Cesium pitch (deg, negative = down) → MapLibre pitch. */
+export function cesiumPitchToMapDeg(cesiumPitchDeg: number, fallback = 0): number {
+  if (!Number.isFinite(cesiumPitchDeg)) return fallback
+  const cp = Math.min(0, Math.max(-90, cesiumPitchDeg))
+  return Math.min(MAP_PITCH_MAX, Math.max(0, cp + 90))
+}
+
 export function containerHasSize(el: HTMLElement | null): boolean {
   return !!el && el.clientWidth > 0 && el.clientHeight > 0
 }
