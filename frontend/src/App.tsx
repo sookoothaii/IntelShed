@@ -6,6 +6,7 @@ import OsintPanel from './components/OsintPanel'
 import DataPanel from './components/DataPanel'
 import FirewallPanel from './components/FirewallPanel'
 import SituationBoard from './components/SituationBoard'
+import { NodeHealthBanner } from './components/NodeHealthBanner'
 import type { FocusTarget } from './lib/focus'
 import type { OsintPin } from './lib/osintPins'
 import { loadOsintPins, saveOsintPins, mergeImportedPins } from './lib/osintPins'
@@ -261,6 +262,8 @@ export default function App() {
         </div>
       </header>
 
+      <NodeHealthBanner />
+
       {situationOpen && (
         <SituationBoard
           onClose={() => setSituationOpen(false)}
@@ -357,10 +360,41 @@ function feedHealthStyle(v: { status?: string; fresh?: boolean; age_sec?: number
   return { border: '#6f8c84', color: '#6f8c84', label: '—' }
 }
 
+type BriefLang = 'en' | 'de'
+
 function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
   const [loading, setLoading] = useState(true)
   const [results, setResults] = useState<any>({})
   const [autoRefresh, setAutoRefresh] = useState(false)
+  const [briefLang, setBriefLang] = useState<BriefLang>(() => {
+    const saved = (typeof window !== 'undefined' && window.localStorage?.getItem('worldbase_briefing_lang')) as BriefLang | null
+    return saved === 'de' || saved === 'en' ? saved : 'en'
+  })
+  const [briefBusy, setBriefBusy] = useState(false)
+  const [briefError, setBriefError] = useState<string | null>(null)
+  const reloadCounterRef = useRef(0)
+  const [reloadTick, setReloadTick] = useState(0)
+
+  const generateBriefing = async () => {
+    setBriefBusy(true)
+    setBriefError(null)
+    try {
+      const r = await fetchApi(`/api/briefing/generate?lang=${briefLang}`, { method: 'POST' })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      await r.json().catch(() => null)
+      reloadCounterRef.current += 1
+      setReloadTick(reloadCounterRef.current)
+    } catch (e: any) {
+      setBriefError(e?.message || 'briefing failed')
+    } finally {
+      setBriefBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.localStorage?.setItem('worldbase_briefing_lang', briefLang)
+  }, [briefLang])
 
   useEffect(() => {
     let interval: any
@@ -398,7 +432,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
     fetchAll()
     if (autoRefresh) interval = setInterval(fetchAll, 30000)
     return () => { if (interval) clearInterval(interval) }
-  }, [autoRefresh])
+  }, [autoRefresh, reloadTick])
 
   const health = results.health
   const correlations = results.correlations
@@ -500,7 +534,39 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
 
               {briefing?.text && (
                 <div className="analysis-section">
-                  <h3>📋 24H SECURITY DIGEST</h3>
+                  <div className="analysis-section-head">
+                    <h3>📋 24H SECURITY DIGEST</h3>
+                    <div className="brief-controls">
+                      <div className="brief-lang" role="group" aria-label="Briefing language">
+                        <button
+                          type="button"
+                          className={briefLang === 'en' ? 'on' : ''}
+                          onClick={() => setBriefLang('en')}
+                          disabled={briefBusy}
+                        >
+                          EN
+                        </button>
+                        <button
+                          type="button"
+                          className={briefLang === 'de' ? 'on' : ''}
+                          onClick={() => setBriefLang('de')}
+                          disabled={briefBusy}
+                        >
+                          DE
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        className="brief-generate"
+                        onClick={generateBriefing}
+                        disabled={briefBusy}
+                        title="Re-run briefing pipeline now"
+                      >
+                        {briefBusy ? 'GENERATING…' : 'GENERATE'}
+                      </button>
+                    </div>
+                  </div>
+                  {briefError && <div className="brief-error">{briefError}</div>}
                   {(digest || fusionHotspots.length > 0) && (
                     <>
                       {digest && (

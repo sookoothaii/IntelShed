@@ -532,22 +532,28 @@ async def _ollama_briefing(prompt: str) -> str:
 
 @router.post("/briefing/generate")
 @rate_limit_general()
-async def generate_briefing(request: Request, api_key: str = Depends(verify_api_key)):
+async def generate_briefing(
+    request: Request,
+    lang: str | None = None,
+    api_key: str = Depends(verify_api_key),
+):
     """Fuse all feeds and have the local LLM write a world-situation report.
 
-    Stored in SQLite; the Pi pulls it via /api/node/pull for offline display.
+    Optional ``lang`` query parameter (``en`` or ``de``) overrides the
+    ``WORLDBASE_BRIEFING_LANG`` env default for this request only. Result is
+    stored in SQLite; the Pi pulls it via /api/node/pull for offline display.
     Open on the LAN — local Ollama only; destructive node commands stay admin-gated.
     """
-    return await generate_briefing_internal()
+    return await generate_briefing_internal(lang=lang)
 
 
-async def generate_briefing_internal():
+async def generate_briefing_internal(lang: str | None = None):
     """Actual briefing generation logic (no auth). Used by route + autopilot."""
     async with _BRIEFING_LOCK:
-        return await _generate_briefing_unlocked()
+        return await _generate_briefing_unlocked(lang=lang)
 
 
-async def _generate_briefing_unlocked():
+async def _generate_briefing_unlocked(lang: str | None = None):
     import fusion_heatmap
     from operator_briefing import (
         build_security_advisor_prompt,
@@ -558,11 +564,11 @@ async def _generate_briefing_unlocked():
     snap = await _gather_snapshot()
     alerts = _compile_alerts(snap)
     fusion_hotspots, fusion_lines = await fusion_heatmap.top_hotspots_for_llm(top=3)
-    digest = format_digest_sections(snap, alerts, fusion_lines, fusion_hotspots)
-    prompt = build_security_advisor_prompt(digest)
+    digest = format_digest_sections(snap, alerts, fusion_lines, fusion_hotspots, lang=lang)
+    prompt = build_security_advisor_prompt(digest, lang=lang)
     text = await _ollama_briefing(prompt)
     if not text:
-        text = format_fallback_protocol(digest)
+        text = format_fallback_protocol(digest, lang=lang)
 
     now = datetime.now(timezone.utc).isoformat()
     sources_payload = {
@@ -572,6 +578,7 @@ async def _generate_briefing_unlocked():
             "region": digest.get("region"),
             "region_label": digest.get("region_label"),
             "window": digest.get("window"),
+            "lang": digest.get("lang"),
             "local_count": len(digest.get("local") or []),
             "regional_count": len(digest.get("regional") or []),
             "global_count": len(digest.get("global") or []),

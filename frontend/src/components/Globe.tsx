@@ -1411,9 +1411,20 @@ export default function Globe({
     const meta = telemetryMeta(entry, feedHud, health, extra)
     const hidden = telemetryCompact && !on && entry.statKey != null && stats[entry.statKey] === 0
     if (hidden) return null
-    const tip = entry.layer === 'spaceweather'
+    const baseTip = entry.layer === 'spaceweather'
       ? kpTooltip(stats.spaceweather)
       : entry.tip
+    const tip = (() => {
+      if (!health) return baseTip
+      const ageStr = fmtTelemetryAge(health.age_sec)
+      if (health.status === 'stale' && ageStr) {
+        return `${baseTip || entry.label} — STALE (${ageStr} old)`
+      }
+      if (health.status === 'warn' && ageStr) {
+        return `${baseTip || entry.label} — WARN (${ageStr})`
+      }
+      return baseTip
+    })()
     return (
       <button
         key={entry.label}

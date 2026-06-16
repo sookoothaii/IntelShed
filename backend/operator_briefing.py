@@ -16,6 +16,18 @@ from stac_bridge import REGION_PRESETS
 OPERATOR_REGION = os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower()
 BRIEFING_LANG = os.getenv("WORLDBASE_BRIEFING_LANG", "en").strip().lower()
 
+
+def _resolve_lang(lang: str | None) -> str:
+    """Override env BRIEFING_LANG when caller passes 'de' or 'en' explicitly."""
+    if not lang:
+        return BRIEFING_LANG
+    norm = str(lang).strip().lower()
+    if norm.startswith("de"):
+        return "de"
+    if norm.startswith("en"):
+        return "en"
+    return BRIEFING_LANG
+
 # Wider ASEAN / Southeast Asia bbox when operator home is Thailand
 _ASEAN_BBOX = [92.0, -8.0, 112.0, 24.0]
 
@@ -247,7 +259,9 @@ def format_digest_sections(
     alerts: list[dict],
     fusion_lines: str,
     fusion_hotspots: list[dict],
+    lang: str | None = None,
 ) -> dict[str, Any]:
+    lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
     buckets = {"local": [], "regional": [], "global": []}
     for item in items:
@@ -289,7 +303,7 @@ def format_digest_sections(
         infra_bits.append(f"Internet outage signals (global index): {outages_n}")
 
     region_label = _region_label(OPERATOR_REGION)
-    if BRIEFING_LANG.startswith("de"):
+    if lang.startswith("de"):
         empty_local = "- Keine lokalen Signale in den Feeds (letzte 24h)."
         empty_regional = "- Keine regionalen Signale hervorgehoben."
         empty_global = "- Keine globalen Schwerpunkte jenseits Baseline."
@@ -301,6 +315,7 @@ def format_digest_sections(
         "region": OPERATOR_REGION,
         "region_label": region_label,
         "window": "24h",
+        "lang": lang,
         "local": local_lines or [empty_local],
         "regional": regional_lines or [empty_regional],
         "global": global_lines or [empty_global],
@@ -312,8 +327,9 @@ def format_digest_sections(
     }
 
 
-def _lang_instructions() -> str:
-    if BRIEFING_LANG.startswith("de"):
+def _lang_instructions(lang: str | None = None) -> str:
+    lang = _resolve_lang(lang)
+    if lang.startswith("de"):
         return (
             "Schreibe auf Deutsch. Ton: ruhiger Sicherheitsberater für einen Privat-Operator "
             "mit Wohnsitz in der Fokusregion — wie ein persönliches Weltlage-Protokoll, "
@@ -325,22 +341,59 @@ def _lang_instructions() -> str:
     )
 
 
-def build_security_advisor_prompt(digest: dict[str, Any]) -> str:
+def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = None) -> str:
     region = digest.get("region_label", "Thailand")
+    lang = _resolve_lang(lang or digest.get("lang"))
+    is_de = lang.startswith("de")
+
+    if is_de:
+        section_hints = (
+            f"LOCAL ({region}) — was vor Ort in den letzten 24h zählt\n"
+            "REGION — ASEAN / Nachbarn / nahe Umgebung wenn relevant\n"
+            "GLOBAL — Rest der Welt, der für informierte Bewohner relevant bleibt\n"
+            "CYBER & INFRA — KEV, Nodes, Weltraumwetter, Märkte, Luftqualität wenn vorhanden\n"
+            "RECOMMENDATION — 1–2 Sätze: ruhig, umsetzbar, keine Panik\n"
+        )
+        no_data_clause = (
+            "Nutze NUR das untenstehende Feed-Digest. Wenn ein Abschnitt keine Daten hat, "
+            "schreibe klar, dass die Feeds dort nichts Auffälliges zeigen (keine Ereignisse erfinden)."
+        )
+        digest_header = "--- DIGEST"
+        protocol_label = "Protokoll:"
+        final_reminder = (
+            "WICHTIG: Schreibe den gesamten Protokoll-Text auf Deutsch. "
+            "Behalte die Labels LOCAL / REGION / GLOBAL / CYBER & INFRA / RECOMMENDATION "
+            "wörtlich auf Englisch — der Fließtext darunter MUSS deutsch sein."
+        )
+    else:
+        section_hints = (
+            f"LOCAL ({region}) — what matters at home in the last 24h\n"
+            "REGION — ASEAN / neighbours / nearby if relevant\n"
+            "GLOBAL — rest of the world that still matters to an informed resident\n"
+            "CYBER & INFRA — KEV, nodes, space weather, markets, air quality if present\n"
+            "RECOMMENDATION — 1–2 sentences: calm, actionable, no panic\n"
+        )
+        no_data_clause = (
+            "Use ONLY the feed digest below. If a section has no data, say clearly that "
+            "feeds show nothing notable (do not invent events)."
+        )
+        digest_header = "--- DIGEST"
+        protocol_label = "Protocol:"
+        final_reminder = (
+            "Reminder: write the entire protocol body in English."
+        )
+
     return (
         "You produce a 24-hour security & situational awareness protocol for one operator.\n"
-        + _lang_instructions()
+        + _lang_instructions(lang)
         + "\n"
         "Max 280 words. Plain text only — NO markdown headers, NO bullet lists in the output. "
-        "Use short labeled paragraphs in this order (keep labels):\n"
-        f"LOCAL ({region}) — what matters at home in the last 24h\n"
-        "REGION — ASEAN / neighbours / nearby if relevant\n"
-        "GLOBAL — rest of the world that still matters to an informed resident\n"
-        "CYBER & INFRA — KEV, nodes, space weather, markets, air quality if present\n"
-        "RECOMMENDATION — 1–2 sentences: calm, actionable, no panic\n\n"
-        "Use ONLY the feed digest below. If a section has no data, say clearly that feeds "
-        "show nothing notable (do not invent events).\n\n"
-        f"--- DIGEST (last {digest.get('window', '24h')}) ---\n"
+        "Use short labeled paragraphs in this order (keep labels exactly as written):\n"
+        + section_hints
+        + "\n"
+        + no_data_clause
+        + "\n\n"
+        f"{digest_header} (last {digest.get('window', '24h')}) ---\n"
         f"LOCAL signals:\n" + "\n".join(digest["local"]) + "\n\n"
         f"REGION signals:\n" + "\n".join(digest["regional"]) + "\n\n"
         f"GLOBAL signals:\n" + "\n".join(digest["global"]) + "\n\n"
@@ -348,13 +401,15 @@ def build_security_advisor_prompt(digest: dict[str, Any]) -> str:
         f"Cyber (CISA KEV):\n" + "\n".join(digest["cyber"]) + "\n\n"
         f"Infra:\n" + "\n".join(f"- {x}" for x in digest["infra"]) + "\n\n"
         f"Edge nodes:\n" + "\n".join(digest["nodes"]) + "\n\n"
-        "Protocol:"
+        + final_reminder + "\n\n"
+        + protocol_label
     )
 
 
-def format_fallback_protocol(digest: dict[str, Any]) -> str:
+def format_fallback_protocol(digest: dict[str, Any], lang: str | None = None) -> str:
     region = digest.get("region_label", "Thailand")
-    if BRIEFING_LANG.startswith("de"):
+    lang = _resolve_lang(lang or digest.get("lang"))
+    if lang.startswith("de"):
         parts = [
             f"LOKAL ({region}): " + " ".join(digest["local"]).replace("- ", ""),
             "REGION: " + " ".join(digest["regional"]).replace("- ", ""),
