@@ -554,10 +554,38 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **Turbopuffer**: not used — stay local/offline-first for RAG (`rag_memory.py`) and firewall (HAK_GAL centroids). Next RAG step: `sqlite-vec` locally, not cloud vector DB.
 - **Firewall**: HAK_GAL v6 semantic-first (`all-MiniLM-L6-v2` centroids). WorldBase passes `session_id: worldbase` only; optional future: WorldBase context in scan payload.
 
-**Backlog (next session):**
-1. **Firewall autostart** — optional flag in `start.ps1` or header status dot when `:8001` down
-2. **`sqlite-vec`** spike in `rag_memory.py`
-3. **TiTiler** + **yente** self-host
+**Backlog (next session, prioritized 2026-06-17):**
+
+Hot — real issues:
+1. **`gdacs` / `gdacs_v2` stale 236 h** — health endpoint reports stale, smoke says PASS. Cache-key collision or refresh-loop drift; investigate `feed_registry.py` write keys vs. `feeds_extra.py` read keys.
+2. **`weather:13.75:100.5` stale 353 h** — Bangkok-row in airquality/weather Multi-City loop never refreshes; same class as #1.
+
+Solid features:
+3. **DE briefing default** — set `WORLDBASE_BRIEFING_LANG=de` in `backend/.env` so the autopilot generates German by default; UI toggle still overrides per-request.
+4. **NodeHealthBanner live test** — stop `worldbase_push` on the Pi briefly, verify banner appears with correct last-seen text, then restart.
+5. **Pi swap pressure** — five Cursor remote-extension processes hold ~1.6 GB RSS; add a Pi-side cleanup/headless mode or document the manual kill workflow.
+6. **Surface new agent skills** — short pointer to `worldbase-stack-check` and `worldbase-ui-smoketest` from `AGENTS.md` so operators discover them.
+
+Pre-existing backlog:
+7. **Firewall autostart** — optional flag in `start.ps1` or header status dot when `:8001` down.
+8. **`sqlite-vec`** spike in `rag_memory.py` (replace in-memory cosine ringbuffer with on-disk vector index).
+9. **TiTiler** + **Yente** self-host (Yente setup script exists, TiTiler still missing).
+
+Polish / tech debt:
+10. **Bundle size 1.5 MB** — code-split Cesium / MapLibre / Phase 2 panels via dynamic imports.
+11. **Backend `--reload` drift** — `start.ps1` enables it; document manual `uvicorn --reload` invocation for operators who skip the starter.
+12. **PowerShell briefing display** — set `[Console]::OutputEncoding = [Text.UTF8Encoding]::new()` in `start.ps1` so `Invoke-RestMethod /api/briefing` shows em-dashes / `µg/m³` correctly.
+13. **`cursor-ide-browser` MCP quirk** — first action after a fresh navigate sometimes loses tab context; document the `lock → navigate again` recovery in `worldbase-ui-smoketest` as a known issue.
+
+**Done (2026-06-17) — tech-chef session:**
+- **PC IP drift fix** — `192.168.1.111` reserved via DHCP (router lease, MAC `4C:03:4F:BB:C7:9F`); Pi push/pull recovered after 23 h offline. Doc updates in `AGENTS.md`, `LLM_HANDOFF.md`, `README.md`.
+- **Cursor skills** — three project skills (`worldbase-pi-deploy`, `-firewall`, `-briefing`) made discoverable; two new: `worldbase-stack-check` (7-check audit) and `worldbase-ui-smoketest` (browser-MCP visual sweep).
+- **`english-only.mdc`** — `alwaysApply: true`, scope expanded to `.cursor/skills`, `.cursor/rules`, `.cursor/hooks`, root docs. `LLM_HANDOFF.md` keeps its bilingual exception.
+- **Workspace MCP dedup** — dropped `.cursor/mcp.json` (`MCP_DOCKER` already on user level).
+- **Doc drift fix** — real Pi push paths (`$OFFGRID_CONTENT/telemetry/esp32_state.json`), 25/25 smoke count.
+- **Stale-feed UX** — telemetry dots pulse in orange and tooltips include feed age when `status === 'stale' | 'warn'`.
+- **NodeHealthBanner** — top-of-shell banner when an edge node misses its 300 s heartbeat; persists dismissal until the node returns; hint suggests checking the DHCP reservation.
+- **Briefing language toggle** — `EN/DE` segmented control + `GENERATE` in the FULL SITUATION digest header. `localStorage` persists the choice. Backend `POST /api/briefing/generate?lang=en|de` threads the value through `operator_briefing` (`_resolve_lang` helper, language-matched section hints, doubled lang reminder so qwen3:8b actually obeys). Section labels stay English.
 
 **Removed from backlog (done 2026-06-15 late):**
 - ~~Telemetry presets~~ — Overview / DE Infra / OSINT quick bar; split auto-overview + `globe-split-bar`
