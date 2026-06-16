@@ -147,17 +147,20 @@ Operator / LLM reference → [`LLM_HANDOFF.md`](LLM_HANDOFF.md)
 
 ## Standing on the shoulders of giants
 
-WorldBase builds on ideas and patterns from the open geospatial OSINT community. **Thank you:**
+WorldBase is not a standalone invention. It exists entirely because of the generous, brilliant work of the open-source and open-data communities. We are deeply humbled and profoundly grateful to build upon the foundations laid by others. **To the giants whose shoulders we stand on: Thank you.**
 
-| Inspiration | Contribution |
-|-------------|--------------|
-| **[Bilawal Sidhu](https://www.youtube.com/watch?v=rXvU7bPJ8n4)** · *WorldView* | Tactical globe UX, vision modes (NVG/FLIR/CRT), multi-feed fusion on Cesium |
-| **[K-AI-STACK/WorldView](https://github.com/K-AI-STACK/WorldView)** | Open layer catalog & Cesium-first OSINT dashboard structure |
-| **[kevtoe/worldview](https://github.com/kevtoe/worldview)** | Full-stack proxy pattern, tactical UI tokens, Resium + Vite reference |
-| **[petieclark/worldview](https://github.com/petieclark/worldview)** | Backend key proxying, health endpoint, Docker deployment model |
-| **[CesiumJS](https://cesium.com/)** · **[satellite.js](https://github.com/shashwatak/satellite-js)** | 3D globe & SGP4 orbit propagation |
-| **offgrid-raspi** (submodule) | Edge node, mesh, Pi ↔ PC sync architecture |
-| **Public data providers** | USGS, NASA (EONET/FIRMS/GIBS), NOAA SWPC, GDACS, SMARD, IODA, Open-Meteo, CelesTrak, adsb.lol, OpenSanctions CC-BY, and everyone maintaining free civic APIs |
+| Inspiration & Foundation | Contribution & Gratitude |
+|--------------------------|--------------------------|
+| **[Bilawal Sidhu](https://www.youtube.com/watch?v=rXvU7bPJ8n4)** · *WorldView* | The original visionary spark. The tactical globe UX, vision modes (NVG/FLIR/CRT), and the concept of multi-feed fusion on Cesium started here. |
+| **[K-AI-STACK/WorldView](https://github.com/K-AI-STACK/WorldView)** | For pioneering the open layer catalog and the Cesium-first OSINT dashboard structure that made this possible. |
+| **[kevtoe/worldview](https://github.com/kevtoe/worldview)** | For providing the foundational full-stack proxy pattern, tactical UI tokens, and Resium + Vite references. |
+| **[petieclark/worldview](https://github.com/petieclark/worldview)** | For the robust backend key proxying, health endpoint designs, and Docker deployment models. |
+| **[Reconurge/Flowsint](https://github.com/reconurge/flowsint)** | For the incredible OSINT graph visualization and making threat intelligence accessible. |
+| **[CesiumJS](https://cesium.com/)** & **[MapLibre](https://maplibre.org/)** | For building the stunning 3D/2D rendering engines that power the spatial intelligence core. |
+| **[SQLite](https://sqlite.org/)** & **[sqlite-vec](https://github.com/asg017/sqlite-vec)** | For proving that local, offline-first databases can power blazing-fast vector search and RAG memory without cloud lock-in. |
+| **[Ollama](https://ollama.com/)** & **[Qwen](https://qwenlm.github.io/)** | For democratizing LLMs and enabling local, private intelligence analysis at the edge. |
+| **[OpenSanctions](https://www.opensanctions.org/)** & **[Yente](https://github.com/opensanctions/yente)** | For the tireless work of maintaining public, CC-BY datasets and an enterprise-grade matching API that brings transparency to the world. |
+| **Public Civic Data Providers** | USGS, NASA (EONET/FIRMS/GIBS), NOAA SWPC, GDACS, SMARD, IODA, Open-Meteo, CelesTrak, adsb.lol/adsb.fi, Element84, Pegelonline, and every single engineer maintaining free civic APIs. You are the lifeblood of this project. |
 
 ---
 
