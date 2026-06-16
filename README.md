@@ -20,7 +20,7 @@
 | **Globe** | 30+ live layers — aircraft, quakes, disasters, energy, maritime, transit |
 | **MAP** | Offline Protomaps via PMTiles — regional (`thailand`) or full planet (`planet_full` ~130 GB) |
 | **Intelligence** | Situations, correlations, anomalies, sanctions screening, RAG memory |
-| **AI** | Local chat via Ollama (`qwen3:8b` default), optional HAK_GAL firewall scan |
+| **AI** | Local chat via Ollama (`qwen3:8b` default) |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → briefing back to Pi |
 | **Philosophy** | Positive intelligence — better decisions, not attacks |
 
@@ -84,16 +84,6 @@ Use for tactical overview (3D feeds) + precise 2D basemap side by side.
 | ![Globe — Starlink orbits](docs/screenshots/globe-starlink-orbits.png) | ![MAP — PMTiles profile](docs/screenshots/map-pmtiles-profile.png) | ![DATA — quakes feed](docs/screenshots/data-quakes-feed.png) | ![SPLIT — globe + map](docs/screenshots/split-globe-map-sync.png) |
 
 Full set: [`docs/screenshots/`](docs/screenshots/README.md)
-
-### Optional LLM firewall
-
-Set `FIREWALL_HOST=localhost:8001` in `backend/.env` and start HAK_GAL separately:
-
-```powershell
-D:\MCP Mods\HAK_GAL_HEXAGONAL\standalone_packages\llm-security-firewall\detectors\orchestrator\start.ps1
-```
-
-Enable **🛡️ ON** in the AI chat. When the firewall service is down, WorldBase fails open (chat still works, unscanned).
 
 ### Docker + Pi sync
 
