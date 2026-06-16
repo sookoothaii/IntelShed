@@ -1,0 +1,29 @@
+---
+description: WorldBase agent workflow — verify system first, briefing/Pi focus, firewall out of scope
+alwaysApply: true
+---
+
+# WorldBase workflow
+
+Read [`AGENTS.md`](../../AGENTS.md) at session start. Use [`LLM_HANDOFF.md`](../../LLM_HANDOFF.md) for endpoint lists and troubleshooting.
+
+## Before coding
+
+1. Confirm backend: `GET /api/health/ping` (or note if stack is down).
+2. For briefing work: skim `GET /api/briefing` or run `python -m unittest test_operator_briefing` in `backend/`.
+3. After substantive changes: `.\scripts\smoke-test.ps1` when feasible.
+
+## Default focus
+
+Briefing digest, operator region (Thailand), GDELT local, Pi `/api/node/pull`, FULL SITUATION / SITUATIONS UX.
+
+## Out of scope unless asked
+
+HAK_GAL firewall (`firewall_bridge.py`, `:8001`, FIREWALL tab, chat 🛡️ toggle). Do not implement “hide firewall in UI” when the user means **work focus** — ask if unclear.
+
+## Guardrails
+
+- UI strings English (`.cursor/rules/english-only.mdc`); `WORLDBASE_BRIEFING_LANG=de` only affects briefing text.
+- PowerShell paths with spaces: `-LiteralPath`.
+- No git commits unless the user explicitly requests them.
+- Minimal, focused diffs — reuse existing bridges and HUD patterns.

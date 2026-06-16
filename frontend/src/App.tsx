@@ -403,6 +403,8 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   const health = results.health
   const correlations = results.correlations
   const briefing = results.briefing
+  const digest = briefing?.digest
+  const fusionHotspots = briefing?.fusion_hotspots || []
   const cveFeed = results.cve
   const quakes = (results.earthquakes?.earthquakes || []).slice(0, 15)
   const wildfires = (results.events?.events || []).filter((e: any) => (e.category || '').toLowerCase().includes('fire') || (e.title || '').toLowerCase().includes('fire')).slice(0, 8)
@@ -498,7 +500,64 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
 
               {briefing?.text && (
                 <div className="analysis-section">
-                  <h3>🛡️ 24H SECURITY DIGEST</h3>
+                  <h3>📋 24H SECURITY DIGEST</h3>
+                  {(digest || fusionHotspots.length > 0) && (
+                    <>
+                      {digest && (
+                        <div className="analysis-digest-meta">
+                          {digest.region_label && (
+                            <span className="analysis-digest-chip">
+                              REGION <strong>{digest.region_label}</strong>
+                            </span>
+                          )}
+                          {digest.window && (
+                            <span className="analysis-digest-chip">
+                              WINDOW <strong>{digest.window}</strong>
+                            </span>
+                          )}
+                          <span className="analysis-digest-chip local">
+                            LOCAL <strong>{digest.local_count ?? 0}</strong>
+                          </span>
+                          <span className="analysis-digest-chip regional">
+                            REGIONAL <strong>{digest.regional_count ?? 0}</strong>
+                          </span>
+                          <span className="analysis-digest-chip global">
+                            GLOBAL <strong>{digest.global_count ?? 0}</strong>
+                          </span>
+                          {briefing.created_at && (
+                            <span className="analysis-digest-chip">
+                              UPDATED <strong>{new Date(briefing.created_at).toLocaleString()}</strong>
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {fusionHotspots.slice(0, 3).map((h: any, i: number) => (
+                        <div key={i} className="analysis-fusion-row">
+                          <span style={{ color: '#ff6b35', fontWeight: 'bold' }}>FUSION #{i + 1}</span>
+                          <span>{h.label || h.summary || `${h.lat?.toFixed(1)}, ${h.lon?.toFixed(1)}`}</span>
+                          {h.score != null && <span>score {Number(h.score).toFixed(1)}</span>}
+                          {h.lat != null && h.lon != null && (
+                            <button
+                              className="locate-mini"
+                              onClick={() => {
+                                onClose()
+                                onFocus({
+                                  kind: 'fusion',
+                                  lon: h.lon,
+                                  lat: h.lat,
+                                  height: 800000,
+                                  title: h.label || `Fusion hotspot ${i + 1}`,
+                                  lines: [`Score: ${h.score ?? '—'}`, h.summary].filter(Boolean) as string[],
+                                })
+                              }}
+                            >
+                              ◎
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
                   <div className="analysis-briefing">{briefing.text}</div>
                 </div>
               )}

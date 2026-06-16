@@ -1,6 +1,6 @@
 # LLM Handoff — WorldBase
 
-> **Operator + agent reference.** User docs: [`README.md`](README.md) · [`docs/FEEDS.md`](docs/FEEDS.md) · [`docs/API-KEYS.md`](docs/API-KEYS.md) · [`docs/SETUP.md`](docs/SETUP.md)  
+> **Operator + agent reference.** Agent quick start: [`AGENTS.md`](AGENTS.md) · User docs: [`README.md`](README.md) · [`docs/FEEDS.md`](docs/FEEDS.md) · [`docs/API-KEYS.md`](docs/API-KEYS.md) · [`docs/SETUP.md`](docs/SETUP.md)  
 > Last updated: 2026-06-15 (late evening) | Stack: qwen3:8b, main, Pi sync live, SD ~64%, smoke 23/23
 
 ## Project Overview
