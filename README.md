@@ -19,7 +19,7 @@
 |---|---|
 | **Globe** | 30+ live layers — aircraft, quakes, disasters, energy, maritime, transit |
 | **MAP** | Offline Protomaps via PMTiles — regional (`thailand`) or full planet (`planet_full` ~130 GB) |
-| **Intelligence** | Situations, correlations, anomalies, sanctions screening, RAG memory |
+| **Intelligence** | Situations, correlations, anomalies, OpenSanctions via Yente, fast RAG memory (sqlite-vec) |
 | **AI** | Local chat via Ollama (`qwen3:8b` default) |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → briefing back to Pi |
 | **Philosophy** | Positive intelligence — better decisions, not attacks |
@@ -89,6 +89,8 @@ Full set: [`docs/screenshots/`](docs/screenshots/README.md)
 
 ```powershell
 .\scripts\start-docker.ps1    # HTTPS stack + node token
+.\scripts\start-flowsint.ps1  # Optional: Flowsint OSINT graph
+.\scripts\start-yente.ps1     # Optional: Yente OpenSanctions API
 ```
 
 Details → [`docs/SETUP.md`](docs/SETUP.md)

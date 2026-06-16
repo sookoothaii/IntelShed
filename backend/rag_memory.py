@@ -6,12 +6,14 @@ import json
 import math
 import os
 import sqlite3
+import struct
 import time
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 from fastapi import APIRouter
+import sqlite_vec
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
@@ -23,8 +25,16 @@ _EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 _TOP_K = int(os.getenv("RAG_TOP_K", "6"))
 
 
+def serialize_f32(vector: list[float]) -> bytes:
+    """Serializes a list of floats into a compact format sqlite-vec can understand."""
+    return struct.pack("%sf" % len(vector), *vector)
+
+
 def _conn():
     conn = sqlite3.connect(_DB_PATH)
+    conn.enable_load_extension(True)
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -43,7 +53,29 @@ def init_memory_db():
                 UNIQUE(source, source_id)
             );
             CREATE INDEX IF NOT EXISTS idx_rag_source ON rag_chunks(source);
+            
+            CREATE VIRTUAL TABLE IF NOT EXISTS rag_vec USING vec0(
+                id INTEGER PRIMARY KEY,
+                embedding float[768]
+            );
         """)
+        
+        # Migration: Backfill rag_vec if empty but rag_chunks has data
+        vec_count = conn.execute("SELECT COUNT(*) FROM rag_vec").fetchone()[0]
+        chunk_count = conn.execute("SELECT COUNT(*) FROM rag_chunks").fetchone()[0]
+        
+        if vec_count == 0 and chunk_count > 0:
+            print(f"[RAG] Migrating {chunk_count} existing chunks to sqlite-vec...", flush=True)
+            chunks = conn.execute("SELECT id, embedding_json FROM rag_chunks").fetchall()
+            for chunk in chunks:
+                try:
+                    emb = json.loads(chunk["embedding_json"])
+                    if len(emb) == 768:
+                        conn.execute("INSERT INTO rag_vec(id, embedding) VALUES (?, ?)", (chunk["id"], serialize_f32(emb)))
+                except Exception:
+                    pass
+            print("[RAG] Migration complete.", flush=True)
+            
         conn.commit()
 
 
@@ -64,19 +96,11 @@ async def embed_text(text: str) -> list[float]:
         return [float(x) for x in emb]
 
 
-def _cosine(a: list[float], b: list[float]) -> float:
-    if not a or not b or len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a))
-    nb = math.sqrt(sum(x * x for x in b))
-    if na < 1e-12 or nb < 1e-12:
-        return 0.0
-    return dot / (na * nb)
-
-
 def upsert_chunk(source: str, source_id: str, text: str, embedding: list[float], meta: dict | None = None):
     now = datetime.now(timezone.utc).isoformat()
+    if len(embedding) != 768:
+        raise ValueError("sqlite-vec currently expects exactly 768 dimensions for nomic-embed-text")
+        
     with _conn() as conn:
         conn.execute(
             """
@@ -97,10 +121,22 @@ def upsert_chunk(source: str, source_id: str, text: str, embedding: list[float],
                 now,
             ),
         )
-        # Ring buffer cap — keep semantic recall O(n) cosine search fast.
+        row_id = conn.execute("SELECT id FROM rag_chunks WHERE source=? AND source_id=?", (source, source_id)).fetchone()[0]
+        
+        # Sync with high-performance vector index
         conn.execute(
-            "DELETE FROM rag_chunks WHERE id NOT IN (SELECT id FROM rag_chunks ORDER BY id DESC LIMIT 2000)"
+            "INSERT OR REPLACE INTO rag_vec(id, embedding) VALUES (?, ?)",
+            (row_id, serialize_f32(embedding))
         )
+
+        # Professional Ring buffer cap — explicit sync between both tables
+        old_rows = conn.execute("SELECT id FROM rag_chunks ORDER BY id DESC LIMIT -1 OFFSET 2000").fetchall()
+        if old_rows:
+            old_ids = [r[0] for r in old_rows]
+            marks = ",".join("?" * len(old_ids))
+            conn.execute(f"DELETE FROM rag_chunks WHERE id IN ({marks})", old_ids)
+            conn.execute(f"DELETE FROM rag_vec WHERE id IN ({marks})", old_ids)
+            
         conn.commit()
 
 
@@ -113,24 +149,31 @@ async def index_text(source: str, source_id: str, text: str, meta: dict | None =
 async def search(query: str, k: int | None = None) -> list[dict]:
     k = k or _TOP_K
     q_emb = await embed_text(query)
+    q_bin = serialize_f32(q_emb)
+    
     rows = []
     with _conn() as conn:
         for row in conn.execute(
-            "SELECT id, source, source_id, text, embedding_json, meta_json, created_at FROM rag_chunks ORDER BY id DESC LIMIT 500"
+            """
+            SELECT c.id, c.source, c.source_id, c.text, c.meta_json, c.created_at, vec_distance_cosine(v.embedding, ?) as dist 
+            FROM rag_vec v
+            JOIN rag_chunks c ON v.id = c.id
+            ORDER BY dist ASC
+            LIMIT ?
+            """,
+            (q_bin, k)
         ):
-            emb = json.loads(row["embedding_json"])
-            score = _cosine(q_emb, emb)
+            dist = float(row["dist"])
             rows.append({
                 "id": row["id"],
                 "source": row["source"],
                 "source_id": row["source_id"],
                 "text": row["text"][:600],
-                "score": round(score, 4),
+                "score": round(1.0 - dist, 4),
                 "meta": json.loads(row["meta_json"] or "{}"),
                 "created_at": row["created_at"],
             })
-    rows.sort(key=lambda x: -x["score"])
-    return rows[:k]
+    return rows
 
 
 async def ingest_pulse() -> dict:
@@ -271,11 +314,15 @@ async def index_gdelt_pulse():
 async def memory_stats():
     with _conn() as conn:
         total = conn.execute("SELECT COUNT(*) FROM rag_chunks").fetchone()[0]
+        # Querying vec table explicitly to ensure it matches
+        vec_total = conn.execute("SELECT COUNT(*) FROM rag_vec").fetchone()[0]
         by_source = conn.execute(
             "SELECT source, COUNT(*) AS n FROM rag_chunks GROUP BY source ORDER BY n DESC"
         ).fetchall()
     return {
         "chunks": total,
+        "vec_chunks": vec_total,
         "by_source": [{"source": r[0], "count": r[1]} for r in by_source],
         "embed_model": _EMBED_MODEL,
+        "vector_engine": "sqlite-vec"
     }

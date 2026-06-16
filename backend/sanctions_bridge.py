@@ -347,26 +347,38 @@ def _vessel_query_terms(vessel: dict) -> list[str]:
 
 
 async def screen_vessels(vessels: list[dict], min_score: float = 0.75) -> list[dict]:
-    """Match each vessel against the local index. Returns only hits (>= min_score)."""
-    idx = await _ensure_index()
-    if not idx["rows"] or not vessels:
-        return []
+    """Match each vessel against the index (Yente if available, else local)."""
     hits: list[dict] = []
+    if not vessels:
+        return []
+
+    # Only load local index if Yente is NOT configured
+    if not _YENTE_URL:
+        idx = await _ensure_index()
+        if not idx["rows"]:
+            return []
+
     for v in vessels:
         for term in _vessel_query_terms(v):
-            results = await _local_search(term, schema="Vessel", limit=3)
+            # Use the public router method which handles the Yente/Local fallback automatically
+            search_res = await sanctions_search(q=term, schema="Vessel", limit=3)
+            results = search_res.get("results") or []
+            
             best = None
             for r in results:
                 score = r.get("score", 0.0)
                 if score >= min_score and (best is None or score > best.get("score", 0.0)):
                     best = r
+                    
             if not best:
                 # also try without schema filter to catch Organization-shaped ship operators
-                results = await _local_search(term, schema=None, limit=3)
+                search_res = await sanctions_search(q=term, schema=None, limit=3)
+                results = search_res.get("results") or []
                 for r in results:
                     score = r.get("score", 0.0)
                     if score >= min_score and (best is None or score > best.get("score", 0.0)):
                         best = r
+                        
             if best:
                 hits.append({
                     "vessel": {

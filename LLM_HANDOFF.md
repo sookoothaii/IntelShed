@@ -40,7 +40,7 @@ worldbase/
 │   ├── firewall_bridge.py   # Optional HAK_GAL LLM firewall on :8001
 │   ├── node_sync.py         # Pi↔PC sync, sensor alerts, HMAC auth, mesh briefing
 │   ├── osint_tools.py       # IP/Domain/Username/Email/Reverse-geocode
-│   ├── rag_memory.py        # Ollama nomic-embed + SQLite cosine RAG (2000 chunk cap)
+│   ├── rag_memory.py        # Ollama nomic-embed + SQLite cosine RAG (via sqlite-vec)
 │   └── worldbase.db         # SQLite (node_state, briefings, sensor_alerts, feed_cache, rag_chunks)
 ├── frontend/
 │   ├── src/
@@ -92,7 +92,7 @@ worldbase/
 | `/briefing/generate` | Force new briefing generation |
 | `/situations` | Unified situation board (parallel fetch) |
 | `/fusion/heatmap` | **Killer-Feature**: 8-feed signal aggregation onto lat/lon grid |
-| `/memory/{search,stats,index/pulse}` | RAG over briefings + GDELT + hazards + situations + volcanoes + STAC + sanctions |
+| `/memory/{search,stats,index/pulse}` | Fast vector RAG over briefings + GDELT + hazards + situations + volcanoes + STAC + sanctions (`sqlite-vec`) |
 
 ### Imagery & Maps
 | Endpoint | What | Source |
@@ -109,10 +109,10 @@ worldbase/
 |----------|------|
 | `/maritime` | Live AIS vessel positions (port regions) |
 | `/maritime/ports` | Tracked port bbox list |
-| `/sanctions/status` | Local CSV freshness + index size |
-| `/sanctions/refresh` | Force re-download of OpenSanctions default CSV |
-| `/sanctions/search?q=` | Local fuzzy match (Person/Company/Vessel) |
-| `/sanctions/screen/vessels` | AIS ↔ OpenSanctions cross-match |
+| `/sanctions/status` | Yente/CSV freshness + index size |
+| `/sanctions/refresh` | Force re-download of OpenSanctions default CSV (if local) |
+| `/sanctions/search?q=` | Yente fallback to local fuzzy match (Person/Company/Vessel) |
+| `/sanctions/screen/vessels` | AIS ↔ OpenSanctions cross-match (Yente-accelerated) |
 
 ### Aircraft trails
 | Endpoint | What |
@@ -141,13 +141,13 @@ worldbase/
 
 **Pi state files (push reads):** `esp32_state.json` (DHT USB), `mesh_state.json`, `gps_location.json` — **not** legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json`. Portal briefing: `/var/lib/offgrid/briefing_latest.json` (PC first).
 
-### Flowsint (local Docker)
+### Flowsint & Yente (local Docker)
 | Item | Detail |
 |------|--------|
-| Upstream | https://github.com/reconurge/flowsint |
-| Setup | `scripts/setup-flowsint.ps1`, `scripts/start-flowsint.ps1` |
-| UI | http://localhost:5173 (WorldBase Vite stays on **5176**) |
-| Health | `GET /api/flowsint/health` |
+| Upstream | https://github.com/reconurge/flowsint, https://github.com/opensanctions/yente |
+| Setup | `scripts/setup-flowsint.ps1`, `scripts/setup-yente.ps1` |
+| UI/API | Flowsint UI: http://localhost:5173, Yente API: http://localhost:8003 |
+| Health | `GET /api/flowsint/health`, `GET /api/sanctions/status` |
 | Setup | `scripts/setup-flowsint.ps1`, `scripts/start-flowsint.ps1` |
 
 ### OSINT (`osint_tools.py`)
