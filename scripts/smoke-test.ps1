@@ -109,7 +109,9 @@ Write-Host "[4] Intelligence feeds (sample)" -ForegroundColor Cyan
     @{ n = 'earthquakes'; u = '/api/earthquakes' },
     @{ n = 'situations'; u = '/api/situations' },
     @{ n = 'hazards'; u = '/api/hazards' },
-    @{ n = 'memory stats'; u = '/api/memory/stats' }
+    @{ n = 'memory stats'; u = '/api/memory/stats' },
+    @{ n = 'gdelt pulse local'; u = '/api/gdelt/pulse/local' },
+    @{ n = 'gdelt geo local'; u = '/api/gdelt/geo/local?timespan=1d&maxrecords=20' }
 ) | ForEach-Object {
     Test-Endpoint $_.n "$Backend$($_.u)" { param($d) } -TimeoutSec 60 -Optional
 }

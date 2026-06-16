@@ -1126,7 +1126,7 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
                 "- Direct internet: only when the operator enabled web search (🔍); "
                 "then you receive DuckDuckGo snippets below — not live browsing.\n"
                 "- Live feeds (aircraft, quakes, nodes, CVE, headlines): only when "
-                "INTERNAL TELEMETRY is attached (CTX/Lage mode).\n"
+                "INTERNAL TELEMETRY is attached (CTX/situation mode).\n"
                 "- Tools may query WorldBase APIs (situations, OSINT lookups).\n\n"
                 "RULES:\n"
                 "1. Answer the user's actual question FIRST (1-3 sentences), same language.\n"

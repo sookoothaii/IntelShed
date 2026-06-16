@@ -9,7 +9,6 @@ import { fetchApi } from '../lib/networkFetch';
 import {
   containerHasSize,
   globeHeightToZoom,
-  mapPitchToCesiumDeg,
   cesiumPitchToMapDeg,
   sanitizeLonLat,
 } from '../lib/cameraSync'

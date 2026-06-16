@@ -314,7 +314,7 @@ Stack: `docker-compose.yml` — `web` (Caddy SPA + `/api` proxy), `backend` (Fas
 | `WORLDBASE_BRIEFING_AUTOPILOT` | `1` | `0` = kein Hintergrund-Briefing (spart VRAM) |
 | `WORLDBASE_RAG_AUTOPILOT` | `1` | `0` = kein Hintergrund-RAG-Embed |
 | `WORLDBASE_OPERATOR_REGION` | `thailand` | Home region for 24h security protocol (STAC bbox presets) |
-| `WORLDBASE_BRIEFING_LANG` | `de` | Briefing language (`de` = Lageprotokoll, `en` = digest) |
+| `WORLDBASE_BRIEFING_LANG` | `en` | Briefing language (`en` = security digest default, `de` = Lageprotokoll) |
 | `FIREWALL_HOST` | `localhost:8001` | leer = HAK_GAL Firewall aus |
 | `NODE_INGEST_TOKEN` | "" (empty) | HMAC + shared secret for ingest/pull/commands |
 | `NODE_ADMIN_TOKEN` | (falls back to ingest) | `X-Admin-Token` for `/node/{id}/command` |
@@ -475,6 +475,7 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **`/api/anomalies`** + correlations use same aircraft provider (no more anonymous-OpenSky-only failures)
 - **CRISES layer** — `/api/geopolitics` rebuilt: **GDACS** RSS with `geo_centroids.py` geocoding (ReliefWeb **v1 decommissioned**); optional **ReliefWeb v2** via `RELIEFWEB_APPNAME` in `backend/.env`
 - **`gdelt_bridge.py`** — `GET /api/gdelt/pulse` (GDELT DOC headlines, 10 min cache, rate-limit aware)
+- **`gdelt_bridge.py`** — `GET /api/gdelt/pulse/local` + `/geo/local` (operator region for briefing LOCAL block)
 - **`POST /api/flowsint/export-investigation`** — export globe pins for Flowsint workflow
 - Military feed: **adsb.fi** with **adsb.lol `/v2/mil`** fallback
 

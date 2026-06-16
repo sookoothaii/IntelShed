@@ -363,6 +363,8 @@ async def _gather_snapshot() -> dict:
         ("cve", "/api/cve?limit=15"),
         ("nodes", "/api/nodes"),
         ("gdelt_pulse", "/api/gdelt/pulse"),
+        ("gdelt_pulse_local", "/api/gdelt/pulse/local"),
+        ("gdelt_geo_local", "/api/gdelt/geo/local?timespan=1d&maxrecords=40"),
         ("airquality", "/api/airquality"),
     )
 

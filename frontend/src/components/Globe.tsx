@@ -264,17 +264,17 @@ type TelemetryEntry = {
   hudKey?: string
   healthKeys?: string[]
   formatValue?: (stats: Stats) => string
-  /** Einzeiler für Hover-Tooltip */
+  /** One-line hover tooltip */
   tip?: string
 }
 
 function kpTooltip(kp: number): string {
-  if (!kp) return 'Kp-Index (0–9): geomagnetische Aktivität, 3 h Mittelwert.'
-  if (kp < 2) return `Kp ${kp.toFixed(2)} — ruhig, kaum Einfluss auf Satelliten/Netze.`
-  if (kp < 4) return `Kp ${kp.toFixed(2)} — leicht aktiv, Polarlicht möglich.`
-  if (kp < 5) return `Kp ${kp.toFixed(2)} — aktiv, HF/GNSS können stören.`
-  if (kp < 6) return `Kp ${kp.toFixed(2)} — kleiner Sturm, Ausfälle möglich.`
-  return `Kp ${kp.toFixed(2)} — starker Sturm, Satelliten & Netze gefährdet.`
+  if (!kp) return 'Kp index (0–9): geomagnetic activity, 3 h average.'
+  if (kp < 2) return `Kp ${kp.toFixed(2)} — quiet, minimal impact on satellites/networks.`
+  if (kp < 4) return `Kp ${kp.toFixed(2)} — mildly active, aurora possible.`
+  if (kp < 5) return `Kp ${kp.toFixed(2)} — active, HF/GNSS may degrade.`
+  if (kp < 6) return `Kp ${kp.toFixed(2)} — minor storm, outages possible.`
+  return `Kp ${kp.toFixed(2)} — major storm, satellites & networks at risk.`
 }
 
 const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] = [
@@ -282,23 +282,23 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
     id: 'motion',
     label: 'MOTION',
     rows: [
-      { layer: 'aircraft', label: 'AIRCRAFT', statKey: 'aircraft', color: '#ffd23f', healthKeys: ['aircraft'], tip: 'Live-Flugzeuge (ADS-B).' },
-      { layer: 'satellites', label: 'SATELLITES', statKey: 'satellites', color: '#00e5ff', tip: 'Satelliten der gewählten Konstellation.' },
-      { layer: 'orbits', label: 'ORBITS', color: '#00e5ff', tip: 'Umlaufbahnen als Linien (ein/aus).' },
-      { layer: 'military', label: 'MILITARY', statKey: 'military', color: '#ff6b35', healthKeys: ['military'], tip: 'Als militärisch erkannte Luftfahrzeuge.' },
-      { layer: 'maritime', label: 'MARITIME', statKey: 'maritime', color: '#00e5ff', healthKeys: ['maritime'], tip: 'AIS-Schiffspositionen weltweit.' },
-      { layer: 'transit', label: 'TRANSIT', statKey: 'transit', color: '#ffd23f', healthKeys: ['transit'], tip: 'ÖPNV-Fahrzeuge (GTFS-Realtime).' },
+      { layer: 'aircraft', label: 'AIRCRAFT', statKey: 'aircraft', color: '#ffd23f', healthKeys: ['aircraft'], tip: 'Live aircraft (ADS-B).' },
+      { layer: 'satellites', label: 'SATELLITES', statKey: 'satellites', color: '#00e5ff', tip: 'Satellites of the selected constellation.' },
+      { layer: 'orbits', label: 'ORBITS', color: '#00e5ff', tip: 'Orbit lines (toggle).' },
+      { layer: 'military', label: 'MILITARY', statKey: 'military', color: '#ff6b35', healthKeys: ['military'], tip: 'Aircraft flagged as military.' },
+      { layer: 'maritime', label: 'MARITIME', statKey: 'maritime', color: '#00e5ff', healthKeys: ['maritime'], tip: 'AIS vessel positions worldwide.' },
+      { layer: 'transit', label: 'TRANSIT', statKey: 'transit', color: '#ffd23f', healthKeys: ['transit'], tip: 'Public transit vehicles (GTFS realtime).' },
     ],
   },
   {
     id: 'geo',
     label: 'GEO',
     rows: [
-      { layer: 'quakes', label: 'SEISMIC', statKey: 'quakes', color: '#ff2d00', healthKeys: ['quakes'], tip: 'Erdbeben ≥ M2.5, letzte 24 h (USGS).' },
-      { layer: 'events', label: 'EVENTS', statKey: 'events', color: '#ff6b35', healthKeys: ['events', 'world'], tip: 'Aktuelle Meldungen aus Event-/RSS-Feeds.' },
-      { layer: 'gdacs', label: 'GDACS', statKey: 'gdacs', color: '#ff6b35', hudKey: 'gdacs', healthKeys: ['gdacs', 'gdacs_v2'], tip: 'UN-Warnungen: Zyklon, Beben, Flut, Dürre.' },
-      { layer: 'hazards', label: 'HAZARDS', statKey: 'hazards', color: '#22d3ee', hudKey: 'hazards', healthKeys: ['hazards', 'cap'], tip: 'Offizielle Wetterwarnungen (CAP).' },
-      { layer: 'volcanoes', label: 'VOLCANOES', statKey: 'volcanoes', color: '#ff4d5e', healthKeys: ['volcanoes'], tip: 'Holozäne Vulkane (Smithsonian).' },
+      { layer: 'quakes', label: 'SEISMIC', statKey: 'quakes', color: '#ff2d00', healthKeys: ['quakes'], tip: 'Earthquakes ≥ M2.5, last 24 h (USGS).' },
+      { layer: 'events', label: 'EVENTS', statKey: 'events', color: '#ff6b35', healthKeys: ['events', 'world'], tip: 'Recent entries from event/RSS feeds.' },
+      { layer: 'gdacs', label: 'GDACS', statKey: 'gdacs', color: '#ff6b35', hudKey: 'gdacs', healthKeys: ['gdacs', 'gdacs_v2'], tip: 'UN alerts: cyclone, earthquake, flood, drought.' },
+      { layer: 'hazards', label: 'HAZARDS', statKey: 'hazards', color: '#22d3ee', hudKey: 'hazards', healthKeys: ['hazards', 'cap'], tip: 'Official weather warnings (CAP).' },
+      { layer: 'volcanoes', label: 'VOLCANOES', statKey: 'volcanoes', color: '#ff4d5e', healthKeys: ['volcanoes'], tip: 'Holocene volcanoes (Smithsonian).' },
       { layer: 'geopolitics', label: 'CRISES', statKey: 'geopolitics', color: '#ff2d00', healthKeys: ['geopolitics'], tip: 'Geopolitische Krisen (ReliefWeb).' },
     ],
   },
@@ -306,8 +306,8 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
     id: 'env',
     label: 'ENV',
     rows: [
-      { layer: 'wildfires', label: 'WILDFIRES', statKey: 'wildfires', color: '#ff6b35', hudKey: 'wildfires', healthKeys: ['wildfires', 'eonet'], tip: 'Aktive Brände (NASA EONET/FIRMS).' },
-      { layer: 'lightning', label: 'LIGHTNING', statKey: 'lightning', color: '#22d3ee', hudKey: 'lightning', healthKeys: ['lightning', 'blitzortung'], tip: 'Blitzeinschläge in Echtzeit.' },
+      { layer: 'wildfires', label: 'WILDFIRES', statKey: 'wildfires', color: '#ff6b35', hudKey: 'wildfires', healthKeys: ['wildfires', 'eonet'], tip: 'Active fires (NASA EONET/FIRMS).' },
+      { layer: 'lightning', label: 'LIGHTNING', statKey: 'lightning', color: '#22d3ee', hudKey: 'lightning', healthKeys: ['lightning', 'blitzortung'], tip: 'Lightning strikes in realtime.' },
       {
         layer: 'spaceweather',
         label: 'KP INDEX',
@@ -316,24 +316,24 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
         healthKeys: ['spaceweather'],
         formatValue: (s) => (s.spaceweather ? s.spaceweather.toFixed(2) : '—'),
       },
-      { layer: 'airquality', label: 'AIR QUALITY', statKey: 'airquality', color: '#b0c4b1', healthKeys: ['airquality'], tip: 'Luftqualität (AQI/PM2.5) je Stadt.' },
+      { layer: 'airquality', label: 'AIR QUALITY', statKey: 'airquality', color: '#b0c4b1', healthKeys: ['airquality'], tip: 'Air quality (AQI/PM2.5) per city.' },
     ],
   },
   {
     id: 'infra',
     label: 'INFRA',
     rows: [
-      { layer: 'nodes', label: 'NODES', statKey: 'nodes', color: '#00e5a0', healthKeys: ['nodes'], tip: 'Eigene Edge-Knoten (Pi/Mesh).' },
-      { layer: 'outages', label: 'OUTAGES', statKey: 'outages', color: '#a855f7', hudKey: 'outages', healthKeys: ['outages'], tip: 'Internet-Störungen (IODA/Cloudflare).' },
-      { layer: 'pegel', label: 'PEGEL', statKey: 'pegel', color: '#4fc3f7', hudKey: 'pegel', healthKeys: ['pegel'], tip: 'Deutsche Pegelstände / Hochwasser.' },
-      { layer: 'energy', label: 'ENERGY', statKey: 'energy', color: '#ffd23f', hudKey: 'energy', healthKeys: ['energy_de'], tip: 'Strombilanz Deutschland (SMARD).' },
+      { layer: 'nodes', label: 'NODES', statKey: 'nodes', color: '#00e5a0', healthKeys: ['nodes'], tip: 'Your edge nodes (Pi/mesh).' },
+      { layer: 'outages', label: 'OUTAGES', statKey: 'outages', color: '#a855f7', hudKey: 'outages', healthKeys: ['outages'], tip: 'Internet disruptions (IODA/Cloudflare).' },
+      { layer: 'pegel', label: 'PEGEL', statKey: 'pegel', color: '#4fc3f7', hudKey: 'pegel', healthKeys: ['pegel'], tip: 'German river gauges / flood levels.' },
+      { layer: 'energy', label: 'ENERGY', statKey: 'energy', color: '#ffd23f', hudKey: 'energy', healthKeys: ['energy_de'], tip: 'German power mix (SMARD).' },
     ],
   },
   {
     id: 'intel',
     label: 'INTEL',
     rows: [
-      { layer: 'osint', label: 'OSINT', statKey: 'osint', color: '#00ffa3', tip: 'Eigene Recherche-Pins auf der Kugel.' },
+      { layer: 'osint', label: 'OSINT', statKey: 'osint', color: '#00ffa3', tip: 'Your research pins on the globe.' },
     ],
   },
 ]
@@ -1505,7 +1505,7 @@ export default function Globe({
             type="button"
             className="telemetry-filter"
             onClick={() => setTelemetryCompact((v) => !v)}
-            title={telemetryCompact ? 'Alle Feeds anzeigen' : 'Nur aktive Feeds'}
+            title={telemetryCompact ? 'Show all feeds' : 'Active feeds only'}
           >
             {telemetryCompact ? 'ALL' : 'ACTIVE'}
           </button>

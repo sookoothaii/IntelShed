@@ -22,7 +22,7 @@ export default function MapModeBar({ mode, onChange, onRequestGlobe, compact }: 
   }
 
   return (
-    <div className={`map-mode-bar${compact ? ' compact' : ''}`} role="toolbar" aria-label="Kartenmodus">
+    <div className={`map-mode-bar${compact ? ' compact' : ''}`} role="toolbar" aria-label="Map mode">
       <div className="map-mode-group">
         {BASEMAPS.map((b) => (
           <button
@@ -58,13 +58,13 @@ export default function MapModeBar({ mode, onChange, onRequestGlobe, compact }: 
 
       <div className="map-mode-divider" />
 
-      <label className={`map-mode-toggle${mode.buildings ? ' on' : ''}`} title="3D-Gebäude (OSM)">
+      <label className={`map-mode-toggle${mode.buildings ? ' on' : ''}`} title="3D buildings (OSM)">
         <input
           type="checkbox"
           checked={mode.buildings}
           onChange={(e) => onChange({ ...mode, buildings: e.target.checked })}
         />
-        GEBÄUDE
+        BUILDINGS
       </label>
 
       {ionOk && (

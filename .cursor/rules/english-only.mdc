@@ -1,0 +1,26 @@
+---
+description: WorldBase operator UI and git-facing text stay English
+globs:
+  - frontend/src/**/*
+  - backend/**/*.py
+  - README.md
+  - docs/**/*
+  - backend/.env.example
+---
+
+# English-only operator surface
+
+WorldBase is an English-first open-source project. Keep these in **English**:
+
+- User-visible UI strings (labels, tooltips, errors, buttons, panel titles)
+- Briefing prompt section labels: LOCAL / REGION / GLOBAL / RECOMMENDATION
+- Default env values in `.env.example` (`WORLDBASE_BRIEFING_LANG=en`)
+- Commit messages and PR descriptions
+
+**Exceptions**
+
+- `WORLDBASE_BRIEFING_LANG=de` may produce German briefing output via `operator_briefing.py`
+- `LLM_HANDOFF.md` may stay bilingual (operator notes for local use)
+- Chat with the maintainer can be any language
+
+When adding strings, match existing HUD style: short uppercase labels, plain tooltips.

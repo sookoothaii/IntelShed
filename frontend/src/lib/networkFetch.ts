@@ -12,7 +12,7 @@ export function logFetchError(scope: string, label: string): void {
   if (now - (lastLog.get(key) ?? 0) < LOG_COOLDOWN_MS) return
   lastLog.set(key, now)
   const hint = navigator.onLine
-    ? 'API kurz nicht erreichbar (Netzwerkwechsel?) — bei anhaltenden Fehlern Seite neu laden'
+    ? 'API briefly unreachable (network change?) — reload the page if errors persist'
     : 'Browser offline'
   console.warn(`[WorldBase/${scope}] ${label}: ${hint}`)
 }

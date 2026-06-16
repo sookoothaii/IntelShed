@@ -14,7 +14,7 @@ from typing import Any
 from stac_bridge import REGION_PRESETS
 
 OPERATOR_REGION = os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower()
-BRIEFING_LANG = os.getenv("WORLDBASE_BRIEFING_LANG", "de").strip().lower()
+BRIEFING_LANG = os.getenv("WORLDBASE_BRIEFING_LANG", "en").strip().lower()
 
 # Wider ASEAN / Southeast Asia bbox when operator home is Thailand
 _ASEAN_BBOX = [92.0, -8.0, 112.0, 24.0]
@@ -107,6 +107,14 @@ def _line(severity: str, text: str, bucket: str) -> dict:
     }
 
 
+def _pm25_severity(pm25: float) -> str:
+    if pm25 >= 75:
+        return "high"
+    if pm25 >= 35:
+        return "medium"
+    return "low"
+
+
 def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     local_bbox = _region_bbox(OPERATOR_REGION)
     regional_bbox = _ASEAN_BBOX if OPERATOR_REGION == "thailand" else local_bbox
@@ -116,6 +124,30 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         regional_bbox = [w - 8, s - 6, e + 8, n + 4]
 
     items: list[dict] = []
+
+    for city in (snap.get("airquality", {}) or {}).get("cities") or []:
+        pm25 = city.get("pm25")
+        if pm25 is None:
+            continue
+        name = city.get("city") or "City"
+        lat, lon = city.get("lat"), city.get("lon")
+        bucket = classify_item(lat, lon, name, local_bbox, regional_bbox)
+        items.append(_line(
+            _pm25_severity(float(pm25)),
+            f"Air quality {name}: PM2.5 {pm25} µg/m³",
+            bucket,
+        ))
+
+    local_pulse = snap.get("gdelt_pulse_local", {}) or {}
+    for art in (local_pulse.get("articles") or [])[:10]:
+        title = art.get("title") or art.get("url") or "Headline"
+        items.append(_line("low", f"Local news: {title[:120]}", "local"))
+
+    for row in (snap.get("gdelt_geo_local", {}) or {}).get("events", [])[:12]:
+        name = row.get("name") or "GDELT signal"
+        lat, lon = row.get("lat"), row.get("lon")
+        bucket = classify_item(lat, lon, str(name), local_bbox, regional_bbox)
+        items.append(_line("medium", f"Regional media heat: {str(name)[:100]}", bucket))
 
     for q in (snap.get("earthquakes", {}) or {}).get("earthquakes", [])[:40]:
         place = q.get("place") or "Earthquake"
@@ -144,6 +176,8 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         bucket = classify_item(lat, lon, label, local_bbox, regional_bbox)
         sev = (h.get("severity") or "").lower()
         severity = "high" if "extreme" in sev else "medium" if "severe" in sev else "low"
+        if bucket == "local" and severity == "low":
+            severity = "medium"
         items.append(_line(severity, label, bucket))
 
     for g in (snap.get("geopolitics", {}) or {}).get("items", [])[:15]:
@@ -159,8 +193,15 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         items.append(_line("low", f"Media heat: {str(name)[:100]}", bucket))
 
     pulse = snap.get("gdelt_pulse", {}) or {}
+    seen_titles: set[str] = {
+        (a.get("title") or "")[:80].lower()
+        for a in (local_pulse.get("articles") or [])
+    }
     for art in (pulse.get("articles") or [])[:12]:
         title = art.get("title") or art.get("url") or "Headline"
+        key = title[:80].lower()
+        if key in seen_titles:
+            continue
         bucket = _text_bucket(title) or "global"
         items.append(_line("low", f"News: {title[:120]}", bucket))
 
@@ -241,20 +282,28 @@ def format_digest_sections(
     ]
     if bangkok_aq:
         infra_bits.append(
-            f"Bangkok Luft: PM2.5 {bangkok_aq.get('pm25', '—')} µg/m³"
+            f"Bangkok air: PM2.5 {bangkok_aq.get('pm25', '—')} µg/m³"
         )
     outages_n = (snap.get("outages", {}) or {}).get("count") or 0
     if outages_n:
         infra_bits.append(f"Internet outage signals (global index): {outages_n}")
 
     region_label = _region_label(OPERATOR_REGION)
+    if BRIEFING_LANG.startswith("de"):
+        empty_local = "- Keine lokalen Signale in den Feeds (letzte 24h)."
+        empty_regional = "- Keine regionalen Signale hervorgehoben."
+        empty_global = "- Keine globalen Schwerpunkte jenseits Baseline."
+    else:
+        empty_local = "- No local signals in feeds (last 24h)."
+        empty_regional = "- No regional signals highlighted."
+        empty_global = "- No global highlights beyond baseline."
     return {
         "region": OPERATOR_REGION,
         "region_label": region_label,
         "window": "24h",
-        "local": local_lines or ["- Keine lokalen Signale in den Feeds (letzte 24h)."],
-        "regional": regional_lines or ["- Keine regionalen Signale hervorgehoben."],
-        "global": global_lines or ["- Keine globale Schwerpunkte jenseits Baseline."],
+        "local": local_lines or [empty_local],
+        "regional": regional_lines or [empty_regional],
+        "global": global_lines or [empty_global],
         "fusion": fusion_lines,
         "fusion_hotspots": fusion_hotspots,
         "cyber": cyber_lines,
@@ -284,15 +333,15 @@ def build_security_advisor_prompt(digest: dict[str, Any]) -> str:
         + "\n"
         "Max 280 words. Plain text only — NO markdown headers, NO bullet lists in the output. "
         "Use short labeled paragraphs in this order (keep labels):\n"
-        f"LOKAL ({region}) — what matters at home in the last 24h\n"
+        f"LOCAL ({region}) — what matters at home in the last 24h\n"
         "REGION — ASEAN / neighbours / nearby if relevant\n"
-        "GLOBAL — rest of the world that still matters to a informed resident\n"
+        "GLOBAL — rest of the world that still matters to an informed resident\n"
         "CYBER & INFRA — KEV, nodes, space weather, markets, air quality if present\n"
-        "EMPFEHLUNG — 1–2 sentences: calm, actionable, no panic\n\n"
+        "RECOMMENDATION — 1–2 sentences: calm, actionable, no panic\n\n"
         "Use ONLY the feed digest below. If a section has no data, say clearly that feeds "
         "show nothing notable (do not invent events).\n\n"
         f"--- DIGEST (last {digest.get('window', '24h')}) ---\n"
-        f"LOKAL signals:\n" + "\n".join(digest["local"]) + "\n\n"
+        f"LOCAL signals:\n" + "\n".join(digest["local"]) + "\n\n"
         f"REGION signals:\n" + "\n".join(digest["regional"]) + "\n\n"
         f"GLOBAL signals:\n" + "\n".join(digest["global"]) + "\n\n"
         f"Fusion hotspots (spatial grid):\n{digest['fusion']}\n\n"

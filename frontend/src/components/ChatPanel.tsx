@@ -45,7 +45,7 @@ export default function ChatPanel({
             .filter(Boolean)
             .join(' · ')
           setModelErr(d.error)
-          setModelHint(extra || 'Prüfe: Ollama läuft? Backend auf :8002? Frontend via .\\start.ps1 (:5176)?')
+          setModelHint(extra || 'Check: Is Ollama running? Backend on :8002? Frontend via .\\start.ps1 (:5176)?')
           return
         }
         if (d.warning) setModelHint(d.warning)
@@ -58,13 +58,13 @@ export default function ChatPanel({
             : list[0].name
           setModel(pick)
         } else {
-          setModelErr('Kein Chat-Modell in Ollama')
+          setModelErr('No chat model in Ollama')
           setModelHint('ollama pull qwen3:8b')
         }
       })
       .catch(() => {
-        setModelErr('Backend nicht erreichbar')
-        setModelHint('Starte mit .\\start.ps1 — Frontend :5176, Backend :8002')
+        setModelErr('Backend unreachable')
+        setModelHint('Start with .\\start.ps1 — Frontend :5176, Backend :8002')
       })
 
     fetchApi('/api/providers')
@@ -139,14 +139,14 @@ export default function ChatPanel({
     setHistory((h) => [...h, { role: 'user', content: userDisplay }])
     setHistory((h) => [...h, { role: 'assistant', content: '' }])
     setBusy(true)
-    setGenStatus(forceFast ? 'Entity-Analyse (schnell)…' : 'Starte…')
+    setGenStatus(forceFast ? 'Entity analysis (fast)…' : 'Starting…')
 
     let searchCtx = ''
     if (useWebSearch) {
       const searchQ = isEntityAsk && entityCtx
         ? entityCtx.split('\n')[0].replace(/^Entity:\s*/, '').trim() || text
         : text
-      setGenStatus('🔍 DuckDuckGo-Suche…')
+      setGenStatus('🔍 DuckDuckGo search…')
       try {
         const sr = await fetchApi(`/api/search?q=${encodeURIComponent(searchQ)}&n=5`)
         const sd = await sr.json()
@@ -160,10 +160,10 @@ export default function ChatPanel({
       }
     }
 
-    if (useCtx) setGenStatus('Lagebild wird geladen (CTX)…')
-    else if (useToolCalls) setGenStatus('Ollama + Tools — kann 30–90s dauern…')
-    else if (forceFast) setGenStatus('Ollama analysiert Ziel…')
-    else setGenStatus('Ollama wird kontaktiert…')
+    if (useCtx) setGenStatus('Loading situation picture (CTX)…')
+    else if (useToolCalls) setGenStatus('Ollama + tools — may take 30–90s…')
+    else if (forceFast) setGenStatus('Ollama analyzing target…')
+    else setGenStatus('Contacting Ollama…')
 
     try {
       const r = await fetchApi('/api/chat', {
@@ -240,9 +240,9 @@ export default function ChatPanel({
             }
             if (data.status) {
               const labels: Record<string, string> = {
-                preparing: 'Lagebild & Kontext werden geladen…',
-                tools: 'Ollama analysiert (Tools aktiv)…',
-                generating: 'Ollama generiert Antwort…',
+                preparing: 'Loading situation & context…',
+                tools: 'Ollama analyzing (tools active)…',
+                generating: 'Ollama generating response…',
               }
               if (data.status === 'tool' && data.tool) {
                 setGenStatus(`Tool: ${data.tool}…`)
@@ -258,7 +258,7 @@ export default function ChatPanel({
               onClientAction?.(data.client_action)
             }
             if (data.token) {
-              setGenStatus('Ollama generiert Antwort…')
+              setGenStatus('Ollama generating response…')
               setHistory((h) => {
                 const copy = [...h]
                 copy[copy.length - 1] = {
@@ -297,7 +297,7 @@ export default function ChatPanel({
           {modelErr}
           {modelHint && <div style={{ marginTop: 6, fontSize: 11, opacity: 0.9 }}>{modelHint}</div>}
           <button type="button" className="web-search" style={{ marginTop: 8, fontSize: 10 }} onClick={loadModels}>
-            ↻ ERNEUT PRÜFEN
+            ↻ RETRY
           </button>
         </div>
       )}
@@ -306,7 +306,7 @@ export default function ChatPanel({
       )}
       {(feedContext || webSearch || useTools) && !busy && (
         <div className="chat-slow-hint">
-          CTX / 🔍 / TOOLS aktiv — manuelle Chats oft 30–90&nbsp;s. Ask AI vom Globe nutzt automatisch den schnellen Entity-Pfad.
+          CTX / 🔍 / TOOLS active — manual chats often take 30–90&nbsp;s. Ask AI from the globe uses the fast entity path automatically.
         </div>
       )}
 
@@ -359,14 +359,14 @@ export default function ChatPanel({
         <button
           className={useTools ? 'web-search on' : 'web-search'}
           onClick={() => setUseTools((v) => !v)}
-          title="Ollama Tool-Runden (situations, OSINT) — langsamer, aber schlauer"
+          title="Ollama tool rounds (situations, OSINT) — slower but smarter"
         >
           {useTools ? 'TOOLS ON' : 'TOOLS OFF'}
         </button>
         <button
           className={feedContext ? 'web-search on' : 'web-search'}
           onClick={() => setFeedContext((v) => !v)}
-          title="WorldBase Lagebild: nodes, feeds, headlines, CVE in den Prompt"
+          title="WorldBase situation picture: nodes, feeds, headlines, CVE in prompt"
         >
           {feedContext ? 'CTX ON' : 'CTX OFF'}
         </button>

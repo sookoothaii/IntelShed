@@ -21,10 +21,10 @@ export const DEFAULT_MAP_VIEW: MapViewMode = {
 }
 
 export const BASEMAP_LABELS: Record<BasemapMode, string> = {
-  streets: 'KARTE',
-  satellite: 'SATELLIT',
+  streets: 'MAP',
+  satellite: 'SAT',
   hybrid: 'HYBRID',
-  terrain: 'GELÄNDE',
+  terrain: 'TERRAIN',
 }
 
 /** ESRI World Imagery — free, no API key (attribution required). */
