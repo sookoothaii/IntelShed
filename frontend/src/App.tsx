@@ -498,7 +498,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
 
               {briefing?.text && (
                 <div className="analysis-section">
-                  <h3>📋 SITUATION BRIEFING</h3>
+                  <h3>🛡️ LAGEPROTOKOLL (24h)</h3>
                   <div className="analysis-briefing">{briefing.text}</div>
                 </div>
               )}

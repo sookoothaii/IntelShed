@@ -241,10 +241,10 @@ for r in app.routes:
         r.redirect_slashes = False
 
 # ---------------------------------------------------------------------------
-# Autopilot: generate LLM briefing every 10 min in the background
+# Autopilot: generate LLM briefing every 6 h in the background (override via .env)
 # ---------------------------------------------------------------------------
 _BRIEFING_AUTOPILOT_TASK = None
-_BRIEFING_INTERVAL = int(os.getenv("WORLDBASE_BRIEFING_INTERVAL", "600"))  # 10 min default
+_BRIEFING_INTERVAL = int(os.getenv("WORLDBASE_BRIEFING_INTERVAL", "21600"))  # 6 h default
 
 
 async def _phase1_background_tasks():

@@ -362,6 +362,8 @@ async def _gather_snapshot() -> dict:
         ("volcanoes", "/api/volcanoes?active_only=true&limit=30"),
         ("cve", "/api/cve?limit=15"),
         ("nodes", "/api/nodes"),
+        ("gdelt_pulse", "/api/gdelt/pulse"),
+        ("airquality", "/api/airquality"),
     )
 
     async with httpx.AsyncClient(timeout=45.0) as client:
@@ -510,7 +512,7 @@ async def _ollama_briefing(prompt: str) -> str:
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
         "keep_alive": __import__("ollama_config").keep_alive(),
-        "options": {"num_predict": 220, "temperature": 0.35},
+        "options": {"num_predict": 420, "temperature": 0.35},
     }
     if "qwen3" in OLLAMA_MODEL.lower():
         body["think"] = False
@@ -545,55 +547,39 @@ async def generate_briefing_internal():
 
 async def _generate_briefing_unlocked():
     import fusion_heatmap
+    from operator_briefing import (
+        build_security_advisor_prompt,
+        format_digest_sections,
+        format_fallback_protocol,
+    )
 
     snap = await _gather_snapshot()
     alerts = _compile_alerts(snap)
     fusion_hotspots, fusion_lines = await fusion_heatmap.top_hotspots_for_llm(top=3)
-
-    top_alerts = sorted(
-        alerts,
-        key=lambda a: _ALERT_SEVERITY.get(a.get("severity"), 9),
-    )[:10]
-    alert_lines = "\n".join(f"- {a['text']}" for a in top_alerts) or "- No critical alerts."
-    sw = snap.get("spaceweather", {})
-    mk = snap.get("markets", {}).get("crypto", {})
-    cve_lines = "\n".join(
-        f"- {v.get('cve_id')}: {v.get('vendor')} {v.get('product')} (due {v.get('due_date', '?')})"
-        for v in (snap.get("cve", {}) or {}).get("vulnerabilities", [])[:5]
-    ) or "- none"
-    nodes = (snap.get("nodes", {}) or {}).get("nodes", [])
-    node_lines = "\n".join(
-        f"- {n.get('name')}: {'online' if n.get('online') else 'OFFLINE'}, CPU {n.get('health', {}).get('cpu_temp_c', '?')}C"
-        for n in nodes[:3]
-    ) or "- none"
-    prompt = (
-        "You are the situational-awareness officer of a small off-grid intelligence "
-        "node. Write a concise (max 150 words) world-situation briefing in plain text "
-        "for a field operator. Be factual, calm, no markdown headers. "
-        "Prioritize fusion hotspots and critical alerts when present. "
-        "Use only the data below.\n\n"
-        f"Space weather: Kp={sw.get('kp_index')} ({sw.get('scale')}).\n"
-        f"Crypto (USD): {json.dumps(mk)[:300]}\n"
-        f"Edge nodes:\n{node_lines}\n"
-        f"Fusion hotspots (8-feed spatial grid, top 3 cells):\n{fusion_lines}\n"
-        f"CISA KEV (exploited CVEs):\n{cve_lines}\n"
-        f"Critical alerts:\n{alert_lines}\n\n"
-        "Briefing:"
-    )
+    digest = format_digest_sections(snap, alerts, fusion_lines, fusion_hotspots)
+    prompt = build_security_advisor_prompt(digest)
     text = await _ollama_briefing(prompt)
     if not text:
-        text = (
-            "LLM unavailable. Fusion hotspots:\n"
-            + fusion_lines
-            + "\nCritical alerts:\n"
-            + alert_lines
-        )
+        text = format_fallback_protocol(digest)
 
     now = datetime.now(timezone.utc).isoformat()
+    sources_payload = {
+        "alerts": alerts,
+        "fusion_hotspots": fusion_hotspots,
+        "digest": {
+            "region": digest.get("region"),
+            "region_label": digest.get("region_label"),
+            "window": digest.get("window"),
+            "local_count": len(digest.get("local") or []),
+            "regional_count": len(digest.get("regional") or []),
+            "global_count": len(digest.get("global") or []),
+        },
+        "style": "security_advisor_24h",
+    }
     with _db() as conn:
         conn.execute(
             "INSERT INTO briefings (created_at, text, sources) VALUES (?,?,?)",
-            (now, text, json.dumps({"alerts": alerts, "fusion_hotspots": fusion_hotspots})),
+            (now, text, json.dumps(sources_payload)),
         )
         conn.commit()
     try:
@@ -606,6 +592,7 @@ async def _generate_briefing_unlocked():
         "text": text,
         "alerts": alerts,
         "fusion_hotspots": fusion_hotspots,
+        "digest": sources_payload.get("digest"),
     }
 
 
@@ -628,6 +615,8 @@ async def latest_briefing():
         "text": row["text"],
         "alerts": sources.get("alerts", []),
         "fusion_hotspots": sources.get("fusion_hotspots", []),
+        "digest": sources.get("digest"),
+        "style": sources.get("style"),
     }
 
 

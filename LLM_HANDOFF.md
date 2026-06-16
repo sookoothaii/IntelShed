@@ -313,12 +313,13 @@ Stack: `docker-compose.yml` — `web` (Caddy SPA + `/api` proxy), `backend` (Fas
 | `OLLAMA_KEEP_ALIVE` | `1m` | `0` = Modell sofort aus VRAM; `5m` war früher Default (zu aggressiv mit Globe) |
 | `WORLDBASE_BRIEFING_AUTOPILOT` | `1` | `0` = kein Hintergrund-Briefing (spart VRAM) |
 | `WORLDBASE_RAG_AUTOPILOT` | `1` | `0` = kein Hintergrund-RAG-Embed |
-| `WORLDBASE_BRIEFING_INTERVAL` | `600` | Sekunden zwischen Autopilot-Briefings |
+| `WORLDBASE_OPERATOR_REGION` | `thailand` | Home region for 24h security protocol (STAC bbox presets) |
+| `WORLDBASE_BRIEFING_LANG` | `de` | Briefing language (`de` = Lageprotokoll, `en` = digest) |
 | `FIREWALL_HOST` | `localhost:8001` | leer = HAK_GAL Firewall aus |
 | `NODE_INGEST_TOKEN` | "" (empty) | HMAC + shared secret for ingest/pull/commands |
 | `NODE_ADMIN_TOKEN` | (falls back to ingest) | `X-Admin-Token` for `/node/{id}/command` |
 | `WORLDBASE_BIND_HOST` | `127.0.0.1` | Uvicorn bind; `0.0.0.0` when Pi on LAN **with** token |
-| `WORLDBASE_BRIEFING_INTERVAL` | 600 | Autopilot briefing interval (seconds) |
+| `WORLDBASE_BRIEFING_INTERVAL` | 21600 | Autopilot briefing interval (seconds); 6 h default |
 | `WORLDBASE_SELF` | http://localhost:8002 | Self-referential URL for briefing |
 | `ADSB_PRIMARY` | `auto` | `adsb.fi`, `adsb.lol`, or `auto` (parallel lol + sequential fi) |
 | `ADSB_TOTAL_TIMEOUT` | `14` | Regional fetch budget (seconds) |
@@ -568,6 +569,12 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 - **Fusion → briefing**: `fusion_heatmap.top_hotspots_for_llm()`; top-3 cells in LLM prompt, SQLite `sources.fusion_hotspots`, `/api/node/pull`, `build_chat_context()`
 - **Telemetry presets**: OVERVIEW / DE INFRA / OSINT quick buttons; Overview enables fusion heatmap; split auto-overview + compact `globe-split-bar`
 - **Split camera sync**: MapLibre pitch 0° (down) ↔ Cesium −90°; fixes globe staring into space on split
+
+**Done (2026-06-15 night) — Security advisor briefing (Thailand home):**
+- **`operator_briefing.py`**: 24h digest buckets LOKAL / REGION / GLOBAL + cyber/infra; Thailand bbox + ASEAN keywords
+- Autopilot + `POST /api/briefing/generate`: German **Lageprotokoll** (LOKAL, REGION, GLOBAL, CYBER & INFRA, EMPFEHLUNG)
+- Feeds: + GDELT pulse headlines, Bangkok air quality; fusion top-3 retained
+- Env: `WORLDBASE_OPERATOR_REGION=thailand`, `WORLDBASE_BRIEFING_LANG=de`, interval default 6 h
 
 **Done (2026-06-03):** Flowsint embed; `/api/flowsint/health`. OSINT pins + localStorage; `/api/pegel`; Ollama `keep_alive: 5m`.
 
