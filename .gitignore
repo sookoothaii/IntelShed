@@ -54,9 +54,10 @@ flowsint/
 *.log
 npm-debug.log*
 
-# Local-only docs (tracked: README.md + LLM_HANDOFF.md + docs/screenshots/)
+# Local-only docs (tracked: README.md + LLM_HANDOFF.md + docs/screenshots/ + docs/INTEL_INGEST.md)
 docs/**
 !docs/screenshots/
 !docs/screenshots/**
+!docs/INTEL_INGEST.md
 GAP_REPORT.md
 PROJECT.md
