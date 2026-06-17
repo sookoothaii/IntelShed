@@ -422,6 +422,78 @@ def graph_view(entity_id: str, depth: int = 1, limit: int = 200) -> dict:
     }
 
 
+def graph_overview(
+    limit: int = 100,
+    datasets: list[str] | None = None,
+    schemas: list[str] | None = None,
+) -> dict:
+    """Recent entities (+ edges among them) for feed-sync overview without a root id."""
+    limit = max(1, min(int(limit), 500))
+    with _LOCK:
+        con = _conn()
+        clauses: list[str] = []
+        params: list[Any] = []
+        if datasets:
+            placeholders = ", ".join("?" * len(datasets))
+            clauses.append(f"s.dataset IN ({placeholders})")
+            params.extend(datasets)
+        if schemas:
+            placeholders = ", ".join("?" * len(schemas))
+            clauses.append(f"e.schema IN ({placeholders})")
+            params.extend(schemas)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"""
+            SELECT DISTINCT e.id
+            FROM entities e
+            INNER JOIN statements s ON s.entity_id = e.id
+            {where}
+            ORDER BY CASE WHEN e.schema = 'Airplane' THEN 1 ELSE 0 END, s.seen_at DESC
+            LIMIT ?
+        """
+        params.append(limit)
+        id_rows = con.execute(sql, params).fetchall()
+        node_ids = [r[0] for r in id_rows]
+        if not node_ids:
+            id_rows = con.execute(
+                "SELECT id FROM entities ORDER BY last_seen DESC LIMIT ?",
+                [limit],
+            ).fetchall()
+            node_ids = [r[0] for r in id_rows]
+
+    nodes: list[dict] = []
+    id_set = set(node_ids)
+    for nid in node_ids:
+        ent = get_entity(nid)
+        if ent:
+            nodes.append(ent)
+
+    edges: list[dict] = []
+    if len(id_set) > 1:
+        placeholders = ", ".join("?" * len(node_ids))
+        with _LOCK:
+            rows = _conn().execute(
+                f"""
+                SELECT source_id, target_id, kind, confidence, dataset, seen_at
+                FROM edges
+                WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders})
+                """,
+                node_ids + node_ids,
+            ).fetchall()
+        for e in rows:
+            edges.append({
+                "source_id": e[0], "target_id": e[1], "kind": e[2],
+                "confidence": e[3], "dataset": e[4], "seen_at": e[5],
+            })
+
+    return {
+        "root": None,
+        "found": bool(nodes),
+        "mode": "overview",
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
 def import_entities(dicts: Iterable[dict], dataset: str,
                     seen_at: str | None = None) -> dict:
     imported = 0
@@ -660,6 +732,17 @@ async def api_import_sanctions(
     schema: str | None = Query(None, description="filter, e.g. Person/Company/Vessel"),
 ):
     return await asyncio.to_thread(import_sanctions_csv, limit, schema)
+
+
+@router.get("/intel/graph/overview")
+async def api_graph_overview(
+    limit: int = Query(100, ge=1, le=500),
+    datasets: str | None = Query(None, description="Comma-separated dataset tags"),
+    schemas: str | None = Query(None, description="Comma-separated FtM schemas"),
+):
+    ds = [d.strip() for d in datasets.split(",") if d.strip()] if datasets else None
+    sch = [s.strip() for s in schemas.split(",") if s.strip()] if schemas else None
+    return await asyncio.to_thread(graph_overview, limit, ds, sch)
 
 
 @router.get("/entity/{entity_id}/graph")

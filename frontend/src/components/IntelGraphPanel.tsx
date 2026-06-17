@@ -42,7 +42,7 @@ type GraphEdge = {
   dataset?: string
   seen_at?: string | null
 }
-type GraphData = { root: string; found: boolean; nodes: GraphNode[]; edges: GraphEdge[] }
+type GraphData = { root?: string | null; found: boolean; nodes: GraphNode[]; edges: GraphEdge[]; mode?: string }
 
 interface Props {
   onFocus?: (f: Omit<FocusTarget, 'ts'>) => void
@@ -97,6 +97,7 @@ export default function IntelGraphPanel({ onFocus }: Props) {
   const [resStatus, setResStatus] = useState<ResolutionStatus | null>(null)
   const [feedStatus, setFeedStatus] = useState<FeedStatus | null>(null)
   const [edgeTip, setEdgeTip] = useState<string | null>(null)
+  const [graphEmpty, setGraphEmpty] = useState(true)
 
   const cyRef = useRef<Core | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -223,51 +224,81 @@ export default function IntelGraphPanel({ onFocus }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const renderGraph = useCallback((g: GraphData, rootIdHint?: string) => {
+    const cy = cyRef.current
+    if (!cy) return
+    if (!g.found || !g.nodes.length) {
+      cy.elements().remove()
+      setGraphEmpty(true)
+      setInfo('No entities in graph store yet')
+      return
+    }
+    setGraphEmpty(false)
+    const els: ElementDefinition[] = []
+    for (const n of g.nodes) {
+      els.push({
+        data: {
+          id: n.id,
+          label: n.caption || n.id.slice(0, 8),
+          schema: n.schema,
+          color: schemaColor(n.schema),
+          lat: n.lat ?? undefined,
+          lon: n.lon ?? undefined,
+        },
+        classes: rootIdHint && n.id === rootIdHint ? 'root' : undefined,
+      })
+    }
+    for (const e of g.edges) {
+      const conf = typeof e.confidence === 'number' ? e.confidence : undefined
+      els.push({
+        data: {
+          id: `${e.source_id}__${e.target_id}__${e.kind}`,
+          source: e.source_id,
+          target: e.target_id,
+          label: e.kind === 'sameAs' ? `sameAs ${fmtConfidence(conf)}` : e.kind,
+          confidence: conf,
+          dataset: e.dataset,
+          seen_at: e.seen_at,
+        },
+        classes: edgeConfidenceClass(e.kind, conf),
+      })
+    }
+    cy.elements().remove()
+    cy.add(els)
+    cy.layout({ name: 'cose', animate: false, nodeRepulsion: () => 9000, idealEdgeLength: () => 90, padding: 20 } as any).run()
+    cy.fit(undefined, 30)
+    const mode = g.mode === 'overview' ? 'overview · ' : ''
+    setInfo(`${mode}${g.nodes.length} nodes · ${g.edges.length} edges`)
+  }, [])
+
+  const loadOverview = useCallback(async () => {
+    setError(null)
+    try {
+      const qs = new URLSearchParams({
+        limit: '120',
+        datasets: 'gdacs,gdelt-pulse,gdelt-geo,ais,eonet,intel-ingest',
+      })
+      const r = await fetchApi(`/api/intel/graph/overview?${qs}`)
+      const g: GraphData = await r.json()
+      if (!g.found) {
+        setGraphEmpty(true)
+        setError('No feed entities yet — run SYNC FEEDS or INGEST first.')
+        return
+      }
+      renderGraph(g)
+    } catch (e: any) { setError(`overview: ${e.message || e}`) }
+  }, [renderGraph])
+
   const loadGraph = useCallback(async (id: string) => {
     if (!id) return
     setError(null)
     try {
       const r = await fetchApi(`/api/entity/${encodeURIComponent(id)}/graph?depth=2&limit=300`)
       const g: GraphData = await r.json()
-      if (!g.found) { setError('Entity not found in graph store.'); return }
-      const els: ElementDefinition[] = []
-      for (const n of g.nodes) {
-        els.push({
-          data: {
-            id: n.id,
-            label: n.caption || n.id.slice(0, 8),
-            schema: n.schema,
-            color: schemaColor(n.schema),
-            lat: n.lat ?? undefined,
-            lon: n.lon ?? undefined,
-          },
-          classes: n.id === id ? 'root' : undefined,
-        })
-      }
-      for (const e of g.edges) {
-        const conf = typeof e.confidence === 'number' ? e.confidence : undefined
-        els.push({
-          data: {
-            id: `${e.source_id}__${e.target_id}__${e.kind}`,
-            source: e.source_id,
-            target: e.target_id,
-            label: e.kind === 'sameAs' ? `sameAs ${fmtConfidence(conf)}` : e.kind,
-            confidence: conf,
-            dataset: e.dataset,
-            seen_at: e.seen_at,
-          },
-          classes: edgeConfidenceClass(e.kind, conf),
-        })
-      }
-      const cy = cyRef.current
-      if (!cy) return
-      cy.elements().remove()
-      cy.add(els)
-      cy.layout({ name: 'cose', animate: false, nodeRepulsion: () => 9000, idealEdgeLength: () => 90, padding: 20 } as any).run()
-      cy.fit(undefined, 30)
-      setInfo(`${g.nodes.length} nodes · ${g.edges.length} edges`)
+      if (!g.found) { setError('Entity not found in graph store.'); setGraphEmpty(true); return }
+      renderGraph(g, id)
     } catch (e: any) { setError(`graph: ${e.message || e}`) }
-  }, [onFocus])
+  }, [renderGraph])
 
   const runFeeds = async () => {
     setBusy(true); setError(null); setInfo('Syncing live feeds into FtM graph…')
@@ -276,9 +307,9 @@ export default function IntelGraphPanel({ onFocus }: Props) {
       const d = await r.json()
       if (!r.ok) { setError(d.detail || `feed sync failed (${r.status})`); return }
       const t = d.totals || {}
-      setInfo(`✓ feeds +${t.entities ?? 0} entities · ${t.records ?? 0} records`)
+      setInfo(`✓ feeds +${t.entities ?? 0} entities · ${t.records ?? 0} records — loading overview…`)
       fetchFeedStatus()
-      if (rootId) loadGraph(rootId)
+      await loadOverview()
     } catch (e: any) { setError(`feeds: ${e.message || e}`) }
     finally { setBusy(false) }
   }
@@ -291,7 +322,8 @@ export default function IntelGraphPanel({ onFocus }: Props) {
       if (!r.ok) { setError(d.detail || `resolution failed (${r.status})`); return }
       setInfo(`✓ resolution +${d.edges_added ?? 0} edges (${d.exact_edges ?? 0} exact · ${d.splink_edges ?? 0} splink)`)
       fetchResolutionStatus()
-      if (rootId) loadGraph(rootId)
+      if (rootId) await loadGraph(rootId)
+      else await loadOverview()
     } catch (e: any) { setError(`resolution: ${e.message || e}`) }
     finally { setBusy(false) }
   }
@@ -399,11 +431,19 @@ export default function IntelGraphPanel({ onFocus }: Props) {
             onKeyDown={e => e.key === 'Enter' && loadGraph(rootId)}
           />
           <button className="data-refresh" onClick={() => loadGraph(rootId)} disabled={!rootId}>LOAD</button>
+          <button className="data-refresh" onClick={loadOverview} disabled={busy} title="Show recent feed + ingest entities">OVERVIEW</button>
           <button className="data-refresh" onClick={runFeeds} disabled={busy} title="Pull GDACS/GDELT/EONET/AIS/anomalies into FtM">SYNC FEEDS</button>
           <button className="data-refresh" onClick={runResolution} disabled={busy || !resStatus?.available} title="Splink entity resolution -> sameAs edges">RESOLVE</button>
         </div>
         {error && <div className="data-error">{error}</div>}
-        <div ref={containerRef} className="intel-graph" />
+        <div className="intel-graph-wrap">
+          {graphEmpty && !busy && (
+            <div className="intel-graph-empty">
+              No graph yet — SYNC FEEDS or INGEST, or click OVERVIEW
+            </div>
+          )}
+          <div ref={containerRef} className="intel-graph" />
+        </div>
         {edgeTip && <div className="intel-edge-tip">{edgeTip}</div>}
         <div className="intel-legend">
           {Object.entries(SCHEMA_COLOR).filter(([k]) => k !== 'Company').map(([k, c]) => (

@@ -81,6 +81,13 @@ class FtmStoreTest(unittest.TestCase):
         self.assertEqual(len(g["edges"]), 1)
         self.assertEqual(g["edges"][0]["confidence"], 0.9)
 
+    def test_graph_overview_returns_recent_entities(self):
+        p = ftm_store.make_entity("Event", ["ov1"], {"name": "Overview Event"})
+        ftm_store.upsert(p, dataset="gdacs")
+        ov = ftm_store.graph_overview(limit=10, datasets=["gdacs"])
+        self.assertTrue(ov["found"])
+        self.assertGreaterEqual(len(ov["nodes"]), 1)
+
     def test_sanctions_adapter_maps_fields(self):
         row = {
             "id": "ofac-1", "schema": "Person", "name": "Bad Actor",
