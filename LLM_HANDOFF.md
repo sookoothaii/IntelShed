@@ -105,6 +105,11 @@ worldbase/
 | `/intel/ingest/status` | GLiNER/GLiREL model + device state; `?load=1` forces first-time model load |
 | `/intel/ingest/text` (POST) | Paste text → zero-shot NER + relation extraction → FtM entities + edges |
 | `/intel/ingest/document` (POST) | PDF / EML / TXT upload → same pipeline (`multipart/form-data`) |
+| `/intel/feeds/status` | Feed ingest autopilot state + FtM roll-up |
+| `/intel/feeds/run` (POST) | Sync GDACS/GDELT/EONET/AIS/anomalies → FtM (YAML mappings) |
+| `/intel/graph/overview` | Recent feed/ingest entities for INTEL overview (no root id) |
+| `/intel/resolution/status` | Splink availability + `sameAs` edge count |
+| `/intel/resolution/run` (POST) | Splink + exact-key dedupe → provenance-aware `sameAs` edges |
 
 ### Imagery & Maps
 | Endpoint | What | Source |
@@ -609,6 +614,23 @@ Polish / tech debt:
 - **Windows gotchas** — import `pyarrow.dataset` before `torch` (native crash otherwise); GLiREL needs torch ≥2.6 for `.bin` load (CVE-2025-32434). Env tuning: `WORLDBASE_GLINER_THRESHOLD`, `WORLDBASE_GLIREL_THRESHOLD` in `.env.example`.
 - **Operator doc** — `docs/INTEL_INGEST.md`, `THIRD_PARTY_NOTICES.md`.
 - **Verified** — GPU ingest (`device: cuda` on RTX 3080 Ti), sample text → 7 entities + 6 relations + 7 mentions; graph 8 nodes / 13 edges; smoke **25/25**.
+
+**Done (2026-06-17) — entity resolution (PR 3):**
+- **`entity_resolution.py`** — lazy Splink 4.x + deterministic exact-name keys → `sameAs` edges (`dataset=entity-resolution`, `confidence`, `method` in edge props).
+- **Routes** — `GET/POST /api/intel/resolution/{status,run}`; optional nightly autopilot (`WORLDBASE_ENTITY_RESOLUTION_AUTOPILOT=0` default).
+- **UI** — RESOLVE button; edge colors by confidence; hover tooltip shows provenance.
+- **Tests** — `test_entity_resolution.py` (3 cases). Requires `pip install "splink>=4.0,<5"` locally.
+
+**Done (2026-06-17) — live feed ingest (T2):**
+- **`feed_ingest.py`** + **`ingest/mapping_runner.py`** — YAML mappings under `backend/ingest/mappings/`; sources: GDACS, GDELT geo/pulse (operator region), EONET, AIS, aircraft anomalies.
+- **Routes** — `GET/POST /api/intel/feeds/{status,run}`; autopilot in phase-1 loop (`WORLDBASE_FEED_INGEST_AUTOPILOT=1`, interval 600 s).
+- **UI** — SYNC FEEDS button; status line shows FtM entity/edge counts.
+- **Tests** — `test_feed_ingest.py` (mapping runner, no network).
+
+**Done (2026-06-17) — INTEL graph UX + overview:**
+- **Graph panel** — larger flex layout; wheel zoom isolated from DATA panel scroll; default Cytoscape sensitivity.
+- **`GET /api/intel/graph/overview`** — recent entities for feed sync view; auto-loaded after SYNC FEEDS; OVERVIEW button.
+- **Commit chain** — PR2 → graph UX → PR3 → T2 feeds → overview fix (`d50dd28` … `be15c8d`).
 
 **Done (2026-06-17) — tech-chef session:**
 - **PC IP drift fix** — `192.168.1.111` reserved via DHCP (router lease, MAC `4C:03:4F:BB:C7:9F`); Pi push/pull recovered after 23 h offline. Doc updates in `AGENTS.md`, `LLM_HANDOFF.md`, `README.md`.

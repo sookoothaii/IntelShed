@@ -33,7 +33,7 @@ Unless the user says otherwise, prioritize:
 2. **Operator home region** — `WORLDBASE_OPERATOR_REGION=thailand` (LOCAL / REGION / GLOBAL buckets)
 3. **GDELT local** — `backend/gdelt_bridge.py` → `/api/gdelt/pulse/local`, `/api/gdelt/geo/local`
 4. **Pi pull loop** — PC generates briefing → Pi `GET /api/node/pull` → portal `briefing_latest.json`
-5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing, DATA → INTEL graph (GLiNER ingest + Splink resolution)
+5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing, DATA → INTEL (ingest, feed sync, Splink resolution, Cytoscape overview)
 
 **Out of scope by default:** HAK_GAL LLM firewall (`FIREWALL_HOST`, `:8001`, firewall tab/chat toggle). Code stays; do not start, fix, or extend unless explicitly requested.
 
@@ -56,7 +56,7 @@ _gather_snapshot()  →  format_digest_sections()  →  Ollama prompt  →  SQLi
 | Pi payload | `GET /api/node/pull` (+ `X-Node-Token` when `NODE_INGEST_TOKEN` set) |
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 
-Unit tests (no network): `python -m unittest test_operator_briefing -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_operator_briefing test_ftm_store test_entity_resolution test_feed_ingest -v` in `backend/`.
 
 ---
 
