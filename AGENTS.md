@@ -76,6 +76,7 @@ Unit tests (no network): `python -m unittest test_operator_briefing -v` in `back
 | FtM entity store | `backend/ftm_store.py` |
 | Document intel ingest (GLiNER; GLiREL opt-in) | `backend/intel_ingest.py`, [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md), [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) |
 | Entity resolution (Splink sameAs edges) | `backend/entity_resolution.py` — `POST /api/intel/resolution/run` |
+| Live feed ingest (T2 YAML mappings) | `backend/feed_ingest.py`, `backend/ingest/mappings/` — `POST /api/intel/feeds/run` |
 | INTEL graph panel | `frontend/src/components/IntelGraphPanel.tsx` |
 | DB | `backend/worldbase.db`, `backend/data/entities.duckdb` |
 

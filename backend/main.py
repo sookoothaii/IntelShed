@@ -55,6 +55,7 @@ import aircraft_trails
 import fusion_heatmap
 import intel_ingest
 import entity_resolution
+import feed_ingest
 
 DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
@@ -272,6 +273,7 @@ app.include_router(situations.router)
 app.include_router(ftm_store.router)
 app.include_router(intel_ingest.router)
 app.include_router(entity_resolution.router)
+app.include_router(feed_ingest.router)
 
 
 # Disable trailing-slash redirects globally (prevents CORS errors on 307 redirects)
@@ -317,6 +319,17 @@ async def _phase1_background_tasks():
                 await rag_memory.ingest_sanctions_hits(hits)
         except Exception as e:
             print(f"[PHASE2] Sanctions ingest failed: {e}", flush=True)
+        if feed_ingest.autopilot_on():
+            try:
+                result = await feed_ingest.run_feed_ingest()
+                t = result.get("totals") or {}
+                print(
+                    f"[PHASE2] Feed ingest: +{t.get('entities', 0)} entities "
+                    f"({t.get('records', 0)} records)",
+                    flush=True,
+                )
+            except Exception as e:
+                print(f"[PHASE2] Feed ingest failed: {e}", flush=True)
         await asyncio.sleep(600)
 
 

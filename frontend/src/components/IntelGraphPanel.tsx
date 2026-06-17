@@ -65,6 +65,13 @@ type ResolutionStatus = {
   last_run?: { edges_added?: number; finished_at?: string } | null
 }
 
+type FeedStatus = {
+  autopilot?: boolean
+  sources?: string[]
+  last_run?: { totals?: { entities?: number; records?: number }; finished_at?: string } | null
+  ftm_stats?: { entities?: number; edges?: number }
+}
+
 const edgeConfidenceClass = (kind: string, confidence?: number | null) => {
   if (kind === 'mentions') return 'mentions'
   if (kind === 'sameAs') return 'same-as'
@@ -88,6 +95,7 @@ export default function IntelGraphPanel({ onFocus }: Props) {
   const [info, setInfo] = useState<string | null>(null)
   const [rootId, setRootId] = useState('')
   const [resStatus, setResStatus] = useState<ResolutionStatus | null>(null)
+  const [feedStatus, setFeedStatus] = useState<FeedStatus | null>(null)
   const [edgeTip, setEdgeTip] = useState<string | null>(null)
 
   const cyRef = useRef<Core | null>(null)
@@ -107,7 +115,14 @@ export default function IntelGraphPanel({ onFocus }: Props) {
     } catch { /* optional */ }
   }, [])
 
-  useEffect(() => { fetchStatus(); fetchResolutionStatus() }, [fetchStatus, fetchResolutionStatus])
+  const fetchFeedStatus = useCallback(async () => {
+    try {
+      const r = await fetchApi('/api/intel/feeds/status')
+      setFeedStatus(await r.json())
+    } catch { /* optional */ }
+  }, [])
+
+  useEffect(() => { fetchStatus(); fetchResolutionStatus(); fetchFeedStatus() }, [fetchStatus, fetchResolutionStatus, fetchFeedStatus])
 
   // Keep wheel zoom on the graph only — do not scroll the DATA panel underneath.
   useEffect(() => {
@@ -254,6 +269,20 @@ export default function IntelGraphPanel({ onFocus }: Props) {
     } catch (e: any) { setError(`graph: ${e.message || e}`) }
   }, [onFocus])
 
+  const runFeeds = async () => {
+    setBusy(true); setError(null); setInfo('Syncing live feeds into FtM graph…')
+    try {
+      const r = await fetchApi('/api/intel/feeds/run', { method: 'POST' })
+      const d = await r.json()
+      if (!r.ok) { setError(d.detail || `feed sync failed (${r.status})`); return }
+      const t = d.totals || {}
+      setInfo(`✓ feeds +${t.entities ?? 0} entities · ${t.records ?? 0} records`)
+      fetchFeedStatus()
+      if (rootId) loadGraph(rootId)
+    } catch (e: any) { setError(`feeds: ${e.message || e}`) }
+    finally { setBusy(false) }
+  }
+
   const runResolution = async () => {
     setBusy(true); setError(null); setInfo('Running entity resolution (Splink)…')
     try {
@@ -325,6 +354,12 @@ export default function IntelGraphPanel({ onFocus }: Props) {
                 {resStatus.splink_version ? ` · splink ${resStatus.splink_version}` : ''}
               </span>
             )}
+            {feedStatus && (
+              <span className="stat-meta">
+                ftm: {feedStatus.ftm_stats?.entities ?? 0} ent · {feedStatus.ftm_stats?.edges ?? 0} edges
+                {feedStatus.autopilot ? ' · feeds autopilot' : ''}
+              </span>
+            )}
           </>
         ) : <span className="stat-meta">Loading status…</span>}
       </div>
@@ -364,6 +399,7 @@ export default function IntelGraphPanel({ onFocus }: Props) {
             onKeyDown={e => e.key === 'Enter' && loadGraph(rootId)}
           />
           <button className="data-refresh" onClick={() => loadGraph(rootId)} disabled={!rootId}>LOAD</button>
+          <button className="data-refresh" onClick={runFeeds} disabled={busy} title="Pull GDACS/GDELT/EONET/AIS/anomalies into FtM">SYNC FEEDS</button>
           <button className="data-refresh" onClick={runResolution} disabled={busy || !resStatus?.available} title="Splink entity resolution -> sameAs edges">RESOLVE</button>
         </div>
         {error && <div className="data-error">{error}</div>}
