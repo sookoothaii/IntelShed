@@ -35,6 +35,7 @@ import cve_bridge
 import pegel_bridge
 import flowsint_bridge
 import entity_store
+import ftm_store
 import situations
 import chat_tools
 import opensky_client
@@ -57,6 +58,7 @@ DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
 )
 entity_store.set_db_path(DB_PATH)
+ftm_store.set_db_path()
 
 
 def _load_env():
@@ -203,6 +205,38 @@ def init_db():
         conn.commit()
 
 
+# Feeds not refreshed within this window are treated as abandoned (renamed/retired
+# cache keys like gdacs->gdacs_v3, or one-off location queries) and pruned so that
+# /api/health reflects live feeds only. Live feeds rewrite within their TTL.
+_FEED_CACHE_MAX_AGE_SEC = float(os.getenv("WORLDBASE_FEED_CACHE_MAX_AGE_SEC", 7 * 24 * 3600))
+
+
+def prune_feed_cache(max_age_sec: float = _FEED_CACHE_MAX_AGE_SEC) -> int:
+    """Drop feed_cache rows older than max_age_sec. Fail-soft (never raises)."""
+    removed: list[str] = []
+    try:
+        now = datetime.now(timezone.utc)
+        with get_db() as conn:
+            conn.execute("PRAGMA busy_timeout=5000")
+            rows = conn.execute("SELECT key, cached_at FROM feed_cache").fetchall()
+            for r in rows:
+                try:
+                    age = (now - datetime.fromisoformat(r["cached_at"])).total_seconds()
+                except Exception:
+                    continue
+                if age > max_age_sec:
+                    removed.append(r["key"])
+            for key in removed:
+                conn.execute("DELETE FROM feed_cache WHERE key = ?", (key,))
+            conn.commit()
+        if removed:
+            print(f"[CACHE] pruned {len(removed)} abandoned feed_cache keys "
+                  f"(> {max_age_sec / 3600:.0f}h): {removed}", flush=True)
+    except Exception as e:
+        print(f"[CACHE] prune skipped: {e}", flush=True)
+    return len(removed)
+
+
 app.include_router(globe_snapshot.router)
 app.include_router(feeds_extra.router)
 app.include_router(node_sync.router)
@@ -233,6 +267,7 @@ app.include_router(sanctions_bridge.router)
 app.include_router(aircraft_trails.router)
 app.include_router(fusion_heatmap.router)
 app.include_router(situations.router)
+app.include_router(ftm_store.router)
 
 
 # Disable trailing-slash redirects globally (prevents CORS errors on 307 redirects)
@@ -350,7 +385,9 @@ async def _refresh_aircraft_cache() -> None:
 @app.on_event("startup")
 def on_startup():
     init_db()
+    prune_feed_cache()
     entity_store.init_entity_db()
+    ftm_store.init_store()
     node_sync.init_node_db()
     node_sync.init_command_db()
     anomaly_river.init_river_db()

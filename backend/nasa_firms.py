@@ -46,8 +46,13 @@ async def _fetch_firms(source: str):
         return [{"error": str(e)}]
 
     lines = text.strip().split("\n")
+    header = lines[0] if lines else ""
+    if "latitude" not in header.lower():
+        # FIRMS returned a non-CSV body (rate-limit notice / error page), not data.
+        msg = text.strip()[:200] or "empty FIRMS response"
+        return [{"error": f"FIRMS non-CSV response: {msg}"}]
     if len(lines) < 2:
-        return []
+        return []  # valid header, zero detections for this window
 
     headers = lines[0].split(",")
     records = []
@@ -174,7 +179,9 @@ async def get_wildfires():
         "updated": datetime.now(timezone.utc).isoformat(),
         "fires": unique[:300],
         "errors": errors if errors else None,
-        "source": source_note or ("firms" if FIRMS_MAP_KEY and unique else None),
+        # Always attribute a source (audit trail), even on an empty result:
+        # the query target is what matters, not just whether it returned rows.
+        "source": "eonet" if source_note else ("firms" if FIRMS_MAP_KEY else "eonet"),
         "spatial_resolution": "1 day VIIRS world" if FIRMS_MAP_KEY else "EONET event centroids",
         "data_quality": "eonet_inferred" if source_note == "eonet_fallback" else "firms_thermal",
     }

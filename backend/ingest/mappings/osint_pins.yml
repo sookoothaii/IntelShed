@@ -1,0 +1,32 @@
+# FollowTheMoney mapping: OSINT pins -> FtM Address / Person entities.
+# Consumed by the ingest pipeline (T2). Field names match osint_tools output.
+# pin_type drives the schema: person/username/email -> Person, else -> Address.
+osint_pins:
+  queries:
+    - entities:
+        location:
+          schema: Address
+          keys:
+            - id
+          properties:
+            full:
+              column: label
+            latitude:
+              column: lat
+            longitude:
+              column: lon
+            country:
+              column: country
+        actor:
+          schema: Person
+          keys:
+            - query
+          properties:
+            name:
+              column: query
+            email:
+              column: email
+      links:
+        - source: actor
+          target: location
+          kind: Associated

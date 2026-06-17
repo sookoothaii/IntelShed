@@ -41,6 +41,10 @@ worldbase/
 │   ├── node_sync.py         # Pi↔PC sync, sensor alerts, HMAC auth, mesh briefing
 │   ├── osint_tools.py       # IP/Domain/Username/Email/Reverse-geocode
 │   ├── rag_memory.py        # Ollama nomic-embed + SQLite cosine RAG (via sqlite-vec)
+│   ├── ftm_store.py         # FollowTheMoney canonical entity store on DuckDB (entities/statements/edges)
+│   ├── entity_store.py      # Legacy entity graph (SQLite) + dual-write mirror into ftm_store
+│   ├── ingest/mappings/     # FtM source→entity YAML mappings (GDELT/GDACS/EONET/OSINT/AIS)
+│   ├── data/entities.duckdb # DuckDB FtM graph (gitignored)
 │   └── worldbase.db         # SQLite (node_state, briefings, sensor_alerts, feed_cache, rag_chunks)
 ├── frontend/
 │   ├── src/
@@ -93,6 +97,11 @@ worldbase/
 | `/situations` | Unified situation board (parallel fetch) |
 | `/fusion/heatmap` | **Killer-Feature**: 8-feed signal aggregation onto lat/lon grid |
 | `/memory/{search,stats,index/pulse}` | Fast vector RAG over briefings + GDELT + hazards + situations + volcanoes + STAC + sanctions (`sqlite-vec`) |
+| `/entity/{id}` | Canonical FollowTheMoney JSON for one entity (+ statements/edges/neighbours). Additive to `/entity/{id}/context` |
+| `/entity/{id}/graph` | BFS over the FtM graph (`depth`, `limit`) for the INTEL view |
+| `/entity/import` (POST) | Round-trip an FtM entity stream (NDJSON or JSON array) into the store |
+| `/intel/stats` | Entity/statement/edge counts, by-schema + by-dataset roll-up |
+| `/intel/import/sanctions` (POST) | Bounded OpenSanctions CSV → FtM import (`limit`, `schema`); never auto-runs (459 MB CSV) |
 
 ### Imagery & Maps
 | Endpoint | What | Source |
@@ -557,8 +566,8 @@ Full detail: **`offgrid-raspi/docs/pi-storage-layout.md`**
 **Backlog (next session, prioritized 2026-06-17):**
 
 Hot — real issues:
-1. **`gdacs` / `gdacs_v2` stale 236 h** — health endpoint reports stale, smoke says PASS. Cache-key collision or refresh-loop drift; investigate `feed_registry.py` write keys vs. `feeds_extra.py` read keys.
-2. **`weather:13.75:100.5` stale 353 h** — Bangkok-row in airquality/weather Multi-City loop never refreshes; same class as #1.
+1. ~~**`gdacs` / `gdacs_v2` stale**~~ — **done 2026-06-17**: orphaned cache keys (current bridge writes `gdacs_v3`, which is fresh). Fixed by `prune_feed_cache()` startup prune of abandoned `feed_cache` rows.
+2. ~~**`weather:13.75:100.5` stale**~~ — **done 2026-06-17**: same class (retired one-off location key), removed by the same prune.
 
 Solid features:
 3. **DE briefing default** — set `WORLDBASE_BRIEFING_LANG=de` in `backend/.env` so the autopilot generates German by default; UI toggle still overrides per-request.
@@ -576,6 +585,18 @@ Polish / tech debt:
 11. **Backend `--reload` drift** — `start.ps1` enables it; document manual `uvicorn --reload` invocation for operators who skip the starter.
 12. **PowerShell briefing display** — set `[Console]::OutputEncoding = [Text.UTF8Encoding]::new()` in `start.ps1` so `Invoke-RestMethod /api/briefing` shows em-dashes / `µg/m³` correctly.
 13. **`cursor-ide-browser` MCP quirk** — first action after a fresh navigate sometimes loses tab context; document the `lock → navigate again` recovery in `worldbase-ui-smoketest` as a known issue.
+
+**Done (2026-06-17) — intel spine (PR 1) + warm-up fixes:**
+- **FollowTheMoney spine** — `backend/ftm_store.py`: canonical FtM entity store on DuckDB (`backend/data/entities.duckdb`, gitignored). Tables `entities` / `statements` / `edges`; provenance is mandatory (every statement carries `dataset` + `seen_at`, every edge `confidence` + `dataset`). Merge unions values + datasets; BFS `graph_view`.
+- **Dual-write mirror** — `entity_store.py` `upsert_entity`/`link_entities` now mirror fail-soft into the FtM graph (legacy type → `Person`/`Organization`/`Airplane`/`Event`/`Address`/`Thing`). Existing `/api/entity/{id}/context` route unchanged (Pi-safe).
+- **New routes** — `GET /api/entity/{id}` (FtM JSON), `POST /api/entity/import` (NDJSON/array round-trip), `GET /api/entity/{id}/graph`, `GET /api/intel/stats`, `POST /api/intel/import/sanctions` (bounded; no auto-import — the local OpenSanctions CSV is 459 MB).
+- **OpenSanctions adapter** — `ftm_from_sanctions_row()` maps `targets.simple.csv` (already FtM-shaped `schema` column) → `Person`/`Company`/`Vessel`/… entities.
+- **Mappings** — `backend/ingest/mappings/*.yml` for GDELT/GDACS/EONET/OSINT/AIS (consumed by T2 ingest).
+- **Deps** — `followthemoney>=4.9` + `tzdata`. Windows: PyICU has no PyPI wheel → install cgohlke prebuilt wheel first (note in `requirements.txt`); Linux/Pi: `apt-get install libicu-dev pkg-config`.
+- **Tests** — `backend/test_ftm_store.py` (6 cases: round-trip, provenance, merge, mirror, edges/graph, sanctions adapter). `python -m unittest test_ftm_store`.
+- **Warm-up fix: wildfires** — `nasa_firms.py` now flags non-CSV FIRMS responses (rate-limit) as errors and always attributes a `source` (audit trail), even on empty results.
+- **Warm-up fix: stale feeds** — `prune_feed_cache()` (startup, `WORLDBASE_FEED_CACHE_MAX_AGE_SEC`, default 7 d) drops abandoned `feed_cache` keys; cleared `gdacs`/`gdacs_v2`/`weather:13.75:100.5`.
+- **Verified** — smoke **25/25**, 6/6 unit tests, FtM graph live (mirror populated from `/api/situations`).
 
 **Done (2026-06-17) — tech-chef session:**
 - **PC IP drift fix** — `192.168.1.111` reserved via DHCP (router lease, MAC `4C:03:4F:BB:C7:9F`); Pi push/pull recovered after 23 h offline. Doc updates in `AGENTS.md`, `LLM_HANDOFF.md`, `README.md`.

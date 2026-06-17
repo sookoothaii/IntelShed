@@ -1,0 +1,22 @@
+# FollowTheMoney mapping: AIS contacts -> FtM Vessel entities.
+# Consumed by the ingest pipeline (T2). Field names match ais_bridge output.
+ais_vessels:
+  queries:
+    - entities:
+        vessel:
+          schema: Vessel
+          keys:
+            - mmsi
+          properties:
+            name:
+              column: name
+            mmsiCode:
+              column: mmsi
+            imoNumber:
+              column: imo
+            flag:
+              column: flag
+            type:
+              column: type
+            callSign:
+              column: callsign

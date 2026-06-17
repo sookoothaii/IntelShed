@@ -92,7 +92,27 @@ def upsert_entity(
             ),
         )
         conn.commit()
+    _mirror_entity(entity_id, entity_type, label, lat, lon, source_feed, external_id, meta)
     return entity_id
+
+
+def _mirror_entity(entity_id, entity_type, label, lat, lon, source_feed, external_id, meta):
+    """Dual-write into the FtM canonical store (best-effort, never raises)."""
+    try:
+        import ftm_store
+
+        ftm_store.upsert_legacy(
+            entity_id,
+            entity_type,
+            label=label,
+            lat=lat,
+            lon=lon,
+            source_feed=source_feed or "worldbase",
+            external_id=external_id,
+            meta=meta,
+        )
+    except Exception:
+        pass
 
 
 def link_entities(from_id: str, to_id: str, relation: str, meta: dict | None = None):
@@ -106,6 +126,12 @@ def link_entities(from_id: str, to_id: str, relation: str, meta: dict | None = N
             (from_id, to_id, relation, json.dumps(meta or {}), now),
         )
         conn.commit()
+    try:
+        import ftm_store
+
+        ftm_store.add_edge(from_id, to_id, relation, dataset="worldbase", properties=meta)
+    except Exception:
+        pass
 
 
 def get_entity(entity_id: str) -> dict | None:

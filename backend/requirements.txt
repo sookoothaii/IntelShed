@@ -11,6 +11,15 @@ river>=0.21.0
 duckdb>=1.1.0
 sqlite-vec>=0.1.9
 
+# Intelligence layer: canonical entity schema (FollowTheMoney) on DuckDB.
+# NOTE (Windows): followthemoney -> normality -> pyicu has no PyPI wheel for
+# Windows. Install a prebuilt PyICU wheel first, e.g.:
+#   pip install https://github.com/cgohlke/pyicu-build/releases/download/v2.16.2/pyicu-2.16.2-cp312-cp312-win_amd64.whl
+# On Linux/Pi: apt-get install -y libicu-dev pkg-config  (then pip builds it).
+followthemoney>=4.9
+# tzdata: Windows ships no system zoneinfo DB; rigour/followthemoney need it.
+tzdata>=2024.1
+
 # Security & Rate Limiting
 slowapi>=0.1.9
 redis>=5.0.0

@@ -1,0 +1,24 @@
+# FollowTheMoney mapping: NASA EONET natural events -> FtM Event entities.
+# Consumed by the ingest pipeline (T2). Field names match the EONET feed.
+eonet_events:
+  queries:
+    - entities:
+        event:
+          schema: Event
+          keys:
+            - id
+          properties:
+            name:
+              column: title
+            description:
+              column: description
+            date:
+              column: date
+            sourceUrl:
+              column: link
+            keywords:
+              column: category
+            latitude:
+              column: lat
+            longitude:
+              column: lon

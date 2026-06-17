@@ -27,6 +27,9 @@ data/sanctions/
 *.db-wal
 *.sqlite
 *.sqlite3
+*.duckdb
+*.duckdb.wal
+backend/data/entities.duckdb*
 backend/data/tle/*.tle
 backend/data/**/*.cache
 

@@ -1,0 +1,28 @@
+# FollowTheMoney mapping: GDACS disaster alerts -> FtM Event entities.
+# Consumed by the ingest pipeline (T2). Field names match cap_bridge / GDACS feed.
+gdacs_alerts:
+  queries:
+    - entities:
+        event:
+          schema: Event
+          keys:
+            - eventid
+          properties:
+            name:
+              column: title
+            description:
+              column: description
+            date:
+              column: fromdate
+            endDate:
+              column: todate
+            location:
+              column: country
+            country:
+              column: iso3
+            sourceUrl:
+              column: link
+            keywords:
+              columns:
+                - eventtype
+                - alertlevel
