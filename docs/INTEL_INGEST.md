@@ -1,83 +1,71 @@
-# Document intel ingest (GLiNER + GLiREL)
+# Document intel ingest (GLiNER; optional GLiREL)
 
-Optional **PC-only** pipeline: paste text or upload PDF/EML → zero-shot entity + relation extraction → FollowTheMoney graph in DuckDB. The Raspberry Pi edge node never runs these models; it only consumes finished briefings via `/api/node/pull`.
+Optional **PC-only** pipeline: paste text or upload PDF/EML → zero-shot entity extraction → FollowTheMoney graph in DuckDB. The Raspberry Pi never runs these models.
+
+**License summary:** default install uses **GLiNER (Apache-2.0)** only — entities + `mentions` edges. **GLiREL (CC BY-NC-SA)** is **off by default** so the MIT repo stays safe on GitHub. See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
 
 ## UI
 
 1. Open **DATA** → tab **INTEL**.
 2. Paste text (or **UPLOAD PDF/EML**) → **INGEST**.
-3. The Cytoscape graph loads automatically from the ingest root. Or paste an entity id and **LOAD**.
-4. Click a node to re-root the graph (`depth=2` BFS via `/api/entity/{id}/graph`).
+3. Graph loads from the ingest root, or paste an entity id → **LOAD**.
+
+Status pill shows GPU + `relations_mode` (`disabled` = entities only, `glirel` = semantic edges enabled).
 
 ## API
 
-| Method | Path | Body |
-|--------|------|------|
-| GET | `/api/intel/ingest/status` | optional `?load=1` to warm models |
-| POST | `/api/intel/ingest/text` | JSON `{ "text", "dataset?", "source_ref?", "threshold?", "relation_threshold?" }` |
-| POST | `/api/intel/ingest/document` | `multipart/form-data`: `file`, optional `dataset` |
-| GET | `/api/entity/{id}/graph` | query `depth`, `limit` |
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/api/intel/ingest/status` | `relations_mode`, `glirel_enabled`; `?load=1` warms GLiNER |
+| POST | `/api/intel/ingest/text` | JSON body with `text` |
+| POST | `/api/intel/ingest/document` | PDF / EML / TXT upload |
+| GET | `/api/entity/{id}/graph` | Cytoscape BFS view |
 
-OpenAPI: http://127.0.0.1:8002/docs
-
-## Install (Windows dev PC with NVIDIA GPU)
+## Install (OSS-safe default)
 
 From `backend/` with venv active:
 
 ```powershell
 pip install "torch>=2.6" --index-url https://download.pytorch.org/whl/cu124
-pip install gliner glirel pdfplumber mail-parser loguru
+pip install gliner pdfplumber mail-parser
 pip install "transformers>=4.51.3,<5" "huggingface_hub<1.0"
 ```
 
-Notes:
+Ingest works after this — **entities + mentions**, no semantic relation labels.
 
-- **torch ≥ 2.6** — `transformers` refuses GLiREL's `.bin` checkpoint on older torch (CVE-2025-32434).
-- **transformers &lt; 5, huggingface_hub &lt; 1.0** — GLiREL 1.2.1 breaks on hub 1.x mixin API.
-- **loguru** — required by GLiREL but not declared as its dependency.
-- Models download from Hugging Face on first ingest (~minutes once).
+## Optional: GLiREL relations (personal / non-commercial opt-in)
 
-Backend starts fine **without** these packages; ingest routes return HTTP 503 until installed.
+Only if you accept [GLiREL's CC BY-NC-SA license](https://github.com/jackboyla/GLiREL):
 
-## Env (optional)
+```env
+# backend/.env (local only — do not commit if it contains secrets)
+WORLDBASE_INTEL_GLIREL=1
+```
 
-See `backend/.env.example`:
+```powershell
+pip install glirel loguru
+```
+
+Restart backend. Status should show `relations_mode: "glirel"`.
+
+## Env
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
+| `WORLDBASE_INTEL_GLIREL` | `0` | `1` = opt into GLiREL (NC license) |
 | `WORLDBASE_INTEL_DEVICE` | `auto` | `cuda` / `cpu` / `auto` |
-| `WORLDBASE_GLINER_MODEL` | `urchade/gliner_multi-v2.1` | multilingual NER |
-| `WORLDBASE_GLIREL_MODEL` | `jackboyla/glirel-large-v0` | zero-shot relations |
+| `WORLDBASE_GLINER_MODEL` | `urchade/gliner_multi-v2.1` | NER model |
+| `WORLDBASE_GLIREL_MODEL` | `jackboyla/glirel-large-v0` | RE model (only if GLiREL enabled) |
 | `WORLDBASE_GLINER_THRESHOLD` | `0.45` | entity cutoff |
-| `WORLDBASE_GLIREL_THRESHOLD` | `0.50` | relation cutoff (raise to reduce false edges) |
-| `WORLDBASE_INTEL_MAX_CHARS` | `60000` | per-request text cap |
-| `WORLDBASE_INTEL_CHUNK_CHARS` | `1400` | chunk size for model calls |
-
-## Licenses
-
-| Component | License | Note |
-|-----------|---------|------|
-| GLiNER multi-v2.1 | Apache-2.0 | OK for OSS/commercial |
-| GLiREL | CC BY-NC-SA 4.0 | fine for local operator use; review before commercial product |
+| `WORLDBASE_GLIREL_THRESHOLD` | `0.50` | relation cutoff |
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
-| `503 model load failed` | Install optional deps above; check `GET /api/intel/ingest/status` |
-| Windows access violation on first ingest | Known torch↔pyarrow order bug — fixed in code (pyarrow preloaded before torch) |
-| Graph empty after ingest | Check `/api/intel/stats` — `edges` should be &gt; 0; reload graph with returned `root_id` |
+| `503 model load failed` | Install GLiNER stack; check `/api/intel/ingest/status` |
+| Ingest OK but no semantic edges | Expected when `relations_mode: disabled` — set `WORLDBASE_INTEL_GLIREL=1` locally |
+| `relations_mode: unavailable` | GLiREL enabled but package missing — `pip install glirel loguru` |
 | Too many wrong relations | Raise `WORLDBASE_GLIREL_THRESHOLD` (e.g. `0.60`) |
-
-## Verify
-
-```powershell
-# status (no model load)
-Invoke-RestMethod http://127.0.0.1:8002/api/intel/ingest/status
-
-# quick ingest
-$body = @{ text = "Apple Inc. was founded by Steve Jobs in Cupertino." } | ConvertTo-Json
-Invoke-RestMethod -Uri http://127.0.0.1:8002/api/intel/ingest/text -Method Post -Body $body -ContentType application/json
-```
 
 Full stack: `.\scripts\smoke-test.ps1` (25 checks).

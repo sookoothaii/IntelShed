@@ -33,26 +33,26 @@ alembic>=1.13.0
 # Environment variables
 python-dotenv>=1.0.0
 
-# ---------------------------------------------------------------------------
-# Optional: document intel ingest (GLiNER NER + GLiREL relation extraction).
-# PC-only / GPU — NOT installed on the Raspberry Pi edge node. `intel_ingest.py`
-# imports these lazily, so the backend runs fine without them.
+# Optional: document intel ingest (GLiNER NER; GLiREL relations opt-in).
+# PC-only / GPU — NOT on the Raspberry Pi. Lazy import: backend runs without these.
+# License: see THIRD_PARTY_NOTICES.md — GLiREL is NOT in the default install.
 #
-# Install order matters (Windows + CUDA):
-#   1) torch with CUDA (cu124 needs torch>=2.6; transformers refuses to load
-#      GLiREL's .bin checkpoint on torch<2.6 — CVE-2025-32434):
-#        pip install "torch>=2.6" --index-url https://download.pytorch.org/whl/cu124
-#   2) the rest from PyPI:
-#        pip install gliner glirel pdfplumber mail-parser loguru
+# OSS-safe install (entities + mentions edges):
+#   pip install "torch>=2.6" --index-url https://download.pytorch.org/whl/cu124
+#   pip install gliner pdfplumber mail-parser
+#   pip install "transformers>=4.51.3,<5" "huggingface_hub<1.0"
 #
-# Pin transformers <5 / huggingface_hub <1.0: GLiREL 1.2.1's from_pretrained is
-# incompatible with the huggingface_hub 1.x mixin signature, and transformers 5.x
-# pulls hub>=1.0. gliner needs transformers>=4.51.3, so 4.5x is the sweet spot.
+# Optional semantic relations (CC BY-NC-SA — personal/non-commercial opt-in only):
+#   set WORLDBASE_INTEL_GLIREL=1 in backend/.env
+#   pip install glirel loguru
+#
+# Windows: import pyarrow before torch (handled in intel_ingest.py).
+# torch >= 2.6 required for GLiREL .bin load (CVE-2025-32434).
 #
 # gliner>=0.2.27
-# glirel>=1.2.1
 # transformers>=4.51.3,<5
 # huggingface_hub<1.0
-# loguru>=0.7            # required by glirel, not declared as its dependency
-# pdfplumber>=0.11       # PDF text extraction
-# mail-parser>=4.0       # .eml / .msg parsing
+# pdfplumber>=0.11
+# mail-parser>=4.0
+# glirel>=1.2.1          # optional — NOT default; see THIRD_PARTY_NOTICES.md
+# loguru>=0.7            # only if glirel installed

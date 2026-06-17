@@ -6,6 +6,12 @@ import type { FocusTarget } from '../lib/focus'
 
 type IngestStatus = {
   loaded: boolean
+  gliner_loaded?: boolean
+  glirel_enabled?: boolean
+  glirel_loaded?: boolean
+  relations_mode?: 'disabled' | 'glirel' | 'unavailable'
+  glirel_skip_reason?: string | null
+  license_note?: string
   device: string | null
   gliner_model: string
   glirel_model: string
@@ -19,6 +25,7 @@ type IngestStatus = {
 type IngestResult = {
   ok: boolean
   device?: string
+  relations_mode?: string
   root_id?: string
   source?: string
   truncated?: boolean
@@ -186,7 +193,7 @@ export default function IntelGraphPanel({ onFocus }: Props) {
       })
       const d: IngestResult = await r.json()
       if (!r.ok || !d.ok) { setError(d.error || `ingest failed (${r.status})`); return }
-      setInfo(`✓ ${d.counts?.entities ?? 0} entities · ${d.counts?.relations ?? 0} relations · ${d.counts?.mentions ?? 0} mentions · ${d.device}`)
+      setInfo(`✓ ${d.counts?.entities ?? 0} entities · ${d.counts?.relations ?? 0} relations · ${d.counts?.mentions ?? 0} mentions · ${d.relations_mode ?? '?'}`)
       fetchStatus()
       if (d.root_id) { setRootId(d.root_id); loadGraph(d.root_id) }
     } catch (e: any) { setError(`ingest: ${e.message || e}`) }
@@ -216,6 +223,13 @@ export default function IntelGraphPanel({ onFocus }: Props) {
           <>
             <span className={`stat-pill ${status.cuda_available ? 'ok' : 'warn'}`}>
               {status.cuda_available ? `GPU ${status.cuda_device?.replace('NVIDIA GeForce ', '') || 'CUDA'}` : 'CPU'}
+            </span>
+            <span className="stat-meta">
+              {status.relations_mode === 'glirel'
+                ? 'relations: GLiREL (opt-in NC)'
+                : status.relations_mode === 'unavailable'
+                  ? 'relations: unavailable — see status'
+                  : 'relations: off (entities + mentions only)'}
             </span>
             <span className="stat-meta">{status.loaded ? `model loaded · ${status.device}` : 'model lazy (loads on first ingest)'}</span>
             <span className="stat-meta">torch {status.torch_version || '—'}</span>

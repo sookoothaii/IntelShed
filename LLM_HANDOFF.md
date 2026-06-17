@@ -602,12 +602,12 @@ Polish / tech debt:
 - **Verified** — smoke **25/25**, 6/6 unit tests, FtM graph live (mirror populated from `/api/situations`).
 
 **Done (2026-06-17) — document intel ingest + graph view (PR 2):**
-- **`intel_ingest.py`** — PC-only, lazy-loaded GLiNER (`urchade/gliner_multi-v2.1`, Apache-2.0) + GLiREL (`jackboyla/glirel-large-v0`, CC BY-NC-SA — local operator use OK; not for commercial redistribution). Text/PDF/EML → FtM entities + provenance edges (`mentions` from a Document hub, semantic relations via GLiREL with schema head/tail filtering).
+- **`intel_ingest.py`** — PC-only, lazy GLiNER (Apache-2.0) + **opt-in** GLiREL (`WORLDBASE_INTEL_GLIREL=1`, CC BY-NC-SA — **off by default** for OSS). Text/PDF/EML → FtM; default mode = entities + `mentions` edges only.
 - **Routes** — `GET /api/intel/ingest/status`, `POST /api/intel/ingest/text`, `POST /api/intel/ingest/document`. Graph read stays on `GET /api/entity/{id}/graph`.
 - **UI** — DATA tab **INTEL**: ingest box + Cytoscape graph (`IntelGraphPanel.tsx`). Click a node to re-root the BFS view.
 - **Optional ML deps** — documented in `backend/requirements.txt` (not pinned in base venv): `torch>=2.6+cu124`, `gliner`, `glirel`, `transformers>=4.51,<5`, `huggingface_hub<1.0`, `loguru`, `pdfplumber`, `mail-parser`. Pi never installs these.
 - **Windows gotchas** — import `pyarrow.dataset` before `torch` (native crash otherwise); GLiREL needs torch ≥2.6 for `.bin` load (CVE-2025-32434). Env tuning: `WORLDBASE_GLINER_THRESHOLD`, `WORLDBASE_GLIREL_THRESHOLD` in `.env.example`.
-- **Operator doc** — `docs/INTEL_INGEST.md`.
+- **Operator doc** — `docs/INTEL_INGEST.md`, `THIRD_PARTY_NOTICES.md`.
 - **Verified** — GPU ingest (`device: cuda` on RTX 3080 Ti), sample text → 7 entities + 6 relations + 7 mentions; graph 8 nodes / 13 edges; smoke **25/25**.
 
 **Done (2026-06-17) — tech-chef session:**

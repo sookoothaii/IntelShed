@@ -1,20 +1,16 @@
-"""GLiNER + GLiREL document ingest -> FollowTheMoney graph (PC-only, GPU).
+"""GLiNER document ingest -> FollowTheMoney graph (PC-only, GPU).
 
 This module turns free text (paste / PDF / e-mail) into canonical FtM entities
-and relations stored in :mod:`ftm_store`:
+and optional relations stored in :mod:`ftm_store`:
 
 * **GLiNER** (``urchade/gliner_multi-v2.1``, multilingual, Apache-2.0) performs
-  zero-shot Named Entity Recognition.
-* **GLiREL** (``jackboyla/glirel-large-v0``, zero-shot Relation Extraction)
-  classifies relations between the entities GLiNER found. (CC BY-NC-SA 4.0 -
-  non-commercial; fine for local operator use.)
+  zero-shot Named Entity Recognition. Always used when intel ingest is enabled.
+* **GLiREL** (``jackboyla/glirel-large-v0``, CC BY-NC-SA 4.0) is **opt-in only**
+  via ``WORLDBASE_INTEL_GLIREL=1``. WorldBase defaults to entities + ``mentions``
+  edges so the MIT repo stays OSS-safe on GitHub. See ``THIRD_PARTY_NOTICES.md``.
 
-Heavy ML deps (torch / gliner / glirel) are imported lazily on first use, so the
-FastAPI startup stays fast and the Raspberry Pi edge node is never burdened: it
-only ever pulls the finished graph, it does not run this module.
-
-Every entity and edge carries provenance (``dataset`` + ``seen_at``; edges also
-``confidence``), matching the WorldBase non-negotiables.
+Heavy ML deps are imported lazily on first use. The Raspberry Pi never runs this
+module — it only pulls finished briefings via ``/api/node/pull``.
 """
 
 from __future__ import annotations
@@ -39,6 +35,15 @@ _ENT_THRESHOLD = float(os.getenv("WORLDBASE_GLINER_THRESHOLD", "0.45"))
 _REL_THRESHOLD = float(os.getenv("WORLDBASE_GLIREL_THRESHOLD", "0.50"))
 _MAX_CHARS = int(os.getenv("WORLDBASE_INTEL_MAX_CHARS", "60000"))
 _CHUNK_CHARS = int(os.getenv("WORLDBASE_INTEL_CHUNK_CHARS", "1400"))
+
+
+def _truthy_env(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _glirel_enabled() -> bool:
+    """Opt-in only — GLiREL is CC BY-NC-SA (see THIRD_PARTY_NOTICES.md)."""
+    return _truthy_env("WORLDBASE_INTEL_GLIREL", "0")
 
 # Zero-shot entity labels GLiNER searches for.
 ENTITY_LABELS = [
@@ -102,6 +107,7 @@ _GLINER = None
 _GLIREL = None
 _DEVICE: str | None = None
 _LOAD_ERROR: str | None = None
+_GLIREL_SKIP_REASON: str | None = None
 
 
 def _now() -> str:
@@ -118,56 +124,100 @@ def _resolve_device() -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def _load() -> tuple[Any, Any, str]:
-    """Load GLiNER + GLiREL once. Raises on failure (caller maps to HTTP 503)."""
-    global _GLINER, _GLIREL, _DEVICE, _LOAD_ERROR
-    if _GLINER is not None and _GLIREL is not None:
-        return _GLINER, _GLIREL, _DEVICE  # type: ignore[return-value]
+def _load() -> tuple[Any, Any | None, str, str]:
+    """Load GLiNER (required). Load GLiREL only when ``WORLDBASE_INTEL_GLIREL=1``.
+
+    Returns ``(gliner, glirel_or_none, device, relations_mode)`` where
+    ``relations_mode`` is ``disabled`` | ``glirel`` | ``unavailable``.
+    """
+    global _GLINER, _GLIREL, _DEVICE, _LOAD_ERROR, _GLIREL_SKIP_REASON
+    want_glirel = _glirel_enabled()
+    if _GLINER is not None:
+        mode = "glirel" if (_GLIREL is not None) else (
+            "unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled"
+        )
+        return _GLINER, _GLIREL, _DEVICE or "cpu", mode  # type: ignore[return-value]
     with _LOCK:
-        if _GLINER is not None and _GLIREL is not None:
-            return _GLINER, _GLIREL, _DEVICE  # type: ignore[return-value]
+        if _GLINER is not None:
+            mode = "glirel" if (_GLIREL is not None) else (
+                "unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled"
+            )
+            return _GLINER, _GLIREL, _DEVICE or "cpu", mode  # type: ignore[return-value]
         try:
-            # Windows: torch and pyarrow ship clashing native libs; importing
-            # pyarrow before torch (gliner pulls torch + datasets/pyarrow) avoids
-            # an access-violation crash. Must happen before the gliner import.
             try:
                 import pyarrow.dataset  # noqa: F401
             except Exception:
                 pass
 
             from gliner import GLiNER
-            from glirel import GLiREL
 
             device = _resolve_device()
             gliner = GLiNER.from_pretrained(GLINER_MODEL)
-            glirel = GLiREL.from_pretrained(GLIREL_MODEL)
+            glirel = None
+            _GLIREL_SKIP_REASON = None
+
+            if want_glirel:
+                try:
+                    from glirel import GLiREL
+
+                    glirel = GLiREL.from_pretrained(GLIREL_MODEL)
+                    try:
+                        glirel = glirel.to(device)
+                    except Exception:
+                        pass
+                    try:
+                        glirel.eval()
+                    except Exception:
+                        pass
+                except ImportError as exc:
+                    _GLIREL_SKIP_REASON = f"glirel not installed: {exc}"
+                except Exception as exc:
+                    _GLIREL_SKIP_REASON = f"{type(exc).__name__}: {exc}"
+            else:
+                _GLIREL_SKIP_REASON = "WORLDBASE_INTEL_GLIREL is not enabled (default)"
+
             try:
                 gliner = gliner.to(device)
-                glirel = glirel.to(device)
             except Exception:
                 device = "cpu"
             try:
                 gliner.eval()
-                glirel.eval()
             except Exception:
                 pass
+
             _GLINER, _GLIREL, _DEVICE, _LOAD_ERROR = gliner, glirel, device, None
-        except Exception as exc:  # pragma: no cover - depends on optional deps
+        except Exception as exc:  # pragma: no cover
             _LOAD_ERROR = f"{type(exc).__name__}: {exc}"
             raise
-    return _GLINER, _GLIREL, _DEVICE  # type: ignore[return-value]
+    mode = "glirel" if (_GLIREL is not None) else (
+        "unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled"
+    )
+    return _GLINER, _GLIREL, _DEVICE or "cpu", mode  # type: ignore[return-value]
 
 
 def status() -> dict:
     """Report model / device state without forcing a load."""
+    want_glirel = _glirel_enabled()
     info: dict[str, Any] = {
-        "loaded": _GLINER is not None and _GLIREL is not None,
+        "loaded": _GLINER is not None,
+        "gliner_loaded": _GLINER is not None,
+        "glirel_enabled": want_glirel,
+        "glirel_loaded": _GLIREL is not None,
+        "relations_mode": (
+            "glirel" if _GLIREL is not None
+            else ("unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled")
+        ),
+        "glirel_skip_reason": _GLIREL_SKIP_REASON,
         "device": _DEVICE,
         "gliner_model": GLINER_MODEL,
-        "glirel_model": GLIREL_MODEL,
+        "glirel_model": GLIREL_MODEL if want_glirel else None,
         "load_error": _LOAD_ERROR,
         "entity_labels": ENTITY_LABELS,
-        "relation_labels": RELATION_LABELS,
+        "relation_labels": RELATION_LABELS if want_glirel else [],
+        "license_note": (
+            "Default: GLiNER only (Apache-2.0). Set WORLDBASE_INTEL_GLIREL=1 to opt into "
+            "GLiREL (CC BY-NC-SA). See THIRD_PARTY_NOTICES.md."
+        ),
     }
     try:
         import torch
@@ -260,17 +310,19 @@ def ingest_text(
     if truncated:
         text = text[:_MAX_CHARS]
 
-    gliner, glirel, device = _load()
+    gliner, glirel, device, relations_mode = _load()
     ent_thr = _ENT_THRESHOLD if threshold is None else float(threshold)
     rel_thr = _REL_THRESHOLD if relation_threshold is None else float(relation_threshold)
     seen = _now()
 
-    # Source/document hub so the graph is connected even without semantic edges.
     src_label = source_ref or f"Ingest {seen}"
+    doc_props: dict[str, list[str]] = {"title": [src_label]}
+    if source_ref:
+        doc_props["fileName"] = [source_ref]
     doc_proxy = ftm_store.make_entity(
         "Document",
         ["intel-ingest", source_ref or hashlib.sha256(text.encode()).hexdigest()[:16]],
-        {"title": [src_label], "fileName": [source_ref] if source_ref else None},
+        doc_props,
     )
     ftm_store.upsert(doc_proxy, dataset=dataset, seen_at=seen)
     doc_id = doc_proxy.id
@@ -322,7 +374,7 @@ def ingest_text(
                 ner_ids.append(eid)
                 ner_types.append(_GLIREL_TYPE.get(schema, "MISC"))
 
-        if len(ner) >= 2:
+        if glirel is not None and len(ner) >= 2:
             try:
                 rels = glirel.predict_relations(
                     token_texts, RELATION_LABELS, threshold=0.0, ner=ner, top_k=1
@@ -351,6 +403,7 @@ def ingest_text(
     return {
         "ok": True,
         "device": device,
+        "relations_mode": relations_mode,
         "dataset": dataset,
         "source": src_label,
         "root_id": doc_id,

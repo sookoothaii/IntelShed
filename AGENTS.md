@@ -74,7 +74,7 @@ Unit tests (no network): `python -m unittest test_operator_briefing -v` in `back
 | Fusion → briefing | `backend/fusion_heatmap.py` |
 | RAG | `backend/rag_memory.py` |
 | FtM entity store | `backend/ftm_store.py` |
-| Document intel ingest (GLiNER+GLiREL, PC/GPU) | `backend/intel_ingest.py`, [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md) |
+| Document intel ingest (GLiNER; GLiREL opt-in) | `backend/intel_ingest.py`, [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md), [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) |
 | INTEL graph panel | `frontend/src/components/IntelGraphPanel.tsx` |
 | DB | `backend/worldbase.db`, `backend/data/entities.duckdb` |
 

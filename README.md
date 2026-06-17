@@ -179,4 +179,6 @@ WorldBase is not a standalone invention. It exists entirely because of the gener
 
 ## License
 
-MIT
+MIT — see repository terms for WorldBase core code.
+
+Optional features (document intel ingest, external feeds, downloaded models) may pull in **separate third-party licenses**. In particular, **GLiREL relation extraction is disabled by default** because it is CC BY-NC-SA (non-commercial). See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md).
