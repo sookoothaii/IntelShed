@@ -74,11 +74,21 @@ export default function IntelGraphPanel({ onFocus }: Props) {
 
   useEffect(() => { fetchStatus() }, [fetchStatus])
 
+  // Keep wheel zoom on the graph only — do not scroll the DATA panel underneath.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const stopPanelScroll = (e: WheelEvent) => { e.stopPropagation() }
+    el.addEventListener('wheel', stopPanelScroll, { passive: true })
+    return () => el.removeEventListener('wheel', stopPanelScroll)
+  }, [])
+
   // Init cytoscape once.
   useEffect(() => {
     if (cyRef.current || !containerRef.current) return
+    const container = containerRef.current
     cyRef.current = cytoscape({
-      container: containerRef.current,
+      container,
       elements: [],
       style: [
         {
@@ -122,10 +132,19 @@ export default function IntelGraphPanel({ onFocus }: Props) {
         { selector: 'edge.mentions', style: { 'line-style': 'dashed', 'line-color': '#2e3650', 'target-arrow-color': '#2e3650' } },
       ],
       layout: { name: 'grid' },
-      wheelSensitivity: 0.2,
+      // Default 1.0 — panel scroll is isolated separately; low values need excessive wheel spins.
+      wheelSensitivity: 1,
+      minZoom: 0.08,
+      maxZoom: 8,
     })
 
-    cyRef.current.on('tap', 'node', (evt) => {
+    const cy = cyRef.current
+    const ro = new ResizeObserver(() => {
+      cy.resize()
+    })
+    ro.observe(container)
+
+    cy.on('tap', 'node', (evt) => {
       const id = evt.target.id()
       const lat = evt.target.data('lat')
       const lon = evt.target.data('lon')
@@ -136,7 +155,11 @@ export default function IntelGraphPanel({ onFocus }: Props) {
       loadGraph(id)
     })
 
-    return () => { cyRef.current?.destroy(); cyRef.current = null }
+    return () => {
+      ro.disconnect()
+      cy.destroy()
+      cyRef.current = null
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -262,7 +285,7 @@ export default function IntelGraphPanel({ onFocus }: Props) {
         </div>
       </div>
 
-      <div className="intel-section">
+      <div className="intel-section intel-section-graph">
         <h3>🕸 Graph <span className="stat-meta">{info || '—'}</span></h3>
         <div className="intel-toolbar">
           <input

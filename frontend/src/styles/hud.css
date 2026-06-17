@@ -2640,7 +2640,18 @@ html, body, #root {
 .fusion-legend-contrib span { background: rgba(0, 0, 0, 0.4); padding: 1px 5px; border-radius: 2px; }
 
 /* ===== INTEL graph panel (GLiNER + GLiREL ingest) ===== */
-.intel-panel { display: flex; flex-direction: column; gap: 14px; }
+.panel:has(.intel-panel) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.intel-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
 .intel-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .intel-section { display: flex; flex-direction: column; gap: 8px; }
 .intel-section h3 { margin: 0; font-size: 11px; letter-spacing: 0.5px; color: var(--txt-dim); text-transform: uppercase; display: flex; gap: 8px; align-items: baseline; }
@@ -2657,9 +2668,21 @@ html, body, #root {
   border: 1px dashed var(--line); border-radius: 3px; color: var(--txt-dim);
 }
 .intel-upload:hover { color: var(--txt); border-color: var(--txt-dim); }
+.intel-section-graph {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .intel-graph {
-  width: 100%; height: 360px; background: radial-gradient(circle at 50% 40%, #11161f, #0a0e14);
-  border: 1px solid var(--line); border-radius: 4px;
+  flex: 1;
+  width: 100%;
+  min-height: 480px;
+  background: radial-gradient(circle at 50% 40%, #11161f, #0a0e14);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overscroll-behavior: contain;
+  touch-action: none;
 }
 .intel-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 9px; color: var(--txt-dim); align-items: center; }
 .intel-legend span { display: inline-flex; align-items: center; gap: 4px; }
