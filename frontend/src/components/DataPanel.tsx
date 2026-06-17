@@ -20,8 +20,9 @@ import WebcamSection from './WebcamSection';
 import PegelSparkline from './PegelSparkline';
 import StacPanel from './StacPanel';
 import SanctionsPanel from './SanctionsPanel';
+import IntelGraphPanel from './IntelGraphPanel';
 
-const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'pegel', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams', 'cve', 'stac', 'sanctions'] as const
+const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'pegel', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams', 'cve', 'stac', 'sanctions', 'intel'] as const
 type DataTab = typeof DATA_TABS[number]
 
 export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
@@ -871,6 +872,10 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
 
       {tab === 'sanctions' && (
         <SanctionsPanel onFocus={onFocus} />
+      )}
+
+      {tab === 'intel' && (
+        <IntelGraphPanel onFocus={onFocus} />
       )}
 
     </div>

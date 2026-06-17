@@ -19,7 +19,7 @@
 | **Fast health** | `GET /api/health/ping` | Use before/after changes |
 | **Ollama** | http://127.0.0.1:11434 | Default chat: `qwen3:8b` |
 | **Start** | `.\start.ps1` | Paths with spaces → `-LiteralPath` |
-| **Verify** | `.\scripts\smoke-test.ps1` | 23 checks — run before claiming “done” |
+| **Verify** | `.\scripts\smoke-test.ps1` | 25 checks — run before claiming “done” |
 
 Copy env: `backend\.env.example` → `backend\.env`, `frontend\.env.example` → `frontend\.env` (Cesium Ion token required for terrain/buildings).
 
@@ -33,7 +33,7 @@ Unless the user says otherwise, prioritize:
 2. **Operator home region** — `WORLDBASE_OPERATOR_REGION=thailand` (LOCAL / REGION / GLOBAL buckets)
 3. **GDELT local** — `backend/gdelt_bridge.py` → `/api/gdelt/pulse/local`, `/api/gdelt/geo/local`
 4. **Pi pull loop** — PC generates briefing → Pi `GET /api/node/pull` → portal `briefing_latest.json`
-5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing
+5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing, DATA → INTEL graph (GLiNER ingest)
 
 **Out of scope by default:** HAK_GAL LLM firewall (`FIREWALL_HOST`, `:8001`, firewall tab/chat toggle). Code stays; do not start, fix, or extend unless explicitly requested.
 
@@ -73,7 +73,10 @@ Unit tests (no network): `python -m unittest test_operator_briefing -v` in `back
 | GDELT | `backend/gdelt_bridge.py` |
 | Fusion → briefing | `backend/fusion_heatmap.py` |
 | RAG | `backend/rag_memory.py` |
-| DB | `backend/worldbase.db` |
+| FtM entity store | `backend/ftm_store.py` |
+| Document intel ingest (GLiNER+GLiREL, PC/GPU) | `backend/intel_ingest.py`, [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md) |
+| INTEL graph panel | `frontend/src/components/IntelGraphPanel.tsx` |
+| DB | `backend/worldbase.db`, `backend/data/entities.duckdb` |
 
 ---
 
@@ -113,6 +116,7 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | Briefing empty | `POST /api/briefing/generate`; check Ollama |
 | LOCAL block thin | GDELT rate limits; verify `/api/gdelt/pulse/local` |
 | Pi old brief | deploy scripts + token; `brief.source` should be `worldbase-pc` |
+| INTEL ingest 503 | optional ML stack not installed — see `docs/INTEL_INGEST.md` + `backend/requirements.txt` |
 | Paths break in PS | `-LiteralPath` for `D:\MCP Mods\worldbase` |
 
 Full table: [`LLM_HANDOFF.md`](LLM_HANDOFF.md) → “If Something Breaks”.

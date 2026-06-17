@@ -53,6 +53,7 @@ import stac_bridge
 import sanctions_bridge
 import aircraft_trails
 import fusion_heatmap
+import intel_ingest
 
 DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
@@ -268,6 +269,7 @@ app.include_router(aircraft_trails.router)
 app.include_router(fusion_heatmap.router)
 app.include_router(situations.router)
 app.include_router(ftm_store.router)
+app.include_router(intel_ingest.router)
 
 
 # Disable trailing-slash redirects globally (prevents CORS errors on 307 redirects)

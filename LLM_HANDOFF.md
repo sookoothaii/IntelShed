@@ -102,6 +102,9 @@ worldbase/
 | `/entity/import` (POST) | Round-trip an FtM entity stream (NDJSON or JSON array) into the store |
 | `/intel/stats` | Entity/statement/edge counts, by-schema + by-dataset roll-up |
 | `/intel/import/sanctions` (POST) | Bounded OpenSanctions CSV → FtM import (`limit`, `schema`); never auto-runs (459 MB CSV) |
+| `/intel/ingest/status` | GLiNER/GLiREL model + device state; `?load=1` forces first-time model load |
+| `/intel/ingest/text` (POST) | Paste text → zero-shot NER + relation extraction → FtM entities + edges |
+| `/intel/ingest/document` (POST) | PDF / EML / TXT upload → same pipeline (`multipart/form-data`) |
 
 ### Imagery & Maps
 | Endpoint | What | Source |
@@ -597,6 +600,15 @@ Polish / tech debt:
 - **Warm-up fix: wildfires** — `nasa_firms.py` now flags non-CSV FIRMS responses (rate-limit) as errors and always attributes a `source` (audit trail), even on empty results.
 - **Warm-up fix: stale feeds** — `prune_feed_cache()` (startup, `WORLDBASE_FEED_CACHE_MAX_AGE_SEC`, default 7 d) drops abandoned `feed_cache` keys; cleared `gdacs`/`gdacs_v2`/`weather:13.75:100.5`.
 - **Verified** — smoke **25/25**, 6/6 unit tests, FtM graph live (mirror populated from `/api/situations`).
+
+**Done (2026-06-17) — document intel ingest + graph view (PR 2):**
+- **`intel_ingest.py`** — PC-only, lazy-loaded GLiNER (`urchade/gliner_multi-v2.1`, Apache-2.0) + GLiREL (`jackboyla/glirel-large-v0`, CC BY-NC-SA — local operator use OK; not for commercial redistribution). Text/PDF/EML → FtM entities + provenance edges (`mentions` from a Document hub, semantic relations via GLiREL with schema head/tail filtering).
+- **Routes** — `GET /api/intel/ingest/status`, `POST /api/intel/ingest/text`, `POST /api/intel/ingest/document`. Graph read stays on `GET /api/entity/{id}/graph`.
+- **UI** — DATA tab **INTEL**: ingest box + Cytoscape graph (`IntelGraphPanel.tsx`). Click a node to re-root the BFS view.
+- **Optional ML deps** — documented in `backend/requirements.txt` (not pinned in base venv): `torch>=2.6+cu124`, `gliner`, `glirel`, `transformers>=4.51,<5`, `huggingface_hub<1.0`, `loguru`, `pdfplumber`, `mail-parser`. Pi never installs these.
+- **Windows gotchas** — import `pyarrow.dataset` before `torch` (native crash otherwise); GLiREL needs torch ≥2.6 for `.bin` load (CVE-2025-32434). Env tuning: `WORLDBASE_GLINER_THRESHOLD`, `WORLDBASE_GLIREL_THRESHOLD` in `.env.example`.
+- **Operator doc** — `docs/INTEL_INGEST.md`.
+- **Verified** — GPU ingest (`device: cuda` on RTX 3080 Ti), sample text → 7 entities + 6 relations + 7 mentions; graph 8 nodes / 13 edges; smoke **25/25**.
 
 **Done (2026-06-17) — tech-chef session:**
 - **PC IP drift fix** — `192.168.1.111` reserved via DHCP (router lease, MAC `4C:03:4F:BB:C7:9F`); Pi push/pull recovered after 23 h offline. Doc updates in `AGENTS.md`, `LLM_HANDOFF.md`, `README.md`.

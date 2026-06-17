@@ -1,0 +1,274 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import cytoscape from 'cytoscape'
+import type { Core, ElementDefinition } from 'cytoscape'
+import { fetchApi } from '../lib/networkFetch'
+import type { FocusTarget } from '../lib/focus'
+
+type IngestStatus = {
+  loaded: boolean
+  device: string | null
+  gliner_model: string
+  glirel_model: string
+  load_error: string | null
+  torch_version: string | null
+  cuda_available: boolean
+  cuda_device?: string
+  relation_labels: string[]
+}
+
+type IngestResult = {
+  ok: boolean
+  device?: string
+  root_id?: string
+  source?: string
+  truncated?: boolean
+  counts?: { entities: number; edges: number; mentions: number; relations: number }
+  error?: string
+}
+
+type GraphNode = { id: string; schema: string; caption: string; lat?: number | null; lon?: number | null }
+type GraphEdge = { source_id: string; target_id: string; kind: string; confidence?: number }
+type GraphData = { root: string; found: boolean; nodes: GraphNode[]; edges: GraphEdge[] }
+
+interface Props {
+  onFocus?: (f: Omit<FocusTarget, 'ts'>) => void
+}
+
+const SCHEMA_COLOR: Record<string, string> = {
+  Person: '#4ea1ff',
+  Organization: '#ffb347',
+  Company: '#ffb347',
+  Address: '#7bdc8f',
+  Vessel: '#56d4d4',
+  Airplane: '#56d4d4',
+  Event: '#ff6b6b',
+  Document: '#b07cff',
+}
+const schemaColor = (s: string) => SCHEMA_COLOR[s] || '#9aa3b2'
+
+export default function IntelGraphPanel({ onFocus }: Props) {
+  const [status, setStatus] = useState<IngestStatus | null>(null)
+  const [text, setText] = useState('')
+  const [dataset, setDataset] = useState('intel-ingest')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
+  const [rootId, setRootId] = useState('')
+
+  const cyRef = useRef<Core | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const r = await fetchApi('/api/intel/ingest/status')
+      setStatus(await r.json())
+    } catch (e: any) { setError(`status: ${e.message || e}`) }
+  }, [])
+
+  useEffect(() => { fetchStatus() }, [fetchStatus])
+
+  // Init cytoscape once.
+  useEffect(() => {
+    if (cyRef.current || !containerRef.current) return
+    cyRef.current = cytoscape({
+      container: containerRef.current,
+      elements: [],
+      style: [
+        {
+          selector: 'node',
+          style: {
+            'background-color': 'data(color)',
+            label: 'data(label)',
+            color: '#e8edf4',
+            'font-size': 9,
+            'text-wrap': 'wrap',
+            'text-max-width': '90px',
+            'text-valign': 'bottom',
+            'text-margin-y': 3,
+            width: 22,
+            height: 22,
+            'border-width': 1,
+            'border-color': '#0a0e14',
+          },
+        },
+        {
+          selector: 'node.root',
+          style: { width: 32, height: 32, 'border-width': 2, 'border-color': '#fff' },
+        },
+        {
+          selector: 'edge',
+          style: {
+            width: 1.4,
+            'line-color': '#46506a',
+            'target-arrow-color': '#46506a',
+            'target-arrow-shape': 'triangle',
+            'curve-style': 'bezier',
+            label: 'data(label)',
+            'font-size': 7,
+            color: '#9aa3b2',
+            'text-rotation': 'autorotate',
+            'text-background-color': '#0a0e14',
+            'text-background-opacity': 0.7,
+            'text-background-padding': '1px',
+          },
+        },
+        { selector: 'edge.mentions', style: { 'line-style': 'dashed', 'line-color': '#2e3650', 'target-arrow-color': '#2e3650' } },
+      ],
+      layout: { name: 'grid' },
+      wheelSensitivity: 0.2,
+    })
+
+    cyRef.current.on('tap', 'node', (evt) => {
+      const id = evt.target.id()
+      const lat = evt.target.data('lat')
+      const lon = evt.target.data('lon')
+      if (onFocus && typeof lat === 'number' && typeof lon === 'number') {
+        onFocus({ kind: 'osint', lon, lat, height: 600000, title: evt.target.data('label'), lines: [`SCHEMA: ${evt.target.data('schema')}`] })
+      }
+      setRootId(id)
+      loadGraph(id)
+    })
+
+    return () => { cyRef.current?.destroy(); cyRef.current = null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const loadGraph = useCallback(async (id: string) => {
+    if (!id) return
+    setError(null)
+    try {
+      const r = await fetchApi(`/api/entity/${encodeURIComponent(id)}/graph?depth=2&limit=300`)
+      const g: GraphData = await r.json()
+      if (!g.found) { setError('Entity not found in graph store.'); return }
+      const els: ElementDefinition[] = []
+      for (const n of g.nodes) {
+        els.push({
+          data: {
+            id: n.id,
+            label: n.caption || n.id.slice(0, 8),
+            schema: n.schema,
+            color: schemaColor(n.schema),
+            lat: n.lat ?? undefined,
+            lon: n.lon ?? undefined,
+          },
+          classes: n.id === id ? 'root' : undefined,
+        })
+      }
+      for (const e of g.edges) {
+        els.push({
+          data: {
+            id: `${e.source_id}__${e.target_id}__${e.kind}`,
+            source: e.source_id,
+            target: e.target_id,
+            label: e.kind,
+          },
+          classes: e.kind === 'mentions' ? 'mentions' : undefined,
+        })
+      }
+      const cy = cyRef.current
+      if (!cy) return
+      cy.elements().remove()
+      cy.add(els)
+      cy.layout({ name: 'cose', animate: false, nodeRepulsion: () => 9000, idealEdgeLength: () => 90, padding: 20 } as any).run()
+      cy.fit(undefined, 30)
+      setInfo(`${g.nodes.length} nodes · ${g.edges.length} edges`)
+    } catch (e: any) { setError(`graph: ${e.message || e}`) }
+  }, [onFocus])
+
+  const ingest = async () => {
+    if (!text.trim()) { setError('Paste some text first.'); return }
+    setBusy(true); setError(null); setInfo('Extracting entities + relations (first run loads the model)…')
+    try {
+      const r = await fetchApi('/api/intel/ingest/text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, dataset }),
+      })
+      const d: IngestResult = await r.json()
+      if (!r.ok || !d.ok) { setError(d.error || `ingest failed (${r.status})`); return }
+      setInfo(`✓ ${d.counts?.entities ?? 0} entities · ${d.counts?.relations ?? 0} relations · ${d.counts?.mentions ?? 0} mentions · ${d.device}`)
+      fetchStatus()
+      if (d.root_id) { setRootId(d.root_id); loadGraph(d.root_id) }
+    } catch (e: any) { setError(`ingest: ${e.message || e}`) }
+    finally { setBusy(false) }
+  }
+
+  const upload = async (file: File) => {
+    setBusy(true); setError(null); setInfo(`Parsing ${file.name}…`)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('dataset', dataset)
+      const r = await fetchApi('/api/intel/ingest/document', { method: 'POST', body: fd })
+      const d: IngestResult = await r.json()
+      if (!r.ok || !d.ok) { setError(d.error || `upload failed (${r.status})`); return }
+      setInfo(`✓ ${d.counts?.entities ?? 0} entities · ${d.counts?.relations ?? 0} relations · ${d.device}`)
+      fetchStatus()
+      if (d.root_id) { setRootId(d.root_id); loadGraph(d.root_id) }
+    } catch (e: any) { setError(`upload: ${e.message || e}`) }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="intel-panel">
+      <div className="intel-status">
+        {status ? (
+          <>
+            <span className={`stat-pill ${status.cuda_available ? 'ok' : 'warn'}`}>
+              {status.cuda_available ? `GPU ${status.cuda_device?.replace('NVIDIA GeForce ', '') || 'CUDA'}` : 'CPU'}
+            </span>
+            <span className="stat-meta">{status.loaded ? `model loaded · ${status.device}` : 'model lazy (loads on first ingest)'}</span>
+            <span className="stat-meta">torch {status.torch_version || '—'}</span>
+            {status.load_error && <span className="data-error">{status.load_error}</span>}
+          </>
+        ) : <span className="stat-meta">Loading status…</span>}
+      </div>
+
+      <div className="intel-section">
+        <h3>📥 Ingest text → entity graph</h3>
+        <textarea
+          className="intel-textarea"
+          placeholder="Paste a report, article, or notes. GLiNER extracts entities, GLiREL extracts relations."
+          value={text}
+          onChange={e => setText(e.target.value)}
+          rows={5}
+        />
+        <div className="intel-toolbar">
+          <input className="intel-dataset" value={dataset} onChange={e => setDataset(e.target.value)} title="Provenance dataset tag" />
+          <button className="data-refresh" onClick={ingest} disabled={busy}>{busy ? '…' : 'INGEST'}</button>
+          <label className="intel-upload">
+            UPLOAD PDF/EML
+            <input
+              type="file"
+              accept=".pdf,.eml,.msg,.txt"
+              style={{ display: 'none' }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.currentTarget.value = '' }}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="intel-section">
+        <h3>🕸 Graph <span className="stat-meta">{info || '—'}</span></h3>
+        <div className="intel-toolbar">
+          <input
+            className="intel-dataset wide"
+            placeholder="Entity id (or ingest above)…"
+            value={rootId}
+            onChange={e => setRootId(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && loadGraph(rootId)}
+          />
+          <button className="data-refresh" onClick={() => loadGraph(rootId)} disabled={!rootId}>LOAD</button>
+        </div>
+        {error && <div className="data-error">{error}</div>}
+        <div ref={containerRef} className="intel-graph" />
+        <div className="intel-legend">
+          {Object.entries(SCHEMA_COLOR).filter(([k]) => k !== 'Company').map(([k, c]) => (
+            <span key={k}><i style={{ background: c }} />{k}</span>
+          ))}
+          <span className="intel-legend-hint">click a node to expand · dashed = mentions</span>
+        </div>
+      </div>
+    </div>
+  )
+}

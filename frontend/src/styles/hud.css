@@ -2638,3 +2638,30 @@ html, body, #root {
 .fusion-legend-scale { display: flex; justify-content: space-between; font-size: 9px; color: var(--txt-dim); margin-bottom: 6px; }
 .fusion-legend-contrib { display: flex; flex-wrap: wrap; gap: 6px; font-size: 9px; color: var(--txt-dim); }
 .fusion-legend-contrib span { background: rgba(0, 0, 0, 0.4); padding: 1px 5px; border-radius: 2px; }
+
+/* ===== INTEL graph panel (GLiNER + GLiREL ingest) ===== */
+.intel-panel { display: flex; flex-direction: column; gap: 14px; }
+.intel-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.intel-section { display: flex; flex-direction: column; gap: 8px; }
+.intel-section h3 { margin: 0; font-size: 11px; letter-spacing: 0.5px; color: var(--txt-dim); text-transform: uppercase; display: flex; gap: 8px; align-items: baseline; }
+.intel-textarea {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 70px;
+  background: rgba(0, 0, 0, 0.35); color: var(--txt); border: 1px solid var(--line);
+  border-radius: 3px; padding: 8px; font-size: 12px; font-family: inherit;
+}
+.intel-toolbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.intel-dataset { width: 130px; background: rgba(0, 0, 0, 0.35); color: var(--txt); border: 1px solid var(--line); border-radius: 3px; padding: 5px 7px; font-size: 11px; }
+.intel-dataset.wide { flex: 1; min-width: 160px; width: auto; }
+.intel-upload {
+  cursor: pointer; font-size: 10px; letter-spacing: 0.4px; padding: 6px 10px;
+  border: 1px dashed var(--line); border-radius: 3px; color: var(--txt-dim);
+}
+.intel-upload:hover { color: var(--txt); border-color: var(--txt-dim); }
+.intel-graph {
+  width: 100%; height: 360px; background: radial-gradient(circle at 50% 40%, #11161f, #0a0e14);
+  border: 1px solid var(--line); border-radius: 4px;
+}
+.intel-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 9px; color: var(--txt-dim); align-items: center; }
+.intel-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.intel-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.intel-legend-hint { margin-left: auto; font-style: italic; opacity: 0.7; }
