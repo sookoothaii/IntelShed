@@ -107,6 +107,8 @@ worldbase/
 | `/intel/ingest/document` (POST) | PDF / EML / TXT upload → same pipeline (`multipart/form-data`) |
 | `/intel/feeds/status` | Feed ingest autopilot state + FtM roll-up |
 | `/intel/feeds/run` (POST) | Sync GDACS/GDELT/EONET/AIS/anomalies → FtM (YAML mappings) |
+| `/intel/entities` | Recent FtM entities (`limit`, optional `dataset`) — compat for monitors |
+| `/intel/graph/stats` | Store + graph counters + endpoint hints — compat alias |
 | `/intel/graph/overview` | Recent feed/ingest entities for INTEL overview (no root id) |
 | `/intel/resolution/status` | Splink availability + `sameAs` edge count |
 | `/intel/resolution/run` (POST) | Splink + exact-key dedupe → provenance-aware `sameAs` edges |

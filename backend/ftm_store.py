@@ -583,6 +583,59 @@ def count_edges_for_dataset(dataset: str) -> int:
     return int(row[0] if row else 0)
 
 
+def list_entities_recent(limit: int = 50, dataset: str | None = None) -> dict:
+    """Compact entity list for monitors and compatibility routes."""
+    limit = max(1, min(int(limit), 500))
+    with _LOCK:
+        con = _conn()
+        if dataset:
+            rows = con.execute(
+                """
+                SELECT DISTINCT e.id, e.schema, e.caption, e.lat, e.lon, e.last_seen
+                FROM entities e
+                INNER JOIN statements s ON s.entity_id = e.id
+                WHERE s.dataset = ?
+                ORDER BY e.last_seen DESC
+                LIMIT ?
+                """,
+                [dataset, limit],
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """
+                SELECT id, schema, caption, lat, lon, last_seen
+                FROM entities
+                ORDER BY last_seen DESC
+                LIMIT ?
+                """,
+                [limit],
+            ).fetchall()
+    entities = [
+        {
+            "id": r[0],
+            "schema": r[1],
+            "caption": r[2],
+            "lat": r[3],
+            "lon": r[4],
+            "last_seen": r[5],
+        }
+        for r in rows
+    ]
+    return {"count": len(entities), "entities": entities}
+
+
+def graph_stats() -> dict:
+    """Store roll-up plus graph-specific counters (compat for external monitors)."""
+    base = stats()
+    base["resolution_edges"] = count_edges_for_dataset("entity-resolution")
+    base["graph_endpoints"] = {
+        "overview": "/api/intel/graph/overview",
+        "entity_graph": "/api/entity/{id}/graph",
+        "entity_list": "/api/intel/entities",
+    }
+    return base
+
+
 def stats() -> dict:
     with _LOCK:
         con = _conn()
@@ -716,6 +769,27 @@ async def api_intel_stats():
         return await asyncio.to_thread(stats)
     except Exception as exc:  # fail-soft
         return {"entities": 0, "statements": 0, "edges": 0, "error": str(exc)}
+
+
+@router.get("/intel/entities")
+async def api_intel_entities(
+    limit: int = Query(50, ge=1, le=500),
+    dataset: str | None = Query(None, description="Filter by provenance dataset tag"),
+):
+    """Recent entities (compat route for external stack monitors)."""
+    try:
+        return await asyncio.to_thread(list_entities_recent, limit, dataset)
+    except Exception as exc:
+        return {"count": 0, "entities": [], "error": str(exc)}
+
+
+@router.get("/intel/graph/stats")
+async def api_intel_graph_stats():
+    """Graph + store roll-up (compat alias — prefer /api/intel/stats for counts only)."""
+    try:
+        return await asyncio.to_thread(graph_stats)
+    except Exception as exc:
+        return {"entities": 0, "edges": 0, "error": str(exc)}
 
 
 @router.post("/entity/import")

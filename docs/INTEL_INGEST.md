@@ -46,6 +46,8 @@ Status line shows GPU, GLiREL mode, Splink version, and FtM entity/edge counts.
 | Method | Path | Notes |
 |--------|------|-------|
 | GET | `/api/intel/stats` | Entity/statement/edge roll-up |
+| GET | `/api/intel/entities` | Recent entities list (compat for external monitors) |
+| GET | `/api/intel/graph/stats` | Stats + graph counters + endpoint hints (compat alias) |
 | GET | `/api/intel/graph/overview` | Recent entities for feed overview (`limit`, `datasets`, `schemas`) |
 | GET | `/api/entity/{id}/graph` | BFS subgraph (`depth`, `limit`) |
 | GET | `/api/entity/{id}` | Full FtM JSON |

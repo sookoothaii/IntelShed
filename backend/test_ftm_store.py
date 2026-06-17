@@ -88,6 +88,15 @@ class FtmStoreTest(unittest.TestCase):
         self.assertTrue(ov["found"])
         self.assertGreaterEqual(len(ov["nodes"]), 1)
 
+    def test_compat_entity_list_and_graph_stats(self):
+        p = ftm_store.make_entity("Person", ["c1"], {"name": "Compat Test"})
+        ftm_store.upsert(p, dataset="livetest")
+        listed = ftm_store.list_entities_recent(limit=5, dataset="livetest")
+        self.assertGreaterEqual(listed["count"], 1)
+        gs = ftm_store.graph_stats()
+        self.assertIn("graph_endpoints", gs)
+        self.assertIn("resolution_edges", gs)
+
     def test_sanctions_adapter_maps_fields(self):
         row = {
             "id": "ofac-1", "schema": "Person", "name": "Bad Actor",
