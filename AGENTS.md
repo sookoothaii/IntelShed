@@ -33,7 +33,7 @@ Unless the user says otherwise, prioritize:
 2. **Operator home region** — `WORLDBASE_OPERATOR_REGION=thailand` (LOCAL / REGION / GLOBAL buckets)
 3. **GDELT local** — `backend/gdelt_bridge.py` → `/api/gdelt/pulse/local`, `/api/gdelt/geo/local`
 4. **Pi pull loop** — PC generates briefing → Pi `GET /api/node/pull` → portal `briefing_latest.json`
-5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing, DATA → INTEL graph (GLiNER ingest)
+5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing, DATA → INTEL graph (GLiNER ingest + Splink resolution)
 
 **Out of scope by default:** HAK_GAL LLM firewall (`FIREWALL_HOST`, `:8001`, firewall tab/chat toggle). Code stays; do not start, fix, or extend unless explicitly requested.
 
@@ -75,6 +75,7 @@ Unit tests (no network): `python -m unittest test_operator_briefing -v` in `back
 | RAG | `backend/rag_memory.py` |
 | FtM entity store | `backend/ftm_store.py` |
 | Document intel ingest (GLiNER; GLiREL opt-in) | `backend/intel_ingest.py`, [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md), [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) |
+| Entity resolution (Splink sameAs edges) | `backend/entity_resolution.py` — `POST /api/intel/resolution/run` |
 | INTEL graph panel | `frontend/src/components/IntelGraphPanel.tsx` |
 | DB | `backend/worldbase.db`, `backend/data/entities.duckdb` |
 

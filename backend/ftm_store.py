@@ -470,6 +470,47 @@ def import_ndjson(text: str, dataset: str = "import") -> dict:
     return result
 
 
+def list_entities_for_resolution(
+    schemas: Iterable[str],
+    limit: int = 3000,
+) -> list[dict]:
+    """Return recent entities for Splink / deterministic resolution."""
+    schema_list = [s for s in schemas if s]
+    if not schema_list or limit <= 0:
+        return []
+    placeholders = ", ".join("?" * len(schema_list))
+    with _LOCK:
+        rows = _conn().execute(
+            f"""
+            SELECT id, schema, caption, properties, datasets
+            FROM entities
+            WHERE schema IN ({placeholders})
+            ORDER BY last_seen DESC
+            LIMIT ?
+            """,
+            [*schema_list, int(limit)],
+        ).fetchall()
+    return [
+        {
+            "id": r[0],
+            "schema": r[1],
+            "caption": r[2],
+            "properties": json.loads(r[3] or "{}"),
+            "datasets": json.loads(r[4] or "[]"),
+        }
+        for r in rows
+    ]
+
+
+def count_edges_for_dataset(dataset: str) -> int:
+    with _LOCK:
+        row = _conn().execute(
+            "SELECT count(*) FROM edges WHERE dataset = ?",
+            [dataset],
+        ).fetchone()
+    return int(row[0] if row else 0)
+
+
 def stats() -> dict:
     with _LOCK:
         con = _conn()

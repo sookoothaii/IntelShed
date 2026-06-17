@@ -46,6 +46,10 @@ python-dotenv>=1.0.0
 #   set WORLDBASE_INTEL_GLIREL=1 in backend/.env
 #   pip install glirel loguru
 #
+# Optional entity resolution (Splink -> sameAs edges with confidence):
+#   pip install "splink>=4.0,<5"
+#   POST /api/intel/resolution/run  (or WORLDBASE_ENTITY_RESOLUTION_AUTOPILOT=1)
+#
 # Windows: import pyarrow before torch (handled in intel_ingest.py).
 # torch >= 2.6 required for GLiREL .bin load (CVE-2025-32434).
 #

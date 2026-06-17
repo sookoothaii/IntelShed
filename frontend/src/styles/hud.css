@@ -2684,6 +2684,15 @@ html, body, #root {
   overscroll-behavior: contain;
   touch-action: none;
 }
+.intel-edge-tip {
+  font-size: 10px;
+  color: var(--txt-dim);
+  font-family: var(--mono);
+  padding: 4px 6px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
 .intel-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 9px; color: var(--txt-dim); align-items: center; }
 .intel-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .intel-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }

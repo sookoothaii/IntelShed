@@ -54,6 +54,7 @@ import sanctions_bridge
 import aircraft_trails
 import fusion_heatmap
 import intel_ingest
+import entity_resolution
 
 DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
@@ -270,6 +271,7 @@ app.include_router(fusion_heatmap.router)
 app.include_router(situations.router)
 app.include_router(ftm_store.router)
 app.include_router(intel_ingest.router)
+app.include_router(entity_resolution.router)
 
 
 # Disable trailing-slash redirects globally (prevents CORS errors on 307 redirects)
@@ -346,6 +348,23 @@ async def _situations_prewarm():
         pass
 
 
+async def _entity_resolution_autopilot():
+    """Nightly Splink entity resolution -> sameAs edges in the FtM graph."""
+    await asyncio.sleep(120)
+    interval = int(os.getenv("WORLDBASE_ENTITY_RESOLUTION_INTERVAL", "86400"))
+    while True:
+        try:
+            result = await asyncio.to_thread(entity_resolution.run_resolution)
+            print(
+                f"[AUTOPILOT] Entity resolution: +{result.get('edges_added', 0)} edges "
+                f"({result.get('exact_edges', 0)} exact, {result.get('splink_edges', 0)} splink)",
+                flush=True,
+            )
+        except Exception as e:
+            print(f"[AUTOPILOT] Entity resolution failed: {e}", flush=True)
+        await asyncio.sleep(interval)
+
+
 async def _briefing_autopilot():
     """Background loop that fuses feeds + LLM into a new briefing periodically."""
     await asyncio.sleep(30)  # Let the server warm up on first boot
@@ -402,6 +421,10 @@ def on_startup():
         _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
     else:
         print("[AUTOPILOT] Briefing autopilot disabled (WORLDBASE_BRIEFING_AUTOPILOT=0)", flush=True)
+    if entity_resolution.autopilot_on():
+        asyncio.create_task(_entity_resolution_autopilot())
+    else:
+        print("[AUTOPILOT] Entity resolution autopilot disabled (WORLDBASE_ENTITY_RESOLUTION_AUTOPILOT=0)", flush=True)
     asyncio.create_task(_aircraft_warmup())
     asyncio.create_task(_phase1_background_tasks())
     asyncio.create_task(_aircraft_trail_loop())

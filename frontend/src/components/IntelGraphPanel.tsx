@@ -34,7 +34,14 @@ type IngestResult = {
 }
 
 type GraphNode = { id: string; schema: string; caption: string; lat?: number | null; lon?: number | null }
-type GraphEdge = { source_id: string; target_id: string; kind: string; confidence?: number }
+type GraphEdge = {
+  source_id: string
+  target_id: string
+  kind: string
+  confidence?: number | null
+  dataset?: string
+  seen_at?: string | null
+}
 type GraphData = { root: string; found: boolean; nodes: GraphNode[]; edges: GraphEdge[] }
 
 interface Props {
@@ -51,6 +58,25 @@ const SCHEMA_COLOR: Record<string, string> = {
   Event: '#ff6b6b',
   Document: '#b07cff',
 }
+type ResolutionStatus = {
+  available: boolean
+  splink_version?: string | null
+  resolution_edges?: number
+  last_run?: { edges_added?: number; finished_at?: string } | null
+}
+
+const edgeConfidenceClass = (kind: string, confidence?: number | null) => {
+  if (kind === 'mentions') return 'mentions'
+  if (kind === 'sameAs') return 'same-as'
+  if (confidence == null || Number.isNaN(confidence)) return ''
+  if (confidence >= 0.9) return 'conf-high'
+  if (confidence >= 0.75) return 'conf-mid'
+  return 'conf-low'
+}
+
+const fmtConfidence = (v?: number | null) =>
+  v == null || Number.isNaN(v) ? '—' : `${Math.round(v * 100)}%`
+
 const schemaColor = (s: string) => SCHEMA_COLOR[s] || '#9aa3b2'
 
 export default function IntelGraphPanel({ onFocus }: Props) {
@@ -61,6 +87,8 @@ export default function IntelGraphPanel({ onFocus }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<string | null>(null)
   const [rootId, setRootId] = useState('')
+  const [resStatus, setResStatus] = useState<ResolutionStatus | null>(null)
+  const [edgeTip, setEdgeTip] = useState<string | null>(null)
 
   const cyRef = useRef<Core | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -72,7 +100,14 @@ export default function IntelGraphPanel({ onFocus }: Props) {
     } catch (e: any) { setError(`status: ${e.message || e}`) }
   }, [])
 
-  useEffect(() => { fetchStatus() }, [fetchStatus])
+  const fetchResolutionStatus = useCallback(async () => {
+    try {
+      const r = await fetchApi('/api/intel/resolution/status')
+      setResStatus(await r.json())
+    } catch { /* optional */ }
+  }, [])
+
+  useEffect(() => { fetchStatus(); fetchResolutionStatus() }, [fetchStatus, fetchResolutionStatus])
 
   // Keep wheel zoom on the graph only — do not scroll the DATA panel underneath.
   useEffect(() => {
@@ -130,6 +165,10 @@ export default function IntelGraphPanel({ onFocus }: Props) {
           },
         },
         { selector: 'edge.mentions', style: { 'line-style': 'dashed', 'line-color': '#2e3650', 'target-arrow-color': '#2e3650' } },
+        { selector: 'edge.same-as', style: { 'line-color': '#6b8cff', 'target-arrow-color': '#6b8cff', width: 2 } },
+        { selector: 'edge.conf-high', style: { 'line-color': '#5bdc8f', 'target-arrow-color': '#5bdc8f' } },
+        { selector: 'edge.conf-mid', style: { 'line-color': '#e6c84a', 'target-arrow-color': '#e6c84a' } },
+        { selector: 'edge.conf-low', style: { 'line-color': '#ff7b6b', 'target-arrow-color': '#ff7b6b' } },
       ],
       layout: { name: 'grid' },
       // Default 1.0 — panel scroll is isolated separately; low values need excessive wheel spins.
@@ -154,6 +193,12 @@ export default function IntelGraphPanel({ onFocus }: Props) {
       setRootId(id)
       loadGraph(id)
     })
+
+    cy.on('mouseover', 'edge', (evt) => {
+      const d = evt.target.data()
+      setEdgeTip(`${d.label} · ${fmtConfidence(d.confidence)} · ${d.dataset || '—'}${d.seen_at ? ` · ${d.seen_at.slice(0, 19)}` : ''}`)
+    })
+    cy.on('mouseout', 'edge', () => setEdgeTip(null))
 
     return () => {
       ro.disconnect()
@@ -185,14 +230,18 @@ export default function IntelGraphPanel({ onFocus }: Props) {
         })
       }
       for (const e of g.edges) {
+        const conf = typeof e.confidence === 'number' ? e.confidence : undefined
         els.push({
           data: {
             id: `${e.source_id}__${e.target_id}__${e.kind}`,
             source: e.source_id,
             target: e.target_id,
-            label: e.kind,
+            label: e.kind === 'sameAs' ? `sameAs ${fmtConfidence(conf)}` : e.kind,
+            confidence: conf,
+            dataset: e.dataset,
+            seen_at: e.seen_at,
           },
-          classes: e.kind === 'mentions' ? 'mentions' : undefined,
+          classes: edgeConfidenceClass(e.kind, conf),
         })
       }
       const cy = cyRef.current
@@ -204,6 +253,19 @@ export default function IntelGraphPanel({ onFocus }: Props) {
       setInfo(`${g.nodes.length} nodes · ${g.edges.length} edges`)
     } catch (e: any) { setError(`graph: ${e.message || e}`) }
   }, [onFocus])
+
+  const runResolution = async () => {
+    setBusy(true); setError(null); setInfo('Running entity resolution (Splink)…')
+    try {
+      const r = await fetchApi('/api/intel/resolution/run', { method: 'POST' })
+      const d = await r.json()
+      if (!r.ok) { setError(d.detail || `resolution failed (${r.status})`); return }
+      setInfo(`✓ resolution +${d.edges_added ?? 0} edges (${d.exact_edges ?? 0} exact · ${d.splink_edges ?? 0} splink)`)
+      fetchResolutionStatus()
+      if (rootId) loadGraph(rootId)
+    } catch (e: any) { setError(`resolution: ${e.message || e}`) }
+    finally { setBusy(false) }
+  }
 
   const ingest = async () => {
     if (!text.trim()) { setError('Paste some text first.'); return }
@@ -257,6 +319,12 @@ export default function IntelGraphPanel({ onFocus }: Props) {
             <span className="stat-meta">{status.loaded ? `model loaded · ${status.device}` : 'model lazy (loads on first ingest)'}</span>
             <span className="stat-meta">torch {status.torch_version || '—'}</span>
             {status.load_error && <span className="data-error">{status.load_error}</span>}
+            {resStatus?.available && (
+              <span className="stat-meta">
+                resolution: {resStatus.resolution_edges ?? 0} sameAs
+                {resStatus.splink_version ? ` · splink ${resStatus.splink_version}` : ''}
+              </span>
+            )}
           </>
         ) : <span className="stat-meta">Loading status…</span>}
       </div>
@@ -296,14 +364,16 @@ export default function IntelGraphPanel({ onFocus }: Props) {
             onKeyDown={e => e.key === 'Enter' && loadGraph(rootId)}
           />
           <button className="data-refresh" onClick={() => loadGraph(rootId)} disabled={!rootId}>LOAD</button>
+          <button className="data-refresh" onClick={runResolution} disabled={busy || !resStatus?.available} title="Splink entity resolution -> sameAs edges">RESOLVE</button>
         </div>
         {error && <div className="data-error">{error}</div>}
         <div ref={containerRef} className="intel-graph" />
+        {edgeTip && <div className="intel-edge-tip">{edgeTip}</div>}
         <div className="intel-legend">
           {Object.entries(SCHEMA_COLOR).filter(([k]) => k !== 'Company').map(([k, c]) => (
             <span key={k}><i style={{ background: c }} />{k}</span>
           ))}
-          <span className="intel-legend-hint">click a node to expand · dashed = mentions</span>
+          <span className="intel-legend-hint">click node · hover edge for provenance · dashed = mentions · blue/green = sameAs</span>
         </div>
       </div>
     </div>
