@@ -2730,3 +2730,101 @@ html, body, #root {
 .intel-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .intel-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .intel-legend-hint { margin-left: auto; font-style: italic; opacity: 0.7; }
+
+/* ===== Market dashboards (crypto + stocks) ===== */
+.market-head {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 14px 0 6px;
+}
+.market-gauge,
+.market-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: var(--mono);
+}
+.market-gauge { align-items: flex-start; }
+.market-stat strong,
+.market-gauge strong {
+  font-size: 20px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.market-stat small,
+.market-gauge small { font-size: 11px; }
+.mh-label {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #5a8c7a;
+}
+.mh-bar {
+  width: 100%;
+  height: 5px;
+  margin-top: 4px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.mh-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s ease; }
+
+.market-section { margin-top: 16px; }
+.market-section h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  font-family: var(--display);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+.market-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.market-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-family: var(--mono);
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.market-card:hover {
+  border-color: var(--line-bright);
+  transform: translateY(-2px);
+  box-shadow: 0 0 18px rgba(0, 229, 160, 0.14);
+}
+.mc-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+.mc-sym { font-size: 14px; color: #fff; }
+.mc-name {
+  display: block;
+  font-size: 10px;
+  color: var(--txt-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+}
+.mc-rank { font-size: 10px; color: var(--txt-dim); white-space: nowrap; }
+.mc-price { font-size: 17px; color: var(--txt); font-variant-numeric: tabular-nums; }
+.mc-chips { display: flex; gap: 10px; font-size: 11px; font-weight: 600; }
+.mc-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 9.5px;
+  color: var(--txt-dim);
+  letter-spacing: 0.5px;
+}
+.spark { display: block; width: 100%; height: auto; }

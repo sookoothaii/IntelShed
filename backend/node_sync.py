@@ -42,6 +42,7 @@ from middleware.rate_limit import (
 from auth.security import (
     verify_hmac_signature,
     verify_legacy_hmac,
+    verify_legacy_hmac_bytes,
     generate_hmac_signature,
     check_replay_attack,
     verify_request_auth,
@@ -162,18 +163,16 @@ async def node_ingest(
         "pihole": {"queries":..,"blocked":..,"percent":..},
         "health": {"cpu_temp":..,"disk_pct":..,"services":{...}} }
     """
-    # Parse raw body so the HMAC matches exactly what the Pi signed
-    # (Pydantic model_dump() would add default fields and break the signature).
-    try:
-        raw_body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-    if not isinstance(raw_body, dict):
-        raise HTTPException(status_code=400, detail="JSON object expected")
+    # Read the *raw* request bytes so the HMAC is verified against exactly what
+    # the Pi signed. Re-serializing a parsed dict (json.dumps) is fragile: the
+    # Pi signs with ensure_ascii=False (raw UTF-8) while a re-dump defaults to
+    # ensure_ascii=True, so any non-ASCII byte (mesh names, Pi-hole hostnames,
+    # degree symbols, …) would flip the signature and cause spurious 403s.
+    raw_bytes = await request.body()
 
-    # HMAC over the original body — legacy-compatible with existing Pi clients
+    # HMAC over the original body bytes — legacy-compatible with existing Pi clients
     if INGEST_TOKEN:
-        if not verify_legacy_hmac(raw_body, x_node_token, INGEST_TOKEN):
+        if not verify_legacy_hmac_bytes(raw_bytes, x_node_token, INGEST_TOKEN):
             raise HTTPException(status_code=403, detail="Invalid node token")
 
         # Optional replay protection if Pi sends nonce/timestamp headers
@@ -184,6 +183,15 @@ async def node_ingest(
                     raise HTTPException(status_code=403, detail="Request replay detected")
             except ValueError:
                 pass  # Invalid timestamp format, but HMAC already verified
+
+    # Parse the (already-authenticated) body. Pydantic model_dump() would add
+    # default fields, so we keep the raw dict for storage compatibility.
+    try:
+        raw_body = json.loads(raw_bytes)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if not isinstance(raw_body, dict):
+        raise HTTPException(status_code=400, detail="JSON object expected")
 
     node_id = (raw_body.get("node_id") or "unknown").strip()
     now = datetime.now(timezone.utc).isoformat()
@@ -352,6 +360,8 @@ async def _gather_snapshot() -> dict:
         ("spaceweather", "/api/spaceweather"),
         ("events", "/api/events?limit=40"),
         ("markets", "/api/markets"),
+        ("markets_crypto", "/api/markets/crypto"),
+        ("markets_stocks", "/api/markets/stocks"),
         ("geopolitics", "/api/geopolitics?limit=20"),
         ("military", "/api/military"),
         ("gdacs", "/api/gdacs"),
@@ -397,6 +407,24 @@ def _compile_alerts(snap: dict) -> list:
             "text": f"Geomagnetic {sw.get('scale','storm')} (Kp={sw['kp_index']}). "
                     f"HF radio/GPS may degrade.",
         })
+
+    # Market regime stress — only surfaced when elevated, so it reads as a
+    # correlatable signal next to outages / GDELT escalation, not noise.
+    try:
+        import markets_bridge
+        stress = markets_bridge.summarize_market_stress(
+            snap.get("markets_crypto"), snap.get("markets_stocks")
+        )
+        if stress and markets_bridge._LEVEL_ORDER.get(stress.get("overall_level"), 0) >= 2:
+            line = markets_bridge.format_market_stress_line(stress)
+            if line:
+                alerts.append({
+                    "severity": markets_bridge.market_stress_severity(stress["overall_level"]),
+                    "kind": "market_stress",
+                    "text": line,
+                })
+    except Exception:
+        pass
 
     quakes = (snap.get("earthquakes", {}) or {}).get("earthquakes", [])
     big = sorted(

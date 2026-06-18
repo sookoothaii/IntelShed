@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchApi } from '../lib/networkFetch';
 import type { FocusTarget } from '../lib/focus';
+import Sparkline from './Sparkline';
 
 interface Sat { id: string; name: string; lat: number; lon: number; alt_km: number; vel_kms: number; tle1?: string; tle2?: string }
 interface Quake { id: string; place: string; mag: number; time: string; lat: number; lon: number; depth: number; tsunami?: number; url?: string }
@@ -30,6 +31,48 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
     const v = Number(n)
     return Number.isFinite(v) ? v.toFixed(digits) : '—'
   }
+  const fmtCompact = (n: any): string => {
+    const v = Number(n)
+    if (!Number.isFinite(v)) return '—'
+    const abs = Math.abs(v)
+    if (abs >= 1e12) return (v / 1e12).toFixed(2) + 'T'
+    if (abs >= 1e9) return (v / 1e9).toFixed(2) + 'B'
+    if (abs >= 1e6) return (v / 1e6).toFixed(2) + 'M'
+    if (abs >= 1e3) return (v / 1e3).toFixed(1) + 'K'
+    return v.toFixed(0)
+  }
+  const fmtPrice = (n: any): string => {
+    const v = Number(n)
+    if (!Number.isFinite(v)) return '—'
+    if (v >= 1000) return v.toLocaleString('en-US', { maximumFractionDigits: 0 })
+    if (v >= 1) return v.toLocaleString('en-US', { maximumFractionDigits: 2 })
+    return v.toLocaleString('en-US', { maximumFractionDigits: 6 })
+  }
+  const pctColor = (v: any): string => (Number(v) >= 0 ? '#00e5a0' : '#ff4d5e')
+  const fmtPct = (v: any, digits = 2): string => {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return '—'
+    return (n >= 0 ? '+' : '') + n.toFixed(digits) + '%'
+  }
+  const riskColor = (level?: string): string => {
+    switch (level) {
+      case 'CALM': return '#00e5a0'
+      case 'NORMAL': return '#22d3ee'
+      case 'ELEVATED': return '#ffd23f'
+      case 'HIGH': return '#ff8c42'
+      case 'EXTREME': return '#ff4d5e'
+      default: return '#6f8c84'
+    }
+  }
+  const fngColor = (v: any): string => {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return '#6f8c84'
+    if (n < 25) return '#ff4d5e'
+    if (n < 45) return '#ff8c42'
+    if (n < 55) return '#ffd23f'
+    if (n < 75) return '#7ed957'
+    return '#00e5a0'
+  }
   const [tab, setTab] = useState<DataTab>('aircraft')
   const [aircraft, setAircraft] = useState<(string | number | null)[][]>([])
   const [satellites, setSatellites] = useState<Sat[]>([])
@@ -51,7 +94,7 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
   const [wildfires, setWildfires] = useState<{ count: number; fires: any[]; updated: string } | null>(null)
   const [lightning, setLightning] = useState<{ count: number; strikes: any[]; updated: string } | null>(null)
   const [energy, setEnergy] = useState<any>(null)
-  const [stocks, setStocks] = useState<{ count: number; quotes: any[]; updated: string } | null>(null)
+  const [stocks, setStocks] = useState<any>(null)
   const [transit, setTransit] = useState<{ city: string; count: number; vehicles: any[]; cached_at: string; error?: string } | null>(null)
   const [transitCity, setTransitCity] = useState('helsinki')
   const [maritime, setMaritime] = useState<{ count: number; vessels: any[]; demo_mode?: boolean; cached_at: string; error?: string } | null>(null)
@@ -85,7 +128,7 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
   const loadIss = () => fetchFeed('iss', '/api/iss', (d: any) => setIss(d))
   const loadSpaceweather = () => fetchFeed('spaceweather', '/api/spaceweather', (d: any) => setSpaceweather(d))
   const loadGeopolitics = () => fetchFeed('geopolitics', '/api/geopolitics', (d: any) => setGeopolitics(d))
-  const loadMarkets = () => fetchFeed('markets', '/api/markets', (d: any) => setMarkets(d))
+  const loadMarkets = () => fetchFeed('markets', '/api/markets/crypto', (d: any) => setMarkets(d))
   const loadNodes = () => fetchFeed('nodes', '/api/nodes', (d: any) => setNodes(d.nodes || []))
   const loadMilitary = () => fetchFeed('military', '/api/military', (d: any) => setMilitary(d.aircraft || []))
   const loadSituations = () => fetchFeed('situations', '/api/correlations', (d: any) => setSituations(d.situations || []))
@@ -97,7 +140,7 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
   const loadWildfires = () => fetchFeed('wildfires', '/api/wildfires', (d: any) => setWildfires(d))
   const loadLightning = () => fetchFeed('lightning', '/api/lightning', (d: any) => setLightning(d))
   const loadEnergy = () => fetchFeed('energy', '/api/energy/de', (d: any) => setEnergy(d))
-  const loadStocks = () => fetchFeed('stocks', '/api/stocks', (d: any) => setStocks(d))
+  const loadStocks = () => fetchFeed('stocks', '/api/markets/stocks', (d: any) => setStocks(d))
   const loadTransit = () => fetchFeed('transit', `/api/transit/${transitCity}`, (d: any) => setTransit(d))
   const loadMaritime = () => fetchFeed('maritime', '/api/maritime', (d: any) => setMaritime(d))
   const loadEuEnergy = async () => {
@@ -356,21 +399,71 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
 
       {tab === 'markets' && (
         <section>
-          <button onClick={loadMarkets} disabled={loading['markets']}>{loading['markets'] ? 'Loading…' : '↻ Refresh'}</button>
-          {markets?.crypto ? (
-            <div className="iss-grid">
-              {Object.entries(markets.crypto).map(([k, v]: [string, any]) => (
-                <div className="iss-card" key={k}>
-                  <span>{k.toUpperCase()}</span>
-                  <strong>${v.usd?.toLocaleString?.() ?? v.usd}</strong>
-                  <small style={{ color: (v.change_24h ?? 0) >= 0 ? '#00e5a0' : '#ff6b35' }}>
-                    {v.change_24h != null ? (v.change_24h >= 0 ? '+' : '') + v.change_24h.toFixed(2) + '%' : ''}
-                  </small>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button onClick={loadMarkets} disabled={loading['markets']}>{loading['markets'] ? 'Loading…' : '↻ Refresh'}</button>
+            <span className="data-count">{markets?.count ?? 0} assets · CRYPTO OVERVIEW</span>
+          </div>
+          {markets?.error && <div className="data-error">{markets.error}</div>}
+
+          {/* Risk / sentiment header */}
+          {markets?.risk && (
+            <div className="market-head">
+              <div className="market-gauge" style={{ borderColor: fngColor(markets.fear_greed?.value) }}>
+                <span className="mh-label">FEAR &amp; GREED</span>
+                <strong style={{ color: fngColor(markets.fear_greed?.value), fontSize: 30 }}>{markets.fear_greed?.value ?? '—'}</strong>
+                <small style={{ color: fngColor(markets.fear_greed?.value) }}>{markets.fear_greed?.label ?? 'n/a'}</small>
+                <div className="mh-bar"><div className="mh-bar-fill" style={{ width: `${markets.fear_greed?.value ?? 0}%`, background: fngColor(markets.fear_greed?.value) }} /></div>
+              </div>
+              <div className="market-stat" style={{ borderColor: riskColor(markets.risk.level) }}>
+                <span className="mh-label">MARKET STRESS</span>
+                <strong style={{ color: riskColor(markets.risk.level) }}>{markets.risk.level}</strong>
+                <small style={{ color: '#6f8c84' }}>score {markets.risk.score}/100</small>
+              </div>
+              <div className="market-stat">
+                <span className="mh-label">TOTAL CAP</span>
+                <strong>${fmtCompact(markets.global?.total_market_cap_usd)}</strong>
+                <small style={{ color: pctColor(markets.global?.market_cap_change_24h) }}>{fmtPct(markets.global?.market_cap_change_24h)} 24h</small>
+              </div>
+              <div className="market-stat">
+                <span className="mh-label">BTC DOMINANCE</span>
+                <strong>{fmtNum(markets.global?.btc_dominance, 1)}%</strong>
+                <small style={{ color: '#6f8c84' }}>ETH {fmtNum(markets.global?.eth_dominance, 1)}%</small>
+              </div>
+              <div className="market-stat">
+                <span className="mh-label">BREADTH 24h</span>
+                <strong><span style={{ color: '#00e5a0' }}>{markets.risk.advancers}↑</span> / <span style={{ color: '#ff4d5e' }}>{markets.risk.decliners}↓</span></strong>
+                <small style={{ color: pctColor(markets.risk.avg_change) }}>avg {fmtPct(markets.risk.avg_change)}</small>
+              </div>
+            </div>
+          )}
+
+          {/* Coin grid with 7d sparklines */}
+          {markets?.coins?.length ? (
+            <div className="market-cards">
+              {markets.coins.map((c: any) => (
+                <div className="market-card" key={c.id}>
+                  <div className="mc-top">
+                    <div>
+                      <strong className="mc-sym">{c.symbol}</strong>
+                      <span className="mc-name">{c.name}</span>
+                    </div>
+                    <span className="mc-rank">#{c.market_cap_rank ?? '—'}</span>
+                  </div>
+                  <div className="mc-price">${fmtPrice(c.price)}</div>
+                  <div className="mc-chips">
+                    <span style={{ color: pctColor(c.change_24h) }}>24h {fmtPct(c.change_24h)}</span>
+                    <span style={{ color: pctColor(c.change_7d) }}>7d {fmtPct(c.change_7d)}</span>
+                  </div>
+                  <Sparkline data={c.spark} width={150} height={40} />
+                  <div className="mc-foot">
+                    <span>CAP ${fmtCompact(c.market_cap)}</span>
+                    <span>VOL ${fmtCompact(c.volume)}</span>
+                  </div>
                 </div>
               ))}
             </div>
-          ) : <div className="health-status pending">NO DATA</div>}
-          <div style={{ marginTop: 8, fontSize: 12, color: '#6f8c84' }}>Updated: {markets?.updated ?? '—'}</div>
+          ) : !markets?.error && <div className="health-status pending">NO DATA</div>}
+          <div style={{ marginTop: 10, fontSize: 11, color: '#6f8c84' }}>Source: {markets?.source ?? 'coingecko'} · Updated: {markets?.updated ?? '—'}</div>
         </section>
       )}
 
@@ -676,22 +769,68 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
 
       {tab === 'stocks' && (
         <section>
-          <button onClick={loadStocks} disabled={loading['stocks']}>{loading['stocks'] ? 'Loading…' : '↻ Refresh'}</button>
-          <span className="data-count">{stocks?.count || 0} quotes</span>
-          {!stocks?.quotes?.length && <div className="health-status pending">No market data</div>}
-          <table className="data-table">
-            <thead><tr><th>Asset</th><th>Price</th><th>Change</th><th>%</th></tr></thead>
-            <tbody>
-              {(stocks?.quotes || []).map((q: any, i: number) => (
-                <tr key={i}>
-                  <td><strong>{q.label}</strong><br/><small>{q.name}</small></td>
-                  <td>{q.price} {q.currency}</td>
-                  <td style={{ color: q.change >= 0 ? '#00e5a0' : '#ff2d00' }}>{q.change >= 0 ? '+' : ''}{q.change}</td>
-                  <td style={{ color: q.change_pct >= 0 ? '#00e5a0' : '#ff2d00' }}>{q.change_pct >= 0 ? '+' : ''}{q.change_pct}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button onClick={loadStocks} disabled={loading['stocks']}>{loading['stocks'] ? 'Loading…' : '↻ Refresh'}</button>
+            <span className="data-count">{stocks?.count ?? 0} assets · MARKETS OVERVIEW</span>
+          </div>
+          {stocks?.error && <div className="data-error">{stocks.error}</div>}
+
+          {/* Risk header */}
+          {stocks?.risk && (
+            <div className="market-head">
+              <div className="market-stat" style={{ borderColor: riskColor(stocks.risk.level) }}>
+                <span className="mh-label">MARKET STRESS</span>
+                <strong style={{ color: riskColor(stocks.risk.level) }}>{stocks.risk.level}</strong>
+                <small style={{ color: '#6f8c84' }}>score {stocks.risk.score}/100</small>
+              </div>
+              <div className="market-stat" style={{ borderColor: riskColor(stocks.risk.level) }}>
+                <span className="mh-label">VIX · FEAR</span>
+                <strong style={{ color: riskColor(stocks.risk.level), fontSize: 28 }}>{fmtNum(stocks.risk.vix, 2)}</strong>
+                <small style={{ color: '#6f8c84' }}>volatility index</small>
+              </div>
+              <div className="market-stat">
+                <span className="mh-label">INDEX BREADTH</span>
+                <strong><span style={{ color: '#00e5a0' }}>{stocks.risk.advancers}↑</span> / <span style={{ color: '#ff4d5e' }}>{stocks.risk.decliners}↓</span></strong>
+                <small style={{ color: pctColor(stocks.risk.avg_change) }}>avg {fmtPct(stocks.risk.avg_change)}</small>
+              </div>
+              <div className="market-stat" style={{ minWidth: 200, alignItems: 'flex-start' }}>
+                <span className="mh-label">SIGNALS</span>
+                <small style={{ color: '#9fc4b8', lineHeight: 1.5 }}>{(stocks.risk.notes || []).join(' · ')}</small>
+              </div>
+            </div>
+          )}
+
+          {/* Sections: indices, commodities, rates & FX */}
+          {[
+            { title: 'INDICES', items: stocks?.indices },
+            { title: 'COMMODITIES', items: stocks?.commodities },
+            { title: 'RATES & FX', items: stocks?.rates_fx },
+          ].map((grp) => (grp.items?.length ? (
+            <div className="market-section" key={grp.title}>
+              <h4>{grp.title}</h4>
+              <div className="market-cards">
+                {grp.items.map((q: any) => (
+                  <div className="market-card" key={q.symbol}>
+                    <div className="mc-top">
+                      <div>
+                        <strong className="mc-sym">{q.label}</strong>
+                        <span className="mc-name">{q.name}</span>
+                      </div>
+                      <span className="mc-rank" style={{ color: pctColor(q.trend_pct) }}>{fmtPct(q.trend_pct, 1)} 30d</span>
+                    </div>
+                    <div className="mc-price">{fmtPrice(q.price)} <small style={{ fontSize: 11, color: '#6f8c84' }}>{q.currency || ''}</small></div>
+                    <div className="mc-chips">
+                      <span style={{ color: pctColor(q.change_pct) }}>{fmtPct(q.change_pct)} 24h</span>
+                    </div>
+                    <Sparkline data={q.spark} width={150} height={40} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null))}
+
+          {!stocks?.count && !stocks?.error && <div className="health-status pending">No market data</div>}
+          <div style={{ marginTop: 10, fontSize: 11, color: '#6f8c84' }}>Source: {stocks?.source ?? 'yahoo-finance'} · Updated: {stocks?.updated ?? '—'}</div>
         </section>
       )}
 

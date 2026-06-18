@@ -289,7 +289,6 @@ def format_digest_sections(
     global_lines = _sort_bucket(buckets["global"], 8)
 
     sw = snap.get("spaceweather", {}) or {}
-    mk = (snap.get("markets", {}) or {}).get("crypto", {})
     cve_items = (snap.get("cve", {}) or {}).get("vulnerabilities", [])[:5]
     nodes = (snap.get("nodes", {}) or {}).get("nodes", [])
     aq = snap.get("airquality", {}) or {}
@@ -307,9 +306,19 @@ def format_digest_sections(
         f"CPU {n.get('health', {}).get('cpu_temp_c', '?')}°C"
         for n in nodes[:3]
     ] or ["- none"]
+    # Market stress — compact summary for the LLM, fail-soft if markets_bridge not ready
+    try:
+        import markets_bridge
+        market_stress = markets_bridge.format_market_stress_line(
+            markets_bridge.summarize_market_stress(
+                snap.get("markets_crypto"), snap.get("markets_stocks")
+            )
+        )
+    except Exception:
+        market_stress = None
     infra_bits = [
         f"Space weather Kp={sw.get('kp_index')} ({sw.get('scale')})",
-        f"Crypto snapshot: {str(mk)[:200]}",
+        market_stress or "Market stress: feeds unavailable",
     ]
     if bangkok_aq:
         infra_bits.append(

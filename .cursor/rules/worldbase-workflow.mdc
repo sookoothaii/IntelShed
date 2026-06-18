@@ -7,6 +7,36 @@ alwaysApply: true
 
 Read [`AGENTS.md`](../../AGENTS.md) at session start. Use [`LLM_HANDOFF.md`](../../LLM_HANDOFF.md) for endpoint lists and troubleshooting.
 
+## Clarify before build
+
+When the operator gives a project task, **do not start coding immediately** unless scope is unambiguous.
+
+1. **Unclear or multi-path work** — ask **one focused question at a time** (goal, must-haves, constraints, definition of done) until the operator says to proceed (e.g. “go”, “los”, “start building”).
+2. **Clear, narrow tasks** — proceed without an interview (typo fix, named file/endpoint, explicit one-liner with no open choices).
+3. **Larger features** — suggest `/plan` to capture requirements in `briefs/*.md`, then `/create` and `/review`. For smaller tasks, a short chat Q&A is enough; no brief required.
+
+**Scope:** Do not implement extras silently. The operator is open to sensible add-on ideas — **propose them in chat first** (why, trade-off, effort); implement only after agreement or an explicit “go”.
+
+## When blocked — ask, don't spin
+
+Stop and **briefly tell the operator** when progress needs them, especially:
+
+- Missing or invalid **tokens**, **passwords**, API keys, env vars (`.env`, Cesium Ion, `NODE_INGEST_TOKEN`, Ollama, Pi SSH, etc.)
+- Permission prompts, auth failures, or secrets you cannot read or guess
+
+One short message: what failed, what you need, where to put it. Do not retry the same failing auth loop or work around missing credentials without asking.
+
+## Measure, don't guess
+
+**No hedging on facts.** Do not write *probably*, *likely*, *vermutlich*, *should work*, *might*, or similar when describing runtime state, sync, tests, or bugs — unless you label it explicitly as an **unverified hypothesis** and run the check in the same turn.
+
+1. **Verify before you claim** — HTTP probe, `python -m unittest`, `.\scripts\smoke-test.ps1`, `git status`, SSH + `journalctl` on the Pi. Report what the command returned.
+2. **Not checked yet** — say so and run the check; do not infer from docs or code alone.
+3. **Pi ↔ PC** — push (`GET /api/nodes`) and pull (SSH `journalctl -u worldbase_pull`, or authenticated `/api/node/pull`) are separate checks; one result does not prove the other.
+4. **Truth source** — measured output wins. If Python/tests/API return success, state success with evidence; if they fail, state failure with the error text.
+
+Hallucination prevention: **run it, read the output, then speak.**
+
 ## Before coding
 
 1. Confirm backend: `GET /api/health/ping` (or note if stack is down).

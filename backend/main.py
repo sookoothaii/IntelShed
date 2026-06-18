@@ -51,6 +51,7 @@ import volcano_bridge
 import pmtiles_bridge
 import stac_bridge
 import sanctions_bridge
+import markets_bridge
 import aircraft_trails
 import fusion_heatmap
 import intel_ingest
@@ -267,6 +268,7 @@ app.include_router(volcano_bridge.router)
 app.include_router(pmtiles_bridge.router)
 app.include_router(stac_bridge.router)
 app.include_router(sanctions_bridge.router)
+app.include_router(markets_bridge.router)
 app.include_router(aircraft_trails.router)
 app.include_router(fusion_heatmap.router)
 app.include_router(situations.router)

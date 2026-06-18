@@ -31,6 +31,7 @@ from .security import (
     require_admin_token,
     verify_hmac_signature,
     verify_legacy_hmac,
+    verify_legacy_hmac_bytes,
     verify_request_auth,
     verify_token_expiration,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "require_admin_token",
     "verify_hmac_signature",
     "verify_legacy_hmac",
+    "verify_legacy_hmac_bytes",
     "verify_request_auth",
     "verify_token_expiration",
 ]

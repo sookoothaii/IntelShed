@@ -89,3 +89,4 @@ Only drill deeper when a check fails.
 - Smoke test takes ~50 s; queue it but do not block other checks on it
 - If backend is down, do **not** proceed to checks 2/3/4/7 — fix backend first via `.\start.ps1`
 - Never fabricate numbers — if a check times out, report "TIMEOUT" not a guess
+- **No hedging** — never say "probably" or "vermutlich" for status; if Pi pull auth is unknown, SSH and read `journalctl -u worldbase_pull` before reporting

@@ -578,7 +578,43 @@ def verify_legacy_hmac(body: dict, signature: str, secret: str) -> bool:
         return False
 
     try:
-        body_bytes = json.dumps(body, separators=(",", ":")).encode("utf-8")
+        # The Pi may serialize with ensure_ascii=False (raw UTF-8); we cannot
+        # know which it used, so accept either ASCII-escaped or UTF-8 compact
+        # forms. Re-serializing a parsed dict is inherently fragile — prefer
+        # verify_legacy_hmac_bytes() over the exact request bytes when possible.
+        for ascii_only in (True, False):
+            body_bytes = json.dumps(
+                body, separators=(",", ":"), ensure_ascii=ascii_only
+            ).encode("utf-8")
+            expected = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
+            if hmac.compare_digest(expected, signature):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def verify_legacy_hmac_bytes(body_bytes: bytes, signature: str, secret: str) -> bool:
+    """Verify HMAC over the *exact* raw request bytes the client signed.
+
+    Serialization-agnostic: unlike :func:`verify_legacy_hmac`, this does not
+    re-serialize a parsed dict, so it is immune to ``ensure_ascii`` / key-order
+    / float-format / whitespace differences between the signer (Pi) and the
+    verifier (PC). This is the preferred check for node ingest.
+
+    Args:
+        body_bytes: Raw request body bytes (exactly as received).
+        signature: HMAC signature from the X-Node-Token header.
+        secret: Shared secret.
+
+    Returns:
+        True if signature valid, False otherwise.
+    """
+    if not secret:
+        return True  # No authentication required
+    if not signature:
+        return False
+    try:
         expected = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, signature)
     except Exception:
@@ -629,6 +665,7 @@ __all__ = [
     "create_signed_request",
     "verify_token_expiration",
     "verify_legacy_hmac",
+    "verify_legacy_hmac_bytes",
     "generate_secure_nonce",
     "get_auth_config",
     "clear_nonce_cache",
