@@ -88,6 +88,8 @@ Unit tests (no network): `python -m unittest test_operator_briefing test_intel_b
 | Entity resolution (exact + subset + optional Splink) | `backend/entity_resolution.py` — `POST /api/intel/resolution/run` |
 | Live feed ingest (T2 YAML mappings) | `backend/feed_ingest.py`, `backend/ingest/mappings/` — `POST /api/intel/feeds/run` |
 | INTEL graph panel | `frontend/src/components/IntelGraphPanel.tsx` |
+| Pi edge dashboard (DATA → EDGE) | `frontend/src/components/EdgePanel.tsx` — primary node `offgrid-pi`, sparklines via `/api/node/{id}/sensors/history` |
+| Edge online/offline banner | `frontend/src/components/NodeHealthBanner.tsx` |
 | DB | `backend/worldbase.db`, `backend/data/entities.duckdb` |
 
 ---

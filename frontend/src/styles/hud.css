@@ -2305,6 +2305,104 @@ html, body, #root {
 }
 .node-banner-close:hover { color: #b6cfc7; }
 
+.node-banner--online {
+  color: #00e5a0;
+  background: rgba(0, 229, 160, 0.06);
+  border-bottom-color: rgba(0, 229, 160, 0.22);
+}
+.node-banner-tag--online {
+  color: #00e5a0;
+  border-color: rgba(0, 229, 160, 0.45);
+  background: rgba(0, 229, 160, 0.08);
+}
+.node-banner-online-detail {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #8fb7a9;
+}
+
+.edge-panel { margin-top: 4px; }
+.edge-panel-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.edge-status-pill {
+  font-family: var(--display);
+  font-size: 10px;
+  letter-spacing: 1.4px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+}
+.edge-status-pill.online {
+  color: #00e5a0;
+  border-color: rgba(0, 229, 160, 0.45);
+  background: rgba(0, 229, 160, 0.08);
+}
+.edge-status-pill.offline {
+  color: #ff6b35;
+  border-color: rgba(255, 107, 53, 0.45);
+  background: rgba(255, 107, 53, 0.08);
+}
+.edge-locate-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.edge-head {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.edge-section { margin-top: 16px; }
+.edge-section h4 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  font-family: var(--display);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+}
+.edge-svc-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.edge-svc {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--glass);
+}
+.edge-svc.active { color: #00e5a0; border-color: rgba(0, 229, 160, 0.35); }
+.edge-svc.unknown { color: #ffd23f; border-color: rgba(255, 210, 63, 0.35); }
+.edge-svc.down { color: #ff6b35; border-color: rgba(255, 107, 53, 0.35); }
+.edge-mesh-list { display: flex; flex-direction: column; gap: 6px; }
+.edge-mesh-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #8fb7a9;
+  padding: 6px 8px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.edge-mesh-row strong { color: #b6cfc7; }
+.edge-pihole {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #8fb7a9;
+}
+
 .analysis-row {
   display: flex;
   align-items: center;

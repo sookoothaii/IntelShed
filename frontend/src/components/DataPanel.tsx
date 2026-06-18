@@ -22,8 +22,9 @@ import PegelSparkline from './PegelSparkline';
 import StacPanel from './StacPanel';
 import SanctionsPanel from './SanctionsPanel';
 import IntelGraphPanel from './IntelGraphPanel';
+import EdgePanel from './EdgePanel';
 
-const DATA_TABS = ['aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'pegel', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams', 'cve', 'stac', 'sanctions', 'intel'] as const
+const DATA_TABS = ['edge', 'aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'pegel', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams', 'cve', 'stac', 'sanctions', 'intel'] as const
 type DataTab = typeof DATA_TABS[number]
 
 export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
@@ -171,7 +172,8 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
   // Auto-load on tab switch
   useEffect(() => {
     setQuery('')
-    if (tab === 'aircraft') loadAircraft()
+    if (tab === 'edge') { /* EdgePanel self-loads */ }
+    else if (tab === 'aircraft') loadAircraft()
     else if (tab === 'satellites') loadSatellites()
     else if (tab === 'seismic') loadQuakes()
     else if (tab === 'events') loadEvents()
@@ -247,6 +249,8 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
       </div>
 
       {error && <div className="data-error">{error}</div>}
+
+      {tab === 'edge' && <EdgePanel onFocus={onFocus} />}
 
       {(tab === 'aircraft' || tab === 'satellites' || tab === 'seismic' || tab === 'events') && (
         <div className="data-toolbar">

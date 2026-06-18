@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchApi } from '../lib/networkFetch'
+import { PRIMARY_EDGE_NODE } from './EdgePanel'
 
 type NodeRow = {
   node_id: string
@@ -7,6 +8,8 @@ type NodeRow = {
   online?: boolean
   age_seconds?: number | null
   updated_at?: string
+  sensors?: { temp_c?: number; humidity_pct?: number }
+  health?: { cpu_temp_c?: number }
 }
 
 type NodesResponse = {
@@ -29,7 +32,7 @@ function formatAge(seconds: number | null | undefined): string {
 
 export function NodeHealthBanner() {
   const [nodes, setNodes] = useState<NodeRow[]>([])
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
+  const [dismissedOffline, setDismissedOffline] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -52,35 +55,43 @@ export function NodeHealthBanner() {
     return () => { alive = false; window.clearInterval(id) }
   }, [])
 
-  // Reset dismissal when a node transitions back to online — so the next outage shows again.
-  useEffect(() => {
-    if (!nodes.length) return
-    setDismissed((prev) => {
-      const next = new Set(prev)
-      for (const n of nodes) {
-        if (n.online && next.has(n.node_id)) next.delete(n.node_id)
-      }
-      return next
-    })
-  }, [nodes])
-
-  const offline = useMemo(
-    () => nodes.filter((n) => n.online === false && !dismissed.has(n.node_id)),
-    [nodes, dismissed],
+  const primary = useMemo(
+    () => nodes.find((n) => n.node_id === PRIMARY_EDGE_NODE) || null,
+    [nodes],
   )
 
-  if (error || offline.length === 0) return null
+  useEffect(() => {
+    if (primary?.online) setDismissedOffline(false)
+  }, [primary?.online])
+
+  if (error) return null
+
+  if (primary?.online) {
+    const cpu = primary.health?.cpu_temp_c
+    const room = primary.sensors?.temp_c
+    const parts = [
+      cpu != null ? `CPU ${cpu}°C` : null,
+      room != null ? `room ${room}°C` : null,
+      `push ${formatAge(primary.age_seconds)}`,
+    ].filter(Boolean)
+    return (
+      <div className="node-banner node-banner--online" role="status">
+        <span className="node-banner-tag node-banner-tag--online">EDGE ONLINE</span>
+        <span className="node-banner-online-detail">{parts.join(' · ')}</span>
+      </div>
+    )
+  }
+
+  if (!primary || dismissedOffline) return null
 
   return (
     <div className="node-banner" role="status">
       <span className="node-banner-tag">EDGE OFFLINE</span>
       <div className="node-banner-list">
-        {offline.map((n) => (
-          <span key={n.node_id} className="node-banner-row">
-            <strong>{n.name || n.node_id}</strong>
-            <span className="node-banner-age">last seen {formatAge(n.age_seconds)}</span>
-          </span>
-        ))}
+        <span className="node-banner-row">
+          <strong>{primary.name || PRIMARY_EDGE_NODE}</strong>
+          <span className="node-banner-age">last seen {formatAge(primary.age_seconds)}</span>
+        </span>
       </div>
       <span className="node-banner-hint">
         check Pi power / SSH; if recently rebooted, verify PC IP is 192.168.1.111 (DHCP reservation)
@@ -89,7 +100,7 @@ export function NodeHealthBanner() {
         type="button"
         className="node-banner-close"
         aria-label="Dismiss banner"
-        onClick={() => setDismissed(new Set(offline.map((n) => n.node_id)))}
+        onClick={() => setDismissedOffline(true)}
       >
         ×
       </button>
