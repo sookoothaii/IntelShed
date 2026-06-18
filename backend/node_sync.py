@@ -555,6 +555,7 @@ async def generate_briefing_internal(lang: str | None = None):
 
 async def _generate_briefing_unlocked(lang: str | None = None):
     import fusion_heatmap
+    import intel_briefing
     from operator_briefing import (
         build_security_advisor_prompt,
         format_digest_sections,
@@ -564,16 +565,32 @@ async def _generate_briefing_unlocked(lang: str | None = None):
     snap = await _gather_snapshot()
     alerts = _compile_alerts(snap)
     fusion_hotspots, fusion_lines = await fusion_heatmap.top_hotspots_for_llm(top=3)
-    digest = format_digest_sections(snap, alerts, fusion_lines, fusion_hotspots, lang=lang)
+    intel_meta = await asyncio.to_thread(intel_briefing.gather_for_briefing)
+    digest = format_digest_sections(
+        snap,
+        alerts,
+        fusion_lines,
+        fusion_hotspots,
+        intel_meta=intel_meta,
+        lang=lang,
+    )
     prompt = build_security_advisor_prompt(digest, lang=lang)
     text = await _ollama_briefing(prompt)
     if not text:
         text = format_fallback_protocol(digest, lang=lang)
 
     now = datetime.now(timezone.utc).isoformat()
+    intel_src = digest.get("intel") or {}
     sources_payload = {
         "alerts": alerts,
         "fusion_hotspots": fusion_hotspots,
+        "intel": {
+            "enabled": intel_src.get("enabled"),
+            "count": intel_src.get("count", 0),
+            "by_bucket": intel_src.get("by_bucket") or {},
+            "window_hours": intel_src.get("window_hours"),
+            "entities": intel_src.get("entities") or [],
+        },
         "digest": {
             "region": digest.get("region"),
             "region_label": digest.get("region_label"),
@@ -582,6 +599,7 @@ async def _generate_briefing_unlocked(lang: str | None = None):
             "local_count": len(digest.get("local") or []),
             "regional_count": len(digest.get("regional") or []),
             "global_count": len(digest.get("global") or []),
+            "intel_count": intel_src.get("count", 0),
         },
         "style": "security_advisor_24h",
     }
@@ -624,6 +642,7 @@ async def latest_briefing():
         "text": row["text"],
         "alerts": sources.get("alerts", []),
         "fusion_hotspots": sources.get("fusion_hotspots", []),
+        "intel": sources.get("intel"),
         "digest": sources.get("digest"),
         "style": sources.get("style"),
     }

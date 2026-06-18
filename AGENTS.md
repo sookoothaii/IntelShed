@@ -42,21 +42,29 @@ Unless the user says otherwise, prioritize:
 ## Briefing pipeline
 
 ```
-_gather_snapshot()  →  format_digest_sections()  →  Ollama prompt  →  SQLite briefings
+_gather_snapshot()  →  intel_briefing.gather_for_briefing()  →  format_digest_sections()
+                              ↑                                      ↑
+                    live feeds (GDELT, quakes, …)              FtM graph (who/what)
+                              ↓
+                    build_security_advisor_prompt()  →  Ollama  →  SQLite briefings
                               ↑
-                    gdelt_pulse_local, airquality, quakes, hazards, fusion top-3
+                    fusion top-3 + INTEL ENTITIES block in prompt
 ```
+
+Stored briefing JSON (`sources` column) includes `intel` (entity count, buckets, slim entity list) and `digest.intel_count`. Pi pull includes `fusion_hotspots`; full intel metadata stays on PC unless extended in `node_sync.py`.
 
 | Action | Endpoint / file |
 |--------|-----------------|
-| Latest text | `GET /api/briefing` |
+| Latest text | `GET /api/briefing` — text, `digest`, `intel`, `fusion_hotspots` |
 | Force generate | `POST /api/briefing/generate` |
+| FtM → digest bridge | `backend/intel_briefing.py` |
 | Autopilot | `WORLDBASE_BRIEFING_AUTOPILOT=1`, interval `WORLDBASE_BRIEFING_INTERVAL` (default 6 h) |
+| FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
 | German output | `WORLDBASE_BRIEFING_LANG=de` (UI strings stay English) |
 | Pi payload | `GET /api/node/pull` (+ `X-Node-Token` when `NODE_INGEST_TOKEN` set) |
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 
-Unit tests (no network): `python -m unittest test_operator_briefing test_ftm_store test_entity_resolution test_feed_ingest -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_operator_briefing test_intel_briefing test_ftm_store test_entity_resolution test_feed_ingest -v` in `backend/`.
 
 ---
 
@@ -70,12 +78,13 @@ Unit tests (no network): `python -m unittest test_operator_briefing test_ftm_sto
 | Feeds + cache | `backend/feeds_extra.py`, `backend/feed_registry.py` |
 | Node sync + briefing routes | `backend/node_sync.py` |
 | Operator digest | `backend/operator_briefing.py` |
+| FtM → 24h briefing | `backend/intel_briefing.py` |
 | GDELT | `backend/gdelt_bridge.py` |
 | Fusion → briefing | `backend/fusion_heatmap.py` |
 | RAG | `backend/rag_memory.py` |
 | FtM entity store | `backend/ftm_store.py` |
 | Document intel ingest (GLiNER; GLiREL opt-in) | `backend/intel_ingest.py`, [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md), [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) |
-| Entity resolution (Splink sameAs edges) | `backend/entity_resolution.py` — `POST /api/intel/resolution/run` |
+| Entity resolution (exact + subset + optional Splink) | `backend/entity_resolution.py` — `POST /api/intel/resolution/run` |
 | Live feed ingest (T2 YAML mappings) | `backend/feed_ingest.py`, `backend/ingest/mappings/` — `POST /api/intel/feeds/run` |
 | INTEL graph panel | `frontend/src/components/IntelGraphPanel.tsx` |
 | DB | `backend/worldbase.db`, `backend/data/entities.duckdb` |
@@ -119,6 +128,7 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | LOCAL block thin | GDELT rate limits; verify `/api/gdelt/pulse/local` |
 | Pi old brief | deploy scripts + token; `brief.source` should be `worldbase-pc` |
 | INTEL ingest 503 | optional ML stack not installed — see `docs/INTEL_INGEST.md` + `backend/requirements.txt` |
+| API 500 / startup crash (DuckDB) | Only one process may open `entities.duckdb`; `ftm_store.init_store()` is fail-soft — check `GET /api/health` → `ftm.ready` |
 | Paths break in PS | `-LiteralPath` for `D:\MCP Mods\worldbase` |
 
 Full table: [`LLM_HANDOFF.md`](LLM_HANDOFF.md) → “If Something Breaks”.

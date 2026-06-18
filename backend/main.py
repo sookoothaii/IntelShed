@@ -421,7 +421,12 @@ def on_startup():
     init_db()
     prune_feed_cache()
     entity_store.init_entity_db()
-    ftm_store.init_store()
+    if not ftm_store.init_store():
+        print(
+            "[FTM] Intel graph offline — DuckDB locked or missing. "
+            "/api/intel/* and briefing FtM block may be empty until restart.",
+            flush=True,
+        )
     node_sync.init_node_db()
     node_sync.init_command_db()
     anomaly_river.init_river_db()
@@ -576,6 +581,11 @@ async def health():
     result = await asyncio.to_thread(_build)
     result["database"] = db_type
     result["db_connected"] = db_connected
+    try:
+        import ftm_store
+        result["ftm"] = ftm_store.store_status()
+    except Exception:
+        result["ftm"] = {"ready": False, "error": "unavailable"}
     return result
 
 
@@ -744,6 +754,19 @@ async def build_chat_context() -> str:
         if fusion_hotspots:
             parts.append("\nFUSION HOTSPOTS (8-feed grid, top 3):")
             parts.append(fusion_lines)
+    except Exception:
+        pass
+
+    # FtM graph entities (who/what from feeds + ingest)
+    try:
+        import intel_briefing
+
+        intel_ctx = await asyncio.to_thread(intel_briefing.gather_for_briefing)
+        if intel_ctx.get("enabled") and intel_ctx.get("candidates"):
+            finalized = intel_briefing.finalize_intel_for_digest(intel_ctx, existing_text_keys=set())
+            block = intel_briefing.format_intel_chat_context(finalized)
+            if block:
+                parts.append(f"\n{block}")
     except Exception:
         pass
 

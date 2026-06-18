@@ -32,6 +32,10 @@ def autopilot_on() -> bool:
     return _truthy_env("WORLDBASE_FEED_INGEST_AUTOPILOT", "1")
 
 
+def resolve_after_feeds() -> bool:
+    return _truthy_env("WORLDBASE_ENTITY_RESOLUTION_AFTER_FEEDS", "0")
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -303,6 +307,22 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
         "ftm_stats": ftm_store.stats(),
         "errors": errors[:10],
     }
+
+    if resolve_after_feeds() and out["ok"]:
+        try:
+            import entity_resolution
+
+            resolution = await asyncio.to_thread(entity_resolution.run_resolution)
+            out["resolution"] = {
+                "edges_added": resolution.get("edges_added", 0),
+                "exact_edges": resolution.get("exact_edges", 0),
+                "subset_edges": resolution.get("subset_edges", 0),
+                "splink_edges": resolution.get("splink_edges", 0),
+                "resolution_edges_total": resolution.get("resolution_edges_total", 0),
+            }
+        except Exception as exc:
+            out["errors"] = list(out["errors"]) + [f"resolution: {exc}"]
+
     _LAST_RUN = out
     _LAST_ERROR = errors[0] if errors else None
     return out
@@ -318,6 +338,7 @@ def status() -> dict:
         "last_run": _LAST_RUN,
         "last_error": _LAST_ERROR,
         "ftm_stats": ftm_store.stats(),
+        "resolve_after_feeds": resolve_after_feeds(),
     }
 
 

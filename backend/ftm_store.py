@@ -39,6 +39,7 @@ from followthemoney import model
 _DB_PATH: str | None = None
 _CONN: duckdb.DuckDBPyConnection | None = None
 _LOCK = threading.RLock()
+_INIT_ERROR: str | None = None
 
 
 def _default_db_path() -> str:
@@ -57,15 +58,37 @@ def _now() -> str:
 
 
 def _conn() -> duckdb.DuckDBPyConnection:
-    global _CONN
+    global _CONN, _INIT_ERROR
     if _CONN is not None:
         return _CONN
     if not _DB_PATH:
         set_db_path()
     os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)  # type: ignore[arg-type]
-    _CONN = duckdb.connect(_DB_PATH)  # type: ignore[arg-type]
-    _create_schema(_CONN)
+    try:
+        _CONN = duckdb.connect(_DB_PATH)  # type: ignore[arg-type]
+        _create_schema(_CONN)
+        _INIT_ERROR = None
+    except Exception as exc:
+        _INIT_ERROR = str(exc)
+        raise
     return _CONN
+
+
+def store_ready() -> bool:
+    """True when DuckDB is open in this process."""
+    return _CONN is not None
+
+
+def store_status() -> dict[str, Any]:
+    """Compact readiness for /api/health and operator monitors."""
+    if _CONN is not None:
+        try:
+            with _LOCK:
+                n = _CONN.execute("SELECT count(*) FROM entities").fetchone()[0]
+            return {"ready": True, "entities": int(n), "error": None}
+        except Exception as exc:
+            return {"ready": False, "entities": 0, "error": str(exc)}
+    return {"ready": False, "entities": 0, "error": _INIT_ERROR or "not initialized"}
 
 
 def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
@@ -109,10 +132,17 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
-def init_store() -> None:
-    """Idempotent: open the connection and ensure the schema exists."""
-    with _LOCK:
-        _conn()
+def init_store() -> bool:
+    """Idempotent: open the connection and ensure the schema exists (fail-soft)."""
+    global _INIT_ERROR
+    try:
+        with _LOCK:
+            _conn()
+        return True
+    except Exception as exc:
+        _INIT_ERROR = str(exc)
+        print(f"[FTM] store unavailable: {exc}", flush=True)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -583,6 +613,21 @@ def count_edges_for_dataset(dataset: str) -> int:
     return int(row[0] if row else 0)
 
 
+def delete_edges_for_dataset(dataset: str) -> int:
+    """Remove every edge from one provenance dataset; returns the count deleted.
+
+    Entity resolution is append-only, so this is the supported way to reset a
+    resolution run (e.g. after a config change) without touching ingested data.
+    """
+    with _LOCK:
+        con = _conn()
+        before = con.execute(
+            "SELECT count(*) FROM edges WHERE dataset = ?", [dataset]
+        ).fetchone()
+        con.execute("DELETE FROM edges WHERE dataset = ?", [dataset])
+        return int(before[0] if before else 0)
+
+
 def list_entities_recent(limit: int = 50, dataset: str | None = None) -> dict:
     """Compact entity list for monitors and compatibility routes."""
     limit = max(1, min(int(limit), 500))
@@ -622,6 +667,114 @@ def list_entities_recent(limit: int = 50, dataset: str | None = None) -> dict:
         for r in rows
     ]
     return {"count": len(entities), "entities": entities}
+
+
+def _same_as_neighbour_map(
+    entity_ids: list[str],
+    *,
+    per_entity: int = 2,
+) -> dict[str, list[dict]]:
+    """Map entity id -> linked sameAs neighbours (caption + schema), capped per entity."""
+    if not entity_ids or per_entity <= 0:
+        return {}
+    out: dict[str, list[dict]] = {eid: [] for eid in entity_ids}
+    placeholders = ", ".join("?" * len(entity_ids))
+    params = [*entity_ids, *entity_ids]
+    with _LOCK:
+        rows = _conn().execute(
+            f"""
+            SELECT source_id, target_id, confidence
+            FROM edges
+            WHERE kind = 'sameAs'
+              AND (source_id IN ({placeholders}) OR target_id IN ({placeholders}))
+            ORDER BY confidence DESC NULLS LAST
+            """,
+            params,
+        ).fetchall()
+    seen_pairs: dict[str, set[str]] = {eid: set() for eid in entity_ids}
+    for source_id, target_id, confidence in rows:
+        for eid, other in ((source_id, target_id), (target_id, source_id)):
+            if eid not in out or other in seen_pairs[eid]:
+                continue
+            if len(out[eid]) >= per_entity:
+                continue
+            neighbour = get_entity(other)
+            if not neighbour:
+                continue
+            seen_pairs[eid].add(other)
+            out[eid].append({
+                "id": neighbour["id"],
+                "schema": neighbour["schema"],
+                "caption": neighbour.get("caption") or neighbour["id"][:12],
+                "confidence": confidence,
+            })
+    return out
+
+
+def entities_for_briefing(
+    *,
+    window_hours: int = 24,
+    fetch_limit: int = 200,
+    exclude_schemas: Iterable[str] | None = None,
+    include_same_as: bool = True,
+    same_as_per_entity: int = 2,
+) -> list[dict]:
+    """Geolocated FtM entities seen recently — ranked candidates for the 24h digest."""
+    from datetime import timedelta
+
+    fetch_limit = max(1, min(int(fetch_limit), 500))
+    window_hours = max(1, int(window_hours))
+    excluded = {s.strip() for s in (exclude_schemas or []) if s and str(s).strip()}
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
+
+    clauses = [
+        "e.lat IS NOT NULL",
+        "e.lon IS NOT NULL",
+        "e.last_seen IS NOT NULL",
+        "e.last_seen >= ?",
+    ]
+    params: list[Any] = [cutoff]
+    if excluded:
+        placeholders = ", ".join("?" * len(excluded))
+        clauses.append(f"e.schema NOT IN ({placeholders})")
+        params.extend(sorted(excluded))
+
+    sql = f"""
+        SELECT e.id, e.schema, e.caption, e.lat, e.lon, e.datasets, e.last_seen
+        FROM entities e
+        WHERE {" AND ".join(clauses)}
+        ORDER BY e.last_seen DESC
+        LIMIT ?
+    """
+    params.append(fetch_limit)
+
+    with _LOCK:
+        rows = _conn().execute(sql, params).fetchall()
+
+    entities: list[dict] = []
+    for row in rows:
+        datasets = json.loads(row[5] or "[]")
+        entities.append({
+            "id": row[0],
+            "schema": row[1],
+            "caption": row[2] or row[0][:12],
+            "lat": row[3],
+            "lon": row[4],
+            "datasets": datasets,
+            "last_seen": row[6],
+        })
+
+    if include_same_as and entities:
+        neighbour_map = _same_as_neighbour_map(
+            [e["id"] for e in entities],
+            per_entity=same_as_per_entity,
+        )
+        for ent in entities:
+            links = neighbour_map.get(ent["id"]) or []
+            if links:
+                ent["same_as"] = links
+
+    return entities
 
 
 def graph_stats() -> dict:

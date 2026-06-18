@@ -58,6 +58,10 @@ const SCHEMA_COLOR: Record<string, string> = {
   Event: '#ff6b6b',
   Document: '#b07cff',
 }
+
+/** Overview defaults: operator-relevant schemas (excludes Airplane noise). */
+const OVERVIEW_SCHEMAS = ['Event', 'Vessel', 'Person', 'Organization', 'Address', 'Document'] as const
+type OverviewSchema = (typeof OVERVIEW_SCHEMAS)[number]
 type ResolutionStatus = {
   available: boolean
   splink_version?: string | null
@@ -98,6 +102,9 @@ export default function IntelGraphPanel({ onFocus }: Props) {
   const [feedStatus, setFeedStatus] = useState<FeedStatus | null>(null)
   const [edgeTip, setEdgeTip] = useState<string | null>(null)
   const [graphEmpty, setGraphEmpty] = useState(true)
+  const [schemaFilter, setSchemaFilter] = useState<Set<OverviewSchema>>(
+    () => new Set(['Event', 'Vessel', 'Person', 'Organization']),
+  )
 
   const cyRef = useRef<Core | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -278,6 +285,8 @@ export default function IntelGraphPanel({ onFocus }: Props) {
         limit: '120',
         datasets: 'gdacs,gdelt-pulse,gdelt-geo,ais,eonet,intel-ingest',
       })
+      const schemas = [...schemaFilter]
+      if (schemas.length) qs.set('schemas', schemas.join(','))
       const r = await fetchApi(`/api/intel/graph/overview?${qs}`)
       const g: GraphData = await r.json()
       if (!g.found) {
@@ -287,7 +296,16 @@ export default function IntelGraphPanel({ onFocus }: Props) {
       }
       renderGraph(g)
     } catch (e: any) { setError(`overview: ${e.message || e}`) }
-  }, [renderGraph])
+  }, [renderGraph, schemaFilter])
+
+  const toggleSchema = (schema: OverviewSchema) => {
+    setSchemaFilter(prev => {
+      const next = new Set(prev)
+      if (next.has(schema)) next.delete(schema)
+      else next.add(schema)
+      return next
+    })
+  }
 
   const loadGraph = useCallback(async (id: string) => {
     if (!id) return
@@ -307,7 +325,11 @@ export default function IntelGraphPanel({ onFocus }: Props) {
       const d = await r.json()
       if (!r.ok) { setError(d.detail || `feed sync failed (${r.status})`); return }
       const t = d.totals || {}
-      setInfo(`✓ feeds +${t.entities ?? 0} entities · ${t.records ?? 0} records — loading overview…`)
+      const res = d.resolution
+      const resLine = res
+        ? ` · resolve +${res.edges_added ?? 0} (${res.subset_edges ?? 0} subset)`
+        : ''
+      setInfo(`✓ feeds +${t.entities ?? 0} entities · ${t.records ?? 0} records${resLine} — loading overview…`)
       fetchFeedStatus()
       await loadOverview()
     } catch (e: any) { setError(`feeds: ${e.message || e}`) }
@@ -320,7 +342,7 @@ export default function IntelGraphPanel({ onFocus }: Props) {
       const r = await fetchApi('/api/intel/resolution/run', { method: 'POST' })
       const d = await r.json()
       if (!r.ok) { setError(d.detail || `resolution failed (${r.status})`); return }
-      setInfo(`✓ resolution +${d.edges_added ?? 0} edges (${d.exact_edges ?? 0} exact · ${d.splink_edges ?? 0} splink)`)
+      setInfo(`✓ resolution +${d.edges_added ?? 0} edges (${d.exact_edges ?? 0} exact · ${d.subset_edges ?? 0} subset · ${d.splink_edges ?? 0} splink)`)
       fetchResolutionStatus()
       if (rootId) await loadGraph(rootId)
       else await loadOverview()
@@ -434,6 +456,19 @@ export default function IntelGraphPanel({ onFocus }: Props) {
           <button className="data-refresh" onClick={loadOverview} disabled={busy} title="Show recent feed + ingest entities">OVERVIEW</button>
           <button className="data-refresh" onClick={runFeeds} disabled={busy} title="Pull GDACS/GDELT/EONET/AIS/anomalies into FtM">SYNC FEEDS</button>
           <button className="data-refresh" onClick={runResolution} disabled={busy || !resStatus?.available} title="Splink entity resolution -> sameAs edges">RESOLVE</button>
+        </div>
+        <div className="intel-schema-filter" title="Filter overview graph by FtM schema (excludes Airplane by default)">
+          {OVERVIEW_SCHEMAS.map(s => (
+            <button
+              key={s}
+              type="button"
+              className={`intel-schema-pill${schemaFilter.has(s) ? ' active' : ''}`}
+              style={schemaFilter.has(s) ? { borderColor: schemaColor(s), color: schemaColor(s) } : undefined}
+              onClick={() => toggleSchema(s)}
+            >
+              {s}
+            </button>
+          ))}
         </div>
         {error && <div className="data-error">{error}</div>}
         <div className="intel-graph-wrap">

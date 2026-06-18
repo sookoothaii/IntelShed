@@ -10,7 +10,7 @@ Read [`AGENTS.md`](../../AGENTS.md) at session start. Use [`LLM_HANDOFF.md`](../
 ## Before coding
 
 1. Confirm backend: `GET /api/health/ping` (or note if stack is down).
-2. For briefing work: skim `GET /api/briefing` or run `python -m unittest test_operator_briefing` in `backend/`.
+2. For briefing work: skim `GET /api/briefing` (`intel.count`, `digest.intel_count`) or run `python -m unittest test_operator_briefing test_intel_briefing` in `backend/`.
 3. After substantive changes: `.\scripts\smoke-test.ps1` when feasible.
 
 ## Default focus

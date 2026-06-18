@@ -88,6 +88,25 @@ class FtmStoreTest(unittest.TestCase):
         self.assertTrue(ov["found"])
         self.assertGreaterEqual(len(ov["nodes"]), 1)
 
+    def test_entities_for_briefing_requires_coordinates(self):
+        p = ftm_store.make_entity("Person", ["no-geo"], {"name": ["Ghost"]})
+        ftm_store.upsert(p, dataset="osint")
+        rows = ftm_store.entities_for_briefing(window_hours=48)
+        self.assertEqual(rows, [])
+
+        ev = ftm_store.make_entity("Event", ["geo"], {"name": ["Mapped Event"]})
+        ftm_store.upsert(ev, dataset="eonet", lat=14.0, lon=101.0)
+        rows = ftm_store.entities_for_briefing(window_hours=48, exclude_schemas={"Airplane"})
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["schema"], "Event")
+
+    def test_store_status_reports_init_error(self):
+        ftm_store._CONN = None
+        ftm_store._INIT_ERROR = "IO Error: file locked"
+        st = ftm_store.store_status()
+        self.assertFalse(st["ready"])
+        self.assertIn("locked", st["error"])
+
     def test_compat_entity_list_and_graph_stats(self):
         p = ftm_store.make_entity("Person", ["c1"], {"name": "Compat Test"})
         ftm_store.upsert(p, dataset="livetest")

@@ -259,10 +259,27 @@ def format_digest_sections(
     alerts: list[dict],
     fusion_lines: str,
     fusion_hotspots: list[dict],
+    *,
+    intel_meta: dict | None = None,
     lang: str | None = None,
 ) -> dict[str, Any]:
     lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
+
+    intel_block: dict[str, Any] = {"enabled": False, "count": 0, "entities": [], "items": []}
+    if intel_meta is not None:
+        try:
+            import intel_briefing
+
+            feed_keys = {i.get("text", "")[:80].lower() for i in items if i.get("text")}
+            intel_block = intel_briefing.finalize_intel_for_digest(
+                intel_meta,
+                existing_text_keys=feed_keys,
+            )
+            items.extend(intel_block.get("items") or [])
+        except Exception:
+            pass
+
     buckets = {"local": [], "regional": [], "global": []}
     for item in items:
         buckets.setdefault(item["bucket"], []).append(item)
@@ -321,6 +338,15 @@ def format_digest_sections(
         "global": global_lines or [empty_global],
         "fusion": fusion_lines,
         "fusion_hotspots": fusion_hotspots,
+        "intel": {
+            "enabled": intel_block.get("enabled", False),
+            "count": intel_block.get("count", 0),
+            "by_bucket": intel_block.get("by_bucket") or {},
+            "entities": intel_block.get("entities") or [],
+            "items": intel_block.get("items") or [],
+            "window_hours": intel_block.get("window_hours"),
+            "error": intel_block.get("error"),
+        },
         "cyber": cyber_lines,
         "infra": infra_bits,
         "nodes": node_lines,
@@ -355,8 +381,11 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
             "RECOMMENDATION — 1–2 Sätze: ruhig, umsetzbar, keine Panik\n"
         )
         no_data_clause = (
-            "Nutze NUR das untenstehende Feed-Digest. Wenn ein Abschnitt keine Daten hat, "
-            "schreibe klar, dass die Feeds dort nichts Auffälliges zeigen (keine Ereignisse erfinden)."
+            "Nutze NUR das untenstehende Feed-Digest und die INTEL ENTITIES. "
+            "Wenn ein Abschnitt keine Daten hat, schreibe klar, dass die Feeds dort "
+            "nichts Auffälliges zeigen (keine Ereignisse erfinden). "
+            "Bei INTEL ENTITIES: nenne konkrete Akteure/Orte/Ereignisse aus dem FtM-Graph, "
+            "nicht generische Feed-Schlagzeilen wiederholen."
         )
         digest_header = "--- DIGEST"
         protocol_label = "Protokoll:"
@@ -374,14 +403,27 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
             "RECOMMENDATION — 1–2 sentences: calm, actionable, no panic\n"
         )
         no_data_clause = (
-            "Use ONLY the feed digest below. If a section has no data, say clearly that "
-            "feeds show nothing notable (do not invent events)."
+            "Use ONLY the feed digest and INTEL ENTITIES below. If a section has no data, "
+            "say clearly that feeds show nothing notable (do not invent events). "
+            "For INTEL ENTITIES: name specific actors/places/events from the FtM graph; "
+            "do not repeat generic feed headlines."
         )
         digest_header = "--- DIGEST"
         protocol_label = "Protocol:"
         final_reminder = (
             "Reminder: write the entire protocol body in English."
         )
+
+    intel_prompt = ""
+    try:
+        import intel_briefing
+
+        intel_prompt = intel_briefing.format_intel_prompt_block(
+            {"items": digest.get("intel", {}).get("items") or []},
+            lang=lang,
+        )
+    except Exception:
+        intel_prompt = "- Intel graph unavailable."
 
     return (
         "You produce a 24-hour security & situational awareness protocol for one operator.\n"
@@ -397,6 +439,7 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
         f"LOCAL signals:\n" + "\n".join(digest["local"]) + "\n\n"
         f"REGION signals:\n" + "\n".join(digest["regional"]) + "\n\n"
         f"GLOBAL signals:\n" + "\n".join(digest["global"]) + "\n\n"
+        f"{intel_prompt}\n\n"
         f"Fusion hotspots (spatial grid):\n{digest['fusion']}\n\n"
         f"Cyber (CISA KEV):\n" + "\n".join(digest["cyber"]) + "\n\n"
         f"Infra:\n" + "\n".join(f"- {x}" for x in digest["infra"]) + "\n\n"
@@ -415,14 +458,24 @@ def format_fallback_protocol(digest: dict[str, Any], lang: str | None = None) ->
             "REGION: " + " ".join(digest["regional"]).replace("- ", ""),
             "GLOBAL: " + " ".join(digest["global"][:3]).replace("- ", ""),
             "Fusion: " + digest["fusion"].replace("\n", " "),
-            "EMPFEHLUNG: LLM offline — Rohdaten oben prüfen; keine automatische Bewertung.",
         ]
+        intel_items = digest.get("intel", {}).get("items") or []
+        if intel_items:
+            parts.append(
+                "INTEL: " + " ".join(i.get("text", "") for i in intel_items[:4])
+            )
+        parts.append(
+            "EMPFEHLUNG: LLM offline — Rohdaten oben prüfen; keine automatische Bewertung."
+        )
         return "\n\n".join(parts)
     parts = [
         f"LOCAL ({region}): " + " ".join(digest["local"]).replace("- ", ""),
         "REGION: " + " ".join(digest["regional"]).replace("- ", ""),
         "GLOBAL: " + " ".join(digest["global"][:3]).replace("- ", ""),
         "Fusion: " + digest["fusion"].replace("\n", " "),
-        "NOTE: LLM offline — review raw digest above.",
     ]
+    intel_items = digest.get("intel", {}).get("items") or []
+    if intel_items:
+        parts.append("INTEL: " + " ".join(i.get("text", "") for i in intel_items[:4]))
+    parts.append("NOTE: LLM offline — review raw digest above.")
     return "\n\n".join(parts)
