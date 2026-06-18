@@ -360,7 +360,7 @@ Stack: `docker-compose.yml` — `web` (Caddy SPA + `/api` proxy), `backend` (Fas
 ### Git / CI
 - **PR #1 merged** — `feature/cesium-1.142-eval` → `main` (CI green, smoke 23/23)
 - `.gitignore`: `*.db-shm`, `*.db-wal`; `ADSB_PRIMARY` in `backend/.env.example`
-- Submodule `offgrid-raspi` @ `91683d8`
+- Submodule `offgrid-raspi` — run `git submodule status` for pinned commit (PC) or `git rev-parse HEAD` on Pi clone
 
 ### Pi ↔ PC sync (live)
 - **`worldbase_push.py`**: reads OGN paths (`esp32_state.json`, `mesh_state.json`, `gps_location.json`)
@@ -705,7 +705,7 @@ Polish / tech debt:
 | HUD shows `adsb.fi` under AIRCRAFT | Working as designed | adsb.lol empty/slow — fi regional grid active |
 | CRISES at 0,0 or empty | ReliefWeb v1 dead (410) | GDACS + geocoding; optional `RELIEFWEB_APPNAME` |
 | MAP shows Thailand not world | Default archive for speed | Select **planet_full** in dropdown (~130 GB) |
-| Pi `sensors`/`mesh` empty on PC | Old push paths or stale buffer replay | Deploy `worldbase_push.py` @ `91683d8+`; `rm worldbase_push_buffer.jsonl`; see `WORLDBASE_PI_SYNC.md` |
+| Pi `sensors`/`mesh` empty on PC | Old push paths or stale buffer replay | Deploy latest `worldbase_push.py`; `rm worldbase_push_buffer.jsonl`; see `WORLDBASE_PI_SYNC.md` |
 | Portal `env: python3\r` after deploy | CRLF from Windows SCP | LF-encode before scp; **never** `tr -d '\r'` (corrupts shebang) |
 | Portal GEOPOL shows local brief only | Old portal or pull down | `briefing_latest.json` present; portal `brief.source` should be `worldbase-pc` |
 | 🛡️ firewall inactive | HAK_GAL not on :8001 | Start orchestrator; `FIREWALL_HOST=localhost:8001` |

@@ -63,6 +63,7 @@ Stored briefing JSON (`sources` column) includes `intel` (entity count, buckets,
 | German output | `WORLDBASE_BRIEFING_LANG=de` (UI strings stay English) |
 | Pi payload | `GET /api/node/pull` (+ `X-Node-Token` when `NODE_INGEST_TOKEN` set) |
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
+| Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
 Unit tests (no network): `python -m unittest test_operator_briefing test_intel_briefing test_ftm_store test_entity_resolution test_feed_ingest -v` in `backend/`.
 
