@@ -13,7 +13,6 @@ interface Situation { id: string; title: string; severity: string; created_at: s
 interface AirQualityCity { city: string; aqi: number; pm25: number; lat: number; lon: number; time: string; pm10?: number }
 interface GDACSAlert { id: string; name: string; type: string; severity: string; date: string; lat: number; lon: number; url: string; title?: string; description?: string; published?: string; link?: string }
 interface RiverGauge { uuid: string; name: string; water: string; lat: number; lon: number; value: number; unit: string; severity: string; timestamp: string; state_mnw_mhw?: string; state_nsw_hsw?: string }
-interface WeatherPoint { lat: number; lon: number; temp_c: number; wind_kph: number; desc: string; updated: string; timezone?: string; current?: any; units?: any }
 
 const SAT_GROUPS = ['starlink', 'stations', 'gps-ops', 'weather']
 
@@ -23,11 +22,18 @@ import StacPanel from './StacPanel';
 import SanctionsPanel from './SanctionsPanel';
 import IntelGraphPanel from './IntelGraphPanel';
 import EdgePanel from './EdgePanel';
+import WeatherSection from './WeatherSection';
 
 const DATA_TABS = ['edge', 'aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'pegel', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams', 'cve', 'stac', 'sanctions', 'intel'] as const
 type DataTab = typeof DATA_TABS[number]
 
-export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
+export default function DataPanel({
+  onFocus,
+  onOpenWindyMap,
+}: {
+  onFocus: (f: Omit<FocusTarget, 'ts'>) => void
+  onOpenWindyMap?: (lat: number, lon: number) => void
+}) {
   const fmtNum = (n: any, digits = 0): string => {
     const v = Number(n)
     return Number.isFinite(v) ? v.toFixed(digits) : '—'
@@ -91,7 +97,6 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
   const [airquality, setAirquality] = useState<{ cities: AirQualityCity[]; updated: string; error?: string } | null>(null)
   const [gdacs, setGdacs] = useState<{ count: number; alerts: GDACSAlert[]; error?: string } | null>(null)
   const [pegel, setPegel] = useState<{ count: number; alerts: number; gauges: RiverGauge[]; error?: string } | null>(null)
-  const [weather, setWeather] = useState<WeatherPoint | null>(null)
   const [wildfires, setWildfires] = useState<{ count: number; fires: any[]; updated: string } | null>(null)
   const [lightning, setLightning] = useState<{ count: number; strikes: any[]; updated: string } | null>(null)
   const [energy, setEnergy] = useState<any>(null)
@@ -137,7 +142,6 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
   const loadAirquality = () => fetchFeed('airquality', '/api/airquality', (d: any) => setAirquality(d))
   const loadGdacs = () => fetchFeed('gdacs', '/api/gdacs', (d: any) => setGdacs(d))
   const loadPegel = () => fetchFeed('pegel', '/api/pegel', (d: any) => setPegel(d))
-  const loadWeather = () => fetchFeed('weather', '/api/weather?lat=13.75&lon=100.5', (d: any) => setWeather(d))
   const loadWildfires = () => fetchFeed('wildfires', '/api/wildfires', (d: any) => setWildfires(d))
   const loadLightning = () => fetchFeed('lightning', '/api/lightning', (d: any) => setLightning(d))
   const loadEnergy = () => fetchFeed('energy', '/api/energy/de', (d: any) => setEnergy(d))
@@ -164,7 +168,9 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
     }
   }
   const loadWebcams = () => {
-    const url = webcamCategory ? `/api/webcams?category=${webcamCategory}` : '/api/webcams'
+    const url = webcamCategory && webcamCategory !== 'all'
+      ? `/api/webcams?category=${encodeURIComponent(webcamCategory)}`
+      : '/api/webcams'
     fetchFeed('webcams', url, (d: any) => setWebcams(d))
   }
   const loadCve = () => fetchFeed('cve', '/api/cve?limit=40', (d: any) => setCve(d))
@@ -188,7 +194,6 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
     else if (tab === 'airquality') loadAirquality()
     else if (tab === 'gdacs') loadGdacs()
     else if (tab === 'pegel') loadPegel()
-    else if (tab === 'weather') loadWeather()
     else if (tab === 'wildfires') loadWildfires()
     else if (tab === 'lightning') loadLightning()
     else if (tab === 'energy') loadEnergy()
@@ -680,24 +685,10 @@ export default function DataPanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
       )}
 
       {tab === 'weather' && (
-        <section>
-          <button onClick={loadWeather} disabled={loading['weather']}>{loading['weather'] ? 'Loading…' : '↻ Refresh'}</button>
-          {!weather && <div className="health-status pending">No weather data</div>}
-          {weather && (
-            <div className="iss-card">
-              <strong>Point Weather ({weather.lat?.toFixed(2)}, {weather.lon?.toFixed(2)})</strong>
-              <div>Timezone: {weather.timezone || '—'}</div>
-              {weather.current && (
-                <>
-                  <div>Temperature: {weather.current.temperature_2m}{weather.units?.temperature_2m || '°C'}</div>
-                  <div>Humidity: {weather.current.relative_humidity_2m}{weather.units?.relative_humidity_2m || '%'}</div>
-                  <div>Wind: {weather.current.wind_speed_10m}{weather.units?.wind_speed_10m || 'km/h'} {weather.current.wind_direction_10m}°</div>
-                  <div>Pressure: {weather.current.pressure_msl}{weather.units?.pressure_msl || 'hPa'}</div>
-                </>
-              )}
-            </div>
-          )}
-        </section>
+        <WeatherSection
+          onFocus={onFocus}
+          onOpenWindyMap={(lat, lon) => onOpenWindyMap?.(lat, lon)}
+        />
       )}
 
       {tab === 'wildfires' && (

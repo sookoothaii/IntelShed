@@ -216,6 +216,7 @@ type Stats = {
   outages: number
   volcanoes: number
   airquality: number
+  weather: number
   pegel: number
   osint: number
   energy: number
@@ -241,6 +242,7 @@ type GlobeLayers = {
   outages: boolean
   volcanoes: boolean
   airquality: boolean
+  weather: boolean
   pegel: boolean
   energy: boolean
   osint: boolean
@@ -317,6 +319,7 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
         formatValue: (s) => (s.spaceweather ? s.spaceweather.toFixed(2) : '—'),
       },
       { layer: 'airquality', label: 'AIR QUALITY', statKey: 'airquality', color: '#b0c4b1', healthKeys: ['airquality'], tip: 'Air quality (AQI/PM2.5) per city.' },
+      { layer: 'weather', label: 'WEATHER', statKey: 'weather', color: '#4fc3f7', healthKeys: ['weather', 'windy'], tip: 'Surface temp grid (Windy Point Forecast).' },
     ],
   },
   {
@@ -374,6 +377,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       outages: true,
       volcanoes: false,
       airquality: false,
+      weather: true,
       pegel: false,
       energy: false,
       osint: true,
@@ -404,6 +408,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       outages: true,
       volcanoes: false,
       airquality: false,
+      weather: false,
       pegel: true,
       energy: true,
       osint: false,
@@ -434,6 +439,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       outages: false,
       volcanoes: false,
       airquality: false,
+      weather: true,
       pegel: false,
       energy: false,
       osint: true,
@@ -464,6 +470,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       outages: true,
       volcanoes: false,
       airquality: false,
+      weather: true,
       pegel: false,
       energy: false,
       osint: true,
@@ -586,7 +593,7 @@ export default function Globe({
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, pegel: 0, osint: 0, energy: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, energy: 0, fps: 0 })
   const [gibsLayer, setGibsLayer] = useState<'off' | 'fires' | 'goes' | 'viirs'>('off')
   const gibsImageryRef = useRef<any>(null)
   const gibsDateRef = useRef<string>('')
@@ -1609,7 +1616,7 @@ export default function Globe({
           </button>
           {layersPanelOpen && (
             <>
-              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'pegel', 'energy', 'osint'] as const).map((k) => (
+              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'osint'] as const).map((k) => (
                 <label key={k} className={layers[k] ? 'on' : ''}>
                   <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
                 </label>

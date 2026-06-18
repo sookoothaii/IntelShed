@@ -31,6 +31,7 @@ import ais_bridge
 import entsoe_bridge
 import firewall_bridge
 import webcam_bridge
+import windy_bridge
 import cve_bridge
 import pegel_bridge
 import flowsint_bridge
@@ -254,6 +255,7 @@ app.include_router(ais_bridge.router)
 app.include_router(entsoe_bridge.router)
 app.include_router(firewall_bridge.router)
 app.include_router(webcam_bridge.router)
+app.include_router(windy_bridge.router)
 app.include_router(cve_bridge.router)
 app.include_router(pegel_bridge.router)
 app.include_router(flowsint_bridge.router)

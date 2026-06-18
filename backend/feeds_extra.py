@@ -274,41 +274,10 @@ async def military_aircraft():
 # ---------------------------------------------------------------------------
 @router.get("/weather")
 async def point_weather(lat: float, lon: float):
-    """Current weather + 24h outlook for any coordinate (cached 10 min). No key."""
-    key = f"weather:{round(lat, 2)}:{round(lon, 2)}"
-    cached = await _get(key, ttl=600.0)
-    if cached is not None:
-        return cached
-    try:
-        async with httpx.AsyncClient(timeout=20.0, headers=_UA) as client:
-            r = await client.get(
-                "https://api.open-meteo.com/v1/forecast",
-                params={
-                    "latitude": lat,
-                    "longitude": lon,
-                    "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,"
-                    "wind_direction_10m,weather_code,pressure_msl",
-                    "hourly": "temperature_2m,precipitation_probability",
-                    "forecast_days": 1,
-                    "timezone": "auto",
-                },
-            )
-            r.raise_for_status()
-            data = r.json()
-        out = {
-            "lat": lat,
-            "lon": lon,
-            "current": data.get("current", {}),
-            "units": data.get("current_units", {}),
-            "timezone": data.get("timezone"),
-        }
-        await _set(key, out)
-        return out
-    except Exception as e:
-        stale = await _stale(key)
-        if stale:
-            return stale
-        return {"lat": lat, "lon": lon, "current": {}, "error": str(e)}
+    """Current weather + 24h outlook. Windy Point Forecast if keyed, else Open-Meteo."""
+    from windy_bridge import fetch_point_weather
+
+    return await fetch_point_weather(lat, lon)
 
 
 # ---------------------------------------------------------------------------

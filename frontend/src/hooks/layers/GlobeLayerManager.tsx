@@ -20,6 +20,7 @@ import { useAirqualityLayer } from './useAirqualityLayer';
 import { usePegelLayer } from './usePegelLayer';
 import { useEnergyLayer } from './useEnergyLayer';
 import { useHeatmapLayer } from './useHeatmapLayer';
+import { useWeatherLayer } from './useWeatherLayer';
 
 export function GlobeLayerManager({
   viewer,
@@ -74,6 +75,7 @@ export function GlobeLayerManager({
   useAirqualityLayer({ viewer, active: layers.airquality, feedActive, canFetch, setStats });
   usePegelLayer({ viewer, active: layers.pegel, feedActive, canFetch, setStats, setFeedHud });
   useEnergyLayer({ viewer, active: layers.energy, feedActive, canFetch, setStats, setFeedHud });
+  useWeatherLayer({ viewer, active: layers.weather, feedActive, canFetch, setStats, region: 'thailand' });
   useHeatmapLayer({ viewer, active: heatmapOn, feedActive, canFetch, setHeatmapMeta });
 
   return null;

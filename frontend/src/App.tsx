@@ -10,6 +10,7 @@ import { NodeHealthBanner } from './components/NodeHealthBanner'
 import type { FocusTarget } from './lib/focus'
 import type { OsintPin } from './lib/osintPins'
 import { loadOsintPins, saveOsintPins, mergeImportedPins } from './lib/osintPins'
+import WindyMapOverlay from './components/WindyMapOverlay'
 import MapModeBar from './components/MapModeBar'
 import { DEFAULT_MAP_VIEW, type MapViewMode } from './lib/mapView'
 import { fetchApi } from './lib/networkFetch';
@@ -136,7 +137,29 @@ export default function App() {
   const [osintPins, setOsintPins] = useState<OsintPin[]>(() => loadOsintPins())
   const [syncCamera, setSyncCamera] = useState<{ lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null>(null)
   const [mapMode, setMapMode] = useState<MapViewMode>(DEFAULT_MAP_VIEW)
+  const [windyMapOpen, setWindyMapOpen] = useState(false)
+  const [windyMapCoords, setWindyMapCoords] = useState({ lat: 9.55, lon: 100.05 })
+  const [windyMapKey, setWindyMapKey] = useState<string | null>(null)
   useAlertNotifications()
+
+  useEffect(() => {
+    fetchApi('/api/windy/config')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.map_key) setWindyMapKey(d.map_key)
+        if (d?.default_lat != null && d?.default_lon != null) {
+          setWindyMapCoords({ lat: d.default_lat, lon: d.default_lon })
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const openWindyMap = (lat: number, lon: number) => {
+    setWindyMapCoords({ lat, lon })
+    setWindyMapOpen(true)
+    setView('globe')
+    setSplitView(false)
+  }
 
   useEffect(() => {
     saveOsintPins(osintPins)
@@ -284,11 +307,20 @@ export default function App() {
           ].join(' ')}
         >
           <Globe {...globeSharedProps} />
+          {windyMapOpen && windyMapKey && (
+            <WindyMapOverlay
+              open={windyMapOpen}
+              onClose={() => setWindyMapOpen(false)}
+              lat={windyMapCoords.lat}
+              lon={windyMapCoords.lon}
+              mapKey={windyMapKey}
+            />
+          )}
         </div>
 
         {splitView ? null : view !== 'globe' && view !== 'map' ? (
           <div key={view} className="view-fade">
-            {view === 'data' && <DataPanel onFocus={focusOnMap} />}
+            {view === 'data' && <DataPanel onFocus={focusOnMap} onOpenWindyMap={openWindyMap} />}
             {view === 'chat' && (
               <ChatPanel
                 askAI={askAI}
