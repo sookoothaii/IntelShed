@@ -11,6 +11,8 @@
 
 `FastAPI` · `React` · `Vite` · `SQLite` · `Ollama` · optional `Pi` edge sync
 
+WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-raspi`](https://github.com/sookoothaii/offgrid-raspi)) with heavy fusion, a 24h security briefing, and globe UX. Run WorldBase alone on a PC, or **Pi + PC together** via push/pull sync (see below).
+
 ---
 
 ## At a glance
@@ -164,9 +166,19 @@ WorldBase is not a standalone invention. It exists entirely because of the gener
 
 ---
 
-## Pi edge (submodule)
+## Pi + PC (two repos)
 
-`offgrid-raspi/` @ `91683d8` — full sync guide: [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md)
+| Repo | Role | When you need it |
+|------|------|------------------|
+| **[worldbase](https://github.com/sookoothaii/worldbase)** (this repo) | Windows/Linux PC — Cesium globe, 30+ feeds, Ollama briefing, node API `:8002` | Spatial intelligence workstation; fusion and LLM digest |
+| **[offgrid-raspi](https://github.com/sookoothaii/offgrid-raspi)** | Raspberry Pi — portal, sensors, mesh, offline services | Edge node that survives without mains; pushes telemetry to the PC |
+
+**Together:** Pi `worldbase_push` → PC `POST /api/node/ingest` · PC briefing → Pi `GET /api/node/pull` → portal / LCD.  
+**Canonical sync guide:** [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) · setup summary → [`docs/SETUP.md`](docs/SETUP.md#pi-edge-sync)
+
+This repo vendors the Pi repo as a **git submodule** at `offgrid-raspi/` (scripts + sync docs). The Pi itself clones `offgrid-raspi` separately; the PC clones `worldbase` and initializes submodules when you work on push/pull scripts.
+
+---
 
 | Check | Command |
 |-------|---------|
