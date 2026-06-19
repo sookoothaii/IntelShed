@@ -60,6 +60,7 @@ import entity_resolution
 import feed_ingest
 import credentials.router as credentials_router
 import traffic_bridge
+import mcp_server
 
 DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
@@ -282,6 +283,8 @@ app.include_router(entity_resolution.router)
 app.include_router(feed_ingest.router)
 app.include_router(credentials_router.router)
 app.include_router(traffic_bridge.router)
+
+mcp_server.mount_worldbase_mcp(app)
 
 
 # Disable trailing-slash redirects globally (prevents CORS errors on 307 redirects)

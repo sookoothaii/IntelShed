@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import time
 
@@ -12,8 +14,18 @@ from stac_bridge import REGION_PRESETS
 
 router = APIRouter(prefix="/api/gdelt", tags=["gdelt"])
 
+# GDELT DOC/GEO: one request per ~5s globally; serialize + backoff on 429.
+_GDELT_LOCK = asyncio.Lock()
+_GDELT_LAST_CALL = 0.0
+_GDELT_BACKOFF_UNTIL = 0.0
+_GDELT_MIN_INTERVAL = float(os.getenv("WORLDBASE_GDELT_MIN_INTERVAL", "5.5"))
+_GDELT_BACKOFF_SEC = float(os.getenv("WORLDBASE_GDELT_BACKOFF_SEC", "45"))
+
 _UA = {"User-Agent": "WorldBase/1.0 (civic OSINT)"}
 _CACHE: dict[str, tuple[float, dict]] = {}
+
+# httpx logs every request at INFO — noisy when GDELT returns 429 (handled fail-soft).
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # Rotating civic queries — one per cache refresh (global pulse)
 _QUERIES = [
@@ -58,7 +70,30 @@ def _in_bbox(lat: float, lon: float, bbox: list[float]) -> bool:
     return south <= lat <= north and west <= lon <= east
 
 
+async def _gdelt_throttle() -> str | None:
+    """Serialize GDELT HTTP calls; return error string if in backoff window."""
+    global _GDELT_LAST_CALL, _GDELT_BACKOFF_UNTIL
+    async with _GDELT_LOCK:
+        now = time.monotonic()
+        if now < _GDELT_BACKOFF_UNTIL:
+            wait = int(_GDELT_BACKOFF_UNTIL - now)
+            return f"GDELT rate limit (backoff {wait}s)"
+        gap = _GDELT_MIN_INTERVAL - (now - _GDELT_LAST_CALL)
+        if gap > 0:
+            await asyncio.sleep(gap)
+        _GDELT_LAST_CALL = time.monotonic()
+    return None
+
+
+def _gdelt_rate_limited() -> None:
+    global _GDELT_BACKOFF_UNTIL
+    _GDELT_BACKOFF_UNTIL = time.monotonic() + _GDELT_BACKOFF_SEC
+
+
 async def _fetch_doc_articles(query: str, maxrecords: int = 40) -> tuple[list[dict], str | None]:
+    throttle_err = await _gdelt_throttle()
+    if throttle_err:
+        return [], throttle_err
     try:
         async with httpx.AsyncClient(timeout=45.0, headers=_UA) as client:
             r = await client.get(
@@ -71,6 +106,7 @@ async def _fetch_doc_articles(query: str, maxrecords: int = 40) -> tuple[list[di
                 },
             )
             if r.status_code == 429:
+                _gdelt_rate_limited()
                 return [], "GDELT rate limit (retry in ~5s)"
             r.raise_for_status()
             data = r.json()
@@ -96,6 +132,9 @@ async def _fetch_geo_events(
     maxrecords: int,
     bbox: list[float] | None = None,
 ) -> tuple[list[dict], str | None]:
+    throttle_err = await _gdelt_throttle()
+    if throttle_err:
+        return [], throttle_err
     try:
         async with httpx.AsyncClient(timeout=60.0, headers=_UA) as client:
             r = await client.get(
@@ -109,6 +148,7 @@ async def _fetch_geo_events(
                 },
             )
             if r.status_code == 429:
+                _gdelt_rate_limited()
                 return [], "GDELT rate limit"
             r.raise_for_status()
             gj = r.json()

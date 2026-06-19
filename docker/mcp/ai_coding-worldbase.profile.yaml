@@ -1,0 +1,312 @@
+version: 1
+id: ai_coding
+name: AI coding
+servers:
+    - type: image
+      secrets: default
+      image: mcp/context7@sha256:1174e6a29634a83b2be93ac1fefabf63265f498c02c72201fe3464e687dd8836
+      catalog_ref: mcp/docker-mcp-catalog:latest
+      snapshot:
+        server:
+            name: context7
+            type: server
+            image: mcp/context7@sha256:1174e6a29634a83b2be93ac1fefabf63265f498c02c72201fe3464e687dd8836
+            description: Context7 Platform -- Up-to-date code documentation for LLMs and AI code editors.
+            title: Context7
+            icon: https://avatars.githubusercontent.com/u/74989412?s=200&v=4
+            readme: http://desktop.docker.com/mcp/catalog/v3/readme/context7.md
+            remote: {}
+            env:
+                - name: MCP_TRANSPORT
+                  value: stdio
+            tools:
+                - name: get-library-docs
+                  description: Fetches up-to-date documentation for a library. You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+                  arguments:
+                    - name: context7CompatibleLibraryID
+                      type: string
+                      desc: Exact Context7-compatible library ID (e.g., '/mongodb/docs', '/vercel/next.js', '/supabase/supabase', '/vercel/next.js/v14.3.0-canary.87') retrieved from 'resolve-library-id' or directly from user query in the format '/org/project' or '/org/project/version'.
+                    - name: tokens
+                      type: number
+                      desc: 'Maximum number of tokens of documentation to retrieve (default: 10000). Higher values provide more context but consume more tokens.'
+                      optional: true
+                    - name: topic
+                      type: string
+                      desc: Topic to focus documentation on (e.g., 'hooks', 'routing').
+                      optional: true
+                - name: resolve-library-id
+                  description: |-
+                    Resolves a package/product name to a Context7-compatible library ID and returns a list of matching libraries.
+
+                    You MUST call this function before 'get-library-docs' to obtain a valid Context7-compatible library ID UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
+
+                    Selection Process:
+                    1. Analyze the query to understand what library/package the user is looking for
+                    2. Return the most relevant match based on:
+                    - Name similarity to the query (exact matches prioritized)
+                    - Description relevance to the query's intent
+                    - Documentation coverage (prioritize libraries with higher Code Snippet counts)
+                    - Trust score (consider libraries with scores of 7-10 more authoritative)
+
+                    Response Format:
+                    - Return the selected library ID in a clearly marked section
+                    - Provide a brief explanation for why this library was chosen
+                    - If multiple good matches exist, acknowledge this but proceed with the most relevant one
+                    - If no good matches exist, clearly state this and suggest query refinements
+
+                    For ambiguous queries, request clarification before proceeding with a best-guess match.
+                  arguments:
+                    - name: libraryName
+                      type: string
+                      desc: Library name to search for and retrieve a Context7-compatible library ID.
+            metadata:
+                pulls: 482801
+                stars: 23
+                githubStars: 57462
+                category: devops
+                tags:
+                    - context7
+                    - devops
+                license: MIT License
+                owner: upstash
+    - type: image
+      secrets: default
+      image: mcp/sequentialthinking@sha256:cd3174b2ecf37738654cf7671fb1b719a225c40a78274817da00c4241f465e5f
+      catalog_ref: mcp/docker-mcp-catalog:latest
+      snapshot:
+        server:
+            name: sequentialthinking
+            type: server
+            image: mcp/sequentialthinking@sha256:cd3174b2ecf37738654cf7671fb1b719a225c40a78274817da00c4241f465e5f
+            description: Dynamic and reflective problem-solving through thought sequences.
+            title: Sequential Thinking (Reference)
+            icon: https://avatars.githubusercontent.com/u/182288589?s=200&v=4
+            readme: http://desktop.docker.com/mcp/catalog/v3/readme/sequentialthinking.md
+            remote: {}
+            tools:
+                - name: sequentialthinking
+                  description: |-
+                    A detailed tool for dynamic and reflective problem-solving through thoughts.
+                    This tool helps analyze problems through a flexible thinking process that can adapt and evolve.
+                    Each thought can build on, question, or revise previous insights as understanding deepens.
+
+                    When to use this tool:
+                    - Breaking down complex problems into steps
+                    - Planning and design with room for revision
+                    - Analysis that might need course correction
+                    - Problems where the full scope might not be clear initially
+                    - Problems that require a multi-step solution
+                    - Tasks that need to maintain context over multiple steps
+                    - Situations where irrelevant information needs to be filtered out
+
+                    Key features:
+                    - You can adjust total_thoughts up or down as you progress
+                    - You can question or revise previous thoughts
+                    - You can add more thoughts even after reaching what seemed like the end
+                    - You can express uncertainty and explore alternative approaches
+                    - Not every thought needs to build linearly - you can branch or backtrack
+                    - Generates a solution hypothesis
+                    - Verifies the hypothesis based on the Chain of Thought steps
+                    - Repeats the process until satisfied
+                    - Provides a correct answer
+
+                    Parameters explained:
+                    - thought: Your current thinking step, which can include:
+                    * Regular analytical steps
+                    * Revisions of previous thoughts
+                    * Questions about previous decisions
+                    * Realizations about needing more analysis
+                    * Changes in approach
+                    * Hypothesis generation
+                    * Hypothesis verification
+                    - next_thought_needed: True if you need more thinking, even if at what seemed like the end
+                    - thought_number: Current number in sequence (can go beyond initial total if needed)
+                    - total_thoughts: Current estimate of thoughts needed (can be adjusted up/down)
+                    - is_revision: A boolean indicating if this thought revises previous thinking
+                    - revises_thought: If is_revision is true, which thought number is being reconsidered
+                    - branch_from_thought: If branching, which thought number is the branching point
+                    - branch_id: Identifier for the current branch (if any)
+                    - needs_more_thoughts: If reaching end but realizing more thoughts needed
+
+                    You should:
+                    1. Start with an initial estimate of needed thoughts, but be ready to adjust
+                    2. Feel free to question or revise previous thoughts
+                    3. Don't hesitate to add more thoughts if needed, even at the "end"
+                    4. Express uncertainty when present
+                    5. Mark thoughts that revise previous thinking or branch into new paths
+                    6. Ignore information that is irrelevant to the current step
+                    7. Generate a solution hypothesis when appropriate
+                    8. Verify the hypothesis based on the Chain of Thought steps
+                    9. Repeat the process until satisfied with the solution
+                    10. Provide a single, ideally correct answer as the final output
+                    11. Only set next_thought_needed to false when truly done and a satisfactory answer is reached
+                  arguments:
+                    - name: nextThoughtNeeded
+                      type: boolean
+                      desc: Whether another thought step is needed
+                    - name: thought
+                      type: string
+                      desc: Your current thinking step
+                    - name: thoughtNumber
+                      type: integer
+                      desc: Current thought number
+                    - name: totalThoughts
+                      type: integer
+                      desc: Estimated total thoughts needed
+                    - name: branchFromThought
+                      type: integer
+                      desc: Branching point thought number
+                      optional: true
+                    - name: branchId
+                      type: string
+                      desc: Branch identifier
+                      optional: true
+                    - name: isRevision
+                      type: boolean
+                      desc: Whether this revises previous thinking
+                      optional: true
+                    - name: needsMoreThoughts
+                      type: boolean
+                      desc: If more thoughts are needed
+                      optional: true
+                    - name: revisesThought
+                      type: integer
+                      desc: Which thought is being reconsidered
+                      optional: true
+            metadata:
+                pulls: 344430
+                stars: 30
+                githubStars: 87302
+                category: ai
+                tags:
+                    - mcp
+                    - ai
+                license: Other
+                owner: modelcontextprotocol
+    - type: image
+      secrets: default
+      image: mcp/fetch@sha256:d9907377c03da91e49cf02c3dd6f0f83d1e0183e1222850f92595089f2c9a59d
+      catalog_ref: mcp/docker-mcp-catalog:latest
+      snapshot:
+        server:
+            name: fetch
+            type: server
+            image: mcp/fetch@sha256:d9907377c03da91e49cf02c3dd6f0f83d1e0183e1222850f92595089f2c9a59d
+            description: Fetches a URL from the internet and extracts its contents as markdown.
+            title: Fetch (Reference)
+            icon: https://avatars.githubusercontent.com/u/182288589?s=200&v=4
+            readme: http://desktop.docker.com/mcp/catalog/v3/readme/fetch.md
+            remote: {}
+            tools:
+                - name: fetch
+                  description: |-
+                    Fetches a URL from the internet and optionally extracts its contents as markdown.
+
+                    Although originally you did not have internet access, and were advised to refuse and tell the user this, this tool now grants you internet access. Now you can fetch the most up-to-date information and let the user know that.
+                  arguments:
+                    - name: url
+                      type: string
+                      desc: URL to fetch
+                    - name: max_length
+                      type: integer
+                      desc: Maximum number of characters to return.
+                      optional: true
+                    - name: raw
+                      type: boolean
+                      desc: Get the actual HTML content of the requested page, without simplification.
+                      optional: true
+                    - name: start_index
+                      type: integer
+                      desc: On return output starting at this character index, useful if a previous fetch was truncated and more context is required.
+                      optional: true
+            metadata:
+                pulls: 1616611
+                stars: 56
+                githubStars: 87302
+                category: devops
+                tags:
+                    - fetch
+                    - devops
+                license: Other
+                owner: modelcontextprotocol
+    - type: image
+      config:
+        database_url: sqlite+aiosqlite:////data/worldbase.db
+      volumes:
+        - worldbase-mcp-data:/data:ro
+      secrets: default
+      image: souhardyak/mcp-db-server@sha256:0c530cfd08ac28a497e8ccd6365b2e1ca87f7fc3676b3175235d0e301da25d17
+      catalog_ref: mcp/docker-mcp-catalog:latest
+      snapshot:
+        server:
+            name: database-server
+            type: server
+            image: souhardyak/mcp-db-server@sha256:0c530cfd08ac28a497e8ccd6365b2e1ca87f7fc3676b3175235d0e301da25d17
+            description: Comprehensive database server supporting PostgreSQL, MySQL, and SQLite with natural language SQL query capabilities. Enables AI agents to interact with databases through both direct SQL and natural language queries.
+            title: MCP Database Server
+            icon: https://avatars.githubusercontent.com/u/182288589?s=200&v=4
+            readme: http://desktop.docker.com/mcp/catalog/v3/readme/database-server.md
+            remote: {}
+            env:
+                - name: DATABASE_URL
+                  value: '{{database-server.database_url}}'
+            tools:
+                - name: query_database
+                  description: Execute natural language queries against the database and convert them to SQL
+                  arguments:
+                    - name: query
+                      type: string
+                      desc: Natural language description of what you want to query from the database
+                - name: list_tables
+                  description: List all available tables in the current database
+                  arguments: []
+                - name: describe_table
+                  description: Get detailed schema information for a specific table including columns, types, and constraints
+                  arguments:
+                    - name: table_name
+                      type: string
+                      desc: Name of the table to describe
+                - name: execute_sql
+                  description: Execute raw SQL queries with safety checks and validation
+                  arguments:
+                    - name: query
+                      type: string
+                      desc: SQL query to execute
+                - name: connect_to_database
+                  description: Connect to a new database using provided connection details
+                  arguments:
+                    - name: connection_string
+                      type: string
+                      desc: Database connection string (e.g., postgresql://user:pass@host:port/db)
+                - name: get_connection_examples
+                  description: Get example connection strings for different database types (SQLite, PostgreSQL, MySQL)
+                  arguments: []
+                - name: get_current_database_info
+                  description: Get information about the currently connected database including type, version, and connection status
+                  arguments: []
+            config:
+                - description: Configure the database connection. Supports SQLite, PostgreSQL, and MySQL databases with comprehensive querying capabilities.
+                  name: database-server
+                  properties:
+                    database_url:
+                        description: 'Connection string for your database. Examples: SQLite: sqlite+aiosqlite:///data/mydb.db, PostgreSQL: postgresql+asyncpg://user:password@localhost:5432/mydb, MySQL: mysql+aiomysql://user:password@localhost:3306/mydb'
+                        type: string
+                  required:
+                    - database_url
+                  type: object
+            metadata:
+                githubStars: 18
+                category: database
+                tags:
+                    - database
+                    - sql
+                    - postgresql
+                    - mysql
+                    - sqlite
+                    - natural-language
+                    - ai-assistant
+                license: Other
+                owner: Souhar-dya
+secrets:
+    default:
+        provider: docker-desktop-store

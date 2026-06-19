@@ -62,6 +62,8 @@ Stored briefing JSON (`sources` column) includes `intel` (entity count, buckets,
 | FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
 | German output | `WORLDBASE_BRIEFING_LANG=de` (UI strings stay English) |
 | Pi payload | `GET /api/node/pull` (+ `X-Node-Token` when `NODE_INGEST_TOKEN` set) |
+| **MCP read (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — [`docs/MCP.md`](docs/MCP.md) |
+| **Docker MCP setup** | `.\scripts\setup-docker-mcp-worldbase.ps1` — fetch + database-server profile |
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
@@ -82,6 +84,7 @@ Unit tests (no network): `python -m unittest test_operator_briefing test_intel_b
 | HUD styles | `frontend/src/styles/hud.css` |
 | Feeds + cache | `backend/feeds_extra.py`, `backend/feed_registry.py` |
 | Node sync + briefing routes | `backend/node_sync.py` |
+| MCP read tools | `backend/mcp_server.py`, [`docs/MCP.md`](docs/MCP.md) |
 | Operator digest | `backend/operator_briefing.py` |
 | FtM → 24h briefing | `backend/intel_briefing.py` |
 | GDELT | `backend/gdelt_bridge.py` |

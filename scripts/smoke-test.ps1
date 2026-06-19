@@ -9,6 +9,20 @@ $passed = 0
 $failed = 0
 $warn = 0
 
+function Get-WorldBaseApiKey {
+    $envFile = Join-Path $Root 'backend\.env'
+    if (-not (Test-Path -LiteralPath $envFile)) { return $null }
+    foreach ($line in Get-Content -LiteralPath $envFile) {
+        if ($line -match '^\s*WORLDBASE_API_KEY\s*=\s*(.+)\s*$') {
+            $val = $Matches[1].Trim().Trim('"').Trim("'")
+            if ($val) { return $val }
+        }
+    }
+    return $null
+}
+
+$WorldBaseApiKey = Get-WorldBaseApiKey
+
 function Test-Endpoint {
     param(
         [string]$Name,
@@ -140,7 +154,11 @@ try {
         stream   = $false
         context  = $false
     } | ConvertTo-Json -Depth 5
-    $chat = Invoke-RestMethod -Uri "$Backend/api/chat" -Method Post -Body $body -ContentType 'application/json' -TimeoutSec 120
+    $chatHeaders = @{}
+    if ($WorldBaseApiKey) {
+        $chatHeaders['X-API-Key'] = $WorldBaseApiKey
+    }
+    $chat = Invoke-RestMethod -Uri "$Backend/api/chat" -Method Post -Body $body -ContentType 'application/json' -Headers $chatHeaders -TimeoutSec 120
     $reply = $chat.message.content
     if (-not $reply) { throw 'empty reply' }
     Write-Host "  PASS  chat reply: $($reply.Substring(0, [Math]::Min(40, $reply.Length)))" -ForegroundColor Green

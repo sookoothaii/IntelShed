@@ -59,6 +59,7 @@ docs/**
 !docs/screenshots/
 !docs/screenshots/**
 !docs/INTEL_INGEST.md
+!docs/MCP.md
 # Local-only operator / agent tooling (not part of the OSS repo)
 .cursor/
 briefs/

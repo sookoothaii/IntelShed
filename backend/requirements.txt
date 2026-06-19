@@ -11,6 +11,9 @@ river>=0.21.0
 duckdb>=1.1.0
 sqlite-vec>=0.1.9
 
+# MCP read tools (Cursor / Claude) — Streamable HTTP at /api/mcp
+mcp>=1.27,<2
+
 # Intelligence layer: canonical entity schema (FollowTheMoney) on DuckDB.
 # NOTE (Windows): followthemoney -> normality -> pyicu has no PyPI wheel for
 # Windows. Install a prebuilt PyICU wheel first, e.g.:

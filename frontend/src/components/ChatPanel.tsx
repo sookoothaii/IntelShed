@@ -25,6 +25,7 @@ export default function ChatPanel({
   const [busy, setBusy] = useState(false)
   const [genStatus, setGenStatus] = useState<string | null>(null)
   const [modelErr, setModelErr] = useState<string | null>(null)
+  const [modelsLoading, setModelsLoading] = useState(true)
   const [modelHint, setModelHint] = useState<string | null>(null)
   const [webSearch, setWebSearch] = useState(false)
   const [feedContext, setFeedContext] = useState(false)
@@ -37,6 +38,7 @@ export default function ChatPanel({
   const loadModels = () => {
     setModelErr(null)
     setModelHint(null)
+    setModelsLoading(true)
     fetchApi('/api/models')
       .then((r) => r.json())
       .then((d) => {
@@ -66,6 +68,7 @@ export default function ChatPanel({
         setModelErr('Backend unreachable')
         setModelHint('Start with .\\start.ps1 — Frontend :5176, Backend :8002')
       })
+      .finally(() => setModelsLoading(false))
 
     fetchApi('/api/providers')
       .then((r) => r.json())
@@ -332,7 +335,8 @@ export default function ChatPanel({
 
         {isOllama ? (
           <select value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0}>
-            {models.length === 0 && <option value="">No models found</option>}
+            {models.length === 0 && modelsLoading && <option value="">Loading models…</option>}
+            {models.length === 0 && !modelsLoading && <option value="">No models found</option>}
             {models.map((m) => (
               <option key={m.name} value={m.name}>
                 {m.name} {m.parameter_size ? `(${m.parameter_size})` : ''}

@@ -26,7 +26,10 @@ export async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Pr
     throw new Error('Browser is offline')
   }
 
-  const apiKey = localStorage.getItem('WORLDBASE_API_KEY')
+  const apiKey =
+    localStorage.getItem('WORLDBASE_API_KEY') ||
+    import.meta.env.VITE_WORLDBASE_API_KEY ||
+    ''
   const headers = new Headers(init?.headers)
   
   if (apiKey) {
