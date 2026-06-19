@@ -61,6 +61,7 @@ import { createTerrainWithFallback, attachTerrainFailover } from '../lib/cesiumT
 import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
 import { fetchApi } from '../lib/networkFetch';
+import { buildEntityHoverTip } from '../lib/entityHoverTip';
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
@@ -641,6 +642,7 @@ export default function Globe({
     }
   }, [applyTarget])
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
+  const [hoverTip, setHoverTip] = useState<{ title: string; lines: string[]; x: number; y: number } | null>(null)
   const [scrubT, setScrubT] = useState(1)
   const [timelineHours, setTimelineHours] = useState<number>(24)
   const [aircraftSource, setAircraftSource] = useState('')
@@ -853,6 +855,26 @@ export default function Globe({
             })
           }
         }
+
+        const picked = scene.pick(m.endPosition)
+        if (defined(picked) && picked.id && picked.id.properties) {
+          const props = picked.id.properties as any
+          const prop = (k: string) => {
+            const p = props?.[k]
+            return typeof p?.getValue === 'function' ? p.getValue() : p
+          }
+          const tip = buildEntityHoverTip(String(prop('kind') || ''), prop)
+          if (tip) {
+            if (!cancelled) {
+              setHoverTip({ ...tip, x: m.endPosition.x, y: m.endPosition.y })
+            }
+            scene.canvas.style.cursor = 'pointer'
+            return
+          }
+        }
+
+        if (!cancelled) setHoverTip(null)
+        scene.canvas.style.cursor = 'default'
       }, ScreenSpaceEventType.MOUSE_MOVE)
 
       const selectEntity = (ent: Entity) => {
@@ -1833,6 +1855,18 @@ export default function Globe({
               <span key={k}>{k}:{n}</span>
             ))}
           </div>
+        </div>
+      )}
+
+      {hoverTip && (
+        <div
+          className="globe-tooltip"
+          style={{ left: Math.min(hoverTip.x + 14, window.innerWidth - 280), top: hoverTip.y + 14 }}
+        >
+          <div className="tt-title">{hoverTip.title}</div>
+          {hoverTip.lines.map((line, i) => (
+            <div key={i} className="tt-line">{line}</div>
+          ))}
         </div>
       )}
 

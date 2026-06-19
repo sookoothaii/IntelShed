@@ -272,7 +272,7 @@ export default function DataPanel({
   })
 
   return (
-    <div className="panel">
+    <div className={`panel${tab === 'lightning' ? ' panel-lightning' : ''}`}>
       <h2>Live Feeds</h2>
 
       <div className="data-tabs">

@@ -318,22 +318,19 @@ export function TrafficPanel({ onFocus }: { onFocus: FocusFn }) {
 
 export function LightningMapPanel() {
   return (
-    <section>
-      <p className="data-embed-note">
+    <section className="lightning-panel">
+      <p className="data-embed-note lightning-panel-note">
         Live map by{' '}
         <a href={BLITZORTUNG_MAP} target="_blank" rel="noreferrer">Blitzortung.org</a>
-        {' '}· entertainment use only — not for life-safety decisions.
+        {' '}· entertainment only — not for life-safety ·{' '}
+        <a href={BLITZORTUNG_MAP} target="_blank" rel="noreferrer">OPEN FULL MAP ↗</a>
       </p>
       <iframe
         src={BLITZORTUNG_MAP}
         title="Blitzortung live lightning map"
-        className="data-embed-map"
+        className="lightning-embed-map"
         allow="fullscreen"
       />
-      <p className="data-embed-note">
-        <a href={BLITZORTUNG_MAP} target="_blank" rel="noreferrer">OPEN FULL MAP ↗</a>
-        {' '}· cookie consent may appear inside the frame.
-      </p>
     </section>
   )
 }
