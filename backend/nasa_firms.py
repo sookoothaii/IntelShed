@@ -10,6 +10,7 @@ import httpx
 from fastapi import APIRouter
 
 import feed_registry
+from stac_bridge import REGION_PRESETS
 
 router = APIRouter(prefix="/api", tags=["firms"])
 
@@ -23,6 +24,8 @@ _FIRMS_SOURCES = {
 
 _firms_cache: dict = {}
 _FIRMS_TTL = 600  # 10 minutes
+_MAX_API_FIRES = 300
+_MAX_REGIONAL_FIRES = 120
 
 # VIIRS 2.0 NRT CSV uses letter confidence (h/n/l) and bright_ti4/bright_ti5 columns.
 _CONF_LETTER = {"h": 90, "high": 90, "n": 65, "nominal": 65, "l": 35, "low": 35}
@@ -45,34 +48,54 @@ def _parse_firms_brightness(row: dict) -> float:
     return 0.0
 
 
-def _firms_url(source: str) -> str | None:
+def _in_bbox(lat: float, lon: float, bbox: list[float]) -> bool:
+    west, south, east, north = bbox
+    return south <= lat <= north and west <= lon <= east
+
+
+def _regional_preset() -> tuple[str, str, list[float]]:
+    preset = REGION_PRESETS["asean"]
+    return "asean", preset["label"], list(preset["bbox"])
+
+
+def _partition_fires(fires: list[dict], bbox: list[float]) -> tuple[list[dict], list[dict]]:
+    regional, global_f = [], []
+    for fire in fires:
+        tagged = dict(fire)
+        if _in_bbox(fire["lat"], fire["lon"], bbox):
+            tagged["zone"] = "regional"
+            regional.append(tagged)
+        else:
+            tagged["zone"] = "global"
+            global_f.append(tagged)
+    regional.sort(key=lambda x: x.get("confidence", 0), reverse=True)
+    global_f.sort(key=lambda x: x.get("confidence", 0), reverse=True)
+    return regional, global_f
+
+
+def _combine_fires(regional: list[dict], global_f: list[dict]) -> list[dict]:
+    combined = regional[:_MAX_REGIONAL_FIRES]
+    remaining = _MAX_API_FIRES - len(combined)
+    if remaining > 0:
+        combined.extend(global_f[:remaining])
+    return combined
+
+
+def _firms_url(source: str, area: str = "world") -> str | None:
     api_source = _FIRMS_SOURCES.get(source)
     if not FIRMS_MAP_KEY or not api_source:
         return None
-    return f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{FIRMS_MAP_KEY}/{api_source}/world/1"
+    return f"https://firms.modaps.eosdis.nasa.gov/api/area/csv/{FIRMS_MAP_KEY}/{api_source}/{area}/1"
 
 
-async def _fetch_firms(source: str):
-    """Fetch FIRMS CSV and parse to list of fire records."""
-    url = _firms_url(source)
-    if not url:
-        return [{"error": "FIRMS_MAP_KEY not set — get a free key at firms.modaps.eosdis.nasa.gov/api/map_key"}]
-    try:
-        async with httpx.AsyncClient(timeout=90.0) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            text = r.text
-    except Exception as e:
-        return [{"error": str(e)}]
-
+def _parse_firms_csv(text: str) -> list[dict]:
     lines = text.strip().split("\n")
     header = lines[0] if lines else ""
     if "latitude" not in header.lower():
-        # FIRMS returned a non-CSV body (rate-limit notice / error page), not data.
         msg = text.strip()[:200] or "empty FIRMS response"
         return [{"error": f"FIRMS non-CSV response: {msg}"}]
     if len(lines) < 2:
-        return []  # valid header, zero detections for this window
+        return []
 
     headers = lines[0].split(",")
     records = []
@@ -102,9 +125,23 @@ async def _fetch_firms(source: str):
             })
         except (ValueError, TypeError):
             continue
+    return records
 
-    records.sort(key=lambda x: x.get("confidence", 0), reverse=True)
-    return records[:500]
+
+async def _fetch_firms(source: str, area: str = "world"):
+    """Fetch FIRMS CSV and parse to list of fire records."""
+    url = _firms_url(source, area)
+    if not url:
+        return [{"error": "FIRMS_MAP_KEY not set — get a free key at firms.modaps.eosdis.nasa.gov/api/map_key"}]
+    try:
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            text = r.text
+    except Exception as e:
+        return [{"error": str(e)}]
+
+    return _parse_firms_csv(text)
 
 
 async def _eonet_wildfire_fallback() -> list[dict]:
@@ -154,14 +191,14 @@ async def _eonet_wildfire_fallback() -> list[dict]:
 async def get_wildfires():
     """Global thermal anomalies / wildfires from NASA FIRMS (+ EONET fallback). Cached 10 min."""
     now = datetime.now(timezone.utc).timestamp()
-    cache_key = "firms_v2"
+    cache_key = "firms_v3"
     cached = _firms_cache.get(cache_key)
     if cached and (now - cached["ts"]) < _FIRMS_TTL:
         return cached["data"]
 
+    region_id, region_label, region_bbox = _regional_preset()
     all_fires = []
     errors = []
-    # One VIIRS world query is enough for the globe (~30k rows max); three sources block the API for minutes.
     sources = ["viirs_snpp"] if FIRMS_MAP_KEY else []
     if FIRMS_MAP_KEY:
         for src in sources:
@@ -192,15 +229,18 @@ async def get_wildfires():
             seen.add(key)
             unique.append(f)
 
-    unique.sort(key=lambda x: x.get("confidence", 0), reverse=True)
+    regional, global_f = _partition_fires(unique, region_bbox)
+    panel_fires = _combine_fires(regional, global_f)
 
     result = {
         "count": len(unique),
+        "regional_count": len(regional),
+        "global_count": len(global_f),
+        "region": region_id,
+        "region_label": region_label,
         "updated": datetime.now(timezone.utc).isoformat(),
-        "fires": unique[:300],
+        "fires": panel_fires,
         "errors": errors if errors else None,
-        # Always attribute a source (audit trail), even on an empty result:
-        # the query target is what matters, not just whether it returned rows.
         "source": "eonet" if source_note else ("firms" if FIRMS_MAP_KEY else "eonet"),
         "spatial_resolution": "1 day VIIRS world" if FIRMS_MAP_KEY else "EONET event centroids",
         "data_quality": "eonet_inferred" if source_note == "eonet_fallback" else "firms_thermal",

@@ -69,7 +69,10 @@ export function useWildfiresLayer({
     for (const f of fires) {
       if (f.lon == null || f.lat == null) continue;
       const conf = f.confidence ?? 0;
-      const color = conf >= 80 ? '#ff2d00' : conf >= 50 ? '#ff6b35' : '#ffd23f';
+      const isRegional = f.zone === 'regional';
+      const color = isRegional
+        ? (conf >= 80 ? '#ff2d00' : conf >= 50 ? '#ff6b35' : '#ffd23f')
+        : (conf >= 80 ? '#ff8c42' : conf >= 50 ? '#ffb347' : '#ffd23f');
       
       src.entities.add({
         position: feedPos(f.lon, f.lat),
@@ -78,7 +81,7 @@ export function useWildfiresLayer({
           scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.6),
         }),
         label: {
-          text: `${f.confidence_label || 'fire'} ${f.confidence ?? '?'}%`,
+          text: isRegional ? `ASEAN ${f.confidence ?? '?'}%` : `${f.confidence_label || 'fire'} ${f.confidence ?? '?'}%`,
           font: '600 9px "Courier New"',
           fillColor: Color.fromCssColorString(color),
           outlineColor: Color.BLACK,
@@ -95,6 +98,7 @@ export function useWildfiresLayer({
           brightness: f.brightness,
           frp: f.frp,
           satellite: f.satellite,
+          zone: f.zone,
           acq_date: f.acq_date,
         } as any,
       });

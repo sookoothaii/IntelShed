@@ -108,7 +108,7 @@ export default function DataPanel({
   const [airquality, setAirquality] = useState<{ cities: AirQualityCity[]; updated: string; error?: string } | null>(null)
   const [gdacs, setGdacs] = useState<{ count: number; alerts: GDACSAlert[]; error?: string } | null>(null)
   const [pegel, setPegel] = useState<{ count: number; alerts: number; gauges: RiverGauge[]; error?: string } | null>(null)
-  const [wildfires, setWildfires] = useState<{ count: number; fires: any[]; updated: string; error?: string } | null>(null)
+  const [wildfires, setWildfires] = useState<{ count: number; regional_count?: number; global_count?: number; region_label?: string; fires: any[]; updated: string; error?: string } | null>(null)
   const [energy, setEnergy] = useState<any>(null)
   const [stocks, setStocks] = useState<any>(null)
   const [maritime, setMaritime] = useState<{ count: number; vessels: any[]; demo_mode?: boolean; cached_at: string; error?: string } | null>(null)
@@ -604,7 +604,11 @@ export default function DataPanel({
       {tab === 'wildfires' && (
         <section>
           <button onClick={loadWildfires} disabled={loading['wildfires']}>{loading['wildfires'] ? 'Loading…' : '↻ Refresh'}</button>
-          <span className="data-count">{wildfires?.count || 0} thermal anomalies</span>
+          <span className="data-count">
+            {wildfires?.regional_count != null
+              ? `${wildfires.regional_count} ASEAN · ${wildfires.global_count ?? 0} global · ${wildfires.count || 0} total`
+              : `${wildfires?.count || 0} thermal anomalies`}
+          </span>
           {wildfires?.fires?.length === 0 && (
             <div className="health-status pending">
               No active fires — set free FIRMS_MAP_KEY (NASA FIRMS) or check EONET fallback in EVENTS tab
@@ -613,11 +617,25 @@ export default function DataPanel({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(wildfires?.fires || []).slice(0, 50).map((f: any, i: number) => {
               const color = f.confidence >= 80 ? '#ff2d00' : f.confidence >= 50 ? '#ff6b35' : '#ffd23f'
+              const showRegionalHeader = f.zone === 'regional' && (i === 0 || (wildfires?.fires || [])[i - 1]?.zone !== 'regional')
+              const showGlobalHeader = f.zone === 'global' && (i === 0 || (wildfires?.fires || [])[i - 1]?.zone !== 'global')
               return (
-                <div key={i} className="iss-card" style={{ cursor: 'pointer', borderLeft: `3px solid ${color}` }} onClick={() => f.lon != null && f.lat != null && onFocus({ kind: 'wildfire', lon: f.lon, lat: f.lat, height: 400000, title: `Wildfire (${f.confidence_label})`, lines: [`Confidence: ${f.confidence}%`, `Brightness: ${f.brightness}K`, `FRP: ${f.frp} MW`, `Satellite: ${f.satellite}`, `Date: ${f.acq_date}`] })}>
-                  <span style={{ color, fontWeight: 'bold' }}>{f.confidence_label?.toUpperCase()}</span>
-                  <strong>Fire #{i + 1}</strong>
-                  <small style={{ color: '#6f8c84' }}>{f.lat?.toFixed(2)}, {f.lon?.toFixed(2)} | {f.acq_date}</small>
+                <div key={`${f.lat}-${f.lon}-${i}`}>
+                  {showRegionalHeader && (
+                    <h4 style={{ letterSpacing: 2, fontSize: 11, color: '#8fb7a9', margin: '12px 0 6px' }}>
+                      ASEAN ({wildfires?.regional_count ?? 0})
+                    </h4>
+                  )}
+                  {showGlobalHeader && (
+                    <h4 style={{ letterSpacing: 2, fontSize: 11, color: '#6f8c84', margin: '12px 0 6px' }}>
+                      GLOBAL ({wildfires?.global_count ?? 0})
+                    </h4>
+                  )}
+                  <div className="iss-card" style={{ cursor: 'pointer', borderLeft: `3px solid ${color}` }} onClick={() => f.lon != null && f.lat != null && onFocus({ kind: 'wildfire', lon: f.lon, lat: f.lat, height: 400000, title: `Wildfire (${f.confidence_label})`, lines: [`Zone: ${f.zone === 'regional' ? 'ASEAN' : 'Global'}`, `Confidence: ${f.confidence}%`, `Brightness: ${f.brightness}K`, `FRP: ${f.frp} MW`, `Satellite: ${f.satellite}`, `Date: ${f.acq_date}`] })}>
+                    <span style={{ color, fontWeight: 'bold' }}>{f.confidence_label?.toUpperCase()}</span>
+                    <strong>{f.zone === 'regional' ? 'ASEAN' : 'GLOBAL'} · {f.lat?.toFixed(2)}, {f.lon?.toFixed(2)}</strong>
+                    <small style={{ color: '#6f8c84' }}>FRP {f.frp ?? '—'} MW · {f.acq_date}</small>
+                  </div>
                 </div>
               )
             })}

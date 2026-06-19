@@ -55,6 +55,10 @@ REGION_PRESETS: dict[str, dict[str, Any]] = {
         "label": "Mekong Delta (TH/LA/VN/KH)",
         "bbox": [103.5, 9.5, 108.5, 13.5],
     },
+    "asean": {
+        "label": "Southeast Asia (ASEAN)",
+        "bbox": [92.0, -11.0, 141.0, 28.0],
+    },
     "germany": {
         "label": "Germany (DACH region)",
         "bbox": [5.86, 47.27, 15.04, 55.07],
