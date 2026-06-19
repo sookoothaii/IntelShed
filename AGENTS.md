@@ -104,6 +104,7 @@ Unit tests (no network): `python -m unittest test_operator_briefing test_intel_b
 - **UI language:** English labels/tooltips. Briefing *output* may be German via env.
 - **Minimal diffs:** match existing HUD style (uppercase labels, vanilla CSS, no Tailwind).
 - **Commits:** only when the user explicitly asks.
+- **Local-only (never commit):** `.cursor/`, `briefs/`, `LLM_HANDOFF.md`, `progress.txt`, and other operator plans or LLM handoff notes. Public agent docs: `README.md` and this file only.
 
 ---
 
