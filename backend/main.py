@@ -245,6 +245,9 @@ def prune_feed_cache(max_age_sec: float = _FEED_CACHE_MAX_AGE_SEC) -> int:
     return len(removed)
 
 
+import agent_bus
+
+app.include_router(agent_bus.router)
 app.include_router(globe_snapshot.router)
 app.include_router(feeds_extra.router)
 app.include_router(node_sync.router)

@@ -22,6 +22,7 @@ import { useEnergyLayer } from './useEnergyLayer';
 import { useHeatmapLayer } from './useHeatmapLayer';
 import { useWeatherLayer } from './useWeatherLayer';
 import { useTrafficCamsLayer } from './useTrafficCamsLayer';
+import { useIntelLayer } from './useIntelLayer';
 
 export function GlobeLayerManager({
   viewer,
@@ -78,6 +79,7 @@ export function GlobeLayerManager({
   useEnergyLayer({ viewer, active: layers.energy, feedActive, canFetch, setStats, setFeedHud });
   useWeatherLayer({ viewer, active: layers.weather, feedActive, canFetch, setStats, region: 'thailand' });
   useTrafficCamsLayer({ viewer, active: layers.trafficCams, feedActive, canFetch, setStats });
+  useIntelLayer({ viewer, active: layers.intelFt, feedActive, canFetch, setStats });
   useHeatmapLayer({ viewer, active: heatmapOn, feedActive, canFetch, setHeatmapMeta });
 
   return null;

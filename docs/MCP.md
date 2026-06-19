@@ -1,10 +1,12 @@
-# WorldBase MCP Read Tools
+# WorldBase MCP Tools
 
-Read-only [Model Context Protocol](https://modelcontextprotocol.io/) surface on the WorldBase FastAPI backend. Lets Cursor, Claude Desktop, or other MCP clients query briefing, Pi nodes, situations, and feed samples **without** scraping the HUD or opening the globe.
+[Model Context Protocol](https://modelcontextprotocol.io/) surface on the WorldBase FastAPI backend. Lets Cursor, Claude Desktop, or other MCP clients query briefing, Pi nodes, situations, and feed samples **without** scraping the HUD — and trigger a new 24h briefing via write tools.
 
 Transport: **Streamable HTTP** at `http://127.0.0.1:8002/api/mcp` (same host as the API).
 
-Globe camera control (Agent Bus) is **not** included — see roadmap Phase 2.
+**Tool count (typical):** 7 read + 1 write (`worldbase_briefing_generate`) + 4 globe (when Agent Bus enabled) = **12 tools**.
+
+Globe camera control uses the **Agent Bus** when enabled — see [Agent Bus](#agent-bus) below. FtM entities on the globe (**INTEL** layer) are a separate HUD feature — see [`docs/GLOBE.md`](GLOBE.md#intel-ftm-globe-layer).
 
 ---
 
@@ -13,6 +15,8 @@ Globe camera control (Agent Bus) is **not** included — see roadmap Phase 2.
 | Env | Default | Effect |
 |-----|---------|--------|
 | `WORLDBASE_MCP` | `1` | Mount MCP at `/api/mcp` on startup |
+| `WORLDBASE_MCP_WRITE` | `1` | Register `worldbase_briefing_generate` write tool |
+| `WORLDBASE_AGENT_BUS` | `0` | Globe MCP tools + `/api/agent/*` (requires HUD subscriber) |
 | `WORLDBASE_API_KEY` | empty | When set, MCP requires header `X-API-Key` |
 | `WORLDBASE_BIND_HOST` | `127.0.0.1` | If bound to LAN (`0.0.0.0`) without API key, MCP auth is **required** |
 
@@ -25,8 +29,10 @@ pip install "mcp>=1.27,<2"
 Restart backend after changes. Startup log should show:
 
 ```text
-[MCP] Read tools mounted at /api/mcp (open (localhost, no API key))
+[MCP] Tools mounted at /api/mcp (X-API-Key required; write on; globe on)
 ```
+
+(`globe off` when `WORLDBASE_AGENT_BUS=0` — globe MCP tools are not registered.)
 
 ---
 
@@ -49,9 +55,13 @@ Add to your user or project MCP config (`.cursor/mcp.json` or Cursor Settings �
 
 Omit the `headers` block when `WORLDBASE_API_KEY` is unset and the API binds to localhost only.
 
+**After backend env changes** (especially `WORLDBASE_AGENT_BUS`): restart backend, then **restart or refresh Cursor MCP** so new tools appear in the tool list (e.g. `worldbase_globe_fly_to`).
+
 ---
 
 ## Tools
+
+### Read
 
 | Tool | Purpose |
 |------|---------|
@@ -63,6 +73,29 @@ Omit the `headers` block when `WORLDBASE_API_KEY` is unset and the API binds to 
 | `worldbase_feed_sample` | Allowlisted feed sample (`feed_id`, `limit`) |
 | `worldbase_feed_allowlist` | Valid `feed_id` values for feed sample |
 
+### Write (`WORLDBASE_MCP_WRITE=1`)
+
+| Tool | Purpose |
+|------|---------|
+| `worldbase_briefing_generate` | Run full 24h briefing pipeline (Ollama → SQLite). Optional `lang` (`en` / `de`), `include_full_text` |
+
+Same auth gate as `/api/chat` and `POST /api/briefing/generate`: when `WORLDBASE_API_KEY` is set, MCP requests need `X-API-Key`. Generation takes 30–90 s (Ollama + feed fusion); prefer `worldbase_briefing_latest` for quick reads.
+
+### Globe (`WORLDBASE_AGENT_BUS=1` + `VITE_WORLDBASE_AGENT_BUS=1`)
+
+Requires an **open HUD tab** at `:5176` on the same machine. MCP/API publishes actions; the browser stream executes them.
+
+| Tool | Purpose |
+|------|---------|
+| `worldbase_globe_fly_to` | Fly globe to `lat`, `lon`, optional `height`, `title` |
+| `worldbase_globe_toggle_layer` | Show/hide a feed layer (`layer`, optional `enabled`) |
+| `worldbase_globe_get_camera` | Last camera position synced from HUD |
+| `worldbase_globe_layers` | Valid `layer` keys for toggle |
+
+REST equivalents: `POST /api/agent/publish`, `GET /api/agent/stream` (SSE), `POST /api/agent/camera`.
+
+---
+
 ### Feed allowlist
 
 `worldbase_feed_sample` only accepts: `aircraft`, `airquality`, `earthquakes`, `eonet`, `gdacs`, `gdacs_v2`, `geopolitics`, `markets`, `military`, `outages`, `pegel`, `reliefweb`, `spaceweather`, `wildfires`, `energy_de`.
@@ -71,21 +104,92 @@ Reads `feed_cache` first; falls back to live bridge fetch for a subset when cach
 
 ---
 
+## Agent Bus
+
+Backend module: `backend/agent_bus.py`. In-memory pub/sub for a **single operator session** (no Redis).
+
+```
+MCP worldbase_globe_fly_to / REST POST /api/agent/publish
+  → SSE GET /api/agent/stream (browser fetch + X-API-Key)
+  → App.tsx useAgentBus → focusOnMap / layer toggle on Globe
+```
+
+Enable both sides:
+
+```env
+# backend/.env
+WORLDBASE_AGENT_BUS=1
+
+# frontend/.env
+VITE_WORLDBASE_AGENT_BUS=1
+```
+
+Restart backend and Vite after changes. MCP globe tools register only when `WORLDBASE_AGENT_BUS=1`.
+
+### REST API (same bus)
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/api/agent/status` | open | `enabled`, subscriber count, layer keys |
+| POST | `/api/agent/publish` | `X-API-Key` when set | Publish `fly_to` or `toggle_layer` |
+| GET | `/api/agent/stream` | `X-API-Key` when set | SSE stream (HUD subscribes via `fetch`) |
+| POST | `/api/agent/camera` | open | HUD posts camera position (debounced) |
+| GET | `/api/agent/camera` | `X-API-Key` when set | Last synced camera for MCP read |
+
+**Publish example** (PowerShell, with API key in `backend/.env`):
+
+```powershell
+$h = @{ 'X-API-Key' = 'your-key'; 'Content-Type' = 'application/json' }
+$body = '{"action":"fly_to","lat":9.55,"lon":100.05,"height":400000,"title":"Koh Samui"}'
+Invoke-RestMethod -Method POST -Uri 'http://127.0.0.1:8002/api/agent/publish' -Headers $h -Body $body
+```
+
+Expect `delivered` ≥ 1 when a HUD tab at `:5176` has `VITE_WORLDBASE_AGENT_BUS=1`.
+
+---
+
 ## Tests
 
 From `backend/` (no network for unit tests):
 
 ```powershell
-python -m unittest test_mcp_tools -v
+python -m unittest test_mcp_tools test_agent_bus -v
 ```
+
+| Module | Covers |
+|--------|--------|
+| `test_mcp_tools.py` | MCP helpers, auth gates, briefing generate mock |
+| `test_agent_bus.py` | Publish validation, layer keys, disabled → 503 |
+
+Live MCP checks: use Cursor `worldbase` server or `GET /api/health/ping` before calling tools.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| Cursor shows 7 tools, not 12 | Agent Bus off or stale MCP cache | Set `WORLDBASE_AGENT_BUS=1`, restart backend, refresh Cursor MCP |
+| `worldbase_briefing_generate` timeout | Ollama slow (30–90 s normal) | Wait; use `worldbase_briefing_latest` for reads |
+| MCP / chat 401 | `WORLDBASE_API_KEY` set | Add `X-API-Key` in Cursor MCP config + `VITE_WORLDBASE_API_KEY` in `frontend/.env` |
+| Agent publish `delivered: 0` | No HUD subscriber | Open `:5176`, set `VITE_WORLDBASE_AGENT_BUS=1`, restart Vite |
+| Agent stream 503 | `WORLDBASE_AGENT_BUS=0` | Enable in `backend/.env`, restart backend |
+| `ftm_ready: false` in MCP | DuckDB lock (second process) | One backend only; check `GET /api/health` → `ftm.ready` |
 
 ---
 
 ## Implementation
 
-- Module: `backend/mcp_server.py`
+| Area | Path |
+|------|------|
+| MCP server | `backend/mcp_server.py` |
+| Agent Bus | `backend/agent_bus.py` |
+| HUD subscriber | `frontend/src/hooks/useAgentBus.ts` |
+| Globe layer listener | `frontend/src/components/Globe.tsx`, `frontend/src/lib/agentBus.ts` |
+
 - Reuses the same Python paths as `chat_tools.py` and REST routes (no HTTP loopback).
-- Write tools (`generate_briefing`, globe control) are Phase 2+.
+- Write path calls `node_sync.generate_briefing_internal()` — same as autopilot and `POST /api/briefing/generate`.
+- Globe control: publish → stream → `focusOnMap` / layer toggle when Agent Bus enabled.
 
 ---
 

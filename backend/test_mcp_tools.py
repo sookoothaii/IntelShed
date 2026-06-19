@@ -11,6 +11,9 @@ from mcp_server import (
     fetch_feed_sample,
     fetch_health,
     mcp_auth_required,
+    mcp_write_enabled,
+    trigger_briefing_generate,
+    _normalize_briefing_lang,
 )
 
 
@@ -90,6 +93,42 @@ class MCPHealthTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["status"], "ok")
         self.assertIn("time", out)
         self.assertEqual(out["feed_cache_count"], 7)
+
+
+class MCPBriefingGenerateTests(unittest.IsolatedAsyncioTestCase):
+    def test_normalize_lang(self):
+        self.assertIsNone(_normalize_briefing_lang(None))
+        self.assertEqual(_normalize_briefing_lang("de"), "de")
+        self.assertEqual(_normalize_briefing_lang("EN"), "en")
+        with self.assertRaises(ValueError):
+            _normalize_briefing_lang("fr")
+
+    async def test_generate_returns_summary(self):
+        fake = {
+            "created_at": "2026-06-19T12:00:00+00:00",
+            "text": "Briefing body",
+            "alerts": [{"id": 1}],
+            "fusion_hotspots": [],
+            "digest": {"lang": "en", "region": "thailand"},
+        }
+        with patch("mcp_server.mcp_write_enabled", return_value=True):
+            with patch("node_sync.generate_briefing_internal", new=AsyncMock(return_value=fake)):
+                out = await trigger_briefing_generate(lang="en")
+        self.assertTrue(out["generated"])
+        self.assertEqual(out["created_at"], fake["created_at"])
+        self.assertEqual(out["alert_count"], 1)
+        self.assertEqual(out["text_preview"], "Briefing body")
+
+    async def test_generate_blocked_when_write_disabled(self):
+        with patch("mcp_server.mcp_write_enabled", return_value=False):
+            with self.assertRaises(PermissionError):
+                await trigger_briefing_generate()
+
+    def test_write_enabled_default(self):
+        with patch.dict("os.environ", {"WORLDBASE_MCP": "1", "WORLDBASE_MCP_WRITE": "1"}, clear=False):
+            self.assertTrue(mcp_write_enabled())
+        with patch.dict("os.environ", {"WORLDBASE_MCP_WRITE": "0"}, clear=False):
+            self.assertFalse(mcp_write_enabled())
 
 
 if __name__ == "__main__":

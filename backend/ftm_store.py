@@ -928,9 +928,20 @@ async def api_intel_stats():
 async def api_intel_entities(
     limit: int = Query(50, ge=1, le=500),
     dataset: str | None = Query(None, description="Filter by provenance dataset tag"),
+    geolocated: bool = Query(False, description="Only entities with lat/lon seen in window_hours"),
+    window_hours: int = Query(24, ge=1, le=168),
 ):
-    """Recent entities (compat route for external stack monitors)."""
+    """Recent entities (compat route). Set geolocated=1 for FtM globe layer."""
     try:
+        if geolocated:
+            ents = await asyncio.to_thread(
+                entities_for_briefing,
+                window_hours=window_hours,
+                fetch_limit=limit,
+                exclude_schemas=["Airplane"],
+                include_same_as=False,
+            )
+            return {"count": len(ents), "entities": ents, "window_hours": window_hours}
         return await asyncio.to_thread(list_entities_recent, limit, dataset)
     except Exception as exc:
         return {"count": 0, "entities": [], "error": str(exc)}

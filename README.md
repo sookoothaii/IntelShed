@@ -24,6 +24,8 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | **Intelligence** | Situations, correlations, anomalies, OpenSanctions via Yente, fast RAG memory (sqlite-vec) |
 | **AI** | Local chat via Ollama (`qwen3:8b` default) |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → briefing back to Pi |
+| **MCP** | Cursor/Claude: 12 tools — briefing, nodes, feeds, generate, optional globe control — [`docs/MCP.md`](docs/MCP.md) |
+| **Agent Bus** | MCP/REST → fly globe + toggle layers when HUD open at `:5176` |
 | **Philosophy** | Positive intelligence — better decisions, not attacks |
 
 ---
@@ -46,12 +48,30 @@ copy frontend\.env.example frontend\.env   # set VITE_CESIUM_ION_TOKEN
 | **Health (fast)** | http://localhost:8002/api/health/ping |
 | **Ollama** | http://127.0.0.1:11434 |
 
+Open **http://localhost:5176** (Vite). API docs: **http://127.0.0.1:8002/docs**.
+
+### MCP + Agent Bus (optional)
+
+For Cursor / Claude automation — full guide: [`docs/MCP.md`](docs/MCP.md).
+
+```powershell
+# backend/.env
+WORLDBASE_MCP=1
+WORLDBASE_MCP_WRITE=1
+WORLDBASE_AGENT_BUS=1          # globe fly_to / layer toggle via MCP
+
+# frontend/.env
+VITE_WORLDBASE_AGENT_BUS=1     # HUD must be open at :5176
+```
+
+Restart backend + Vite; add `worldbase` to Cursor MCP (`http://127.0.0.1:8002/api/mcp` + `X-API-Key` if set). Expect **12 tools** when Agent Bus is on.
+
 ```powershell
 ollama pull qwen3:8b
 ollama pull nomic-embed-text   # RAG embeddings
 ```
 
-**Verify stack:** `.\scripts\smoke-test.ps1` (23 checks — backend, feeds, Vite proxy, Ollama chat, build)
+**Verify stack:** `.\scripts\smoke-test.ps1` (27 checks — backend, feeds, Vite proxy, Ollama chat, build)
 
 ### Offline maps (PMTiles)
 
@@ -119,21 +139,22 @@ Feed health → `GET /api/health` · optional keys → `backend/.env.example`
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  React + CesiumJS (+ MapLibre 2D)          :5176        │
-│  Globe · DATA panel · AI chat · OSINT · Situations      │
-│  Click any marker → detail modal (live feeds where set) │
+│  Globe · DATA · AI chat · Agent Bus subscriber          │
 └───────────────────────────┬─────────────────────────────┘
                             │ /api/*
 ┌───────────────────────────▼─────────────────────────────┐
-│  FastAPI + httpx + SQLite feed_cache         :8002        │
-│  TTL cache · /api/globe/snapshot · /api/health            │
+│  FastAPI + SQLite feed_cache                 :8002        │
+│  MCP /api/mcp · Agent Bus /api/agent/* · /api/health    │
 └───────────────────────────┬─────────────────────────────┘
          ┌──────────────────┼──────────────────┐
          ▼                  ▼                  ▼
     USGS · NASA ·      Ollama :11434      Pi :8002/ingest
     GDACS · SMARD …    qwen3 + RAG        (offgrid-raspi)
+         │
+         └── Cursor MCP (Streamable HTTP) + optional Docker MCP gateway
 ```
 
-Agent reference → [`AGENTS.md`](AGENTS.md)
+Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](docs/MCP.md)
 
 ---
 
@@ -142,6 +163,8 @@ Agent reference → [`AGENTS.md`](AGENTS.md)
 | Doc | Purpose |
 |-----|---------|
 | [`AGENTS.md`](AGENTS.md) | Runtime, endpoints, key files, troubleshooting |
+| [`docs/MCP.md`](docs/MCP.md) | Cursor MCP tools, Agent Bus, Docker gateway |
+| [`docs/GLOBE.md`](docs/GLOBE.md) | Click-to-detail, layers, INTEL FtM, traffic cams |
 | [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md) | Optional document intel ingest (GLiNER) |
 | [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) | Pi ↔ PC sync |
 
@@ -187,7 +210,7 @@ This repo vendors the Pi repo as a **git submodule** at `offgrid-raspi/` (script
 | Nodes on PC | `Invoke-RestMethod http://127.0.0.1:8002/api/nodes` |
 | Deploy token + HTTP | `.\scripts\sync-pi.ps1` |
 | Pi maintenance | `sudo bash pi-disk-maintenance.sh` (on Pi) |
-| Smoke test | `.\scripts\smoke-test.ps1` → expect **25/25 PASS** |
+| Smoke test | `.\scripts\smoke-test.ps1` → expect **27/27 PASS** |
 
 ---
 

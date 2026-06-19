@@ -19,7 +19,7 @@
 | **Fast health** | `GET /api/health/ping` | Use before/after changes |
 | **Ollama** | http://127.0.0.1:11434 | Default chat: `qwen3:8b` |
 | **Start** | `.\start.ps1` | Paths with spaces → `-LiteralPath` |
-| **Verify** | `.\scripts\smoke-test.ps1` | 25 checks — run before claiming “done” |
+| **Verify** | `.\scripts\smoke-test.ps1` | 27 checks — run before claiming “done” |
 
 Copy env: `backend\.env.example` → `backend\.env`, `frontend\.env.example` → `frontend\.env` (Cesium Ion token required for terrain/buildings).
 
@@ -62,12 +62,14 @@ Stored briefing JSON (`sources` column) includes `intel` (entity count, buckets,
 | FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
 | German output | `WORLDBASE_BRIEFING_LANG=de` (UI strings stay English) |
 | Pi payload | `GET /api/node/pull` (+ `X-Node-Token` when `NODE_INGEST_TOKEN` set) |
-| **MCP read (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — [`docs/MCP.md`](docs/MCP.md) |
+| **MCP (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — 12 tools when Agent Bus on — [`docs/MCP.md`](docs/MCP.md) |
+| **Agent Bus** | `POST /api/agent/publish`, `GET /api/agent/stream` — globe fly/layer when HUD open — [`docs/MCP.md`](docs/MCP.md#agent-bus) |
+| **FtM globe layer** | `GET /api/intel/entities?geolocated=1` → HUD **INTEL** toggle (`intelFt`) — [`docs/GLOBE.md`](docs/GLOBE.md#intel-ftm-globe-layer) |
 | **Docker MCP setup** | `.\scripts\setup-docker-mcp-worldbase.ps1` — fetch + database-server profile |
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_operator_briefing test_intel_briefing test_ftm_store test_entity_resolution test_feed_ingest -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_operator_briefing test_intel_briefing test_ftm_store test_entity_resolution test_feed_ingest -v` in `backend/`.
 
 ---
 
@@ -77,6 +79,8 @@ Unit tests (no network): `python -m unittest test_operator_briefing test_intel_b
 |------|------|
 | App shell + FULL SITUATION | `frontend/src/App.tsx` |
 | Globe + layers + click-to-detail | `frontend/src/components/Globe.tsx`, `GlobeDetailModal.tsx`, `frontend/src/hooks/layers/` |
+| FtM globe layer | `frontend/src/hooks/layers/useIntelLayer.ts` — toggle **INTEL** in telemetry |
+| Agent Bus HUD | `frontend/src/hooks/useAgentBus.ts`, `frontend/src/lib/agentBus.ts` |
 | Globe terrain fail-soft | `frontend/src/lib/cesiumTerrain.ts` |
 | Traffic cams | `backend/traffic_bridge.py`, `useTrafficCamsLayer.ts`, `TrafficCamPanel.tsx` |
 | Webcams → globe stream | `backend/webcam_bridge.py`, `WebcamSection.tsx`, `WebcamStreamPanel.tsx` |
@@ -84,7 +88,7 @@ Unit tests (no network): `python -m unittest test_operator_briefing test_intel_b
 | HUD styles | `frontend/src/styles/hud.css` |
 | Feeds + cache | `backend/feeds_extra.py`, `backend/feed_registry.py` |
 | Node sync + briefing routes | `backend/node_sync.py` |
-| MCP read tools | `backend/mcp_server.py`, [`docs/MCP.md`](docs/MCP.md) |
+| MCP + Agent Bus | `backend/mcp_server.py`, `backend/agent_bus.py`, [`docs/MCP.md`](docs/MCP.md) |
 | Operator digest | `backend/operator_briefing.py` |
 | FtM → 24h briefing | `backend/intel_briefing.py` |
 | GDELT | `backend/gdelt_bridge.py` |
@@ -143,3 +147,7 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | Globe blank / terrain 503 | Ion CDN blip or stale Vite env — restart frontend; ellipsoid fallback in `cesiumTerrain.ts` |
 | Webcam click shows text only | Old build — card must pass `webcam` ref to `focusOn`; expect **LIVE FEED** modal with iframe |
 | Weather dot ≠ camera | Thailand coloured dots are **WEATHER** layer; traffic cams are Singapore only until iTIC |
+| MCP tools missing in Cursor | Restart backend after `WORLDBASE_AGENT_BUS`; refresh Cursor MCP server |
+| Agent Bus `delivered: 0` | HUD needs `VITE_WORLDBASE_AGENT_BUS=1` + open tab at `:5176` |
+| INTEL layer count `—` | Toggle **INTEL** under telemetry (OSINT/FULL preset enables `intelFt`); wait ~2 s for FtM fetch |
+| Splink resolution test fail | Optional — `pip install 'splink>=4.0,<5'` or ignore if not using Splink |

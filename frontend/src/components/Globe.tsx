@@ -48,6 +48,7 @@ import {
 } from '../lib/visionShaders'
 import { POIS } from '../lib/pois'
 import type { FocusTarget } from '../lib/focus'
+import { AGENT_BUS_LAYER_EVENT, type AgentLayerDetail } from '../lib/agentBus'
 import type { OsintPin } from '../lib/osintPins'
 import type { TrafficCamRef } from './TrafficCamPanel'
 import type { WebcamStreamRef } from './WebcamStreamPanel'
@@ -222,6 +223,7 @@ type Stats = {
   weather: number
   pegel: number
   osint: number
+  intelFt: number
   energy: number
   fps: number
 }
@@ -250,6 +252,7 @@ type GlobeLayers = {
   pegel: boolean
   energy: boolean
   osint: boolean
+  intelFt: boolean
 }
 
 type LayerKey = keyof GlobeLayers
@@ -341,6 +344,7 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
     id: 'intel',
     label: 'INTEL',
     rows: [
+      { layer: 'intelFt', label: 'INTEL', statKey: 'intelFt', color: '#b794f6', healthKeys: ['intel'], tip: 'FtM entities with coordinates (24h window).' },
       { layer: 'osint', label: 'OSINT', statKey: 'osint', color: '#00ffa3', tip: 'Your research pins on the globe.' },
     ],
   },
@@ -387,6 +391,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       pegel: false,
       energy: false,
       osint: true,
+      intelFt: false,
     },
     collapsed: { motion: false, geo: false, env: false, infra: true, intel: true },
     trails: false,
@@ -419,6 +424,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       pegel: true,
       energy: true,
       osint: false,
+      intelFt: false,
     },
     collapsed: { motion: true, geo: false, env: true, infra: false, intel: true },
     trails: false,
@@ -451,6 +457,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       pegel: false,
       energy: false,
       osint: true,
+      intelFt: true,
     },
     collapsed: { motion: true, geo: true, env: true, infra: true, intel: false },
     trails: false,
@@ -483,6 +490,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       pegel: false,
       energy: false,
       osint: true,
+      intelFt: true,
     },
     collapsed: { motion: false, geo: false, env: false, infra: false, intel: false },
     trails: true,
@@ -588,7 +596,7 @@ export default function Globe({
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, trafficCams: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, energy: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, trafficCams: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, intelFt: 0, energy: 0, fps: 0 })
   const [gibsLayer, setGibsLayer] = useState<'off' | 'fires' | 'goes' | 'viirs'>('off')
   const gibsImageryRef = useRef<any>(null)
   const gibsDateRef = useRef<string>('')
@@ -671,6 +679,20 @@ export default function Globe({
   useEffect(() => { visibleRef.current = visible }, [visible])
   const layersRef = useRef(layers)
   useEffect(() => { layersRef.current = layers }, [layers])
+
+  useEffect(() => {
+    const onAgentLayer = (ev: Event) => {
+      const detail = (ev as CustomEvent<AgentLayerDetail>).detail
+      const layer = detail?.layer
+      if (!layer || !(layer in layersRef.current)) return
+      setLayers((prev) => ({
+        ...prev,
+        [layer as LayerKey]: detail.enabled ?? !prev[layer as LayerKey],
+      }))
+    }
+    window.addEventListener(AGENT_BUS_LAYER_EVENT, onAgentLayer)
+    return () => window.removeEventListener(AGENT_BUS_LAYER_EVENT, onAgentLayer)
+  }, [])
 
   const applyViewPreset = useCallback((id: ViewPresetId) => {
     const preset = VIEW_PRESETS[id]
@@ -999,6 +1021,19 @@ export default function Globe({
               `TIME: ${props.time?.getValue?.() ?? '—'}`,
               `STATIONS: ${props.stations?.getValue?.() ?? '—'}`,
               `PARTICIPANTS: ${props.participants?.getValue?.() ?? '—'}`,
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'intel_ftm') {
+          const datasets = props.datasets?.getValue?.() || []
+          applyTarget({
+            kind,
+            title: props.caption?.getValue?.() || 'Intel entity',
+            lines: [
+              `SCHEMA: ${props.schema?.getValue?.() ?? '—'}`,
+              `ID: ${props.id?.getValue?.() ?? '—'}`,
+              `DATASETS: ${Array.isArray(datasets) ? datasets.join(', ') : '—'}`,
+              `LAST SEEN: ${props.last_seen?.getValue?.() ?? '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
@@ -1752,7 +1787,7 @@ export default function Globe({
           </button>
           {layersPanelOpen && (
             <>
-              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'osint'] as const).map((k) => (
+              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'intelFt', 'osint'] as const).map((k) => (
                 <label key={k} className={layers[k] ? 'on' : ''}>
                   <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
                 </label>

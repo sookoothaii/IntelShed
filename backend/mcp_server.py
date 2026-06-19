@@ -1,7 +1,8 @@
-"""WorldBase MCP read surface — Streamable HTTP tools for Cursor / Claude.
+"""WorldBase MCP surface — Streamable HTTP read + write tools for Cursor / Claude.
 
 Reuses the same Python paths as chat_tools and REST routes (no HTTP loopback).
 Mount: GET/POST /api/mcp (Streamable HTTP). Disable with WORLDBASE_MCP=0.
+Write tools (briefing generate) gated by WORLDBASE_MCP_WRITE=1 (default on).
 """
 
 from __future__ import annotations
@@ -46,6 +47,28 @@ def _truthy(val: str | None) -> bool:
 
 def mcp_enabled() -> bool:
     return _truthy(os.getenv("WORLDBASE_MCP", "1"))
+
+
+def mcp_write_enabled() -> bool:
+    return mcp_enabled() and _truthy(os.getenv("WORLDBASE_MCP_WRITE", "1"))
+
+
+def mcp_globe_enabled() -> bool:
+    if not mcp_write_enabled():
+        return False
+    import agent_bus
+    return agent_bus.agent_bus_enabled()
+
+
+def _normalize_briefing_lang(lang: str | None) -> str | None:
+    if lang is None or not str(lang).strip():
+        return None
+    norm = str(lang).strip().lower()
+    if norm.startswith("de"):
+        return "de"
+    if norm.startswith("en"):
+        return "en"
+    raise ValueError(f"lang must be 'en' or 'de', got {lang!r}")
 
 
 def mcp_auth_required() -> bool:
@@ -124,6 +147,38 @@ async def fetch_briefing_latest(*, include_full_text: bool = False) -> dict[str,
         },
         "text_preview": text[:_TEXT_PREVIEW_CHARS],
         "text_truncated": len(text) > _TEXT_PREVIEW_CHARS,
+    }
+    if include_full_text:
+        out["text"] = text
+    return out
+
+
+async def trigger_briefing_generate(
+    *,
+    lang: str | None = None,
+    include_full_text: bool = False,
+) -> dict[str, Any]:
+    """Run full 24h briefing pipeline (Ollama + SQLite store). MCP write path."""
+    if not mcp_write_enabled():
+        raise PermissionError("MCP write tools disabled (set WORLDBASE_MCP_WRITE=1)")
+
+    resolved_lang = _normalize_briefing_lang(lang)
+    import node_sync
+
+    result = await node_sync.generate_briefing_internal(lang=resolved_lang)
+    text = result.get("text") or ""
+    digest = result.get("digest") or {}
+    out: dict[str, Any] = {
+        "generated": True,
+        "created_at": result.get("created_at"),
+        "style": "security_advisor_24h",
+        "lang": digest.get("lang"),
+        "alert_count": len(result.get("alerts") or []),
+        "fusion_hotspot_count": len(result.get("fusion_hotspots") or []),
+        "digest": digest,
+        "text_preview": text[:_TEXT_PREVIEW_CHARS],
+        "text_truncated": len(text) > _TEXT_PREVIEW_CHARS,
+        "text_length": len(text),
     }
     if include_full_text:
         out["text"] = text
@@ -250,8 +305,9 @@ async def _fetch_feed_live(feed_id: str, limit: int) -> dict[str, Any]:
 mcp = FastMCP(
     "WorldBase",
     instructions=(
-        "Read-only WorldBase intelligence API: briefing, Pi nodes, situations, "
-        "fusion hotspots, and cached feed samples. Does not control the globe HUD."
+        "WorldBase intelligence API: briefing read/generate, Pi nodes, situations, "
+        "fusion hotspots, feed samples, and optional globe control (Agent Bus). "
+        "Globe fly_to/toggle_layer require WORLDBASE_AGENT_BUS=1 and an open HUD tab."
     ),
     streamable_http_path="/",
     stateless_http=True,
@@ -301,6 +357,50 @@ async def worldbase_feed_allowlist() -> dict[str, Any]:
     return {"feeds": sorted(FEED_SAMPLE_ALLOWLIST)}
 
 
+if mcp_write_enabled():
+
+    @mcp.tool(name="worldbase_briefing_generate")
+    async def worldbase_briefing_generate(
+        lang: str | None = None,
+        include_full_text: bool = False,
+    ) -> dict[str, Any]:
+        """Generate a new 24h security briefing (Ollama + SQLite). Optional lang: en or de."""
+        return await trigger_briefing_generate(lang=lang, include_full_text=include_full_text)
+
+
+if mcp_globe_enabled():
+
+    @mcp.tool(name="worldbase_globe_fly_to")
+    async def worldbase_globe_fly_to(
+        lat: float,
+        lon: float,
+        height: float | None = None,
+        title: str | None = None,
+    ) -> dict[str, Any]:
+        """Fly the open HUD globe to lat/lon (Agent Bus → browser stream). Requires HUD at :5176."""
+        import agent_bus
+        return await agent_bus.publish_fly_to(lat=lat, lon=lon, height=height, title=title)
+
+    @mcp.tool(name="worldbase_globe_toggle_layer")
+    async def worldbase_globe_toggle_layer(layer: str, enabled: bool | None = None) -> dict[str, Any]:
+        """Toggle a globe feed layer on the open HUD (see worldbase_globe_layers for keys)."""
+        import agent_bus
+        return await agent_bus.publish_toggle_layer(layer=layer, enabled=enabled)
+
+    @mcp.tool(name="worldbase_globe_get_camera")
+    async def worldbase_globe_get_camera() -> dict[str, Any]:
+        """Last camera position synced from the open HUD globe session."""
+        import agent_bus
+        cam = agent_bus.get_camera_state()
+        return {"camera": cam or None, "subscribers": agent_bus.subscriber_count()}
+
+    @mcp.tool(name="worldbase_globe_layers")
+    async def worldbase_globe_layers() -> dict[str, Any]:
+        """Valid layer_id values for worldbase_globe_toggle_layer."""
+        import agent_bus
+        return {"layers": sorted(agent_bus.GLOBE_LAYER_KEYS)}
+
+
 # ---------------------------------------------------------------------------
 # Mount + auth + session lifecycle
 # ---------------------------------------------------------------------------
@@ -336,14 +436,16 @@ def _get_mcp_asgi() -> ASGIApp:
 def mount_worldbase_mcp(app) -> None:
     """Attach MCP Streamable HTTP at /api/mcp when WORLDBASE_MCP=1."""
     if not mcp_enabled():
-        print("[MCP] Read tools disabled (WORLDBASE_MCP=0)", flush=True)
+        print("[MCP] Tools disabled (WORLDBASE_MCP=0)", flush=True)
         return
 
     mcp.streamable_http_app()
     wrapped = _get_mcp_asgi()
     app.mount("/api/mcp", wrapped)
     auth_note = "X-API-Key required" if mcp_auth_required() else "open (localhost, no API key)"
-    print(f"[MCP] Read tools mounted at /api/mcp ({auth_note})", flush=True)
+    write_note = "write on" if mcp_write_enabled() else "write off"
+    globe_note = "globe on" if mcp_globe_enabled() else "globe off"
+    print(f"[MCP] Tools mounted at /api/mcp ({auth_note}; {write_note}; {globe_note})", flush=True)
 
     @app.on_event("startup")
     async def _mcp_startup() -> None:

@@ -161,7 +161,7 @@ async def execute_tool(name: str, arguments: dict) -> dict[str, Any]:
 
     if name == "generate_briefing":
         import node_sync
-        result = await node_sync.generate_briefing()
+        result = await node_sync.generate_briefing_internal()
         return {"tool": name, "result": {"created_at": result.get("created_at"), "preview": (result.get("text") or "")[:500]}}
 
     if name == "search_memory":

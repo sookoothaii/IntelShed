@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Globe from './components/Globe'
 import MapPanel from './components/MapPanel'
 import ChatPanel from './components/ChatPanel'
@@ -13,7 +13,9 @@ import { loadOsintPins, saveOsintPins, mergeImportedPins } from './lib/osintPins
 import WindyMapOverlay from './components/WindyMapOverlay'
 import MapModeBar from './components/MapModeBar'
 import { DEFAULT_MAP_VIEW, type MapViewMode } from './lib/mapView'
-import { fetchApi } from './lib/networkFetch';
+import { fetchApi } from './lib/networkFetch'
+import { agentBusEnabled } from './lib/agentBus'
+import { useAgentBus } from './hooks/useAgentBus'
 
 type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'firewall' | 'osint'
 
@@ -180,11 +182,22 @@ export default function App() {
     setView((prev) => (prev === 'map' ? 'map' : 'globe'))
   }
 
-  const handleGlobeMove = (cam: { lon: number; lat: number; height: number; pitch?: number }) => {
+  useAgentBus(focusOnMap)
+
+  const lastCamPostRef = useRef(0)
+  const handleGlobeMove = useCallback((cam: { lon: number; lat: number; height: number; pitch?: number }) => {
     if (view === 'map' || splitView) {
       setSyncCamera({ ...cam, source: 'globe', ts: Date.now() })
     }
-  }
+    if (agentBusEnabled() && Date.now() - lastCamPostRef.current > 3000) {
+      lastCamPostRef.current = Date.now()
+      fetchApi('/api/agent/camera', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cam),
+      }).catch(() => {})
+    }
+  }, [view, splitView])
 
   const handleMapMove = (cam: { lon: number; lat: number; zoom: number; pitch?: number }) => {
     if (view === 'globe' || splitView) {
