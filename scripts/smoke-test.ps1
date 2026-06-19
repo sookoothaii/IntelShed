@@ -70,6 +70,11 @@ Test-Endpoint "providers" "$Backend/api/providers" {
 Test-Endpoint "credentials status" "$Backend/api/credentials/status" {
     param($d); if (-not $d.providers) { throw "no providers" }; if ($d.count -lt 10) { throw "catalog too small" }
 } -TimeoutSec 15
+Test-Endpoint "connector registry" "$Backend/api/connectors?include_unlisted=0" {
+    param($d)
+    if (-not $d.connectors) { throw "no connectors" }
+    if ($d.count -lt 26) { throw "connector catalog too small ($($d.count))" }
+} -TimeoutSec 15
 
 Write-Host ""
 Write-Host "[2] Phase 2 fusion APIs" -ForegroundColor Cyan

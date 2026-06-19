@@ -19,7 +19,7 @@
 | **Fast health** | `GET /api/health/ping` | Use before/after changes |
 | **Ollama** | http://127.0.0.1:11434 | Default chat: `qwen3:8b` |
 | **Start** | `.\start.ps1` | Paths with spaces → `-LiteralPath` |
-| **Verify** | `.\scripts\smoke-test.ps1` | 27 checks — run before claiming “done” |
+| **Verify** | `.\scripts\smoke-test.ps1` | 28 checks — run before claiming “done” |
 
 Copy env: `backend\.env.example` → `backend\.env`, `frontend\.env.example` → `frontend\.env` (Cesium Ion token required for terrain/buildings).
 
@@ -62,6 +62,7 @@ Stored briefing JSON (`sources` column) includes `intel` (entity count, buckets,
 | FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
 | German output | `WORLDBASE_BRIEFING_LANG=de` (UI strings stay English) |
 | Pi payload | `GET /api/node/pull` (+ `X-Node-Token` when `NODE_INGEST_TOKEN` set) |
+| **Connectors** | `GET /api/connectors` — manifest catalog + cache overlay; export via `scripts/export_connectors.py` |
 | **MCP (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — 12 tools when Agent Bus on — [`docs/MCP.md`](docs/MCP.md) |
 | **Agent Bus** | `POST /api/agent/publish`, `GET /api/agent/stream` — globe fly/layer when HUD open — [`docs/MCP.md`](docs/MCP.md#agent-bus) |
 | **FtM globe layer** | `GET /api/intel/entities?geolocated=1` → HUD **INTEL** toggle (`intelFt`) — [`docs/GLOBE.md`](docs/GLOBE.md#intel-ftm-globe-layer) |
@@ -69,7 +70,7 @@ Stored briefing JSON (`sources` column) includes `intel` (entity count, buckets,
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_operator_briefing test_intel_briefing test_ftm_store test_entity_resolution test_feed_ingest -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_operator_briefing test_intel_briefing test_ftm_store test_feed_ingest -v` in `backend/`.
 
 ---
 
@@ -86,7 +87,7 @@ Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_
 | Webcams → globe stream | `backend/webcam_bridge.py`, `WebcamSection.tsx`, `WebcamStreamPanel.tsx` |
 | Credential registry | `backend/credentials/registry.py`, `GET /api/credentials/status` |
 | HUD styles | `frontend/src/styles/hud.css` |
-| Feeds + cache | `backend/feeds_extra.py`, `backend/feed_registry.py` |
+| Feeds + cache | `backend/feeds_extra.py`, `backend/feed_registry.py`, `backend/connector_registry.py` |
 | Node sync + briefing routes | `backend/node_sync.py` |
 | MCP + Agent Bus | `backend/mcp_server.py`, `backend/agent_bus.py`, [`docs/MCP.md`](docs/MCP.md) |
 | Operator digest | `backend/operator_briefing.py` |

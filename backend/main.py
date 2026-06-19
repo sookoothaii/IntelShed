@@ -59,6 +59,7 @@ import intel_ingest
 import entity_resolution
 import feed_ingest
 import credentials.router as credentials_router
+import connectors.router as connectors_router
 import traffic_bridge
 import mcp_server
 
@@ -285,6 +286,7 @@ app.include_router(intel_ingest.router)
 app.include_router(entity_resolution.router)
 app.include_router(feed_ingest.router)
 app.include_router(credentials_router.router)
+app.include_router(connectors_router.router)
 app.include_router(traffic_bridge.router)
 
 mcp_server.mount_worldbase_mcp(app)
@@ -469,37 +471,7 @@ def on_shutdown():
         _BRIEFING_AUTOPILOT_TASK.cancel()
 
 
-# Per-feed max age (seconds) before marked stale in /api/health
-_FEED_TTL_SEC: dict[str, float] = {
-    "airquality": 3600,
-    "gdacs": 900,
-    "gdacs_v2": 900,
-    "pegel": 900,
-    "markets": 120,
-    "military": 60,
-    "spaceweather": 300,
-    "geopolitics": 600,
-    "reliefweb": 600,
-    "eonet": 1800,
-    "wildfires": 600,
-    "outages": 300,
-    "energy_de": 900,
-    "traffic_cams:regional": 120,
-    "traffic_cams:global": 3600,
-    "traffic_cams:all": 90,
-}
-
-
-def _feed_ttl_sec(key: str) -> float:
-    if key in _FEED_TTL_SEC:
-        return _FEED_TTL_SEC[key]
-    if key.startswith("weather:"):
-        return 1800
-    if key.startswith("quakes:"):
-        return 300
-    if key.startswith("traffic_cams:"):
-        return 120
-    return 600
+from connector_registry import feed_ttl_sec as _feed_ttl_sec
 
 
 def _feed_status(age_sec: float | None) -> str:
