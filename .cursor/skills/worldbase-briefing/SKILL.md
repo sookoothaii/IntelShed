@@ -1,6 +1,11 @@
 ---
 name: worldbase-briefing
-description: Test and validate the WorldBase briefing pipeline, Operator region classification, FtM intel digest, and Pi node sync. Use when modifying operator_briefing.py, intel_briefing.py, node_sync.py, or when asked to verify briefing generation or node pull.
+description: >-
+  Test and validate the WorldBase briefing pipeline, operator region
+  classification, FtM intel digest, and Pi node sync. Use when modifying
+  operator_briefing.py, intel_briefing.py, node_sync.py, gdelt_bridge.py,
+  or when the user says "verify briefing", "regenerate digest", "Pi pull
+  stale", "LOCAL block empty", "briefing empty", or asks to check node pull.
 ---
 
 # WorldBase Briefing Pipeline Validation

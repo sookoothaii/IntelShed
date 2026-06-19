@@ -44,3 +44,5 @@ List which brief requirements you covered so the review step can check them. Use
 ```
 
 If any requirement is **Partial** or **Blocked**, say why before claiming completion.
+
+When all requirements are **Done**, suggest `/review-brief` to verify against the brief.

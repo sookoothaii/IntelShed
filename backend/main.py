@@ -58,6 +58,8 @@ import fusion_heatmap
 import intel_ingest
 import entity_resolution
 import feed_ingest
+import credentials.router as credentials_router
+import traffic_bridge
 
 DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
@@ -278,6 +280,8 @@ app.include_router(ftm_store.router)
 app.include_router(intel_ingest.router)
 app.include_router(entity_resolution.router)
 app.include_router(feed_ingest.router)
+app.include_router(credentials_router.router)
+app.include_router(traffic_bridge.router)
 
 
 # Disable trailing-slash redirects globally (prevents CORS errors on 307 redirects)
@@ -474,6 +478,9 @@ _FEED_TTL_SEC: dict[str, float] = {
     "wildfires": 600,
     "outages": 300,
     "energy_de": 900,
+    "traffic_cams:regional": 120,
+    "traffic_cams:global": 3600,
+    "traffic_cams:all": 90,
 }
 
 
@@ -484,6 +491,8 @@ def _feed_ttl_sec(key: str) -> float:
         return 1800
     if key.startswith("quakes:"):
         return 300
+    if key.startswith("traffic_cams:"):
+        return 120
     return 600
 
 
@@ -572,6 +581,16 @@ async def health():
         fresh_n = sum(1 for f in feeds.values() if f.get("fresh"))
         stale_n = sum(1 for f in feeds.values() if f.get("status") == "stale")
         err_n = sum(1 for f in feeds.values() if f.get("error"))
+        try:
+            from credentials.registry import is_configured, provider_for_feed
+
+            for fk, fm in feeds.items():
+                pid = provider_for_feed(fk)
+                if pid:
+                    fm["provider_id"] = pid
+                    fm["key_configured"] = is_configured(pid)
+        except Exception:
+            pass
         return {
             "status": "ok",
             "time": now.isoformat(),
@@ -590,6 +609,15 @@ async def health():
         result["ftm"] = ftm_store.store_status()
     except Exception:
         result["ftm"] = {"ready": False, "error": "unavailable"}
+    try:
+        from credentials.registry import providers_status
+        result["credentials"] = {
+            "configured": providers_status()["configured"],
+            "total": providers_status()["count"],
+            "url": "/api/credentials/status",
+        }
+    except Exception:
+        pass
     return result
 
 

@@ -56,4 +56,4 @@ The brief **must** include these sections:
 
 ## After saving
 
-Tell the user the brief path and suggest `/create` when they are ready to build.
+Tell the user the brief path and suggest `/create` when they are ready to build, then `/review-brief` to audit against the brief.

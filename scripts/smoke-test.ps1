@@ -53,6 +53,9 @@ Test-Endpoint "models (Ollama)" "$Backend/api/models" {
 Test-Endpoint "providers" "$Backend/api/providers" {
     param($d); if (-not $d.providers) { throw "empty providers" }
 } -TimeoutSec 90
+Test-Endpoint "credentials status" "$Backend/api/credentials/status" {
+    param($d); if (-not $d.providers) { throw "no providers" }; if ($d.count -lt 10) { throw "catalog too small" }
+} -TimeoutSec 15
 
 Write-Host ""
 Write-Host "[2] Phase 2 fusion APIs" -ForegroundColor Cyan
@@ -115,6 +118,9 @@ Write-Host "[4] Intelligence feeds (sample)" -ForegroundColor Cyan
 ) | ForEach-Object {
     Test-Endpoint $_.n "$Backend$($_.u)" { param($d) } -TimeoutSec 60 -Optional
 }
+Test-Endpoint "traffic cams regional" "$Backend/api/traffic/cams?scope=regional" {
+    param($d); if ($d.count -lt 1) { throw "no cameras" }
+} -TimeoutSec 45 -Optional
 
 Write-Host ""
 Write-Host "[5] Vite dev proxy" -ForegroundColor Cyan

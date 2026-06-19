@@ -1,14 +1,16 @@
 ---
-name: review
+name: worldbase-review
 description: >-
-  Audit deliverables against the project brief requirement by requirement.
-  Use when the user runs /review or asks to verify work matches briefs/*.md.
+  Audit deliverables against briefs/*.md requirement by requirement.
+  Use when the user runs /review-brief or asks to verify work matches the
+  project brief. Do NOT use for code review (use review-bugbot or
+  review-security instead).
 disable-model-invocation: true
 ---
 
-# Review
+# Brief Review
 
-When the user runs `/review`, compare the current output against the brief in `briefs/` and decide whether every requirement is fully met.
+When the user runs `/review-brief`, compare the current output against the brief in `briefs/` and decide whether every requirement is fully met.
 
 ## Resolve the brief file
 
@@ -62,4 +64,4 @@ Use the same rules as `/create`:
 
 ## After a fail
 
-Tell the user to run `/create` again with the fix list. After fixes, run `/review` again until verdict is **PASS**.
+Tell the user to run `/create` again with the fix list. After fixes, run `/review-brief` again until verdict is **PASS**.

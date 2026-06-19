@@ -12,7 +12,6 @@ import {
   Cartesian3,
   Cartesian2,
   Color,
-  createWorldTerrainAsync,
   createOsmBuildingsAsync,
   Cesium3DTileset,
   SceneMode,
@@ -50,12 +49,14 @@ import {
 import { POIS } from '../lib/pois'
 import type { FocusTarget } from '../lib/focus'
 import type { OsintPin } from '../lib/osintPins'
-import SensorSparklines from './SensorSparklines'
-import PegelSparkline from './PegelSparkline'
+import type { TrafficCamRef } from './TrafficCamPanel'
+import type { WebcamStreamRef } from './WebcamStreamPanel'
+import GlobeDetailModal from './GlobeDetailModal'
 import { useTrailsLayer } from '../hooks/layers/useTrailsLayer';
 import { GlobeLayerManager } from '../hooks/layers/GlobeLayerManager';
 
 import { canFetch } from '../lib/networkFetch';
+import { createTerrainWithFallback, attachTerrainFailover } from '../lib/cesiumTerrain';
 
 import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
@@ -210,6 +211,7 @@ type Stats = {
   wildfires: number
   lightning: number
   transit: number
+  trafficCams: number
   maritime: number
   gdacs: number
   hazards: number
@@ -236,6 +238,7 @@ type GlobeLayers = {
   wildfires: boolean
   lightning: boolean
   transit: boolean
+  trafficCams: boolean
   maritime: boolean
   gdacs: boolean
   hazards: boolean
@@ -290,6 +293,7 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
       { layer: 'military', label: 'MILITARY', statKey: 'military', color: '#ff6b35', healthKeys: ['military'], tip: 'Aircraft flagged as military.' },
       { layer: 'maritime', label: 'MARITIME', statKey: 'maritime', color: '#00e5ff', healthKeys: ['maritime'], tip: 'AIS vessel positions worldwide.' },
       { layer: 'transit', label: 'TRANSIT', statKey: 'transit', color: '#ffd23f', healthKeys: ['transit'], tip: 'Public transit vehicles (GTFS realtime).' },
+      { layer: 'trafficCams', label: 'TRAFFIC CAMS', statKey: 'trafficCams', color: '#ff9f1c', healthKeys: ['traffic_cams:regional'], tip: 'ASEAN traffic cameras (Singapore data.gov.sg).' },
     ],
   },
   {
@@ -371,6 +375,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       wildfires: true,
       lightning: false,
       transit: false,
+      trafficCams: false,
       maritime: false,
       gdacs: true,
       hazards: true,
@@ -402,6 +407,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       wildfires: false,
       lightning: false,
       transit: false,
+      trafficCams: false,
       maritime: false,
       gdacs: true,
       hazards: true,
@@ -433,6 +439,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       wildfires: false,
       lightning: false,
       transit: false,
+      trafficCams: true,
       maritime: true,
       gdacs: true,
       hazards: false,
@@ -464,6 +471,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       wildfires: true,
       lightning: true,
       transit: false,
+      trafficCams: false,
       maritime: false,
       gdacs: true,
       hazards: true,
@@ -534,34 +542,18 @@ type Target = {
   nodeId?: string
   entityId?: string
   pegelUuid?: string
+  trafficCam?: TrafficCamRef
+  webcam?: WebcamStreamRef
+  weatherCell?: {
+    lat: number
+    lon: number
+    temperature_c?: number | null
+    wind_speed_ms?: number | null
+    precip_mm_3h?: number | null
+  }
 } | null
 
 type Cursor = { lon: string; lat: string; alt: string }
-
-function EntityContextCard({ entityId }: { entityId: string }) {
-  const [ctx, setCtx] = useState<any>(null)
-  useEffect(() => {
-    let active = true
-    fetchApi(`/api/entity/${entityId}/context`)
-      .then(r => r.json())
-      .then(d => active && setCtx(d))
-      .catch(() => {})
-    return () => { active = false }
-  }, [entityId])
-  if (!ctx || ctx.error) return null
-  const related = ctx.related || []
-  if (related.length === 0) return null
-  return (
-    <div className="entity-ctx" style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.2)' }}>
-       <div className="tp-line" style={{ color: '#00ffa3', fontSize: '9px', fontWeight: 'bold' }}>[FUSION GRAPH] RELATED: {related.length}</div>
-       {related.map((r: any) => (
-          <div key={r.id} className="tp-line" style={{ paddingLeft: '6px', borderLeft: '2px solid #00ffa3', opacity: 0.85 }}>
-            {r.label || r.id} <span style={{ opacity: 0.5 }}>({r.type})</span>
-          </div>
-       ))}
-    </div>
-  )
-}
 
 export default function Globe({
   focus,
@@ -569,6 +561,7 @@ export default function Globe({
   osintPins = [],
   onClearOsintPins,
   onCameraMove,
+  onOpenWindy,
   syncCamera,
   mapMode = DEFAULT_MAP_VIEW,
   visible = true,
@@ -579,6 +572,7 @@ export default function Globe({
   osintPins?: OsintPin[]
   onClearOsintPins?: () => void
   onCameraMove?: (cam: { lon: number; lat: number; height: number; pitch?: number }) => void
+  onOpenWindy?: (lat: number, lon: number) => void
   syncCamera?: { lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null
   mapMode?: MapViewMode
   visible?: boolean
@@ -593,7 +587,7 @@ export default function Globe({
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, energy: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, trafficCams: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, energy: 0, fps: 0 })
   const [gibsLayer, setGibsLayer] = useState<'off' | 'fires' | 'goes' | 'viirs'>('off')
   const gibsImageryRef = useRef<any>(null)
   const gibsDateRef = useRef<string>('')
@@ -605,6 +599,47 @@ export default function Globe({
   const [mvtProvider, setMvtProvider] = useState<any>(null)
   const [transitCity, setTransitCity] = useState('helsinki')
   const [target, setTarget] = useState<Target>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const applyTarget = useCallback((t: NonNullable<Target>) => {
+    setTarget(t)
+    setDetailOpen(true)
+  }, [])
+  const closeDetail = useCallback(() => {
+    setDetailOpen(false)
+    setTarget(null)
+    apiRef.current.unlock?.()
+    const v = viewerRef.current
+    if (v && !(v as any).isDestroyed?.()) {
+      try {
+        v.resize()
+        v.scene.requestRender()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [])
+  const handleTrafficCamSelect = useCallback((next: TrafficCamRef) => {
+    applyTarget({
+      kind: 'traffic_cam',
+      title: `🚦 ${next.name}`,
+      link: next.image_url,
+      lines: [
+        `SOURCE: ${next.source ?? '—'}`,
+        `COUNTRY: ${next.country ?? '—'}`,
+        `LAT/LON: ${next.lat.toFixed(4)}, ${next.lon.toFixed(4)}`,
+      ],
+      trafficCam: next,
+      entityId: `traffic_cam:${next.id}`,
+    })
+    const v = viewerRef.current
+    if (v) {
+      v.camera.flyTo({
+        destination: Cartesian3.fromDegrees(next.lon, next.lat, 14000),
+        orientation: { heading: 0, pitch: CMath.toRadians(-48), roll: 0 },
+        duration: 1.0,
+      })
+    }
+  }, [applyTarget])
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
   const [scrubT, setScrubT] = useState(1)
   const [timelineHours, setTimelineHours] = useState<number>(24)
@@ -735,8 +770,10 @@ export default function Globe({
     const timers: ReturnType<typeof setInterval>[] = []
     const feedActive = () => !cancelled && visibleRef.current
 
+    let detachTerrainFailover: (() => void) | undefined
+
     ;(async () => {
-      const terrainProvider = await createWorldTerrainAsync()
+      const terrainProvider = await createTerrainWithFallback()
       if (cancelled || !containerRef.current) return
 
       viewer = new Viewer(containerRef.current, {
@@ -753,6 +790,7 @@ export default function Globe({
       })
       viewerRef.current = viewer
       setViewer(viewer)
+      detachTerrainFailover = attachTerrainFailover(viewer, terrainProvider)
 
       const scene = viewer.scene
       scene.globe.enableLighting = true
@@ -819,10 +857,14 @@ export default function Globe({
 
       const selectEntity = (ent: Entity) => {
         const props = ent.properties as any
-        const kind = props.kind?.getValue?.()
+        const prop = (k: string) => {
+          const p = props?.[k]
+          return typeof p?.getValue === 'function' ? p.getValue() : p
+        }
+        const kind = prop('kind')
         if (kind === 'aircraft') {
           const icao = (props.icao?.getValue?.() || '').toLowerCase()
-          setTarget({
+          applyTarget({
             kind, title: `✈ ${props.callsign?.getValue?.()}`,
             entityId: icao ? `aircraft:${icao}` : undefined,
             lines: [
@@ -837,7 +879,7 @@ export default function Globe({
           viewer!.trackedEntity = ent
           if (trailsEnabledRef.current && icao) trailsApi.fetchTrail(icao)
         } else if (kind === 'satellite') {
-          setTarget({
+          applyTarget({
             kind, title: `🛰 ${props.name?.getValue?.()}`,
             lines: [`ALTITUDE: ${Math.round(props.alt?.getValue?.() ?? 0)} m`, 'ORBIT: TRACKING'],
           })
@@ -845,7 +887,7 @@ export default function Globe({
         } else if (kind === 'quake') {
           const place = props.place?.getValue?.() || 'Unknown location'
           const mag = props.mag?.getValue?.()
-          setTarget({
+          applyTarget({
             kind, title: `⊕ M${mag} SEISMIC — ${place}`,
             lines: [
               `DEPTH: ${props.depth?.getValue?.()} km`,
@@ -856,7 +898,7 @@ export default function Globe({
         } else if (kind === 'event') {
           const evTitle = props.title?.getValue?.() || 'Event'
           const category = props.category?.getValue?.()
-          setTarget({
+          applyTarget({
             kind, title: `⚠ ${evTitle}`,
             lines: [
               ...(category ? [`CATEGORY: ${category}`] : []),
@@ -866,7 +908,7 @@ export default function Globe({
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'military') {
           const sq = props.squawk?.getValue?.()
-          setTarget({
+          applyTarget({
             kind, title: `🎖 ${props.flight?.getValue?.() || props.hex?.getValue?.()}`,
             lines: [
               `HEX: ${props.hex?.getValue?.()}`,
@@ -878,7 +920,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'transit') {
-          setTarget({
+          applyTarget({
             kind, title: `🚌 TRANSIT ${props.route_id?.getValue?.() || '—'}`,
             lines: [
               `ID: ${props.id?.getValue?.() ?? '—'}`,
@@ -892,7 +934,7 @@ export default function Globe({
         } else if (kind === 'maritime') {
           const mmsi = String(props.mmsi?.getValue?.() ?? '')
           const flagged = sanctionedRef.current.has(mmsi)
-          setTarget({
+          applyTarget({
             kind, title: `🚢 ${flagged ? '⚠ ' : ''}${props.name?.getValue?.() || 'Vessel'}`,
             lines: [
               `MMSI: ${mmsi || '—'}`,
@@ -907,7 +949,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'fusion_cell') {
-          setTarget({
+          applyTarget({
             kind, title: `⛶ FUSION CELL`,
             lines: [
               `INTENSITY: ${props.intensity?.getValue?.()}`,
@@ -917,7 +959,7 @@ export default function Globe({
             ],
           })
         } else if (kind === 'wildfire') {
-          setTarget({
+          applyTarget({
             kind, title: `🔥 WILDFIRE (${props.confidence_label?.getValue?.() || 'unknown'})`,
             lines: [
               `CONFIDENCE: ${props.confidence?.getValue?.() ?? '—'}%`,
@@ -929,7 +971,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'lightning') {
-          setTarget({
+          applyTarget({
             kind, title: `⚡ LIGHTNING STRIKE`,
             lines: [
               `TIME: ${props.time?.getValue?.() ?? '—'}`,
@@ -944,7 +986,7 @@ export default function Globe({
           const s = props.sensors?.getValue?.() || {}
           const sensorLines = Object.entries(s).map(([k, v]) => `  ${k}: ${v}`)
           const ph = props.pihole?.getValue?.() || {}
-          setTarget({
+          applyTarget({
             kind, title: `📡 ${props.name?.getValue?.()}`,
             nodeId: String(props.node_id?.getValue?.() || ''),
             lines: [
@@ -959,7 +1001,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'mesh_node') {
-          setTarget({
+          applyTarget({
             kind, title: `📻 MESH ${props.name?.getValue?.() || 'Node'}`,
             lines: [
               `ID: ${props.id?.getValue?.() ?? '—'}`,
@@ -970,7 +1012,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'gdacs') {
-          setTarget({
+          applyTarget({
             kind,
             title: props.title?.getValue?.() || 'GDACS Alert',
             lines: [
@@ -981,7 +1023,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'outage') {
-          setTarget({
+          applyTarget({
             kind,
             title: `📡 ${props.title?.getValue?.() || 'Outage'}`,
             lines: [
@@ -994,7 +1036,7 @@ export default function Globe({
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'volcano') {
           const name = props.name?.getValue?.() || ''
-          setTarget({
+          applyTarget({
             kind,
             title: `🌋 ${name || 'Volcano'}`,
             entityId: name ? `volcano:${name}` : undefined,
@@ -1008,7 +1050,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'hazard' || kind === 'gdelt_geo') {
-          setTarget({
+          applyTarget({
             kind,
             title: props.event?.getValue?.() || props.title?.getValue?.() || 'Hazard',
             lines: [
@@ -1021,7 +1063,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'airquality') {
-          setTarget({
+          applyTarget({
             kind,
             title: `💨 ${props.city?.getValue?.()}`,
             lines: [
@@ -1032,7 +1074,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'energy') {
-          setTarget({
+          applyTarget({
             kind,
             title: `⚡ ${props.label?.getValue?.()}`,
             lines: [
@@ -1045,7 +1087,7 @@ export default function Globe({
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'pegel') {
           const uuid = props.uuid?.getValue?.() || ''
-          setTarget({
+          applyTarget({
             kind,
             title: `🌊 ${props.name?.getValue?.()} (${props.water?.getValue?.()})`,
             entityId: uuid ? `pegel:${uuid}` : undefined,
@@ -1059,14 +1101,71 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'geopolitics') {
-          setTarget({
+          applyTarget({
             kind,
             title: props.name?.getValue?.() || 'Crisis',
             lines: [`STATUS: ${props.status?.getValue?.() ?? '—'}`, `ID: ${props.id?.getValue?.() ?? '—'}`],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'weather') {
+          const lat = Number(prop('lat'))
+          const lon = Number(prop('lon'))
+          applyTarget({
+            kind,
+            title: '🌡 WEATHER CELL',
+            lines: [
+              `LAT/LON: ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+              `TEMP: ${prop('temperature_c') != null ? `${Math.round(prop('temperature_c'))}°C` : '—'}`,
+              `WIND: ${prop('wind_speed_ms') != null ? `${prop('wind_speed_ms')} m/s` : '—'}`,
+              `RAIN 3H: ${prop('precip_mm_3h') != null ? `${Number(prop('precip_mm_3h')).toFixed(1)} mm` : '—'}`,
+            ],
+            weatherCell: {
+              lat,
+              lon,
+              temperature_c: prop('temperature_c'),
+              wind_speed_ms: prop('wind_speed_ms'),
+              precip_mm_3h: prop('precip_mm_3h'),
+            },
+          })
+          viewer!.camera.flyTo({
+            destination: Cartesian3.fromDegrees(lon, lat, 280000),
+            orientation: { heading: 0, pitch: CMath.toRadians(-55), roll: 0 },
+            duration: 1.0,
+          })
+        } else if (kind === 'traffic_cam') {
+          const camId = String(prop('cam_id') ?? ent.id ?? '')
+          const lat = Number(prop('lat') ?? 0)
+          const lon = Number(prop('lon') ?? 0)
+          const imageUrl = String(prop('image_url') ?? '')
+          const cam: TrafficCamRef = {
+            id: camId,
+            name: String(prop('name') || 'Traffic camera'),
+            lat,
+            lon,
+            image_url: imageUrl,
+            source: String(prop('source') ?? ''),
+            country: String(prop('country') ?? ''),
+            refresh_ms: Number(prop('refresh_ms') ?? 120_000),
+          }
+          applyTarget({
+            kind,
+            title: `🚦 ${cam.name}`,
+            entityId: camId ? `traffic_cam:${camId}` : undefined,
+            link: imageUrl || undefined,
+            lines: [
+              `SOURCE: ${cam.source || '—'}`,
+              `COUNTRY: ${cam.country || '—'}`,
+              `LAT/LON: ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+            ],
+            trafficCam: cam,
+          })
+          viewer!.camera.flyTo({
+            destination: Cartesian3.fromDegrees(lon, lat, 14000),
+            orientation: { heading: 0, pitch: CMath.toRadians(-48), roll: 0 },
+            duration: 1.2,
+          })
         } else if (kind === 'osint') {
-          setTarget({
+          applyTarget({
             kind,
             title: props.title?.getValue?.() || 'OSINT',
             lines: [
@@ -1086,6 +1185,7 @@ export default function Globe({
         if (defined(picked) && picked.id && picked.id.properties) {
           selectEntity(picked.id)
         } else {
+          setDetailOpen(false)
           setTarget(null)
           if (viewer) viewer.trackedEntity = undefined
         }
@@ -1136,16 +1236,29 @@ export default function Globe({
             duration: 2.5,
           })
         },
-        unlock: () => { if (viewer) viewer.trackedEntity = undefined; focusSrc.entities.removeAll(); setTarget(null) },
+        unlock: () => { if (viewer) viewer.trackedEntity = undefined; focusSrc.entities.removeAll(); setDetailOpen(false); setTarget(null) },
         focusOn: (f: FocusTarget) => {
           if (!viewer) return
           viewer.trackedEntity = undefined
+          const height =
+            f.height ??
+            (f.kind === 'webcam' ? 12000 : f.kind === 'traffic_cam' ? 14000 : 400000)
           viewer.camera.flyTo({
-            destination: Cartesian3.fromDegrees(f.lon, f.lat, f.height ?? 400000),
-            orientation: { heading: 0, pitch: CMath.toRadians(-55), roll: 0 },
+            destination: Cartesian3.fromDegrees(f.lon, f.lat, height),
+            orientation: {
+              heading: 0,
+              pitch: CMath.toRadians(f.kind === 'webcam' ? -42 : -55),
+              roll: 0,
+            },
             duration: 2.2,
           })
-          setTarget({ kind: f.kind, title: f.title, lines: f.lines, link: f.link })
+          applyTarget({
+            kind: f.kind,
+            title: f.title,
+            lines: f.lines,
+            link: f.link,
+            webcam: f.webcam,
+          })
           focusSrc.entities.removeAll()
           const t0 = Date.now()
           const ring = () => ((Date.now() - t0) % 1600) / 1600
@@ -1222,6 +1335,7 @@ export default function Globe({
 
     return () => {
       cancelled = true
+      detachTerrainFailover?.()
       if (recoverAfterOnline) window.removeEventListener('online', recoverAfterOnline)
       resizeObserver?.disconnect()
       timers.forEach((id) => {
@@ -1616,7 +1730,7 @@ export default function Globe({
           </button>
           {layersPanelOpen && (
             <>
-              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'osint'] as const).map((k) => (
+              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'osint'] as const).map((k) => (
                 <label key={k} className={layers[k] ? 'on' : ''}>
                   <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
                 </label>
@@ -1722,28 +1836,14 @@ export default function Globe({
         </div>
       )}
 
-      {target && (
-        <div className={`target-panel ${target.kind}`}>
-          <div className="tp-head">
-            <span>TARGET LOCK</span>
-            <button onClick={() => { setTarget(null); apiRef.current.unlock?.() }}>✕</button>
-          </div>
-          <div className="tp-title">{target.title}</div>
-          {target.lines.map((l, i) => <div key={i} className="tp-line">{l}</div>)}
-          {target.nodeId && <SensorSparklines nodeId={target.nodeId} hours={timelineHours} />}
-          {target.pegelUuid && (
-            <div style={{ marginTop: 8 }}>
-              <PegelSparkline uuid={target.pegelUuid} hours={24} width={260} height={56} />
-            </div>
-          )}
-          {target.entityId && <EntityContextCard entityId={target.entityId} />}
-          {target.link && (
-            <a className="tp-link" href={target.link} target="_blank" rel="noreferrer">OPEN SOURCE ↗</a>
-          )}
-          {onAskAI && (
-            <button className="tp-ask-ai" onClick={() => onAskAI(target.title, target.lines)}>✦ ASK AI</button>
-          )}
-        </div>
+      {detailOpen && target && (
+        <GlobeDetailModal
+          target={target}
+          onClose={closeDetail}
+          onSelectTrafficCam={handleTrafficCamSelect}
+          onOpenWindy={onOpenWindy}
+          onAskAI={onAskAI}
+        />
       )}
     </div>
   )

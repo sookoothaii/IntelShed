@@ -212,6 +212,7 @@ export default function App() {
     osintPins,
     onClearOsintPins: clearOsintPins,
     onCameraMove: handleGlobeMove,
+    onOpenWindy: openWindyMap,
     syncCamera,
     mapMode,
     layoutSplit: splitView,

@@ -869,6 +869,79 @@
   animation: lock-in 0.25s ease-out;
 }
 
+.target-panel.traffic_cam,
+.target-panel.traffic-cam-target {
+  max-width: 420px;
+  border-color: #ff9f1c;
+  box-shadow: 0 0 24px rgba(255, 159, 28, 0.28);
+}
+
+.traffic-cam-panel {
+  margin: 8px 0 10px;
+}
+
+.traffic-cam-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--txt-dim);
+  margin-bottom: 8px;
+}
+
+.traffic-cam-picker select {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  color: var(--txt);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 6px 8px;
+  border-radius: 3px;
+}
+
+.traffic-cam-frame {
+  position: relative;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #000;
+  min-height: 180px;
+}
+
+.traffic-cam-live-img {
+  width: 100%;
+  display: block;
+  min-height: 180px;
+  object-fit: cover;
+}
+
+.traffic-cam-placeholder {
+  padding: 72px 12px;
+  text-align: center;
+  color: var(--txt-dim);
+  font-size: 11px;
+}
+
+.traffic-cam-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.traffic-cam-meta {
+  font-size: 10px;
+  color: var(--txt-dim);
+  margin: 6px 0 0;
+}
+
+.traffic-cam-error {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
 .target-panel.quake { border-color: #ff3b30; box-shadow: 0 0 24px rgba(255, 59, 48, 0.3); }
 .target-panel.event { border-color: #ff6b35; box-shadow: 0 0 24px rgba(255, 107, 53, 0.3); }
 
@@ -2996,6 +3069,99 @@ html, body, #root {
   color: var(--txt-dim);
   font-family: var(--mono);
 }
+.traffic-cam-stream .traffic-cam-live-img {
+  min-height: 360px;
+  max-height: 52vh;
+  object-fit: contain;
+  background: #000;
+}
+
+.globe-detail-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.globe-detail-modal-content {
+  max-width: 920px;
+  width: 100%;
+  max-height: 92vh;
+  overflow: auto;
+  background: #0a1018;
+  border: 1px solid #ff9f1c;
+  border-radius: 10px;
+  padding: 18px 20px;
+  box-shadow: 0 0 40px rgba(255, 159, 28, 0.25);
+}
+
+.globe-detail-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.globe-detail-modal-badge {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #ff9f1c;
+  font-weight: 700;
+}
+
+.globe-detail-close {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--txt-dim);
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.globe-detail-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  color: var(--txt);
+}
+
+.globe-detail-weather-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.globe-detail-k {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--txt-dim);
+}
+
+.globe-detail-v {
+  font-size: 18px;
+  font-weight: 700;
+  color: #4fc3f7;
+}
+
+.globe-detail-hint {
+  font-size: 11px;
+  color: var(--txt-dim);
+  line-height: 1.45;
+  margin: 0 0 12px;
+}
+
+.globe-detail-lines {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
 .webcam-modal {
   position: fixed;
   inset: 0;

@@ -9,7 +9,7 @@ description: Visual smoke test of the WorldBase HUD via the cursor-ide-browser M
 
 ## Pre-conditions
 - Frontend reachable at http://localhost:5176 (run `.\start.ps1` if not)
-- Cesium Ion token in `frontend/.env` (else terrain/buildings missing — not a test failure)
+- Cesium Ion token in `frontend/.env` (else ellipsoid fallback — not a test failure; see `docs/GLOBE.md`)
 
 ## Execution sequence
 
@@ -37,19 +37,25 @@ For each view (`GLOBE`, `MAP`, `DATA`, `AI`):
 - Or pull `Log.enable` events buffered since step 2
 - **0 errors expected.** Common false positives: Cesium Ion 401 if token missing — note but do not fail.
 
-### 5. FULL SITUATION overlay
+### 5. Globe detail modal (optional)
+- DATA → WEBCAMS → click a cam with coordinates
+- Expect view switch to GLOBE + modal badge **LIVE FEED** with iframe
+- Close modal — globe region remains visible (not empty space)
+- See `docs/GLOBE.md`
+
+### 6. FULL SITUATION overlay
 - `browser_click` the FULL SITUATION button
 - Wait ~3 s for parallel feed fetches
 - `browser_snapshot` — expect 13 feed cards in 2 columns
 - `browser_take_screenshot`
 - Close overlay (Escape or close button)
 
-### 6. Split view (current default)
+### 7. Split view (current default)
 - Click `◫ SPLIT`
 - Verify both globe and map panes render side by side
 - Camera-sync regression check: pan in MapLibre, snapshot Cesium pose — pitch should follow
 
-### 7. Cleanup
+### 8. Cleanup
 - `browser_lock` action `unlock`
 
 ## When NOT to use

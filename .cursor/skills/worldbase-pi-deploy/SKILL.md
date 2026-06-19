@@ -1,6 +1,10 @@
 ---
 name: worldbase-pi-deploy
-description: Deploy the WorldBase synchronization scripts to the Raspberry Pi edge node safely. Use when modifying Pi-sync code (worldbase_push.py, worldbase_pull.py) or when the operator requests an edge deployment.
+description: >-
+  Deploy WorldBase sync scripts to the Raspberry Pi edge node safely. Use when
+  modifying scripts/deploy-pi-sync.ps1, offgrid-raspi/scripts/worldbase_push.py,
+  worldbase_pull.py, node_sync.py push/pull paths, or when the user says
+  "deploy to Pi", "edge sync broken", "update Pi scripts", or "portal deploy".
 ---
 
 # WorldBase Edge Node Deployment
