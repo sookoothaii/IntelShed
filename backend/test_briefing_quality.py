@@ -34,6 +34,27 @@ class BriefingQualityTests(unittest.TestCase):
         self.assertGreaterEqual(q["score"], 0.0)
         self.assertLessEqual(q["score"], 1.0)
 
+    def test_gdelt_from_feed_metadata(self):
+        now = datetime.now(timezone.utc).isoformat()
+        text = "LOCAL (Thailand)\n- Bangkok update"
+        sources = {
+            "digest": {"local_count": 2, "intel_count": 1},
+            "intel": {"count": 1},
+            "gdelt": {"local_pulse_count": 5, "geo_local_count": 0, "stale": False},
+        }
+        q = score_briefing(text=text, sources=sources, created_at=now)
+        self.assertTrue(q["checks"]["gdelt_present"])
+        self.assertEqual(q["meta"]["gdelt_local_pulse"], 5)
+
+    def test_gdelt_stale_feed_not_counted(self):
+        now = datetime.now(timezone.utc).isoformat()
+        sources = {
+            "digest": {"local_count": 1},
+            "gdelt": {"local_pulse_count": 3, "stale": True},
+        }
+        q = score_briefing(text="LOCAL\n- item", sources=sources, created_at=now)
+        self.assertFalse(q["checks"]["gdelt_present"])
+
 
 if __name__ == "__main__":
     unittest.main()

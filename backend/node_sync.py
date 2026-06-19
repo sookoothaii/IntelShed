@@ -350,6 +350,22 @@ async def list_sensor_alerts(node_id: str = "", limit: int = 50):
     return {"count": len(alerts), "alerts": alerts}
 
 
+def _gdelt_snapshot_meta(snap: dict) -> dict:
+    """Compact GDELT feed counts for briefing quality scoring."""
+    local = snap.get("gdelt_pulse_local") or {}
+    geo_local = snap.get("gdelt_geo_local") or {}
+    pulse = snap.get("gdelt_pulse") or {}
+    geo = snap.get("gdelt_geo") or {}
+    return {
+        "local_pulse_count": int(local.get("count") or len(local.get("articles") or [])),
+        "geo_local_count": int(geo_local.get("count") or len(geo_local.get("events") or [])),
+        "pulse_count": int(pulse.get("count") or len(pulse.get("articles") or [])),
+        "geo_count": int(geo.get("count") or len(geo.get("events") or [])),
+        "stale": bool(local.get("stale") or geo_local.get("stale")),
+        "error": local.get("error") or geo_local.get("error"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Fusion : gather feeds -> compile critical alerts
 # ---------------------------------------------------------------------------
@@ -630,6 +646,7 @@ async def _generate_briefing_unlocked(lang: str | None = None):
             "global_count": len(digest.get("global") or []),
             "intel_count": intel_src.get("count", 0),
         },
+        "gdelt": _gdelt_snapshot_meta(snap),
         "style": "security_advisor_24h",
     }
     from briefing_quality import attach_quality_to_sources

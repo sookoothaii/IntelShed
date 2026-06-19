@@ -11,7 +11,21 @@ from typing import Any
 
 _SECTION_LOCAL = re.compile(r"\bLOCAL\b", re.I)
 _SECTION_INTEL = re.compile(r"\bINTEL\b", re.I)
-_GDELT_HINT = re.compile(r"\bGDELT\b|\bgdelt\b|local news|Local news", re.I)
+_GDELT_HINT = re.compile(r"\bGDELT\b|\bgdelt\b|local news|Local news|Regional media heat|Media heat", re.I)
+
+
+def _gdelt_feed_meta(sources: dict[str, Any]) -> dict[str, Any]:
+    return sources.get("gdelt") or {}
+
+
+def _gdelt_from_feed(meta: dict[str, Any]) -> bool:
+    if not meta:
+        return False
+    local_pulse = int(meta.get("local_pulse_count") or 0)
+    geo_local = int(meta.get("geo_local_count") or 0)
+    if meta.get("stale"):
+        return False
+    return local_pulse > 0 or geo_local > 0
 
 
 def _digest_lines(digest: dict[str, Any] | None, key: str) -> list[str]:
@@ -43,10 +57,18 @@ def score_briefing(
     global_count = int(digest_meta.get("global_count") or 0)
 
     body = text or ""
+    gdelt_meta = _gdelt_feed_meta(sources)
     has_local_section = bool(_SECTION_LOCAL.search(body)) or local_count >= 1
     has_intel = intel_count >= 1 or bool(_SECTION_INTEL.search(body))
-    has_gdelt = bool(_GDELT_HINT.search(body)) or any(
-        "gdelt" in line.lower() or "local news" in line.lower() for line in local_lines
+    has_gdelt = (
+        _gdelt_from_feed(gdelt_meta)
+        or bool(_GDELT_HINT.search(body))
+        or any(
+            "local news" in line.lower()
+            or "regional media heat" in line.lower()
+            or "media heat" in line.lower()
+            for line in local_lines
+        )
     )
 
     age_hours: float | None = None
@@ -93,6 +115,9 @@ def score_briefing(
         "meta": {
             "local_count": local_count,
             "intel_count": intel_count,
+            "gdelt_local_pulse": int(gdelt_meta.get("local_pulse_count") or 0),
+            "gdelt_geo_local": int(gdelt_meta.get("geo_local_count") or 0),
+            "gdelt_error": gdelt_meta.get("error"),
             "age_hours": round(age_hours, 2) if age_hours is not None else None,
             "max_age_hours": max_age_hours,
         },

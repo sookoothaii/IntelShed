@@ -100,7 +100,7 @@ echo "--- services ---"
 systemctl is-active worldbase_push worldbase_pull
 $trimBlock
 echo "--- push log ---"
-journalctl -u worldbase_push -n 3 --no-pager
+journalctl -u worldbase_push -n 3 | cat
 "@
 
 $remote = ($remote -replace "`r`n", "`n") -replace "`r", ""

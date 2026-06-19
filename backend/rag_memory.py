@@ -1,9 +1,8 @@
-"""Citable RAG memory — Ollama nomic-embed + SQLite (optional sqlite-vec)."""
+"""Citable RAG memory — Ollama nomic-embed + SQLite (sqlite-vec + FTS5 hybrid RRF)."""
 
 from __future__ import annotations
 
 import json
-import math
 import os
 import sqlite3
 import struct
@@ -15,6 +14,8 @@ import httpx
 from fastapi import APIRouter
 import sqlite_vec
 
+from rag_hybrid import fts_query, row_to_hit, rrf_merge
+
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
 _DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
@@ -23,6 +24,8 @@ _DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
 _OLLAMA = os.getenv("OLLAMA_HOST", "localhost:11434").split(",")[0].strip()
 _EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 _TOP_K = int(os.getenv("RAG_TOP_K", "6"))
+_RRF_K = int(os.getenv("RAG_RRF_K", "60"))
+_HYBRID_CANDIDATES = int(os.getenv("RAG_HYBRID_CANDIDATES", "24"))
 
 
 def serialize_f32(vector: list[float]) -> bytes:
@@ -58,12 +61,18 @@ def init_memory_db():
                 id INTEGER PRIMARY KEY,
                 embedding float[768]
             );
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS rag_fts USING fts5(
+                chunk_id UNINDEXED,
+                text,
+                tokenize='porter unicode61'
+            );
         """)
-        
-        # Migration: Backfill rag_vec if empty but rag_chunks has data
-        vec_count = conn.execute("SELECT COUNT(*) FROM rag_vec").fetchone()[0]
+
         chunk_count = conn.execute("SELECT COUNT(*) FROM rag_chunks").fetchone()[0]
-        
+        vec_count = conn.execute("SELECT COUNT(*) FROM rag_vec").fetchone()[0]
+        fts_count = conn.execute("SELECT COUNT(*) FROM rag_fts").fetchone()[0]
+
         if vec_count == 0 and chunk_count > 0:
             print(f"[RAG] Migrating {chunk_count} existing chunks to sqlite-vec...", flush=True)
             chunks = conn.execute("SELECT id, embedding_json FROM rag_chunks").fetchall()
@@ -71,11 +80,23 @@ def init_memory_db():
                 try:
                     emb = json.loads(chunk["embedding_json"])
                     if len(emb) == 768:
-                        conn.execute("INSERT INTO rag_vec(id, embedding) VALUES (?, ?)", (chunk["id"], serialize_f32(emb)))
+                        conn.execute(
+                            "INSERT INTO rag_vec(id, embedding) VALUES (?, ?)",
+                            (chunk["id"], serialize_f32(emb)),
+                        )
                 except Exception:
                     pass
-            print("[RAG] Migration complete.", flush=True)
-            
+            print("[RAG] vec migration complete.", flush=True)
+
+        if fts_count == 0 and chunk_count > 0:
+            print(f"[RAG] Backfilling FTS5 for {chunk_count} chunks...", flush=True)
+            for row in conn.execute("SELECT id, text FROM rag_chunks").fetchall():
+                conn.execute(
+                    "INSERT INTO rag_fts(chunk_id, text) VALUES (?, ?)",
+                    (row["id"], row["text"]),
+                )
+            print("[RAG] FTS5 backfill complete.", flush=True)
+
         conn.commit()
 
 
@@ -126,17 +147,22 @@ def upsert_chunk(source: str, source_id: str, text: str, embedding: list[float],
         # Sync with high-performance vector index
         conn.execute(
             "INSERT OR REPLACE INTO rag_vec(id, embedding) VALUES (?, ?)",
-            (row_id, serialize_f32(embedding))
+            (row_id, serialize_f32(embedding)),
+        )
+        conn.execute("DELETE FROM rag_fts WHERE chunk_id = ?", (row_id,))
+        conn.execute(
+            "INSERT INTO rag_fts(chunk_id, text) VALUES (?, ?)",
+            (row_id, text[:12000]),
         )
 
-        # Professional Ring buffer cap — explicit sync between both tables
         old_rows = conn.execute("SELECT id FROM rag_chunks ORDER BY id DESC LIMIT -1 OFFSET 2000").fetchall()
         if old_rows:
             old_ids = [r[0] for r in old_rows]
             marks = ",".join("?" * len(old_ids))
             conn.execute(f"DELETE FROM rag_chunks WHERE id IN ({marks})", old_ids)
             conn.execute(f"DELETE FROM rag_vec WHERE id IN ({marks})", old_ids)
-            
+            conn.execute(f"DELETE FROM rag_fts WHERE chunk_id IN ({marks})", old_ids)
+
         conn.commit()
 
 
@@ -146,34 +172,64 @@ async def index_text(source: str, source_id: str, text: str, meta: dict | None =
     return {"ok": True, "source": source, "source_id": source_id, "dims": len(emb)}
 
 
-async def search(query: str, k: int | None = None) -> list[dict]:
-    k = k or _TOP_K
-    q_emb = await embed_text(query)
-    q_bin = serialize_f32(q_emb)
-    
-    rows = []
-    with _conn() as conn:
+def _search_vector(conn: sqlite3.Connection, q_bin: bytes, limit: int) -> list[dict]:
+    rows: list[dict] = []
+    for row in conn.execute(
+        """
+        SELECT c.id, c.source, c.source_id, c.text, c.meta_json, c.created_at,
+               vec_distance_cosine(v.embedding, ?) AS dist
+        FROM rag_vec v
+        JOIN rag_chunks c ON v.id = c.id
+        ORDER BY dist ASC
+        LIMIT ?
+        """,
+        (q_bin, limit),
+    ):
+        dist = float(row["dist"])
+        rows.append(row_to_hit(row, score=1.0 - dist, rank_source="vector"))
+    return rows
+
+
+def _search_fts(conn: sqlite3.Connection, query: str, limit: int) -> list[dict]:
+    fts_q = fts_query(query)
+    if not fts_q:
+        return []
+    rows: list[dict] = []
+    try:
         for row in conn.execute(
             """
-            SELECT c.id, c.source, c.source_id, c.text, c.meta_json, c.created_at, vec_distance_cosine(v.embedding, ?) as dist 
-            FROM rag_vec v
-            JOIN rag_chunks c ON v.id = c.id
-            ORDER BY dist ASC
+            SELECT c.id, c.source, c.source_id, c.text, c.meta_json, c.created_at,
+                   bm25(rag_fts) AS rank
+            FROM rag_fts
+            JOIN rag_chunks c ON c.id = rag_fts.chunk_id
+            WHERE rag_fts MATCH ?
+            ORDER BY rank
             LIMIT ?
             """,
-            (q_bin, k)
+            (fts_q, limit),
         ):
-            dist = float(row["dist"])
-            rows.append({
-                "id": row["id"],
-                "source": row["source"],
-                "source_id": row["source_id"],
-                "text": row["text"][:600],
-                "score": round(1.0 - dist, 4),
-                "meta": json.loads(row["meta_json"] or "{}"),
-                "created_at": row["created_at"],
-            })
+            rank = float(row["rank"])
+            rows.append(row_to_hit(row, score=abs(rank), rank_source="fts"))
+    except sqlite3.OperationalError:
+        return []
     return rows
+
+
+async def search(query: str, k: int | None = None) -> list[dict]:
+    """Hybrid search: sqlite-vec cosine + FTS5 BM25 fused via reciprocal rank fusion."""
+    k = k or _TOP_K
+    candidate_k = max(k * 2, _HYBRID_CANDIDATES)
+    q_emb = await embed_text(query)
+    q_bin = serialize_f32(q_emb)
+
+    with _conn() as conn:
+        vec_hits = _search_vector(conn, q_bin, candidate_k)
+        fts_hits = _search_fts(conn, query, candidate_k)
+        if not fts_hits:
+            return vec_hits[:k]
+        if not vec_hits:
+            return fts_hits[:k]
+        return rrf_merge(vec_hits, fts_hits, k=_RRF_K, top_k=k)
 
 
 async def ingest_pulse() -> dict:
@@ -297,7 +353,13 @@ async def memory_search(q: str, k: int = 6):
         return {"query": q, "results": [], "error": "empty query"}
     try:
         results = await search(q.strip(), k=min(k, 20))
-        return {"query": q, "model": _EMBED_MODEL, "count": len(results), "results": results}
+        return {
+            "query": q,
+            "model": _EMBED_MODEL,
+            "count": len(results),
+            "search_mode": "hybrid_rrf",
+            "results": results,
+        }
     except Exception as e:
         return {"query": q, "results": [], "error": str(e), "hint": "ollama pull nomic-embed-text"}
 
@@ -316,13 +378,16 @@ async def memory_stats():
         total = conn.execute("SELECT COUNT(*) FROM rag_chunks").fetchone()[0]
         # Querying vec table explicitly to ensure it matches
         vec_total = conn.execute("SELECT COUNT(*) FROM rag_vec").fetchone()[0]
+        fts_total = conn.execute("SELECT COUNT(*) FROM rag_fts").fetchone()[0]
         by_source = conn.execute(
             "SELECT source, COUNT(*) AS n FROM rag_chunks GROUP BY source ORDER BY n DESC"
         ).fetchall()
     return {
         "chunks": total,
         "vec_chunks": vec_total,
+        "fts_chunks": fts_total,
         "by_source": [{"source": r[0], "count": r[1]} for r in by_source],
         "embed_model": _EMBED_MODEL,
-        "vector_engine": "sqlite-vec"
+        "vector_engine": "sqlite-vec",
+        "search_mode": "hybrid_rrf",
     }
