@@ -101,7 +101,7 @@ Unit tests (no network): `python -m unittest test_operator_briefing test_intel_b
 ## Conventions
 
 - **Fail-soft feeds:** upstream errors → stale cache or `{ count: 0 }`, not HTTP 500.
-- **UI language:** English labels/tooltips (see `.cursor/rules/english-only.mdc`). Briefing *output* may be German via env.
+- **UI language:** English labels/tooltips. Briefing *output* may be German via env.
 - **Minimal diffs:** match existing HUD style (uppercase labels, vanilla CSS, no Tailwind).
 - **Commits:** only when the user explicitly asks.
 

@@ -59,8 +59,10 @@ docs/**
 !docs/screenshots/
 !docs/screenshots/**
 !docs/INTEL_INGEST.md
+# Local-only operator / agent tooling (not part of the OSS repo)
+.cursor/
+briefs/
 LLM_HANDOFF.md
-briefs/*.md
 worldbase.code-workspace
 GAP_REPORT.md
 PROJECT.md
