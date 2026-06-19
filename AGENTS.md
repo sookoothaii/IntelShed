@@ -1,6 +1,6 @@
 # AGENTS.md — WorldBase (PC stack)
 
-> For AI coding agents. Operator docs: [`README.md`](README.md). Deep reference: [`LLM_HANDOFF.md`](LLM_HANDOFF.md). Pi edge: [`offgrid-raspi/AGENTS.md`](offgrid-raspi/AGENTS.md).
+> For AI coding agents. Operator docs: [`README.md`](README.md). Pi edge: [`offgrid-raspi/AGENTS.md`](offgrid-raspi/AGENTS.md).
 
 ---
 
@@ -74,7 +74,11 @@ Unit tests (no network): `python -m unittest test_operator_briefing test_intel_b
 | Area | Path |
 |------|------|
 | App shell + FULL SITUATION | `frontend/src/App.tsx` |
-| Globe + layers | `frontend/src/components/Globe.tsx`, `frontend/src/hooks/layers/` |
+| Globe + layers + click-to-detail | `frontend/src/components/Globe.tsx`, `GlobeDetailModal.tsx`, `frontend/src/hooks/layers/` |
+| Globe terrain fail-soft | `frontend/src/lib/cesiumTerrain.ts` |
+| Traffic cams | `backend/traffic_bridge.py`, `useTrafficCamsLayer.ts`, `TrafficCamPanel.tsx` |
+| Webcams → globe stream | `backend/webcam_bridge.py`, `WebcamSection.tsx`, `WebcamStreamPanel.tsx` |
+| Credential registry | `backend/credentials/registry.py`, `GET /api/credentials/status` |
 | HUD styles | `frontend/src/styles/hud.css` |
 | Feeds + cache | `backend/feeds_extra.py`, `backend/feed_registry.py` |
 | Node sync + briefing routes | `backend/node_sync.py` |
@@ -100,7 +104,6 @@ Unit tests (no network): `python -m unittest test_operator_briefing test_intel_b
 - **UI language:** English labels/tooltips (see `.cursor/rules/english-only.mdc`). Briefing *output* may be German via env.
 - **Minimal diffs:** match existing HUD style (uppercase labels, vanilla CSS, no Tailwind).
 - **Commits:** only when the user explicitly asks.
-- **Do not** edit `LLM_HANDOFF.md` unless the user requests doc updates.
 
 ---
 
@@ -133,5 +136,6 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | INTEL ingest 503 | optional ML stack not installed — see `docs/INTEL_INGEST.md` + `backend/requirements.txt` |
 | API 500 / startup crash (DuckDB) | Only one process may open `entities.duckdb`; `ftm_store.init_store()` is fail-soft — check `GET /api/health` → `ftm.ready` |
 | Paths break in PS | `-LiteralPath` for `D:\MCP Mods\worldbase` |
-
-Full table: [`LLM_HANDOFF.md`](LLM_HANDOFF.md) → “If Something Breaks”.
+| Globe blank / terrain 503 | Ion CDN blip or stale Vite env — restart frontend; ellipsoid fallback in `cesiumTerrain.ts` |
+| Webcam click shows text only | Old build — card must pass `webcam` ref to `focusOn`; expect **LIVE FEED** modal with iframe |
+| Weather dot ≠ camera | Thailand coloured dots are **WEATHER** layer; traffic cams are Singapore only until iTIC |

@@ -261,7 +261,8 @@ def _char_span_to_tokens(tokens: list[tuple[str, int, int]], cs: int, ce: int) -
 
 
 def _norm_key(schema: str, surface: str) -> str:
-    return f"{schema}\u0001{re.sub(r'\s+', ' ', surface).strip().casefold()}"
+    normalized = re.sub(r"\s+", " ", surface).strip().casefold()
+    return f"{schema}\u0001{normalized}"
 
 
 def _entity_id(schema: str, surface: str) -> str:
