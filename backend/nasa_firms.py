@@ -24,6 +24,26 @@ _FIRMS_SOURCES = {
 _firms_cache: dict = {}
 _FIRMS_TTL = 600  # 10 minutes
 
+# VIIRS 2.0 NRT CSV uses letter confidence (h/n/l) and bright_ti4/bright_ti5 columns.
+_CONF_LETTER = {"h": 90, "high": 90, "n": 65, "nominal": 65, "l": 35, "low": 35}
+
+
+def _parse_firms_confidence(raw) -> int:
+    if raw is None or str(raw).strip() == "":
+        return 0
+    s = str(raw).strip().lower()
+    if s.isdigit():
+        return int(s)
+    return _CONF_LETTER.get(s, 50)
+
+
+def _parse_firms_brightness(row: dict) -> float:
+    for key in ("bright_ti4", "bright_ti5", "brightness", "bright"):
+        val = row.get(key)
+        if val not in (None, ""):
+            return float(val)
+    return 0.0
+
 
 def _firms_url(source: str) -> str | None:
     api_source = _FIRMS_SOURCES.get(source)
@@ -64,8 +84,8 @@ async def _fetch_firms(source: str):
         try:
             lat = float(row.get("latitude", 0))
             lon = float(row.get("longitude", 0))
-            conf = int(row.get("confidence", 0))
-            bright = float(row.get("brightness", 0))
+            conf = _parse_firms_confidence(row.get("confidence"))
+            bright = _parse_firms_brightness(row)
             records.append({
                 "lat": lat,
                 "lon": lon,
