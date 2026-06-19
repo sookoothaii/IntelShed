@@ -3215,6 +3215,32 @@ html, body, #root {
 .data-embed-note a {
   color: var(--accent);
 }
+
+.wildfires-panel { display: flex; flex-direction: column; gap: 10px; }
+.wildfires-ref {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px;
+  background: rgba(0, 229, 160, 0.04);
+}
+.wildfires-ref-label { font-size: 10px; letter-spacing: 2px; color: var(--accent); }
+.wildfires-ref-coords { font-size: 11px; color: var(--txt-dim); }
+.wildfires-ref-pending { font-size: 11px; color: var(--txt-dim); }
+.wildfires-toolbar {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+}
+.wildfires-toolbar .data-search { flex: 1 1 160px; min-width: 140px; }
+.wildfires-filter-note { font-size: 11px; color: var(--txt-dim); }
+.wildfires-list { display: flex; flex-direction: column; gap: 8px; }
+.wildfires-card { cursor: pointer; }
+.wildfires-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.wildfires-dist {
+  font-size: 12px; font-weight: 700; color: var(--accent);
+  letter-spacing: 1px;
+}
+.wildfires-pagination {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  margin-top: 4px;
+}
 .webcam-modal .close-btn { margin-top: 12px; }
 
 /* Weather + Windy map overlay */

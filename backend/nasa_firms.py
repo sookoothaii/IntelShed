@@ -3,11 +3,12 @@ Near real-time wildfire / thermal anomaly detection.
 Requires free MAP_KEY from https://firms.modaps.eosdis.nasa.gov/api/map_key
 Falls back to NASA EONET open wildfire events when MAP_KEY is missing.
 """
+import math
 import os
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 import feed_registry
 from stac_bridge import REGION_PRESETS
@@ -24,11 +25,20 @@ _FIRMS_SOURCES = {
 
 _firms_cache: dict = {}
 _FIRMS_TTL = 600  # 10 minutes
-_MAX_API_FIRES = 300
-_MAX_REGIONAL_FIRES = 120
+_MAX_GLOBE_FIRES = 300
+_MAX_REGIONAL_GLOBE = 120
 
 # VIIRS 2.0 NRT CSV uses letter confidence (h/n/l) and bright_ti4/bright_ti5 columns.
 _CONF_LETTER = {"h": 90, "high": 90, "n": 65, "nominal": 65, "l": 35, "low": 35}
+
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(min(1.0, a)))
 
 
 def _parse_firms_confidence(raw) -> int:
@@ -73,12 +83,80 @@ def _partition_fires(fires: list[dict], bbox: list[float]) -> tuple[list[dict], 
     return regional, global_f
 
 
-def _combine_fires(regional: list[dict], global_f: list[dict]) -> list[dict]:
-    combined = regional[:_MAX_REGIONAL_FIRES]
-    remaining = _MAX_API_FIRES - len(combined)
+def _combine_globe_fires(regional: list[dict], global_f: list[dict]) -> list[dict]:
+    combined = regional[:_MAX_REGIONAL_GLOBE]
+    remaining = _MAX_GLOBE_FIRES - len(combined)
     if remaining > 0:
         combined.extend(global_f[:remaining])
     return combined
+
+
+def _default_reference() -> dict | None:
+    lat_raw = os.getenv("WORLDBASE_OPERATOR_LAT", "").strip()
+    lon_raw = os.getenv("WORLDBASE_OPERATOR_LON", "").strip()
+    if not lat_raw or not lon_raw:
+        return None
+    try:
+        return {
+            "lat": float(lat_raw),
+            "lon": float(lon_raw),
+            "source": "operator_env",
+            "label": "Operator env (WORLDBASE_OPERATOR_LAT/LON)",
+        }
+    except ValueError:
+        return None
+
+
+def _matches_query(fire: dict, q: str) -> bool:
+    ql = q.strip().lower()
+    if not ql:
+        return True
+    lat_s = f"{fire['lat']:.4f}"
+    lon_s = f"{fire['lon']:.4f}"
+    pair = f"{fire['lat']:.2f}, {fire['lon']:.2f}".lower()
+    return ql in lat_s or ql in lon_s or ql in pair.replace(" ", "")
+
+
+def filter_fires(
+    fires: list[dict],
+    *,
+    zone: str = "all",
+    sort: str = "confidence",
+    near_lat: float | None = None,
+    near_lon: float | None = None,
+    max_km: float | None = None,
+    min_confidence: int = 0,
+    q: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """Filter, annotate distance, sort, and paginate fire records."""
+    pool: list[dict] = []
+    for fire in fires:
+        item = dict(fire)
+        if zone == "regional" and item.get("zone") != "regional":
+            continue
+        if zone == "global" and item.get("zone") != "global":
+            continue
+        if item.get("confidence", 0) < min_confidence:
+            continue
+        if near_lat is not None and near_lon is not None:
+            item["distance_km"] = round(haversine_km(near_lat, near_lon, item["lat"], item["lon"]), 1)
+            if max_km is not None and item["distance_km"] > max_km:
+                continue
+        if not _matches_query(item, q):
+            continue
+        pool.append(item)
+
+    if sort == "distance" and near_lat is not None and near_lon is not None:
+        pool.sort(key=lambda x: x.get("distance_km", 1e9))
+    elif sort == "frp":
+        pool.sort(key=lambda x: x.get("frp", 0), reverse=True)
+    else:
+        pool.sort(key=lambda x: x.get("confidence", 0), reverse=True)
+
+    matched = len(pool)
+    return pool[offset: offset + limit], matched
 
 
 def _firms_url(source: str, area: str = "world") -> str | None:
@@ -187,14 +265,12 @@ async def _eonet_wildfire_fallback() -> list[dict]:
     return fires[:300]
 
 
-@router.get("/wildfires")
-async def get_wildfires():
-    """Global thermal anomalies / wildfires from NASA FIRMS (+ EONET fallback). Cached 10 min."""
+async def _load_firms_cache() -> dict:
     now = datetime.now(timezone.utc).timestamp()
-    cache_key = "firms_v3"
+    cache_key = "firms_v4"
     cached = _firms_cache.get(cache_key)
     if cached and (now - cached["ts"]) < _FIRMS_TTL:
-        return cached["data"]
+        return cached
 
     region_id, region_label, region_bbox = _regional_preset()
     all_fires = []
@@ -230,22 +306,119 @@ async def get_wildfires():
             unique.append(f)
 
     regional, global_f = _partition_fires(unique, region_bbox)
-    panel_fires = _combine_fires(regional, global_f)
-
-    result = {
+    entry = {
+        "ts": now,
+        "regional": regional,
+        "global": global_f,
         "count": len(unique),
         "regional_count": len(regional),
         "global_count": len(global_f),
         "region": region_id,
         "region_label": region_label,
-        "updated": datetime.now(timezone.utc).isoformat(),
-        "fires": panel_fires,
         "errors": errors if errors else None,
         "source": "eonet" if source_note else ("firms" if FIRMS_MAP_KEY else "eonet"),
         "spatial_resolution": "1 day VIIRS world" if FIRMS_MAP_KEY else "EONET event centroids",
         "data_quality": "eonet_inferred" if source_note == "eonet_fallback" else "firms_thermal",
+        "updated": datetime.now(timezone.utc).isoformat(),
     }
+    _firms_cache[cache_key] = entry
+    return entry
 
-    _firms_cache[cache_key] = {"ts": now, "data": result}
-    feed_registry.write_auto("wildfires", result)
-    return result
+
+def _all_fires_from_cache(entry: dict) -> list[dict]:
+    return list(entry["regional"]) + list(entry["global"])
+
+
+@router.get("/wildfires")
+async def get_wildfires(
+    zone: str = Query("all", pattern="^(all|regional|global)$"),
+    sort: str = Query("confidence", pattern="^(confidence|distance|frp)$"),
+    near_lat: float | None = Query(None, ge=-90, le=90),
+    near_lon: float | None = Query(None, ge=-180, le=180),
+    max_km: float | None = Query(None, ge=1, le=20000),
+    min_confidence: int = Query(0, ge=0, le=100),
+    q: str = Query("", max_length=64),
+    limit: int = Query(0, ge=0, le=500),
+    offset: int = Query(0, ge=0),
+):
+    """Global thermal anomalies / wildfires from NASA FIRMS (+ EONET fallback). Cached 10 min."""
+    entry = await _load_firms_cache()
+    all_fires = _all_fires_from_cache(entry)
+
+    reference = None
+    ref_lat, ref_lon = near_lat, near_lon
+    if ref_lat is not None and ref_lon is not None:
+        reference = {"lat": ref_lat, "lon": ref_lon, "source": "request", "label": "Request coordinates"}
+    else:
+        reference = _default_reference()
+        if reference and sort == "distance":
+            ref_lat, ref_lon = reference["lat"], reference["lon"]
+
+    has_filters = any([
+        zone != "all",
+        sort != "confidence",
+        near_lat is not None,
+        max_km is not None,
+        min_confidence > 0,
+        q.strip(),
+        limit > 0,
+        offset > 0,
+    ])
+
+    if not has_filters:
+        panel_fires = _combine_globe_fires(entry["regional"], entry["global"])
+        result = {
+            "count": entry["count"],
+            "regional_count": entry["regional_count"],
+            "global_count": entry["global_count"],
+            "region": entry["region"],
+            "region_label": entry["region_label"],
+            "updated": entry["updated"],
+            "fires": panel_fires,
+            "errors": entry["errors"],
+            "source": entry["source"],
+            "spatial_resolution": entry["spatial_resolution"],
+            "data_quality": entry["data_quality"],
+            "reference": reference,
+        }
+        feed_registry.write_auto("wildfires", result)
+        return result
+
+    page_limit = limit if limit > 0 else 50
+    page, matched = filter_fires(
+        all_fires,
+        zone=zone,
+        sort=sort,
+        near_lat=ref_lat,
+        near_lon=ref_lon,
+        max_km=max_km,
+        min_confidence=min_confidence,
+        q=q,
+        limit=page_limit,
+        offset=offset,
+    )
+
+    return {
+        "count": entry["count"],
+        "regional_count": entry["regional_count"],
+        "global_count": entry["global_count"],
+        "matched_count": matched,
+        "region": entry["region"],
+        "region_label": entry["region_label"],
+        "updated": entry["updated"],
+        "fires": page,
+        "errors": entry["errors"],
+        "source": entry["source"],
+        "spatial_resolution": entry["spatial_resolution"],
+        "data_quality": entry["data_quality"],
+        "reference": reference,
+        "filters": {
+            "zone": zone,
+            "sort": sort,
+            "max_km": max_km,
+            "min_confidence": min_confidence,
+            "q": q.strip() or None,
+            "limit": page_limit,
+            "offset": offset,
+        },
+    }
