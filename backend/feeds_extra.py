@@ -648,10 +648,20 @@ async def air_quality():
     if cached is not None:
         return cached
     try:
-        # Use a few representative cities for global snapshot
+        # ASEAN + operator region first, then global reference cities (Open-Meteo, no key)
         cities = [
-            ("Bangkok", 13.75, 100.5), ("Delhi", 28.6, 77.2), ("Beijing", 39.9, 116.4),
-            ("London", 51.5, -0.1), ("New York", 40.7, -74.0), ("Sao Paulo", -23.5, -46.6),
+            ("Bangkok", 13.75, 100.5),
+            ("Chiang Mai", 18.79, 98.98),
+            ("Phuket", 7.88, 98.39),
+            ("Singapore", 1.35, 103.82),
+            ("Kuala Lumpur", 3.14, 101.69),
+            ("Jakarta", -6.21, 106.85),
+            ("Manila", 14.60, 120.98),
+            ("Ho Chi Minh City", 10.82, 106.63),
+            ("Hanoi", 21.03, 105.85),
+            ("Delhi", 28.6, 77.2),
+            ("Beijing", 39.9, 116.4),
+            ("London", 51.5, -0.1),
         ]
         results = []
         async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:

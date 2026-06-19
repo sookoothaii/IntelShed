@@ -136,6 +136,30 @@ export default function EdgePanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
             ◎ LOCATE
           </button>
         )}
+        {node && (
+          <button
+            type="button"
+            className="edge-locate-btn"
+            onClick={async () => {
+              const cmd = prompt(`Send command to ${PRIMARY_EDGE_NODE}:\nCommands: reboot, shutdown, restart_service, exec`)
+              if (!cmd) return
+              const args = prompt('Args (JSON, optional):') || '{}'
+              try {
+                const r = await fetchApi(`/api/node/${PRIMARY_EDGE_NODE}/command`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ command: cmd, args: JSON.parse(args) }),
+                })
+                const d = await r.json()
+                alert(`Queued: ${d.status} (ID: ${d.command_id})`)
+              } catch (e) {
+                alert(`Failed: ${(e as Error).message}`)
+              }
+            }}
+          >
+            ⚡ CMD
+          </button>
+        )}
       </div>
 
       {error && <div className="data-error">{error}</div>}

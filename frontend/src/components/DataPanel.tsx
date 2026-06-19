@@ -7,7 +7,6 @@ interface Sat { id: string; name: string; lat: number; lon: number; alt_km: numb
 interface Quake { id: string; place: string; mag: number; time: string; lat: number; lon: number; depth: number; tsunami?: number; url?: string }
 interface WEvent { id: string; title: string; date: string; lat: number; lon: number; sources: string[]; category?: string; categories?: any[]; magnitude?: any; unit?: string; points?: any[]; closed?: string; link?: string }
 interface Disaster { id: string; type: string; name: string; date: string; lat: number; lon: number; severity: string; source: string; status?: string }
-interface NodeInfo { node_id: string; name: string; lat: number; lon: number; last_seen: string; sensors?: any; health?: any }
 interface MilitaryAircraft { icao24: string; callsign: string; type: string; desc: string; lat: number; lon: number; alt_m: number; speed_kmh: number; operator: string; hex?: string; flight?: string; alt?: number; speed?: number; squawk?: string }
 interface Situation { id: string; title: string; severity: string; created_at: string; entities: any[]; summary: string; location?: any; type?: string }
 interface AirQualityCity { city: string; aqi: number; pm25: number; lat: number; lon: number; time: string; pm10?: number }
@@ -23,8 +22,22 @@ import SanctionsPanel from './SanctionsPanel';
 import IntelGraphPanel from './IntelGraphPanel';
 import EdgePanel from './EdgePanel';
 import WeatherSection from './WeatherSection';
+import FeedsStatusPanel from './FeedsStatusPanel';
+import {
+  GdeltFeedPanel,
+  OutagesPanel,
+  HazardsPanel,
+  VolcanoesPanel,
+  TrafficPanel,
+  LightningMapPanel,
+} from './DataFeedPanels';
 
-const DATA_TABS = ['edge', 'aircraft', 'satellites', 'seismic', 'events', 'iss', 'spaceweather', 'geopolitics', 'markets', 'nodes', 'military', 'situations', 'health', 'airquality', 'gdacs', 'pegel', 'weather', 'wildfires', 'lightning', 'energy', 'eu-energy', 'stocks', 'transit', 'maritime', 'webcams', 'cve', 'stac', 'sanctions', 'intel'] as const
+const DATA_TABS = [
+  'edge', 'feeds', 'aircraft', 'satellites', 'seismic', 'events', 'spaceweather',
+  'geopolitics', 'gdelt', 'gdacs', 'hazards', 'outages', 'military', 'maritime',
+  'situations', 'airquality', 'pegel', 'weather', 'wildfires', 'lightning', 'volcanoes',
+  'energy', 'eu-energy', 'stocks', 'traffic', 'webcams', 'cve', 'stac', 'sanctions', 'intel',
+] as const
 type DataTab = typeof DATA_TABS[number]
 
 export default function DataPanel({
@@ -90,19 +103,14 @@ export default function DataPanel({
   const [spaceweather, setSpaceweather] = useState<any>(null)
   const [geopolitics, setGeopolitics] = useState<{ count: number; disasters: Disaster[]; error?: string } | null>(null)
   const [markets, setMarkets] = useState<any>(null)
-  const [nodes, setNodes] = useState<NodeInfo[]>([])
   const [military, setMilitary] = useState<MilitaryAircraft[]>([])
   const [situations, setSituations] = useState<Situation[]>([])
-  const [health, setHealth] = useState<{ status: string; time: string } | null>(null)
   const [airquality, setAirquality] = useState<{ cities: AirQualityCity[]; updated: string; error?: string } | null>(null)
   const [gdacs, setGdacs] = useState<{ count: number; alerts: GDACSAlert[]; error?: string } | null>(null)
   const [pegel, setPegel] = useState<{ count: number; alerts: number; gauges: RiverGauge[]; error?: string } | null>(null)
-  const [wildfires, setWildfires] = useState<{ count: number; fires: any[]; updated: string } | null>(null)
-  const [lightning, setLightning] = useState<{ count: number; strikes: any[]; updated: string } | null>(null)
+  const [wildfires, setWildfires] = useState<{ count: number; fires: any[]; updated: string; error?: string } | null>(null)
   const [energy, setEnergy] = useState<any>(null)
   const [stocks, setStocks] = useState<any>(null)
-  const [transit, setTransit] = useState<{ city: string; count: number; vehicles: any[]; cached_at: string; error?: string } | null>(null)
-  const [transitCity, setTransitCity] = useState('helsinki')
   const [maritime, setMaritime] = useState<{ count: number; vessels: any[]; demo_mode?: boolean; cached_at: string; error?: string } | null>(null)
   const [euEnergy, setEuEnergy] = useState<{ country: string; prices: any[]; generation_by_source?: Record<string, number>; total_mw?: number; demo_mode?: boolean; error?: string } | null>(null)
   const [euCountry, setEuCountry] = useState('de')
@@ -131,22 +139,50 @@ export default function DataPanel({
   const loadSatellites = (g = satGroup) => fetchFeed('satellites', `/api/satellites?group=${g}&limit=500`, (d: any) => setSatellites(d.satellites || []))
   const loadQuakes = () => fetchFeed('seismic', '/api/earthquakes?period=day&magnitude=2.5', (d: any) => setQuakes(d.earthquakes || []))
   const loadEvents = () => fetchFeed('events', '/api/events?limit=120', (d: any) => setEvents(d.events || []))
-  const loadIss = () => fetchFeed('iss', '/api/iss', (d: any) => setIss(d))
-  const loadSpaceweather = () => fetchFeed('spaceweather', '/api/spaceweather', (d: any) => setSpaceweather(d))
+  const loadSpaceweather = async () => {
+    setLoading((l) => ({ ...l, spaceweather: true }))
+    setError(null)
+    try {
+      const [swRes, issRes] = await Promise.all([
+        fetchApi('/api/spaceweather'),
+        fetchApi('/api/iss'),
+      ])
+      if (!swRes.ok) throw new Error(`spaceweather ${swRes.status}`)
+      if (!issRes.ok) throw new Error(`iss ${issRes.status}`)
+      setSpaceweather(await swRes.json())
+      setIss(await issRes.json())
+    } catch (e) {
+      setError(`spaceweather: ${(e as Error).message}`)
+    } finally {
+      setLoading((l) => ({ ...l, spaceweather: false }))
+    }
+  }
   const loadGeopolitics = () => fetchFeed('geopolitics', '/api/geopolitics', (d: any) => setGeopolitics(d))
-  const loadMarkets = () => fetchFeed('markets', '/api/markets/crypto', (d: any) => setMarkets(d))
-  const loadNodes = () => fetchFeed('nodes', '/api/nodes', (d: any) => setNodes(d.nodes || []))
   const loadMilitary = () => fetchFeed('military', '/api/military', (d: any) => setMilitary(d.aircraft || []))
   const loadSituations = () => fetchFeed('situations', '/api/correlations', (d: any) => setSituations(d.situations || []))
-  const loadHealth = () => fetchFeed('health', '/api/health', (d: any) => setHealth(d))
   const loadAirquality = () => fetchFeed('airquality', '/api/airquality', (d: any) => setAirquality(d))
   const loadGdacs = () => fetchFeed('gdacs', '/api/gdacs', (d: any) => setGdacs(d))
   const loadPegel = () => fetchFeed('pegel', '/api/pegel', (d: any) => setPegel(d))
   const loadWildfires = () => fetchFeed('wildfires', '/api/wildfires', (d: any) => setWildfires(d))
-  const loadLightning = () => fetchFeed('lightning', '/api/lightning', (d: any) => setLightning(d))
   const loadEnergy = () => fetchFeed('energy', '/api/energy/de', (d: any) => setEnergy(d))
-  const loadStocks = () => fetchFeed('stocks', '/api/markets/stocks', (d: any) => setStocks(d))
-  const loadTransit = () => fetchFeed('transit', `/api/transit/${transitCity}`, (d: any) => setTransit(d))
+  const loadStocks = async () => {
+    setLoading((l) => ({ ...l, stocks: true }))
+    setError(null)
+    try {
+      const [stRes, cryptoRes] = await Promise.all([
+        fetchApi('/api/markets/stocks'),
+        fetchApi('/api/markets/crypto'),
+      ])
+      if (!stRes.ok) throw new Error(`stocks ${stRes.status}`)
+      if (!cryptoRes.ok) throw new Error(`crypto ${cryptoRes.status}`)
+      setStocks(await stRes.json())
+      setMarkets(await cryptoRes.json())
+    } catch (e) {
+      setError(`stocks: ${(e as Error).message}`)
+    } finally {
+      setLoading((l) => ({ ...l, stocks: false }))
+    }
+  }
   const loadMaritime = () => fetchFeed('maritime', '/api/maritime', (d: any) => setMaritime(d))
   const loadEuEnergy = async () => {
     setLoading((l) => ({ ...l, 'eu-energy': true }))
@@ -183,28 +219,22 @@ export default function DataPanel({
     else if (tab === 'satellites') loadSatellites()
     else if (tab === 'seismic') loadQuakes()
     else if (tab === 'events') loadEvents()
-    else if (tab === 'iss') loadIss()
     else if (tab === 'spaceweather') loadSpaceweather()
     else if (tab === 'geopolitics') loadGeopolitics()
-    else if (tab === 'markets') loadMarkets()
-    else if (tab === 'nodes') loadNodes()
     else if (tab === 'military') loadMilitary()
     else if (tab === 'situations') loadSituations()
-    else if (tab === 'health') loadHealth()
     else if (tab === 'airquality') loadAirquality()
     else if (tab === 'gdacs') loadGdacs()
     else if (tab === 'pegel') loadPegel()
     else if (tab === 'wildfires') loadWildfires()
-    else if (tab === 'lightning') loadLightning()
     else if (tab === 'energy') loadEnergy()
     else if (tab === 'stocks') loadStocks()
-    else if (tab === 'transit') loadTransit()
     else if (tab === 'maritime') loadMaritime()
     else if (tab === 'eu-energy') loadEuEnergy()
     else if (tab === 'webcams') loadWebcams()
     else if (tab === 'cve') loadCve()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, transitCity, euCountry, webcamCategory])
+  }, [tab, euCountry, webcamCategory])
 
   const q = query.toLowerCase()
   const fAircraft = aircraft.filter((a) => !q || `${a[0]} ${a[1]} ${a[2]}`.toLowerCase().includes(q))
@@ -256,6 +286,20 @@ export default function DataPanel({
       {error && <div className="data-error">{error}</div>}
 
       {tab === 'edge' && <EdgePanel onFocus={onFocus} />}
+
+      {tab === 'feeds' && <FeedsStatusPanel />}
+
+      {tab === 'gdelt' && <GdeltFeedPanel />}
+
+      {tab === 'outages' && <OutagesPanel onFocus={onFocus} />}
+
+      {tab === 'hazards' && <HazardsPanel onFocus={onFocus} />}
+
+      {tab === 'volcanoes' && <VolcanoesPanel onFocus={onFocus} />}
+
+      {tab === 'traffic' && <TrafficPanel onFocus={onFocus} />}
+
+      {tab === 'lightning' && <LightningMapPanel />}
 
       {(tab === 'aircraft' || tab === 'satellites' || tab === 'seismic' || tab === 'events') && (
         <div className="data-toolbar">
@@ -356,25 +400,22 @@ export default function DataPanel({
         </section>
       )}
 
-      {tab === 'iss' && (
-        <section>
-          <button onClick={loadIss} disabled={loading['iss']}>{loading['iss'] ? 'Loading…' : '↻ Update ISS'}</button>
-          {iss ? (
-            <div className="iss-grid">
-              <div className="iss-card"><span>LATITUDE</span><strong>{Number(iss.latitude).toFixed(4)}°</strong></div>
-              <div className="iss-card"><span>LONGITUDE</span><strong>{Number(iss.longitude).toFixed(4)}°</strong></div>
-              <div className="iss-card"><span>ALTITUDE</span><strong>{Number(iss.altitude).toFixed(1)} km</strong></div>
-              <div className="iss-card"><span>VELOCITY</span><strong>{Number(iss.velocity).toFixed(0)} km/h</strong></div>
-              <div className="iss-card"><span>VISIBILITY</span><strong>{iss.visibility}</strong></div>
-              <div className="iss-card"><span>FOOTPRINT</span><strong>{Number(iss.footprint).toFixed(0)} km</strong></div>
-            </div>
-          ) : <div className="health-status pending">NO DATA</div>}
-        </section>
-      )}
-
       {tab === 'spaceweather' && (
         <section>
           <button onClick={loadSpaceweather} disabled={loading['spaceweather']}>{loading['spaceweather'] ? 'Loading…' : '↻ Refresh'}</button>
+          {iss && (
+            <>
+              <span className="data-count">ISS position</span>
+              <div className="iss-grid" style={{ marginBottom: 12 }}>
+                <div className="iss-card"><span>LATITUDE</span><strong>{Number(iss.latitude).toFixed(4)}°</strong></div>
+                <div className="iss-card"><span>LONGITUDE</span><strong>{Number(iss.longitude).toFixed(4)}°</strong></div>
+                <div className="iss-card"><span>ALTITUDE</span><strong>{Number(iss.altitude).toFixed(1)} km</strong></div>
+                <div className="iss-card"><span>VELOCITY</span><strong>{Number(iss.velocity).toFixed(0)} km/h</strong></div>
+                <div className="iss-card"><span>VISIBILITY</span><strong>{iss.visibility}</strong></div>
+                <div className="iss-card"><span>FOOTPRINT</span><strong>{Number(iss.footprint).toFixed(0)} km</strong></div>
+              </div>
+            </>
+          )}
           {spaceweather ? (
             <div className="iss-grid">
               <div className="iss-card"><span>KP INDEX</span><strong>{spaceweather.kp_index ?? '—'}</strong></div>
@@ -383,174 +424,39 @@ export default function DataPanel({
               <div className="iss-card"><span>HF RADIO</span><strong>{spaceweather.hf_radio_impact ? 'IMPACTED' : 'OK'}</strong></div>
               <div className="iss-card"><span>HISTORY</span><strong>{spaceweather.history?.length ?? 0} pts</strong></div>
             </div>
-          ) : <div className="health-status pending">NO DATA</div>}
+          ) : !iss && <div className="health-status pending">NO DATA</div>}
         </section>
       )}
 
       {tab === 'geopolitics' && (
         <section>
           <button onClick={loadGeopolitics} disabled={loading['geopolitics']}>{loading['geopolitics'] ? 'Loading…' : '↻ Refresh'}</button>
-          <span className="data-count">{geopolitics?.count ?? 0} disasters</span>
+          <span className="data-count">{geopolitics?.count ?? 0} disasters · click to locate</span>
           {geopolitics?.error && <div className="data-error">{geopolitics.error}</div>}
-          <table className="data-table">
-            <thead><tr><th>Name</th><th>Status</th></tr></thead>
+          <table className="data-table clickable">
+            <thead><tr><th>Name</th><th>Type</th><th>Severity</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {(geopolitics?.disasters || []).map((d: Disaster) => (
-                <tr key={d.id}>
+                <tr
+                  key={d.id}
+                  onClick={() => d.lat != null && d.lon != null && onFocus({
+                    kind: 'geopolitics',
+                    lon: d.lon,
+                    lat: d.lat,
+                    height: 450000,
+                    title: d.name,
+                    lines: [`Type: ${d.type}`, `Severity: ${d.severity}`, `Status: ${d.status || '—'}`, `Source: ${d.source || '—'}`],
+                  })}
+                >
                   <td>{d.name}</td>
+                  <td>{d.type}</td>
+                  <td>{d.severity}</td>
                   <td>{d.status}</td>
+                  <td className="locate-cell">◎</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </section>
-      )}
-
-      {tab === 'markets' && (
-        <section>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <button onClick={loadMarkets} disabled={loading['markets']}>{loading['markets'] ? 'Loading…' : '↻ Refresh'}</button>
-            <span className="data-count">{markets?.count ?? 0} assets · CRYPTO OVERVIEW</span>
-          </div>
-          {markets?.error && <div className="data-error">{markets.error}</div>}
-
-          {/* Risk / sentiment header */}
-          {markets?.risk && (
-            <div className="market-head">
-              <div className="market-gauge" style={{ borderColor: fngColor(markets.fear_greed?.value) }}>
-                <span className="mh-label">FEAR &amp; GREED</span>
-                <strong style={{ color: fngColor(markets.fear_greed?.value), fontSize: 30 }}>{markets.fear_greed?.value ?? '—'}</strong>
-                <small style={{ color: fngColor(markets.fear_greed?.value) }}>{markets.fear_greed?.label ?? 'n/a'}</small>
-                <div className="mh-bar"><div className="mh-bar-fill" style={{ width: `${markets.fear_greed?.value ?? 0}%`, background: fngColor(markets.fear_greed?.value) }} /></div>
-              </div>
-              <div className="market-stat" style={{ borderColor: riskColor(markets.risk.level) }}>
-                <span className="mh-label">MARKET STRESS</span>
-                <strong style={{ color: riskColor(markets.risk.level) }}>{markets.risk.level}</strong>
-                <small style={{ color: '#6f8c84' }}>score {markets.risk.score}/100</small>
-              </div>
-              <div className="market-stat">
-                <span className="mh-label">TOTAL CAP</span>
-                <strong>${fmtCompact(markets.global?.total_market_cap_usd)}</strong>
-                <small style={{ color: pctColor(markets.global?.market_cap_change_24h) }}>{fmtPct(markets.global?.market_cap_change_24h)} 24h</small>
-              </div>
-              <div className="market-stat">
-                <span className="mh-label">BTC DOMINANCE</span>
-                <strong>{fmtNum(markets.global?.btc_dominance, 1)}%</strong>
-                <small style={{ color: '#6f8c84' }}>ETH {fmtNum(markets.global?.eth_dominance, 1)}%</small>
-              </div>
-              <div className="market-stat">
-                <span className="mh-label">BREADTH 24h</span>
-                <strong><span style={{ color: '#00e5a0' }}>{markets.risk.advancers}↑</span> / <span style={{ color: '#ff4d5e' }}>{markets.risk.decliners}↓</span></strong>
-                <small style={{ color: pctColor(markets.risk.avg_change) }}>avg {fmtPct(markets.risk.avg_change)}</small>
-              </div>
-            </div>
-          )}
-
-          {/* Coin grid with 7d sparklines */}
-          {markets?.coins?.length ? (
-            <div className="market-cards">
-              {markets.coins.map((c: any) => (
-                <div className="market-card" key={c.id}>
-                  <div className="mc-top">
-                    <div>
-                      <strong className="mc-sym">{c.symbol}</strong>
-                      <span className="mc-name">{c.name}</span>
-                    </div>
-                    <span className="mc-rank">#{c.market_cap_rank ?? '—'}</span>
-                  </div>
-                  <div className="mc-price">${fmtPrice(c.price)}</div>
-                  <div className="mc-chips">
-                    <span style={{ color: pctColor(c.change_24h) }}>24h {fmtPct(c.change_24h)}</span>
-                    <span style={{ color: pctColor(c.change_7d) }}>7d {fmtPct(c.change_7d)}</span>
-                  </div>
-                  <Sparkline data={c.spark} width={150} height={40} />
-                  <div className="mc-foot">
-                    <span>CAP ${fmtCompact(c.market_cap)}</span>
-                    <span>VOL ${fmtCompact(c.volume)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : !markets?.error && <div className="health-status pending">NO DATA</div>}
-          <div style={{ marginTop: 10, fontSize: 11, color: '#6f8c84' }}>Source: {markets?.source ?? 'coingecko'} · Updated: {markets?.updated ?? '—'}</div>
-        </section>
-      )}
-
-      {tab === 'nodes' && (
-        <section>
-          <button onClick={loadNodes} disabled={loading['nodes']}>{loading['nodes'] ? 'Loading…' : '↻ Refresh'}</button>
-          <span className="data-count">{nodes.length} nodes</span>
-          {!nodes.length && <div className="health-status pending">No nodes — ensure a Pi is pushing to /api/node/ingest</div>}
-          {nodes.map((n: any) => {
-            const h = n.health || {}
-            const svcs = h.services || {}
-            const sensors = n.sensors || {}
-            const mesh = n.mesh || []
-            const ph = n.pihole || {}
-            const online = n.online === true
-            return (
-              <div key={n.node_id} className="iss-card" style={{ marginBottom: 8, padding: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <strong style={{ fontSize: 14 }}>
-                    {online ? '🟢' : '🔴'} {n.name || n.node_id}
-                  </strong>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                      onClick={() => onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 500000, title: n.name, lines: [`NODE: ${n.node_id}`] })}
-                      style={{ fontSize: 11, padding: '2px 8px' }}
-                    >
-                      ◎ LOCATE
-                    </button>
-                    <button
-                      onClick={async () => {
-                        const cmd = prompt(`Send command to ${n.node_id}:\nCommands: reboot, shutdown, restart_service, exec`)
-                        if (!cmd) return
-                        const args = prompt('Args (JSON, optional):') || '{}'
-                        try {
-                          const r = await fetchApi(`/api/node/${n.node_id}/command`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ command: cmd, args: JSON.parse(args) }),
-                          })
-                          const d = await r.json()
-                          alert(`Queued: ${d.status} (ID: ${d.command_id})`)
-                        } catch (e) {
-                          alert('Failed: ' + (e as Error).message)
-                        }
-                      }}
-                      style={{ fontSize: 11, padding: '2px 8px' }}
-                    >
-                      ⚡ CMD
-                    </button>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '4px 12px', fontSize: 11, color: '#8fb7a9' }}>
-                  <span>CPU: {h.cpu_temp_c != null ? `${h.cpu_temp_c}°C` : '—'}</span>
-                  <span>RAM: {h.ram_pct != null ? `${h.ram_pct}%` : '—'}</span>
-                  <span>Disk: {h.disk_pct != null ? `${h.disk_pct}%` : '—'}</span>
-                  <span>Load: {h.load_1m != null ? h.load_1m.toFixed(2) : '—'}</span>
-                  <span>Age: {n.age_seconds != null ? `${Math.round(n.age_seconds)}s` : '—'}</span>
-                  <span>Mesh: {mesh.length}</span>
-                  {ph.blocked != null && <span>Pi-hole: {ph.blocked} ({ph.percent}%)</span>}
-                </div>
-                {Object.keys(svcs).length > 0 && (
-                  <div style={{ marginTop: 6, fontSize: 10, color: '#6f8c84' }}>
-                    Services: {Object.entries(svcs).map(([k, v]) => `${k}=${v}`).join(', ')}
-                  </div>
-                )}
-                {Object.keys(sensors).length > 0 && (
-                  <div style={{ marginTop: 4, fontSize: 10, color: '#6f8c84' }}>
-                    Sensors: {Object.entries(sensors).map(([k, v]) => `${k}=${v}`).join(', ')}
-                  </div>
-                )}
-                {mesh.length > 0 && (
-                  <div style={{ marginTop: 6, fontSize: 10, color: '#ffd23f' }}>
-                    Mesh nodes: {mesh.map((m: any) => m.name || m.id).join(', ')}
-                  </div>
-                )}
-              </div>
-            )
-          })}
         </section>
       )}
 
@@ -594,34 +500,38 @@ export default function DataPanel({
         </section>
       )}
 
-      {tab === 'health' && (
-        <section>
-          <button onClick={loadHealth} disabled={loading['health']}>{loading['health'] ? 'Loading…' : 'Ping Backend'}</button>
-          <div className="data-health">
-            {health ? (
-              <><div className="health-status ok">{health.status.toUpperCase()}</div><div className="health-time">{health.time}</div></>
-            ) : <div className="health-status pending">NOT CHECKED</div>}
-          </div>
-        </section>
-      )}
       {tab === 'airquality' && (
         <section>
           <button onClick={loadAirquality} disabled={loading['airquality']}>{loading['airquality'] ? 'Loading…' : '↻ Refresh'}</button>
-          <span className="data-count">{airquality?.cities?.length || 0} cities monitored</span>
+          <span className="data-count">{airquality?.cities?.length || 0} cities · ASEAN + global · click to locate</span>
+          {airquality?.updated && (
+            <div style={{ fontSize: 11, color: '#6f8c84', marginBottom: 8 }}>Updated: {new Date(airquality.updated).toLocaleString()}</div>
+          )}
           {!airquality?.cities?.length && <div className="health-status pending">No air quality data</div>}
-          <table className="data-table">
-            <thead><tr><th>City</th><th>PM2.5</th><th>PM10</th><th>Status</th></tr></thead>
+          <table className="data-table clickable">
+            <thead><tr><th>City</th><th>PM2.5</th><th>PM10</th><th>Status</th><th></th></tr></thead>
             <tbody>
               {(airquality?.cities || []).map((c: AirQualityCity, i: number) => {
                 const pm25 = c.pm25 ?? null
                 const color = pm25 == null ? '#6f8c84' : pm25 <= 12 ? '#00e5a0' : pm25 <= 35 ? '#ffd23f' : pm25 <= 55 ? '#ff6b35' : '#ff2d00'
                 const label = pm25 == null ? '—' : pm25 <= 12 ? 'Good' : pm25 <= 35 ? 'Moderate' : pm25 <= 55 ? 'Unhealthy' : 'Hazardous'
                 return (
-                  <tr key={i}>
+                  <tr
+                    key={i}
+                    onClick={() => c.lat != null && c.lon != null && onFocus({
+                      kind: 'airquality',
+                      lon: c.lon,
+                      lat: c.lat,
+                      height: 350000,
+                      title: `${c.city} air quality`,
+                      lines: [`PM2.5: ${pm25 ?? '—'} µg/m³`, `PM10: ${c.pm10 ?? '—'} µg/m³`, `Status: ${label}`],
+                    })}
+                  >
                     <td>{c.city}</td>
                     <td style={{ color }}>{pm25 ?? '—'} µg/m³</td>
                     <td>{c.pm10 ?? '—'} µg/m³</td>
                     <td style={{ color, fontWeight: 'bold' }}>{label}</td>
+                    <td className="locate-cell">◎</td>
                   </tr>
                 )
               })}
@@ -695,7 +605,11 @@ export default function DataPanel({
         <section>
           <button onClick={loadWildfires} disabled={loading['wildfires']}>{loading['wildfires'] ? 'Loading…' : '↻ Refresh'}</button>
           <span className="data-count">{wildfires?.count || 0} thermal anomalies</span>
-          {wildfires?.fires?.length === 0 && <div className="health-status pending">No active fires detected</div>}
+          {wildfires?.fires?.length === 0 && (
+            <div className="health-status pending">
+              No active fires — set free FIRMS_MAP_KEY (NASA FIRMS) or check EONET fallback in EVENTS tab
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(wildfires?.fires || []).slice(0, 50).map((f: any, i: number) => {
               const color = f.confidence >= 80 ? '#ff2d00' : f.confidence >= 50 ? '#ff6b35' : '#ffd23f'
@@ -707,23 +621,6 @@ export default function DataPanel({
                 </div>
               )
             })}
-          </div>
-        </section>
-      )}
-
-      {tab === 'lightning' && (
-        <section>
-          <button onClick={loadLightning} disabled={loading['lightning']}>{loading['lightning'] ? 'Loading…' : '↻ Refresh'}</button>
-          <span className="data-count">{lightning?.count || 0} strikes (last ~10min)</span>
-          {lightning?.strikes?.length === 0 && <div className="health-status pending">No recent lightning</div>}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {(lightning?.strikes || []).slice(0, 30).map((s: any, i: number) => (
-              <div key={i} className="iss-card" style={{ borderLeft: '3px solid #22d3ee' }} onClick={() => s.lon != null && s.lat != null && onFocus({ kind: 'lightning', lon: s.lon, lat: s.lat, height: 400000, title: 'Lightning Strike', lines: [`Time: ${s.time}`, `Stations: ${s.stations}`, `Participants: ${s.participants}`] })}>
-                <span style={{ color: '#22d3ee', fontWeight: 'bold' }}>⚡</span>
-                <strong>{s.lat?.toFixed(2)}, {s.lon?.toFixed(2)}</strong>
-                <small style={{ color: '#6f8c84' }}>{s.time}</small>
-              </div>
-            ))}
           </div>
         </section>
       )}
@@ -826,40 +723,46 @@ export default function DataPanel({
 
           {!stocks?.count && !stocks?.error && <div className="health-status pending">No market data</div>}
           <div style={{ marginTop: 10, fontSize: 11, color: '#6f8c84' }}>Source: {stocks?.source ?? 'yahoo-finance'} · Updated: {stocks?.updated ?? '—'}</div>
-        </section>
-      )}
 
-      {tab === 'transit' && (
-        <section>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-            <select className="poi-select" value={transitCity} onChange={(e) => setTransitCity(e.target.value)}>
-              <option value="helsinki">Helsinki (HSL)</option>
-              <option value="boston">Boston (MBTA)</option>
-              <option value="berlin">Berlin (VBB)</option>
-              <option value="hamburg">Hamburg (HVV)</option>
-              <option value="munich">Munich (MVV)</option>
-            </select>
-            <button onClick={loadTransit} disabled={loading['transit']}>{loading['transit'] ? 'Loading…' : '↻ Refresh'}</button>
-          </div>
-          {transit?.error && <div className="data-error">{transit.error}</div>}
-          <span className="data-count">{transit?.count ?? 0} vehicles · {transitCity.toUpperCase()}</span>
-          {!transit?.vehicles?.length && !transit?.error && <div className="health-status pending">No transit data — select a city with configured GTFS-Realtime endpoint</div>}
-          <table className="data-table clickable">
-            <thead><tr><th>Route</th><th>ID</th><th>Lat</th><th>Lon</th><th>Bearing</th><th>Speed</th><th></th></tr></thead>
-            <tbody>
-              {(transit?.vehicles || []).slice(0, 100).map((v: any, i: number) => (
-                <tr key={i} onClick={() => v.lon != null && v.lat != null && onFocus({ kind: 'transit', lon: v.lon, lat: v.lat, height: 200000, title: `Transit ${v.route_id || '—'}`, lines: [`ID: ${v.id || '—'}`, `Route: ${v.route_id || '—'}`, `Bearing: ${v.bearing ?? '—'}°`, `Speed: ${v.speed != null ? v.speed + ' m/s' : '—'}`, `Label: ${v.label || '—'}`] })}>
-                  <td><strong>{v.route_id || '—'}</strong></td>
-                  <td>{v.id?.slice(0, 20) || '—'}</td>
-                  <td>{v.lat?.toFixed(4) ?? '—'}</td>
-                  <td>{v.lon?.toFixed(4) ?? '—'}</td>
-                  <td>{v.bearing != null ? v.bearing + '°' : '—'}</td>
-                  <td>{v.speed != null ? v.speed + ' m/s' : '—'}</td>
-                  <td className="locate-cell">◎ LOCATE</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {markets?.risk && (
+            <>
+              <h4 style={{ letterSpacing: 2, fontSize: 12, color: '#8fb7a9', marginTop: 20 }}>CRYPTO</h4>
+              <div className="market-head">
+                <div className="market-gauge" style={{ borderColor: fngColor(markets.fear_greed?.value) }}>
+                  <span className="mh-label">FEAR &amp; GREED</span>
+                  <strong style={{ color: fngColor(markets.fear_greed?.value), fontSize: 30 }}>{markets.fear_greed?.value ?? '—'}</strong>
+                  <small style={{ color: fngColor(markets.fear_greed?.value) }}>{markets.fear_greed?.label ?? 'n/a'}</small>
+                </div>
+                <div className="market-stat">
+                  <span className="mh-label">TOTAL CAP</span>
+                  <strong>${fmtCompact(markets.global?.total_market_cap_usd)}</strong>
+                  <small style={{ color: pctColor(markets.global?.market_cap_change_24h) }}>{fmtPct(markets.global?.market_cap_change_24h)} 24h</small>
+                </div>
+              </div>
+              {markets?.coins?.length ? (
+                <div className="market-cards">
+                  {markets.coins.map((c: any) => (
+                    <div className="market-card" key={c.id}>
+                      <div className="mc-top">
+                        <div>
+                          <strong className="mc-sym">{c.symbol}</strong>
+                          <span className="mc-name">{c.name}</span>
+                        </div>
+                        <span className="mc-rank">#{c.market_cap_rank ?? '—'}</span>
+                      </div>
+                      <div className="mc-price">${fmtPrice(c.price)}</div>
+                      <div className="mc-chips">
+                        <span style={{ color: pctColor(c.change_24h) }}>24h {fmtPct(c.change_24h)}</span>
+                        <span style={{ color: pctColor(c.change_7d) }}>7d {fmtPct(c.change_7d)}</span>
+                      </div>
+                      <Sparkline data={c.spark} width={150} height={40} />
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div style={{ marginTop: 8, fontSize: 11, color: '#6f8c84' }}>Crypto: {markets?.source ?? 'coingecko'}</div>
+            </>
+          )}
         </section>
       )}
 
