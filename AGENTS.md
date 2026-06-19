@@ -153,3 +153,5 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | Agent Bus `delivered: 0` | HUD needs `VITE_WORLDBASE_AGENT_BUS=1` + open tab at `:5176` |
 | INTEL layer count `—` | Toggle **INTEL** under telemetry (OSINT/FULL preset enables `intelFt`); wait ~2 s for FtM fetch |
 | Splink resolution test fail | Optional — `pip install 'splink>=4.0,<5'` or ignore if not using Splink |
+| Trust 2/4 in FULL SITUATION | Normal when GDELT probe or Pi edge offline — check `GET /api/trust` probes |
+| Pi pull stale after PC upgrade | `.\scripts\deploy-pi-sync.ps1`; verify `payload_version: 2` in pull JSON |
