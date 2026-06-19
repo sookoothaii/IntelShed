@@ -460,6 +460,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
         { key: 'airquality', url: '/api/airquality' },
         { key: 'gdacs', url: '/api/gdacs' },
         { key: 'briefing', url: '/api/briefing' },
+        { key: 'trust', url: '/api/trust' },
         { key: 'cve', url: '/api/cve?limit=15' },
         { key: 'pegel', url: '/api/pegel' },
       ]
@@ -484,6 +485,8 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   const correlations = results.correlations
   const briefing = results.briefing
   const digest = briefing?.digest
+  const briefingQuality = briefing?.quality
+  const trust = results.trust
   const fusionHotspots = briefing?.fusion_hotspots || []
   const cveFeed = results.cve
   const quakes = (results.earthquakes?.earthquakes || []).slice(0, 15)
@@ -541,6 +544,33 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
           </div>
         ) : (
           <div className="analysis-body">
+            {(trust || briefingQuality) && (
+              <div
+                className="analysis-section"
+                style={{
+                  marginBottom: 12,
+                  borderLeft: `4px solid ${(trust?.score ?? 0) >= 3 ? '#00e5a0' : (trust?.score ?? 0) >= 2 ? '#ffd23f' : '#ff6b35'}`,
+                }}
+              >
+                <h3>TRUST</h3>
+                <div className="analysis-row">
+                  <span style={{ fontWeight: 'bold' }}>
+                    FIELD {trust?.score ?? '—'}/{trust?.max_score ?? 4}
+                  </span>
+                  <span style={{ color: '#8fb7a9' }}>
+                    BRIEFING QUALITY {briefingQuality?.score != null ? Math.round(briefingQuality.score * 100) : '—'}%
+                  </span>
+                </div>
+                {trust?.probes?.map((p: any) => (
+                  <div key={p.name} className="analysis-row" style={{ fontSize: 11 }}>
+                    <span style={{ color: p.ok ? '#00e5a0' : '#ff6b35', fontWeight: 'bold' }}>
+                      {p.ok ? 'OK' : 'FAIL'}
+                    </span>
+                    <span>{p.name}: {p.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="analysis-col">
 
               {nodes?.nodes?.some((n: any) => (n.health?.disk_pct ?? 0) >= 85) && (

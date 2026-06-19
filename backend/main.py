@@ -21,6 +21,7 @@ from middleware.rate_limit import setup_rate_limiting, rate_limit_general
 import globe_snapshot
 import feeds_extra
 import node_sync
+import trust_router
 import osint_tools
 import nasa_firms
 import blitzortung_bridge
@@ -252,6 +253,7 @@ app.include_router(agent_bus.router)
 app.include_router(globe_snapshot.router)
 app.include_router(feeds_extra.router)
 app.include_router(node_sync.router)
+app.include_router(trust_router.router)
 app.include_router(osint_tools.router)
 app.include_router(nasa_firms.router)
 app.include_router(blitzortung_bridge.router)

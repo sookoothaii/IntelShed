@@ -19,7 +19,7 @@
 | **Fast health** | `GET /api/health/ping` | Use before/after changes |
 | **Ollama** | http://127.0.0.1:11434 | Default chat: `qwen3:8b` |
 | **Start** | `.\start.ps1` | Paths with spaces → `-LiteralPath` |
-| **Verify** | `.\scripts\smoke-test.ps1` | 28 checks — run before claiming “done” |
+| **Verify** | `.\scripts\smoke-test.ps1` | 29 checks — run before claiming “done” |
 
 Copy env: `backend\.env.example` → `backend\.env`, `frontend\.env.example` → `frontend\.env` (Cesium Ion token required for terrain/buildings).
 
@@ -51,17 +51,18 @@ _gather_snapshot()  →  intel_briefing.gather_for_briefing()  →  format_diges
                     fusion top-3 + INTEL ENTITIES block in prompt
 ```
 
-Stored briefing JSON (`sources` column) includes `intel` (entity count, buckets, slim entity list) and `digest.intel_count`. Pi pull includes `fusion_hotspots`; full intel metadata stays on PC unless extended in `node_sync.py`.
+Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quality`** (rule-based score 0–1). Pi pull v2 adds `ETag`, `content_sha256`, `quality`, `source: worldbase-pc`.
 
 | Action | Endpoint / file |
 |--------|-----------------|
-| Latest text | `GET /api/briefing` — text, `digest`, `intel`, `fusion_hotspots` |
+| Latest text | `GET /api/briefing` — text, `digest`, `intel`, `quality`, `fusion_hotspots` |
 | Force generate | `POST /api/briefing/generate` |
 | FtM → digest bridge | `backend/intel_briefing.py` |
 | Autopilot | `WORLDBASE_BRIEFING_AUTOPILOT=1`, interval `WORLDBASE_BRIEFING_INTERVAL` (default 6 h) |
 | FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
 | German output | `WORLDBASE_BRIEFING_LANG=de` (UI strings stay English) |
-| Pi payload | `GET /api/node/pull` (+ `X-Node-Token` when `NODE_INGEST_TOKEN` set) |
+| Pi payload | `GET /api/node/pull` — v2: ETag/304, SHA-256, quality (+ `X-Node-Token` when set) |
+| **Trust probes** | `GET /api/trust` — field score 0–4 (briefing, GDELT, Ollama, Pi edge) |
 | **Connectors** | `GET /api/connectors` — manifest catalog + cache overlay; export via `scripts/export_connectors.py` |
 | **MCP (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — 12 tools when Agent Bus on — [`docs/MCP.md`](docs/MCP.md) |
 | **Agent Bus** | `POST /api/agent/publish`, `GET /api/agent/stream` — globe fly/layer when HUD open — [`docs/MCP.md`](docs/MCP.md#agent-bus) |
@@ -70,7 +71,7 @@ Stored briefing JSON (`sources` column) includes `intel` (entity count, buckets,
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_operator_briefing test_intel_briefing test_ftm_store test_feed_ingest -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_ftm_store test_feed_ingest -v` in `backend/`.
 
 ---
 
@@ -88,7 +89,7 @@ Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_
 | Credential registry | `backend/credentials/registry.py`, `GET /api/credentials/status` |
 | HUD styles | `frontend/src/styles/hud.css` |
 | Feeds + cache | `backend/feeds_extra.py`, `backend/feed_registry.py`, `backend/connector_registry.py` |
-| Node sync + briefing routes | `backend/node_sync.py` |
+| Node sync + briefing routes | `backend/node_sync.py`, `backend/briefing_quality.py`, `backend/trust_probes.py` |
 | MCP + Agent Bus | `backend/mcp_server.py`, `backend/agent_bus.py`, [`docs/MCP.md`](docs/MCP.md) |
 | Operator digest | `backend/operator_briefing.py` |
 | FtM → 24h briefing | `backend/intel_briefing.py` |

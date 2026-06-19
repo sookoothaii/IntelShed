@@ -23,7 +23,8 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | **MAP** | Offline Protomaps via PMTiles — regional (`thailand`) or full planet (`planet_full` ~130 GB) |
 | **Intelligence** | Situations, correlations, anomalies, OpenSanctions via Yente, fast RAG memory (sqlite-vec) |
 | **AI** | Local chat via Ollama (`qwen3:8b` default) |
-| **Edge** | Off-grid Pi pushes sensors → PC fuses → briefing back to Pi |
+| **Edge** | Off-grid Pi pushes sensors → PC fuses → hardened briefing pull back to Pi |
+| **Trust** | Rule-based briefing quality + field trust score (FULL SITUATION panel) |
 | **MCP** | Cursor/Claude: 12 tools — briefing, nodes, feeds, generate, optional globe control — [`docs/MCP.md`](docs/MCP.md) |
 | **Agent Bus** | MCP/REST → fly globe + toggle layers when HUD open at `:5176` |
 | **Philosophy** | Positive intelligence — better decisions, not attacks |
@@ -71,7 +72,7 @@ ollama pull qwen3:8b
 ollama pull nomic-embed-text   # RAG embeddings
 ```
 
-**Verify stack:** `.\scripts\smoke-test.ps1` (27 checks — backend, feeds, Vite proxy, Ollama chat, build)
+**Verify stack:** `.\scripts\smoke-test.ps1` (29 checks — backend, feeds, trust probes, Vite proxy, Ollama chat, build)
 
 ### Offline maps (PMTiles)
 

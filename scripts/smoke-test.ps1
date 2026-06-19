@@ -75,6 +75,11 @@ Test-Endpoint "connector registry" "$Backend/api/connectors?include_unlisted=0" 
     if (-not $d.connectors) { throw "no connectors" }
     if ($d.count -lt 26) { throw "connector catalog too small ($($d.count))" }
 } -TimeoutSec 15
+Test-Endpoint "trust probes" "$Backend/api/trust" {
+    param($d)
+    if ($null -eq $d.score) { throw "no trust score" }
+    if (-not $d.probes -or $d.probes.Count -lt 4) { throw "expected 4 probes" }
+} -TimeoutSec 20
 
 Write-Host ""
 Write-Host "[2] Phase 2 fusion APIs" -ForegroundColor Cyan

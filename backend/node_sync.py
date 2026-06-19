@@ -8,6 +8,7 @@ plus critical alerts, so the off-grid portal shows global awareness offline.
 
 import os
 import json
+import hashlib
 import sqlite3
 import asyncio
 from contextlib import contextmanager
@@ -15,7 +16,7 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Request, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from auth.security import verify_api_key
 
@@ -631,6 +632,9 @@ async def _generate_briefing_unlocked(lang: str | None = None):
         },
         "style": "security_advisor_24h",
     }
+    from briefing_quality import attach_quality_to_sources
+
+    sources_payload = attach_quality_to_sources(sources_payload, text=text, created_at=now)
     with _db() as conn:
         conn.execute(
             "INSERT INTO briefings (created_at, text, sources) VALUES (?,?,?)",
@@ -648,6 +652,7 @@ async def _generate_briefing_unlocked(lang: str | None = None):
         "alerts": alerts,
         "fusion_hotspots": fusion_hotspots,
         "digest": sources_payload.get("digest"),
+        "quality": sources_payload.get("quality"),
     }
 
 
@@ -665,6 +670,18 @@ async def latest_briefing():
         sources = json.loads(row["sources"]) if row["sources"] else {}
     except Exception:
         pass
+    quality = sources.get("quality")
+    if not quality and row["text"]:
+        try:
+            from briefing_quality import score_briefing
+
+            quality = score_briefing(
+                text=row["text"],
+                sources=sources,
+                created_at=row["created_at"],
+            )
+        except Exception:
+            quality = None
     return {
         "created_at": row["created_at"],
         "text": row["text"],
@@ -672,6 +689,7 @@ async def latest_briefing():
         "fusion_hotspots": sources.get("fusion_hotspots", []),
         "intel": sources.get("intel"),
         "digest": sources.get("digest"),
+        "quality": quality,
         "style": sources.get("style"),
     }
 
@@ -689,6 +707,12 @@ def _compress_briefing(text: str, alerts: list) -> str:
     remaining = 230 - len(alert_str) - 2
     brief_snippet = text[:max(remaining, 60)] if remaining > 0 else ""
     return f"{alert_str}|{brief_snippet}" if brief_snippet else alert_str
+
+
+def _pull_payload_digest(payload: dict) -> str:
+    """SHA-256 of canonical JSON (excludes content_sha256)."""
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @router.get("/node/pull")
@@ -723,13 +747,28 @@ async def node_pull(request: Request, mesh: bool = False, x_node_token: str = He
             "s": len(compressed),
         }
 
-    return {
+    payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source": "worldbase-pc",
+        "payload_version": 2,
         "briefing": brief.get("text"),
         "briefing_at": brief.get("created_at"),
         "alerts": alerts,
         "fusion_hotspots": fusion_hotspots,
+        "quality": brief.get("quality"),
+        "digest": brief.get("digest"),
     }
+    digest = _pull_payload_digest(payload)
+    payload["content_sha256"] = digest
+
+    inm = request.headers.get("if-none-match", "").strip().strip('"')
+    if inm and inm == digest:
+        return Response(status_code=304, headers={"ETag": f'"{digest}"', "X-Content-SHA256": digest})
+
+    return JSONResponse(
+        payload,
+        headers={"ETag": f'"{digest}"', "X-Content-SHA256": digest},
+    )
 
 
 @router.get("/node/pull/mesh")
