@@ -569,6 +569,54 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                     <span>{p.name}: {p.detail}</span>
                   </div>
                 ))}
+                {trust?.feed_drift && (
+                  <div className="analysis-row" style={{ fontSize: 11, marginTop: 6 }}>
+                    <span
+                      style={{
+                        color: trust.feed_drift.ok ? '#00e5a0' : '#ffd23f',
+                        fontWeight: 'bold',
+                      }}
+                    >
+                      {trust.feed_drift.ok ? 'OK' : 'DRIFT'}
+                    </span>
+                    <span>feeds: {trust.feed_drift.detail}</span>
+                  </div>
+                )}
+                {trust?.feed_drift?.drifting?.length > 0 && trust.feed_drift.drifting.map((d: any) => (
+                  <div key={d.cache_key} className="analysis-row" style={{ fontSize: 10, color: '#ffd23f' }}>
+                    <span style={{ fontWeight: 'bold' }}>{d.cache_key}</span>
+                    <span>
+                      {d.previous_count} → {d.current_count} (−{d.drop_pct}%)
+                    </span>
+                  </div>
+                ))}
+                {trust?.feed_drift?.freshness?.length > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 10, color: '#8fb7a9' }}>
+                    {trust.feed_drift.freshness.map((f: any) => (
+                      <span
+                        key={f.cache_key}
+                        style={{
+                          display: 'inline-block',
+                          marginRight: 8,
+                          marginBottom: 4,
+                          color:
+                            f.status === 'fresh'
+                              ? '#00e5a0'
+                              : f.status === 'error' || f.status === 'missing'
+                                ? '#ff6b35'
+                                : '#ffd23f',
+                        }}
+                        title={
+                          f.error
+                            ? String(f.error)
+                            : `${f.cache_key} count=${f.count ?? '—'} age=${f.age_sec ?? '—'}s`
+                        }
+                      >
+                        {f.cache_key}:{f.count ?? '—'}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             <div className="analysis-col">

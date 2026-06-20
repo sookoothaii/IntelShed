@@ -79,6 +79,7 @@ Test-Endpoint "trust probes" "$Backend/api/trust" {
     param($d)
     if ($null -eq $d.score) { throw "no trust score" }
     if (-not $d.probes -or $d.probes.Count -lt 4) { throw "expected 4 probes" }
+    if ($null -eq $d.feed_drift) { throw "missing feed_drift block" }
 } -TimeoutSec 20
 
 Write-Host ""

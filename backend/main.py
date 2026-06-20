@@ -449,6 +449,9 @@ def on_startup():
     node_sync.init_command_db()
     anomaly_river.init_river_db()
     rag_memory.init_memory_db()
+    import feed_drift
+
+    feed_drift.init_drift_db()
     aircraft_trails.init_trail_db()
     from ollama_config import briefing_autopilot_on
 

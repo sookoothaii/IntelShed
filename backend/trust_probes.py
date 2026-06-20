@@ -111,10 +111,20 @@ async def run_trust_probes() -> dict[str, Any]:
     ]
     score = sum(1 for p in probes if p.get("ok"))
     status = "ok" if score >= 3 else ("warn" if score >= 2 else "critical")
+
+    feed_drift: dict[str, Any] = {"ok": True, "detail": "skipped", "drifting": [], "freshness": []}
+    try:
+        import feed_drift as _feed_drift
+
+        feed_drift = _feed_drift.check_feed_drift()
+    except Exception as exc:
+        feed_drift = {"ok": False, "detail": str(exc)[:120], "drifting": [], "freshness": []}
+
     return {
         "time": datetime.now(timezone.utc).isoformat(),
         "score": score,
         "max_score": 4,
         "status": status,
         "probes": probes,
+        "feed_drift": feed_drift,
     }
