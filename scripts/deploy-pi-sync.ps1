@@ -42,6 +42,7 @@ $pushSrc = Join-Path $Root 'offgrid-raspi\scripts\worldbase_push.py'
 $pullSrc = Join-Path $Root 'offgrid-raspi\scripts\worldbase_pull.py'
 $portalSrc = Join-Path $Root 'offgrid-raspi\offgrid\bin\offgrid-portal'
 $portalUiSrc = Join-Path $Root 'offgrid-raspi\offgrid\content\portal_ui.html'
+$watchRankSrc = Join-Path $Root 'offgrid-raspi\offgrid\lib\watch_rank.py'
 
 Write-Host "=== deploy-pi-sync -> $pi ===" -ForegroundColor Cyan
 
@@ -51,11 +52,15 @@ $pullLf = Write-LfCopy $pullSrc 'worldbase_pull.py'
 Write-Host 'SCP: worldbase_push.py, worldbase_pull.py' -ForegroundColor Green
 
 if ($Portal) {
+    if (-not (Test-Path $watchRankSrc)) {
+        throw "Missing source: $watchRankSrc"
+    }
     $portalLf = Write-LfCopy $portalSrc 'offgrid-portal'
     $portalUiLf = Write-LfCopy $portalUiSrc 'portal_ui.html'
-    & $scp -i $key $portalLf $portalUiLf "${pi}:/tmp/"
+    $watchRankLf = Write-LfCopy $watchRankSrc 'watch_rank.py'
+    & $scp -i $key $portalLf $portalUiLf $watchRankLf "${pi}:/tmp/"
     & $ssh -i $key -o BatchMode=yes $pi "mv /tmp/portal_ui.html /tmp/offgrid-portal-ui.html"
-    Write-Host 'SCP: offgrid-portal, portal_ui.html' -ForegroundColor Green
+    Write-Host 'SCP: offgrid-portal, portal_ui.html, watch_rank.py' -ForegroundColor Green
 }
 
 $trimBlock = ''
@@ -84,6 +89,7 @@ if ($Portal) {
 cp /tmp/offgrid-portal $PiProject/offgrid/bin/offgrid-portal
 chmod +x $PiProject/offgrid/bin/offgrid-portal
 cp /tmp/offgrid-portal-ui.html $PiProject/offgrid/content/portal_ui.html
+cp /tmp/watch_rank.py $PiProject/offgrid/lib/watch_rank.py
 sudo mkdir -p /etc/systemd/system/worldbase_pull.service.d
 cat <<'OPERATORDROP' | sudo tee /etc/systemd/system/worldbase_pull.service.d/operator-interval.conf >/dev/null
 [Service]
