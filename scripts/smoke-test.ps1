@@ -239,6 +239,10 @@ if ($NodeIngestToken) {
         param($d)
         if ($d.payload_version -ne 2) { throw "payload_version=$($d.payload_version)" }
         if (-not $d.briefing_at) { throw 'missing briefing_at' }
+        $sg = $d.intel_subgraph
+        if (-not $sg) { throw 'missing intel_subgraph' }
+        if ($sg.available -ne $true) { throw "intel_subgraph.available=$($sg.available)" }
+        if (($sg.node_count | ForEach-Object { $_ }) -lt 1) { throw "node_count=$($sg.node_count)" }
     } -TimeoutSec 10 -Optional -Headers $pullHeaders
 } else {
     Write-Host '  WARN  node pull — NODE_INGEST_TOKEN not set in backend/.env' -ForegroundColor Yellow

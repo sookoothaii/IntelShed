@@ -221,6 +221,42 @@ def _eval_gdelt(row: sqlite3.Row, snap: dict[str, Any]) -> tuple[bool, str]:
     return False, f"media attention mixed ({pulse_n} pulse, {geo_n} geo)"
 
 
+_THAI_CORRIDOR_REGIONS = ("malacca", "laem_chabang", "bangkok_port", "phuket")
+_MARITIME_DENSITY_MIN = 12
+
+
+def _thai_corridor_vessel_count(snap: dict[str, Any]) -> int:
+    vessels = (snap.get("maritime") or {}).get("vessels") or []
+    return sum(
+        1
+        for v in vessels
+        if (v.get("region") or "") in _THAI_CORRIDOR_REGIONS
+    )
+
+
+def _eval_maritime(row: sqlite3.Row, snap: dict[str, Any]) -> tuple[bool, str]:
+    count = _thai_corridor_vessel_count(snap)
+    claim = row["claim"] or ""
+    baseline: int | None = None
+    if "—" in claim:
+        tail = claim.split("—", 1)[1]
+        digits = "".join(ch if ch.isdigit() else " " for ch in tail).split()
+        if digits:
+            try:
+                baseline = int(digits[0])
+            except ValueError:
+                baseline = None
+    if count >= _MARITIME_DENSITY_MIN:
+        if baseline and count >= int(baseline * 0.75):
+            return True, f"corridor density sustained ({count} vessels)"
+        if baseline is None:
+            return True, f"corridor density sustained ({count} vessels)"
+        return True, f"corridor still active ({count} vs baseline {baseline})"
+    if baseline and count >= max(8, int(baseline * 0.5)):
+        return True, f"moderate corridor traffic ({count} vessels)"
+    return False, f"corridor density eased ({count} vessels)"
+
+
 def _eval_fusion(
     row: sqlite3.Row,
     fusion_cells: list[dict[str, Any]] | None,
@@ -279,8 +315,10 @@ def _evaluate_row(
         return _eval_fusion(row, fusion_cells)
     if prefix in ("spacewx",) or "spaceweather" in sources:
         return _eval_spacewx(row, snap)
+    if prefix in ("maritime",) or "maritime" in sources:
+        return _eval_maritime(row, snap)
 
-    if prefix in ("alert", "maritime"):
+    if prefix in ("alert",):
         return False, f"no outcome rule for prefix={prefix or 'unknown'}"
 
     return False, f"unsupported watch prefix={prefix or 'unknown'}"

@@ -161,6 +161,78 @@ class PredictionLedgerTests(unittest.TestCase):
         self.assertEqual(q["meta"]["prediction_sample_30d"], 1)
         self.assertEqual(q["meta"]["prediction_accuracy_30d"], 1.0)
 
+    def test_resolve_fusion_hit_by_score(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=50)).isoformat()
+        self._insert_row(
+            issued_at=old,
+            prefix="fusion_delta",
+            claim="Rising fusion cell (Δ+0.90): Flood Warning",
+            sources='["hazard"]',
+            cell_id="37.00,-97.00",
+        )
+        fusion_cells = [
+            {"cell_id": "37.00,-97.00", "lat": 37.0, "lon": -97.0, "score": 0.68, "delta_score": 0.1}
+        ]
+        result = pl.resolve_pending({}, fusion_cells)
+        self.assertEqual(result["hits"], 1)
+
+    def test_resolve_fusion_miss_cooled(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=50)).isoformat()
+        self._insert_row(
+            issued_at=old,
+            prefix="fusion_delta",
+            claim="Rising fusion cell (Δ+0.90): Flood Warning",
+            sources='["hazard"]',
+            cell_id="37.00,-97.00",
+        )
+        fusion_cells = [
+            {"cell_id": "37.00,-97.00", "lat": 37.0, "lon": -97.0, "score": 0.2, "delta_score": 0.05}
+        ]
+        result = pl.resolve_pending({}, fusion_cells)
+        self.assertEqual(result["misses"], 1)
+
+    def test_resolve_maritime_hit(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=50)).isoformat()
+        self._insert_row(
+            issued_at=old,
+            prefix="maritime",
+            claim="Maritime corridor density — 18 vessels tracked",
+            sources='["maritime"]',
+            horizon_h=48,
+        )
+        snap = {
+            "maritime": {
+                "vessels": [
+                    {"region": "malacca"},
+                    {"region": "laem_chabang"},
+                    {"region": "bangkok_port"},
+                ]
+                * 5
+            }
+        }
+        result = pl.resolve_pending(snap, [])
+        self.assertEqual(result["hits"], 1)
+
+    def test_resolve_maritime_miss(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=50)).isoformat()
+        self._insert_row(
+            issued_at=old,
+            prefix="maritime",
+            claim="Maritime corridor density — 18 vessels tracked",
+            sources='["maritime"]',
+            horizon_h=48,
+        )
+        snap = {
+            "maritime": {
+                "vessels": [
+                    {"region": "malacca"},
+                    {"region": "hamburg"},
+                ]
+            }
+        }
+        result = pl.resolve_pending(snap, [])
+        self.assertEqual(result["misses"], 1)
+
     def test_list_predictions_pending_and_resolved(self):
         old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
         future = datetime.now(timezone.utc).isoformat()
