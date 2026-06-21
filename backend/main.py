@@ -29,6 +29,8 @@ import smard_bridge
 import stock_bridge
 import gtfs_ingestor
 import ais_bridge
+import cams_bridge
+import humanitarian_bridge
 import entsoe_bridge
 import firewall_bridge
 import webcam_bridge
@@ -261,6 +263,8 @@ app.include_router(smard_bridge.router)
 app.include_router(stock_bridge.router)
 app.include_router(gtfs_ingestor.router)
 app.include_router(ais_bridge.router)
+app.include_router(cams_bridge.router)
+app.include_router(humanitarian_bridge.router)
 app.include_router(entsoe_bridge.router)
 app.include_router(firewall_bridge.router)
 app.include_router(webcam_bridge.router)
@@ -379,6 +383,58 @@ async def _situations_prewarm():
         pass
 
 
+async def _stack_warmup():
+    """Warm operator-critical feeds after boot (GDELT local, maritime, traffic, haze)."""
+    await asyncio.sleep(6)
+    try:
+        import gdelt_bridge
+
+        out = await gdelt_bridge.warmup_local_pulse()
+        n = int((out or {}).get("count") or 0)
+        print(f"[WARMUP] GDELT local pulse: {n} articles", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] GDELT local failed: {e}", flush=True)
+    try:
+        from traffic_bridge import warm_traffic_cams
+
+        await warm_traffic_cams(force=True)
+        print("[WARMUP] Traffic cams refreshed (regional/global/all)", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] Traffic cams failed: {e}", flush=True)
+    try:
+        import ais_bridge
+
+        m = await ais_bridge.warm_maritime()
+        if m:
+            print(f"[WARMUP] Maritime: {m.get('count')} vessels demo={m.get('demo_mode')}", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] Maritime failed: {e}", flush=True)
+    try:
+        import cams_bridge
+
+        h = await cams_bridge.get_haze(refresh=True)
+        print(f"[WARMUP] CAMS haze: {h.get('count')} cities", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] CAMS haze failed: {e}", flush=True)
+    try:
+        from feeds_extra import air_quality
+
+        await air_quality()
+        print("[WARMUP] Air quality refreshed", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] Air quality failed: {e}", flush=True)
+    try:
+        from windy_bridge import fetch_point_weather
+        import feed_registry
+
+        pt = await fetch_point_weather(13.75, 100.5)
+        if pt.get("current"):
+            feed_registry.write_auto("weather:13.75:100.5", pt)
+            print(f"[WARMUP] Bangkok weather: source={pt.get('source')}", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] Weather failed: {e}", flush=True)
+
+
 async def _entity_resolution_autopilot():
     """Nightly Splink entity resolution -> sameAs edges in the FtM graph."""
     await asyncio.sleep(120)
@@ -468,6 +524,7 @@ def on_startup():
     asyncio.create_task(_phase1_background_tasks())
     asyncio.create_task(_aircraft_trail_loop())
     asyncio.create_task(_situations_prewarm())
+    asyncio.create_task(_stack_warmup())
 
 
 @app.on_event("shutdown")

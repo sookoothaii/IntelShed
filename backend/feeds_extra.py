@@ -277,7 +277,12 @@ async def point_weather(lat: float, lon: float):
     """Current weather + 24h outlook. Windy Point Forecast if keyed, else Open-Meteo."""
     from windy_bridge import fetch_point_weather
 
-    return await fetch_point_weather(lat, lon)
+    out = await fetch_point_weather(lat, lon)
+    if out.get("current"):
+        import feed_registry
+
+        feed_registry.write_auto(f"weather:{round(lat, 2)}:{round(lon, 2)}", out)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -668,7 +673,8 @@ async def air_quality():
             for name, lat, lon in cities:
                 try:
                     r = await client.get(
-                        f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}&current=pm10,pm2_5"
+                        f"https://air-quality-api.open-meteo.com/v1/air-quality?latitude={lat}&longitude={lon}"
+                        "&current=pm10,pm2_5,dust,aerosol_optical_depth"
                     )
                     d = r.json()
                     cur = d.get("current", {})
@@ -678,6 +684,8 @@ async def air_quality():
                         "lon": lon,
                         "pm25": cur.get("pm2_5"),
                         "pm10": cur.get("pm10"),
+                        "dust": cur.get("dust"),
+                        "aerosol_optical_depth": cur.get("aerosol_optical_depth"),
                         "time": cur.get("time"),
                     })
                 except Exception:

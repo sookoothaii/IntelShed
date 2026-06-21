@@ -150,6 +150,54 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
             bucket,
         ))
 
+    for row in (snap.get("cams_haze", {}) or {}).get("cities") or []:
+        name = row.get("city") or "City"
+        lat, lon = row.get("lat"), row.get("lon")
+        pm25 = row.get("pm25")
+        dust = row.get("dust")
+        aod = row.get("aerosol_optical_depth")
+        parts = []
+        if pm25 is not None:
+            parts.append(f"PM2.5 {pm25} µg/m³")
+        if dust is not None:
+            parts.append(f"dust {dust} µg/m³")
+        if aod is not None:
+            parts.append(f"AOD {aod}")
+        if not parts:
+            continue
+        bucket = classify_item(lat, lon, name, local_bbox, regional_bbox)
+        sev = row.get("severity") or _pm25_severity(float(pm25)) if pm25 is not None else "low"
+        items.append(_line(
+            sev,
+            f"CAMS haze {name}: " + ", ".join(parts),
+            bucket,
+        ))
+
+    for ds in (snap.get("humanitarian", {}) or {}).get("datasets") or []:
+        title = ds.get("title") or "Humanitarian dataset"
+        org = ds.get("organization") or ""
+        text = f"Humanitarian data: {title[:90]}"
+        if org:
+            text += f" ({org})"
+        bucket = _text_bucket(title) or "regional"
+        items.append(_line("medium", text, bucket))
+
+    thai_vessels = [
+        v for v in (snap.get("maritime", {}) or {}).get("vessels") or []
+        if (v.get("region") or "") in ("malacca", "laem_chabang", "bangkok_port", "phuket", "singapore")
+    ]
+    if thai_vessels:
+        by_region: dict[str, int] = {}
+        for v in thai_vessels:
+            reg = v.get("region") or "unknown"
+            by_region[reg] = by_region.get(reg, 0) + 1
+        summary = ", ".join(f"{k}={n}" for k, n in sorted(by_region.items()))
+        items.append(_line(
+            "low",
+            f"Maritime traffic (Thailand corridor): {len(thai_vessels)} vessels ({summary})",
+            "local" if any(r in by_region for r in ("laem_chabang", "bangkok_port", "phuket")) else "regional",
+        ))
+
     local_pulse = snap.get("gdelt_pulse_local", {}) or {}
     for art in (local_pulse.get("articles") or [])[:10]:
         title = art.get("title") or art.get("url") or "Headline"

@@ -10,6 +10,8 @@ from typing import Any
 import httpx
 
 _OLLAMA = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
+if not _OLLAMA.startswith(("http://", "https://")):
+    _OLLAMA = f"http://{_OLLAMA}"
 _BRIEFING_MAX_AGE_H = float(os.getenv("WORLDBASE_BRIEFING_INTERVAL", "21600")) / 3600.0
 _GDELT_MAX_AGE_H = float(os.getenv("WORLDBASE_TRUST_GDELT_MAX_AGE_H", "4"))
 _PI_MAX_AGE_S = int(os.getenv("WORLDBASE_TRUST_PI_MAX_AGE_S", "600"))
@@ -54,7 +56,7 @@ async def probe_gdelt_local() -> dict[str, Any]:
     count = int(data.get("count") or 0)
     stale = bool(data.get("stale"))
     err = data.get("error")
-    # Cached local pulse during GDELT backoff still counts as operational.
+    # Cached local pulse during GDELT backoff / SWR still counts as operational.
     ok = count > 0
     detail = f"count={count}"
     if err:

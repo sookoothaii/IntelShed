@@ -18,8 +18,8 @@
 | **API** | http://127.0.0.1:8002 | OpenAPI: `/docs` |
 | **Fast health** | `GET /api/health/ping` | Use before/after changes |
 | **Ollama** | http://127.0.0.1:11434 | Default chat: `qwen3:8b` |
-| **Start** | `.\start.ps1` | Paths with spaces → `-LiteralPath` |
-| **Verify** | `.\scripts\smoke-test.ps1` | 29 checks — run before claiming “done” |
+| **Start** | `.\start.ps1` | Waits for `/api/health/ping` before Vite (avoids proxy ECONNREFUSED); paths with spaces → `-LiteralPath` |
+| **Verify** | `.\scripts\smoke-test.ps1` | 30 checks — run before claiming “done” |
 
 Copy env: `backend\.env.example` → `backend\.env`, `frontend\.env.example` → `frontend\.env` (Cesium Ion token required for terrain/buildings).
 
@@ -62,7 +62,11 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
 | German output | `WORLDBASE_BRIEFING_LANG=de` (UI strings stay English) |
 | Pi payload | `GET /api/node/pull` — v2: ETag/304, SHA-256, quality (+ `X-Node-Token` when set) |
-| **Trust probes** | `GET /api/trust` — field score 0–4 (briefing, GDELT, Ollama, Pi edge) |
+| **Trust probes** | `GET /api/trust` — field score 0–4 (briefing, GDELT, Ollama, Pi edge) + `feed_drift` freshness (connector provenance) |
+| **CAMS haze (Thailand/ASEAN)** | `GET /api/cams/haze` — PM2.5, dust, AOD via Open-Meteo/CAMS; feeds briefing LOCAL |
+| **HDX humanitarian** | `GET /api/humanitarian` — UN OCHA datasets (Myanmar border, displacement); briefing REGION |
+| **Maritime AIS** | `GET /api/maritime` — AISstream WebSocket when `AISSTREAM_API_KEY` set; else MyShipTracking; Thailand corridor default |
+| **STAC feed snapshots** | `GET /api/stac/feeds/collection`, `GET /api/stac/feeds/items` — connector cache as STAC Items |
 | **Connectors** | `GET /api/connectors` — manifest catalog + cache overlay; export via `scripts/export_connectors.py` |
 | **MCP (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — 12 tools when Agent Bus on — [`docs/MCP.md`](docs/MCP.md) |
 | **Agent Bus** | `POST /api/agent/publish`, `GET /api/agent/stream` — globe fly/layer when HUD open — [`docs/MCP.md`](docs/MCP.md#agent-bus) |
@@ -71,7 +75,9 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_ftm_store test_feed_ingest -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_cams_bridge -v` in `backend/`.
+
+On startup, `_stack_warmup()` (in `main.py`) refreshes GDELT local pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather (~90 s after boot).
 
 ---
 
@@ -93,7 +99,12 @@ Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_
 | MCP + Agent Bus | `backend/mcp_server.py`, `backend/agent_bus.py`, [`docs/MCP.md`](docs/MCP.md) |
 | Operator digest | `backend/operator_briefing.py` |
 | FtM → 24h briefing | `backend/intel_briefing.py` |
-| GDELT | `backend/gdelt_bridge.py` |
+| GDELT | `backend/gdelt_bridge.py` — adaptive backoff, region-first priority, stale-while-revalidate; local pulse persisted to `feed_cache` (`gdelt_pulse_local:{region}`) |
+| CAMS haze | `backend/cams_bridge.py` — Open-Meteo/CAMS dust + AOD for Thailand/ASEAN cities |
+| Humanitarian (HDX) | `backend/humanitarian_bridge.py` — CKAN search for Southeast Asia crises |
+| Maritime AIS | `backend/ais_bridge.py` — AISstream + MyShipTracking; Malacca / Laem Chabang / Bangkok / Phuket when operator region is Thailand |
+| Feed drift | `backend/feed_drift.py` — count snapshots + freshness in `/api/trust` |
+| STAC (imagery + feeds) | `backend/stac_bridge.py` |
 | Fusion → briefing | `backend/fusion_heatmap.py` |
 | RAG | `backend/rag_memory.py` |
 | FtM entity store | `backend/ftm_store.py` |
@@ -139,9 +150,11 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 
 | Symptom | Likely fix |
 |---------|------------|
-| UI unreachable | `.\start.ps1`; browser on **localhost:5176** |
+| UI unreachable / Vite `ECONNREFUSED :8002` | Use `.\start.ps1` (backend warm-up before Vite); browser on **localhost:5176**; hard refresh after backend reload |
 | Briefing empty | `POST /api/briefing/generate`; check Ollama |
-| LOCAL block thin | GDELT rate limits; verify `/api/gdelt/pulse/local` |
+| LOCAL block thin | GDELT rate limits; verify `/api/gdelt/pulse/local` (stale cache with `count>0` still counts for trust/quality); also `/api/cams/haze`, `/api/humanitarian`, `/api/airquality` in briefing snapshot |
+| Maritime layer shows demo fleet | Set `AISSTREAM_API_KEY` in `backend/.env` and restart; default regions for Thailand: Malacca, Laem Chabang, Bangkok Port, Phuket, Singapore (`WORLDBASE_MARITIME_REGIONS=all` for global ports) |
+| GDELT trust 0 after cold boot | Wait ~90 s for startup warm-up or `GET /api/gdelt/pulse/local`; disk cache `gdelt_pulse_local:thailand` hydrates trust probe |
 | Pi old brief | deploy scripts + token; `brief.source` should be `worldbase-pc` |
 | INTEL ingest 503 | optional ML stack not installed — see `docs/INTEL_INGEST.md` + `backend/requirements.txt` |
 | API 500 / startup crash (DuckDB) | Only one process may open `entities.duckdb`; `ftm_store.init_store()` is fail-soft — check `GET /api/health` → `ftm.ready` |
@@ -153,5 +166,5 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | Agent Bus `delivered: 0` | HUD needs `VITE_WORLDBASE_AGENT_BUS=1` + open tab at `:5176` |
 | INTEL layer count `—` | Toggle **INTEL** under telemetry (OSINT/FULL preset enables `intelFt`); wait ~2 s for FtM fetch |
 | Splink resolution test fail | Optional — `pip install 'splink>=4.0,<5'` or ignore if not using Splink |
-| Trust 2/4 in FULL SITUATION | Normal when GDELT probe or Pi edge offline — check `GET /api/trust` probes |
+| Trust 2/4 in FULL SITUATION | Check `GET /api/trust` probes — GDELT ok with stale cache if `count>0`; Pi edge online; Ollama: `OLLAMA_HOST=127.0.0.1:11434` or `http://127.0.0.1:11434` (probe normalizes both) |
 | Pi pull stale after PC upgrade | `.\scripts\deploy-pi-sync.ps1`; verify `payload_version: 2` in pull JSON |

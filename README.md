@@ -24,7 +24,8 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | **Intelligence** | Situations, correlations, anomalies, OpenSanctions via Yente, fast RAG memory (sqlite-vec) |
 | **AI** | Local chat via Ollama (`qwen3:8b` default) |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → hardened briefing pull back to Pi |
-| **Trust** | Rule-based briefing quality + field trust score (FULL SITUATION panel) |
+| **Trust** | Rule-based briefing quality + field trust score (FULL SITUATION panel; feed drift + connector provenance) |
+| **Thailand operator** | CAMS haze, HDX humanitarian, GDELT local, maritime Malacca corridor — enriched LOCAL/REGION briefing blocks |
 | **MCP** | Cursor/Claude: 12 tools — briefing, nodes, feeds, generate, optional globe control — [`docs/MCP.md`](docs/MCP.md) |
 | **Agent Bus** | MCP/REST → fly globe + toggle layers when HUD open at `:5176` |
 | **Philosophy** | Positive intelligence — better decisions, not attacks |
@@ -72,7 +73,30 @@ ollama pull qwen3:8b
 ollama pull nomic-embed-text   # RAG embeddings
 ```
 
-**Verify stack:** `.\scripts\smoke-test.ps1` (29 checks — backend, feeds, trust probes, Vite proxy, Ollama chat, build)
+**Verify stack:** `.\scripts\smoke-test.ps1` (30 checks — backend, feeds, trust probes, STAC feed items, Vite proxy, Ollama chat, build)
+
+`.\start.ps1` waits for `GET /api/health/ping` before starting Vite so the HUD does not hit proxy `ECONNREFUSED` on first load. After boot, the backend runs a **feed warm-up** (~90 s): GDELT local pulse, traffic cams, maritime, CAMS haze, air quality, Bangkok weather.
+
+### Optional: live maritime AIS (Thailand corridor)
+
+Free key at [aisstream.io](https://aisstream.io) → `backend/.env`:
+
+```env
+AISSTREAM_API_KEY=your-key
+# WORLDBASE_MARITIME_REGIONS=malacca,laem_chabang,bangkok_port,phuket,singapore  # default when WORLDBASE_OPERATOR_REGION=thailand
+```
+
+Restart backend. Without the key, `/api/maritime` falls back to MyShipTracking or demo fleet.
+
+### Optional: Thailand briefing enrichment (no extra keys)
+
+| Endpoint | Role |
+|----------|------|
+| `GET /api/cams/haze` | CAMS dust / AOD for Bangkok, Chiang Mai, ASEAN cities |
+| `GET /api/humanitarian` | HDX datasets (Myanmar border, displacement) |
+| `GET /api/gdelt/pulse/local` | Operator-region GDELT headlines |
+
+These feed the 24h security digest LOCAL / REGION blocks automatically.
 
 ### Offline maps (PMTiles)
 

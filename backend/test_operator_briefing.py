@@ -49,6 +49,35 @@ class OperatorBriefingTests(unittest.TestCase):
         self.assertIn("Local news", local_text)
         self.assertNotIn("No local signals", local_text)
 
+    def test_digest_includes_cams_haze_and_humanitarian(self):
+        snap = {
+            "cams_haze": {
+                "cities": [
+                    {
+                        "city": "Chiang Mai",
+                        "lat": 18.79,
+                        "lon": 98.98,
+                        "pm25": 55.0,
+                        "dust": 60.0,
+                        "severity": "medium",
+                    }
+                ],
+            },
+            "humanitarian": {
+                "datasets": [
+                    {"title": "Myanmar refugee response Thailand border", "organization": "UNHCR"},
+                ],
+            },
+        }
+        digest = format_digest_sections(snap, [], "none", [])
+        local_text = " ".join(digest["local"])
+        regional_text = " ".join(digest["regional"])
+        self.assertIn("CAMS haze", local_text)
+        self.assertIn("Chiang Mai", local_text)
+        combined = local_text + " " + regional_text
+        self.assertIn("Humanitarian", combined)
+        self.assertIn("Myanmar", combined)
+
 
 if __name__ == "__main__":
     unittest.main()

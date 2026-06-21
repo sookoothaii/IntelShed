@@ -393,6 +393,9 @@ async def _gather_snapshot() -> dict:
         ("nodes", "/api/nodes"),
         ("gdelt_pulse", "/api/gdelt/pulse"),
         ("airquality", "/api/airquality"),
+        ("cams_haze", "/api/cams/haze"),
+        ("humanitarian", "/api/humanitarian?limit=15"),
+        ("maritime", "/api/maritime"),
     )
 
     async with httpx.AsyncClient(timeout=45.0) as client:

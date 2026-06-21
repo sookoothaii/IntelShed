@@ -10,6 +10,7 @@ Fail-soft: stale cache or partial merge on upstream errors.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import time
@@ -310,6 +311,14 @@ async def fetch_scope(
     except Exception:
         pass
     return out
+
+
+async def warm_traffic_cams(*, force: bool = True) -> None:
+    """Refresh all traffic cam scopes (fixes stale feed_cache after long idle)."""
+    await asyncio.gather(
+        *[fetch_scope(scope, force=force) for scope in ("regional", "global", "all")],
+        return_exceptions=True,
+    )
 
 
 @router.get("/cams")

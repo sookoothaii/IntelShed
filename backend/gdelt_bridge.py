@@ -12,6 +12,8 @@ from typing import Annotated, Literal
 import httpx
 from fastapi import APIRouter, Query
 
+import feed_registry
+
 from stac_bridge import REGION_PRESETS
 
 router = APIRouter(prefix="/api/gdelt", tags=["gdelt"])
@@ -464,7 +466,31 @@ async def _refresh_pulse_local(reg: str) -> dict:
         out["error"] = err
         out["stale"] = True
     _CACHE[key] = (time.time(), out)
+    try:
+        feed_registry.write_auto(f"gdelt_pulse_local:{reg}", out)
+    except Exception:
+        pass
     return out
+
+
+def _load_pulse_local_registry(reg: str) -> dict | None:
+    try:
+        data = feed_registry.read(f"gdelt_pulse_local:{reg}")
+        if data and int(data.get("count") or 0) > 0:
+            return data
+    except Exception:
+        pass
+    return None
+
+
+async def warmup_local_pulse(region: str | None = None) -> dict | None:
+    """Startup / manual warm — populate local DOC pulse cache."""
+    reg = _resolve_region(region)
+    try:
+        return await _refresh_pulse_local(reg)
+    except Exception:
+        _LOG.debug("GDELT local warmup failed for %s", reg, exc_info=True)
+        return _load_pulse_local_registry(reg)
 
 
 async def gdelt_pulse_local_data(
@@ -508,6 +534,23 @@ async def gdelt_pulse_local_data(
         "region": reg,
         "error": "no cached local pulse yet",
     }
+
+    if not refresh:
+        cached = _cache_any(key)
+        if cached and int(cached.get("count") or 0) > 0:
+            out = cached.copy()
+            out["stale"] = True
+            return out
+        disk = _load_pulse_local_registry(reg)
+        if disk:
+            _CACHE[key] = (time.time(), disk)
+            out = disk.copy()
+            out["stale"] = True
+            _kick_refresh(key, lambda: _refresh_pulse_local(reg))
+            return out
+        _kick_refresh(key, lambda: _refresh_pulse_local(reg))
+        return empty
+
     return await _cold_start_or_swr(
         key,
         reg=reg,
