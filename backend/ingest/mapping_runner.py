@@ -56,7 +56,7 @@ def _entity_stable_id(dataset: str, entity_alias: str, spec: dict, record: dict)
         if val in (None, ""):
             val = record.get("id") or entity_alias
         parts.append(str(val))
-    raw = f"{dataset}|{'|'.join(parts)}"
+    raw = f"{dataset}|{entity_alias}|{'|'.join(parts)}"
     digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
     return f"{dataset}:{digest}"
 

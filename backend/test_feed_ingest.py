@@ -56,6 +56,23 @@ class MappingRunnerTest(unittest.TestCase):
         result = apply_mapping([record], "gdacs_alerts", dataset="gdacs")
         self.assertEqual(result["entities_written"], 3)
         self.assertEqual(result["edges_written"], 1)
+        stats = ftm_store.stats()
+        self.assertGreaterEqual(stats["entities"], 2)
+
+    def test_mapping_aliases_get_distinct_entity_ids(self):
+        """Event + place must not share one id (DuckDB INSERT OR REPLACE schema clash)."""
+        record = feed_ingest.normalize_gdacs_alert(
+            {"title": "Flood", "published": "2026-06-17", "lat": 10.0, "lon": 20.0, "eventtype": "FL"},
+            0,
+        )
+        apply_mapping([record], "gdacs_alerts", dataset="gdacs")
+        rows = ftm_store._conn().execute(
+            "SELECT id, schema FROM entities WHERE id LIKE 'gdacs:%' ORDER BY id"
+        ).fetchall()
+        schemas = {r[1] for r in rows}
+        self.assertIn("Event", schemas)
+        self.assertIn("Address", schemas)
+        self.assertGreaterEqual(len(rows), 2)
 
     def test_ais_vessel_mapping(self):
         record = feed_ingest.normalize_ais_vessel(

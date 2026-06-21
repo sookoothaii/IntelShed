@@ -62,6 +62,17 @@ class FtmStoreTest(unittest.TestCase):
         self.assertCountEqual(ent["datasets"], ["feedA", "feedB"])
         self.assertEqual(ent["properties"]["country"], ["th"])
 
+    def test_upsert_schema_change_on_same_id(self):
+        """Feed mappings must not fatal DuckDB when alias ids diverge but legacy ids collide."""
+        shared = "gdacs:collision-test"
+        event = ftm_store._proxy_with_id(shared, "Event", {"name": ["Flood"]})
+        place = ftm_store._proxy_with_id(shared, "Address", {"full": ["Flood site"], "latitude": ["1.0"], "longitude": ["2.0"]})
+        ftm_store.upsert(event, dataset="gdacs", lat=1.0, lon=2.0)
+        ftm_store.upsert(place, dataset="gdacs", lat=1.0, lon=2.0)
+        ent = ftm_store.get_entity(shared)
+        self.assertIsNotNone(ent)
+        self.assertEqual(ent["schema"], "Address")
+
     def test_legacy_mirror_maps_schema_and_keeps_id(self):
         ftm_store.upsert_legacy("aircraft:abc", "aircraft", label="FL1",
                                 source_feed="opensky", external_id="abc")

@@ -286,9 +286,15 @@ def upsert(proxy, dataset: str, *, seen_at: str | None = None,
         if lon is None:
             lon = _first_float(merged_props.get("longitude"))
 
+        # DELETE + INSERT avoids DuckDB INSERT OR REPLACE index failures when
+        # schema changes on a reused id (e.g. Event vs Address in feed mappings).
+        if row:
+            con.execute("DELETE FROM statements WHERE entity_id = ?", [eid])
+            con.execute("DELETE FROM entities WHERE id = ?", [eid])
+
         con.execute(
             """
-            INSERT OR REPLACE INTO entities
+            INSERT INTO entities
                 (id, schema, caption, properties, datasets, lat, lon, first_seen, last_seen)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
