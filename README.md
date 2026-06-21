@@ -83,10 +83,16 @@ Free key at [aisstream.io](https://aisstream.io) → `backend/.env`:
 
 ```env
 AISSTREAM_API_KEY=your-key
+# WORLDBASE_MARITIME_AISSTREAM=1          # background WebSocket collector (default on when key set)
+# WORLDBASE_MARITIME_COLLECT_SEC=30       # one-shot snapshot when collector off
+# WORLDBASE_MARITIME_STREAM_STALE_SEC=1800
+# WORLDBASE_MARITIME_MAX_VESSELS=800
 # WORLDBASE_MARITIME_REGIONS=malacca,laem_chabang,bangkok_port,phuket,singapore  # default when WORLDBASE_OPERATOR_REGION=thailand
 ```
 
-Restart backend. Without the key, `/api/maritime` falls back to MyShipTracking or demo fleet.
+Restart backend. The API reads a **background AISstream buffer** (non-blocking); JSON includes `stream_connected` and `stream_buffer`. Without the key, `/api/maritime` falls back to MyShipTracking or demo fleet.
+
+**STAC feed items:** `GET /api/stac/feeds/items` exposes connector snapshots with bbox/geometry and registry links. In the HUD: **DATA → FEEDS** — STAC JSON link and ⊕ fly-to per connector.
 
 ### Optional: Thailand briefing enrichment (no extra keys)
 
