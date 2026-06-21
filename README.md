@@ -21,7 +21,8 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 |---|---|
 | **Globe** | 30+ live layers — aircraft, quakes, disasters, energy, maritime, transit |
 | **MAP** | Offline Protomaps via PMTiles — regional (`thailand`) or full planet (`planet_full` ~130 GB) |
-| **Intelligence** | Situations, correlations, anomalies, OpenSanctions via Yente, fast RAG memory (sqlite-vec) |
+| **Intelligence** | Situations, FtM entity graph (INTEL globe layer), OpenSanctions via Yente, RAG memory (sqlite-vec) |
+| **Connectors** | Manifest registry + cache overlay — `GET /api/connectors`, DATA → **FEEDS**, STAC feed items |
 | **AI** | Local chat via Ollama (`qwen3:8b` default) |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → hardened briefing pull back to Pi |
 | **Trust** | Rule-based briefing quality + field trust score (FULL SITUATION panel; feed drift + connector provenance) |
@@ -34,11 +35,17 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 
 ## Quick start
 
+**Prerequisites:** Python 3.11+, Node.js 18+, [Ollama](https://ollama.com/) (`qwen3:8b`, `nomic-embed-text`), free [Cesium Ion](https://ion.cesium.com/tokens) token. Windows: use `-LiteralPath` when the clone path contains spaces.
+
 ### Native (development)
 
 ```powershell
-Set-Location -LiteralPath 'D:\MCP Mods\worldbase'
-copy frontend\.env.example frontend\.env   # set VITE_CESIUM_ION_TOKEN
+git clone https://github.com/sookoothaii/worldbase.git
+cd worldbase
+git submodule update --init --recursive   # Pi sync scripts in offgrid-raspi/
+copy backend\.env.example backend\.env    # optional keys; see GET /api/credentials/status
+copy frontend\.env.example frontend\.env  # required: VITE_CESIUM_ION_TOKEN
+pip install -r backend\requirements.txt
 .\start.ps1
 ```
 
@@ -73,9 +80,9 @@ ollama pull qwen3:8b
 ollama pull nomic-embed-text   # RAG embeddings
 ```
 
-**Verify stack:** `.\scripts\smoke-test.ps1` (31 checks — backend, feeds, trust probes, live feed envelope contract, STAC feed items, Vite proxy, Ollama chat, build)
+**Verify stack:** `.\scripts\smoke-test.ps1` → expect **31/31 PASS** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, Vite proxy, Ollama chat, frontend build).
 
-`.\start.ps1` waits for `GET /api/health/ping` before starting Vite so the HUD does not hit proxy `ECONNREFUSED` on first load. After boot, the backend runs a **feed warm-up** (~90 s): GDELT local pulse, traffic cams, maritime, CAMS haze, air quality, Bangkok weather.
+`.\start.ps1` waits for `GET /api/health/ping` before starting Vite (avoids proxy `ECONNREFUSED`). ~**6 s** after backend boot, a feed warm-up refreshes GDELT local pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
 
 ### Optional: live maritime AIS (Thailand corridor)
 
@@ -158,10 +165,10 @@ Most feeds are **fail-soft** (stale cache or empty payload on upstream errors �
 |-----|--------|-----|
 | `no-key` | Aircraft (adsb.fi / adsb.lol), USGS, EONET, GDACS, SMARD, IODA outages, pegel, ISS, CelesTrak | — |
 | `recommended` | NASA FIRMS wildfires, Cloudflare Radar outages | free signup |
-| `optional` | OpenSky OAuth, ENTSO-E EU energy, Blitzortung lightning, AIS, ReliefWeb | varies |
+| `optional` | OpenSky OAuth (recommended for full ADS-B), ENTSO-E EU energy, Blitzortung lightning, AISstream, ReliefWeb | varies |
 | `required` | Cesium terrain/imagery | [Ion token](https://ion.cesium.com/tokens) |
 
-Feed health → `GET /api/health` · optional keys → `backend/.env.example`
+Feed health → `GET /api/health` · trust score → `GET /api/trust` · key catalog (no secrets) → `GET /api/credentials/status` · templates → `backend/.env.example`, `frontend/.env.example`
 
 ---
 
@@ -175,7 +182,7 @@ Feed health → `GET /api/health` · optional keys → `backend/.env.example`
                             │ /api/*
 ┌───────────────────────────▼─────────────────────────────┐
 │  FastAPI + SQLite feed_cache                 :8002        │
-│  MCP /api/mcp · Agent Bus /api/agent/* · /api/health    │
+│  MCP · Agent Bus · briefing quality · /api/trust          │
 └───────────────────────────┬─────────────────────────────┘
          ┌──────────────────┼──────────────────┐
          ▼                  ▼                  ▼
@@ -227,21 +234,24 @@ WorldBase is not a standalone invention. It exists entirely because of the gener
 | **[worldbase](https://github.com/sookoothaii/worldbase)** (this repo) | Windows/Linux PC — Cesium globe, 30+ feeds, Ollama briefing, node API `:8002` | Spatial intelligence workstation; fusion and LLM digest |
 | **[offgrid-raspi](https://github.com/sookoothaii/offgrid-raspi)** | Raspberry Pi — portal, sensors, mesh, offline services | Edge node that survives without mains; pushes telemetry to the PC |
 
-**Together:** Pi `worldbase_push` → PC `POST /api/node/ingest` · PC briefing → Pi `GET /api/node/pull` → portal / LCD.  
+**Together:** Pi `worldbase_push` → PC `POST /api/node/ingest` · PC briefing → Pi `GET /api/node/pull` (v2: ETag/304, SHA-256, `source: worldbase-pc`, briefing quality) → portal / LCD.  
 **Canonical sync guide:** [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md)
 
 This repo vendors the Pi repo as a **git submodule** at `offgrid-raspi/` (scripts + sync docs). The Pi itself clones `offgrid-raspi` separately; the PC clones `worldbase` and initializes submodules when you work on push/pull scripts.
 
 **PC UI — EDGE dashboard:** In the HUD, open **DATA → EDGE** for live Pi stats (CPU/RAM/disk/load/uptime, room DHT, services, mesh) and 24h sparklines. The header shows **EDGE ONLINE** when `offgrid-pi` has pushed within 5 minutes (`GET /api/nodes`).
 
----
+### Operator checks
 
 | Check | Command |
 |-------|---------|
 | Nodes on PC | `Invoke-RestMethod http://127.0.0.1:8002/api/nodes` |
-| Deploy token + HTTP | `.\scripts\sync-pi.ps1` |
-| Pi maintenance | `sudo bash pi-disk-maintenance.sh` (on Pi) |
-| Smoke test | `.\scripts\smoke-test.ps1` → expect **27/27 PASS** |
+| Trust probes | `Invoke-RestMethod http://127.0.0.1:8002/api/trust` |
+| PC pull payload (v2) | `GET /api/node/pull` with `X-Node-Token` when `NODE_INGEST_TOKEN` is set |
+| Deploy token + HTTP to Pi | `.\scripts\setup-node-security.ps1` then `.\scripts\sync-pi.ps1` |
+| Deploy hardened push/pull scripts | `.\scripts\deploy-pi-sync.ps1` |
+| Smoke test | `.\scripts\smoke-test.ps1` → expect **31/31 PASS** |
+| Pi disk maintenance | `sudo bash pi-disk-maintenance.sh` (on Pi) |
 
 ---
 
