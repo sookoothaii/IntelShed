@@ -323,6 +323,162 @@ async def fetch_recent_thailand_items(limit: int = 6) -> list[dict]:
 # ---------------------------------------------------------------------------
 _FEEDS_COLLECTION_ID = "worldbase-feeds"
 _SELF = os.getenv("WORLDBASE_SELF", "http://127.0.0.1:8002").rstrip("/")
+_OPERATOR_REGION = os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower()
+_GLOBAL_BBOX = [-180.0, -90.0, 180.0, 90.0]
+
+# Briefing bucket tags → STAC region preset ids (operator-specific).
+_REGION_TAG_PRESETS: dict[str, dict[str, str]] = {
+    "thailand": {"local": "bangkok", "regional": "asean", "global": "global"},
+    "germany": {"local": "rhein", "regional": "germany", "global": "global"},
+}
+
+# Keys inside feed_cache JSON payloads that may hold geolocated rows.
+_GEO_LIST_KEYS = (
+    "vessels", "events", "quakes", "volcanoes", "aircraft", "nodes",
+    "cities", "items", "alerts", "features", "hotspots", "datasets",
+)
+
+
+def _union_bbox(bboxes: list[list[float]]) -> list[float]:
+    return [
+        min(b[0] for b in bboxes),
+        min(b[1] for b in bboxes),
+        max(b[2] for b in bboxes),
+        max(b[3] for b in bboxes),
+    ]
+
+
+def _bbox_to_polygon(bbox: list[float]) -> dict[str, Any]:
+    minx, miny, maxx, maxy = bbox
+    return {
+        "type": "Polygon",
+        "coordinates": [[
+            [minx, miny],
+            [maxx, miny],
+            [maxx, maxy],
+            [minx, maxy],
+            [minx, miny],
+        ]],
+    }
+
+
+def _connector_bbox(spec) -> list[float] | None:
+    """Map connector region tags to a STAC bbox (operator-aware)."""
+    if spec.id == "maritime":
+        try:
+            from ais_bridge import maritime_operator_bbox
+
+            mb = maritime_operator_bbox()
+            if mb:
+                return mb
+        except Exception:
+            pass
+
+    tags = list(spec.region or ("global",))
+    tags_lower = [t.lower() for t in tags]
+    if tags_lower == ["global"]:
+        return list(_GLOBAL_BBOX)
+
+    presets = _REGION_TAG_PRESETS.get(_OPERATOR_REGION, _REGION_TAG_PRESETS["thailand"])
+    bboxes: list[list[float]] = []
+    for tag in tags:
+        tag_l = tag.lower()
+        if tag_l == "global":
+            continue
+        preset_id = presets.get(tag_l) or tag_l
+        if preset_id == "global":
+            continue
+        preset = REGION_PRESETS.get(preset_id)
+        if preset:
+            bboxes.append(list(preset["bbox"]))
+    if not bboxes:
+        if "global" in tags_lower:
+            return list(_GLOBAL_BBOX)
+        return None
+    if len(bboxes) == 1:
+        return bboxes[0]
+    return _union_bbox(bboxes)
+
+
+def _extract_payload_centroid(payload: dict[str, Any] | None) -> tuple[float, float] | None:
+    """Best-effort centroid from a cached feed JSON payload."""
+    if not payload or not isinstance(payload, dict):
+        return None
+    lat = payload.get("lat")
+    lon = payload.get("lon")
+    if lat is not None and lon is not None:
+        try:
+            return float(lon), float(lat)
+        except (TypeError, ValueError):
+            pass
+    lats: list[float] = []
+    lons: list[float] = []
+    for key in _GEO_LIST_KEYS:
+        arr = payload.get(key)
+        if not isinstance(arr, list):
+            continue
+        for item in arr[:80]:
+            if not isinstance(item, dict):
+                continue
+            ilat = item.get("lat", item.get("latitude"))
+            ilon = item.get("lon", item.get("longitude"))
+            if ilat is None or ilon is None:
+                continue
+            try:
+                lats.append(float(ilat))
+                lons.append(float(ilon))
+            except (TypeError, ValueError):
+                continue
+        if lats:
+            break
+    if not lats:
+        return None
+    return sum(lons) / len(lons), sum(lats) / len(lats)
+
+
+def _feed_geometry_and_bbox(
+    spec,
+    cache_meta: dict[str, Any] | None,
+    cache_payload: dict[str, Any] | None,
+) -> tuple[list[float] | None, dict[str, Any] | None]:
+    bbox = _connector_bbox(spec)
+    centroid = _extract_payload_centroid(cache_payload)
+    if centroid:
+        lon, lat = centroid
+        point = {"type": "Point", "coordinates": [round(lon, 5), round(lat, 5)]}
+        if bbox:
+            return bbox, point
+        return [lon, lat, lon, lat], point
+    if bbox:
+        return bbox, _bbox_to_polygon(bbox)
+    return None, None
+
+
+def _connector_registry_links(spec) -> list[dict[str, Any]]:
+    links: list[dict[str, Any]] = [
+        {
+            "rel": "describedby",
+            "href": f"{_SELF}/api/connectors?include_unlisted=0",
+            "type": "application/json",
+            "title": "Connector registry",
+        },
+    ]
+    if spec.credential_ids:
+        try:
+            from credentials.registry import PROVIDERS
+
+            for cid in spec.credential_ids:
+                provider = PROVIDERS.get(cid)
+                if provider and provider.docs_url:
+                    links.append({
+                        "rel": "license",
+                        "href": provider.docs_url,
+                        "type": "text/html",
+                        "title": provider.name,
+                    })
+        except Exception:
+            pass
+    return links
 
 
 def _feed_item_status(meta: dict[str, Any], ttl_sec: float, now: datetime) -> str:
@@ -347,7 +503,13 @@ def _feed_item_status(meta: dict[str, Any], ttl_sec: float, now: datetime) -> st
     return "stale"
 
 
-def _feed_stac_item(spec, cache_meta: dict[str, Any] | None, *, now: datetime) -> dict[str, Any]:
+def _feed_stac_item(
+    spec,
+    cache_meta: dict[str, Any] | None,
+    *,
+    cache_payload: dict[str, Any] | None = None,
+    now: datetime,
+) -> dict[str, Any]:
     from connector_registry import feed_ttl_sec
 
     cache_key = spec.cache_key or spec.id
@@ -357,12 +519,13 @@ def _feed_stac_item(spec, cache_meta: dict[str, Any] | None, *, now: datetime) -
     status = _feed_item_status(meta, ttl, now) if cache_meta else "missing"
     cached_at = meta.get("cached_at") or now.isoformat()
     item_id = f"worldbase-{spec.id}"
-    return {
+    bbox, geometry = _feed_geometry_and_bbox(spec, cache_meta, cache_payload)
+    item: dict[str, Any] = {
         "type": "Feature",
         "stac_version": "1.0.0",
         "id": item_id,
         "collection": _FEEDS_COLLECTION_ID,
-        "geometry": None,
+        "geometry": geometry,
         "properties": {
             "datetime": cached_at,
             "title": spec.name,
@@ -375,11 +538,15 @@ def _feed_stac_item(spec, cache_meta: dict[str, Any] | None, *, now: datetime) -
             "worldbase:bridge": spec.bridge,
             "worldbase:source": meta.get("source"),
             "worldbase:region": list(spec.region),
+            "worldbase:globe_layer": spec.globe_layer,
+            "worldbase:endpoints": list(spec.endpoints),
+            "worldbase:operator_region": _OPERATOR_REGION,
         },
         "links": [
             {"rel": "self", "href": f"{_SELF}/api/stac/feeds/items/{spec.id}", "type": "application/geo+json"},
             {"rel": "collection", "href": f"{_SELF}/api/stac/feeds/collection", "type": "application/json"},
-            {"rel": "via", "href": f"{_SELF}{endpoint}", "type": "application/json"},
+            {"rel": "via", "href": f"{_SELF}{endpoint}", "type": "application/json", "title": "Live feed JSON"},
+            *_connector_registry_links(spec),
         ],
         "assets": {
             "json": {
@@ -390,11 +557,15 @@ def _feed_stac_item(spec, cache_meta: dict[str, Any] | None, *, now: datetime) -
             }
         },
     }
+    if bbox:
+        item["bbox"] = bbox
+    return item
 
 
 def build_feed_stac_items(*, connector_id: str | None = None) -> dict[str, Any]:
     """Build a STAC ItemCollection from connector catalog + feed_cache rows."""
     from connector_registry import CONNECTOR_CATALOG, _read_feed_cache_keys
+    import feed_registry
 
     now = datetime.now(timezone.utc)
     cache = _read_feed_cache_keys()
@@ -406,7 +577,15 @@ def build_feed_stac_items(*, connector_id: str | None = None) -> dict[str, Any]:
         if connector_id and spec.id != connector_id:
             continue
         cache_meta = cache.get(spec.cache_key)
-        items.append(_feed_stac_item(spec, cache_meta, now=now))
+        cache_payload = feed_registry.read_auto(spec.cache_key) if cache_meta else None
+        items.append(
+            _feed_stac_item(
+                spec,
+                cache_meta,
+                cache_payload=cache_payload,
+                now=now,
+            )
+        )
 
     return {
         "type": "FeatureCollection",
@@ -432,7 +611,7 @@ def stac_feeds_collection():
         "stac_version": "1.0.0",
         "id": _FEEDS_COLLECTION_ID,
         "title": "WorldBase live feed snapshots",
-        "description": "Synthetic STAC items pointing at WorldBase connector JSON endpoints (feed_cache overlay).",
+        "description": "Synthetic STAC items pointing at WorldBase connector JSON endpoints (feed_cache overlay). Phase 2: bbox/geometry from operator region + cache centroids; connector registry links.",
         "license": "proprietary",
         "extent": {
             "spatial": {"bbox": [[-180, -90, 180, 90]]},

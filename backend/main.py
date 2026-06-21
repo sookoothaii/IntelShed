@@ -525,12 +525,18 @@ def on_startup():
     asyncio.create_task(_aircraft_trail_loop())
     asyncio.create_task(_situations_prewarm())
     asyncio.create_task(_stack_warmup())
+    import ais_bridge
+
+    ais_bridge.start_aisstream_collector()
 
 
 @app.on_event("shutdown")
 def on_shutdown():
     if _BRIEFING_AUTOPILOT_TASK:
         _BRIEFING_AUTOPILOT_TASK.cancel()
+    import ais_bridge
+
+    ais_bridge.stop_aisstream_collector()
 
 
 from connector_registry import feed_ttl_sec as _feed_ttl_sec

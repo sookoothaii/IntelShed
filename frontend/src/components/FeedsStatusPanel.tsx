@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchApi } from '../lib/networkFetch'
+import type { FocusTarget } from '../lib/focus'
 
 type FeedRow = {
   key: string
@@ -36,6 +37,16 @@ type ConnectorRow = {
   cache?: { cache_key?: string; count?: number | null } | null
 }
 
+type StacFeedFeature = {
+  id: string
+  bbox?: number[]
+  geometry?: { type: string; coordinates: number[] | number[][][] }
+  properties?: {
+    'worldbase:connector_id'?: string
+    'worldbase:globe_layer'?: string | null
+  }
+}
+
 function statusColor(status?: string, fresh?: boolean): string {
   if (status === 'error') return '#ff4d5e'
   if (fresh === false || status === 'stale' || status === 'warn') return '#ffd23f'
@@ -56,10 +67,29 @@ function credLabel(mode?: string): string {
   return 'KEY'
 }
 
-export default function FeedsStatusPanel() {
+function stacFocusCoords(item: StacFeedFeature | undefined): { lat: number; lon: number } | null {
+  if (!item) return null
+  const g = item.geometry
+  if (g?.type === 'Point' && Array.isArray(g.coordinates) && g.coordinates.length >= 2) {
+    const [lon, lat] = g.coordinates as number[]
+    return { lat, lon }
+  }
+  const bb = item.bbox
+  if (bb && bb.length === 4) {
+    return { lon: (bb[0] + bb[2]) / 2, lat: (bb[1] + bb[3]) / 2 }
+  }
+  return null
+}
+
+export default function FeedsStatusPanel({
+  onFocus,
+}: {
+  onFocus?: (f: Omit<FocusTarget, 'ts'>) => void
+}) {
   const [health, setHealth] = useState<any>(null)
   const [credentials, setCredentials] = useState<any>(null)
   const [connectors, setConnectors] = useState<any>(null)
+  const [stacByConnector, setStacByConnector] = useState<Record<string, StacFeedFeature>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -67,10 +97,11 @@ export default function FeedsStatusPanel() {
     setLoading(true)
     setError(null)
     try {
-      const [hRes, cRes, connRes] = await Promise.all([
+      const [hRes, cRes, connRes, stacRes] = await Promise.all([
         fetchApi('/api/health'),
         fetchApi('/api/credentials/status'),
         fetchApi('/api/connectors?include_unlisted=0'),
+        fetchApi('/api/stac/feeds/items'),
       ])
       if (!hRes.ok) throw new Error(`health ${hRes.status}`)
       if (!cRes.ok) throw new Error(`credentials ${cRes.status}`)
@@ -78,6 +109,15 @@ export default function FeedsStatusPanel() {
       setHealth(await hRes.json())
       setCredentials(await cRes.json())
       setConnectors(await connRes.json())
+      if (stacRes.ok) {
+        const stacPayload = await stacRes.json()
+        const map: Record<string, StacFeedFeature> = {}
+        for (const feat of stacPayload.features || []) {
+          const cid = feat?.properties?.['worldbase:connector_id']
+          if (cid) map[cid] = feat
+        }
+        setStacByConnector(map)
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -97,6 +137,24 @@ export default function FeedsStatusPanel() {
 
   const providers: ProviderRow[] = credentials?.providers || []
   const connectorRows: ConnectorRow[] = connectors?.connectors || []
+
+  const flyToConnector = (c: ConnectorRow) => {
+    if (!onFocus) return
+    const stacItem = stacByConnector[c.id]
+    const coords = stacFocusCoords(stacItem)
+    if (!coords) return
+    onFocus({
+      kind: 'feed',
+      lat: coords.lat,
+      lon: coords.lon,
+      height: 120_000,
+      title: c.name,
+      lines: [
+        c.globe_layer ? `Layer: ${c.globe_layer}` : 'Feed region',
+        c.endpoints?.[0] ? `API ${c.endpoints[0]}` : '',
+      ].filter(Boolean),
+    })
+  }
 
   return (
     <section>
@@ -131,28 +189,59 @@ export default function FeedsStatusPanel() {
                 <th>Region</th>
                 <th>TTL (s)</th>
                 <th>Globe</th>
+                <th>STAC</th>
                 <th>Creds</th>
                 <th>Cache</th>
               </tr>
             </thead>
             <tbody>
-              {connectorRows.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <strong>{c.id}</strong>
-                    <br />
-                    <small style={{ color: '#6f8c84' }}>{c.name}</small>
-                  </td>
-                  <td>{c.category}</td>
-                  <td style={{ fontSize: 10 }}>{(c.region || []).join(', ')}</td>
-                  <td>{Math.round(c.ttl_sec)}</td>
-                  <td>{c.globe_layer || '—'}</td>
-                  <td style={{ color: credColor(c.credentials_mode), fontWeight: 'bold' }} title={c.credentials_mode === 'fallback' ? 'Optional key missing; bridge fallback active' : undefined}>
-                    {credLabel(c.credentials_mode)}
-                  </td>
-                  <td>{c.cache?.count ?? (c.cache?.cache_key ? '·' : '—')}</td>
-                </tr>
-              ))}
+              {connectorRows.map((c) => {
+                const stacItem = stacByConnector[c.id]
+                const canFly = Boolean(onFocus && stacFocusCoords(stacItem))
+                return (
+                  <tr key={c.id}>
+                    <td>
+                      <strong>{c.id}</strong>
+                      <br />
+                      <small style={{ color: '#6f8c84' }}>{c.name}</small>
+                    </td>
+                    <td>{c.category}</td>
+                    <td style={{ fontSize: 10 }}>{(c.region || []).join(', ')}</td>
+                    <td>{Math.round(c.ttl_sec)}</td>
+                    <td>{c.globe_layer || '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {stacItem ? (
+                        <>
+                          <a
+                            href={`/api/stac/feeds/items/${c.id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ color: '#00e5a0', fontSize: 10, marginRight: 6 }}
+                          >
+                            JSON
+                          </a>
+                          {canFly && (
+                            <button
+                              type="button"
+                              className="locate-mini"
+                              title={`Fly to ${c.name} region`}
+                              onClick={() => flyToConnector(c)}
+                            >
+                              ⊕
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td style={{ color: credColor(c.credentials_mode), fontWeight: 'bold' }} title={c.credentials_mode === 'fallback' ? 'Optional key missing; bridge fallback active' : undefined}>
+                      {credLabel(c.credentials_mode)}
+                    </td>
+                    <td>{c.cache?.count ?? (c.cache?.cache_key ? '·' : '—')}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </>

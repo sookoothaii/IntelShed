@@ -285,7 +285,7 @@ export default function DataPanel({
 
       {tab === 'edge' && <EdgePanel onFocus={onFocus} />}
 
-      {tab === 'feeds' && <FeedsStatusPanel />}
+      {tab === 'feeds' && <FeedsStatusPanel onFocus={onFocus} />}
 
       {tab === 'gdelt' && <GdeltFeedPanel />}
 

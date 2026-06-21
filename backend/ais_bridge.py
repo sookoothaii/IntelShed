@@ -1,20 +1,24 @@
 """AIS vessel-position bridge.
 
-Tries multiple free/open AIS sources with graceful degradation:
-1. MyShipTracking JSON (no key, bounding-box query)
-2. AISHub NMEA TCP (if AIS_MMSI_LIST env var set)
-3. Static demo fleet (fallback for offline dev)
+Sources (graceful degradation):
+1. AISstream.io WebSocket background collector (AISSTREAM_API_KEY)
+2. MyShipTracking JSON (bounding-box, no key)
+3. AISHub (AISHUB_API_KEY)
+4. Static demo fleet (offline dev)
 
 Endpoints:
   GET /api/maritime          — live vessel positions
   GET /api/maritime/ports    — tracked port regions
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import os
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 from fastapi import APIRouter
@@ -23,10 +27,9 @@ import feed_registry
 
 router = APIRouter(prefix="/api/maritime", tags=["maritime"])
 
-# Thailand / ASEAN corridor — fetched first when operator region is thailand
+# Thailand / ASEAN corridor — default when operator region is thailand
 _THAI_REGIONS = ("malacca", "laem_chabang", "bangkok_port", "phuket", "singapore")
 
-# Bounding boxes for high-traffic port regions (lat/lon)
 PORT_REGIONS: dict[str, dict] = {
     "hamburg": {"min_lat": 53.4, "max_lat": 53.6, "min_lon": 9.7, "max_lon": 10.2, "label": "Hamburg"},
     "rotterdam": {"min_lat": 51.8, "max_lat": 52.1, "min_lon": 3.8, "max_lon": 4.4, "label": "Rotterdam"},
@@ -43,8 +46,54 @@ PORT_REGIONS: dict[str, dict] = {
 _CACHE: dict[str, tuple[float, dict]] = {}
 TTL = 45  # seconds
 _FETCH_TIMEOUT = 10.0
-_MARITIME_TOTAL_TIMEOUT = 20.0
 _REFRESH_LOCK = asyncio.Lock()
+
+_STREAM: dict[str, Any] = {
+    "vessels": {},
+    "connected": False,
+    "last_msg_at": 0.0,
+    "errors": [],
+}
+_STREAM_TASK: asyncio.Task | None = None
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _collect_sec() -> float:
+    return _env_float("WORLDBASE_MARITIME_COLLECT_SEC", 30.0)
+
+
+def _stream_stale_sec() -> float:
+    return _env_float("WORLDBASE_MARITIME_STREAM_STALE_SEC", 1800.0)
+
+
+def _max_vessels() -> int:
+    return _env_int("WORLDBASE_MARITIME_MAX_VESSELS", 800)
+
+
+def _aisstream_background_on() -> bool:
+    if not os.getenv("AISSTREAM_API_KEY", "").strip():
+        return False
+    raw = os.getenv("WORLDBASE_MARITIME_AISSTREAM", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 def _active_regions() -> dict[str, dict]:
@@ -60,6 +109,23 @@ def _active_regions() -> dict[str, dict]:
     return PORT_REGIONS
 
 
+def maritime_operator_bbox() -> list[float] | None:
+    """STAC bbox union for the active maritime port regions (lon/lat STAC order)."""
+    boxes: list[list[float]] = []
+    for box in _active_regions().values():
+        boxes.append([box["min_lon"], box["min_lat"], box["max_lon"], box["max_lat"]])
+    if not boxes:
+        return None
+    if len(boxes) == 1:
+        return boxes[0]
+    return [
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    ]
+
+
 def _region_for_point(lat: float, lon: float, regions: dict[str, dict]) -> str:
     for name, box in regions.items():
         if (
@@ -70,8 +136,17 @@ def _region_for_point(lat: float, lon: float, regions: dict[str, dict]) -> str:
     return "global"
 
 
+def _point_in_regions(lat: float, lon: float, regions: dict[str, dict]) -> bool:
+    for box in regions.values():
+        if (
+            box["min_lat"] <= lat <= box["max_lat"]
+            and box["min_lon"] <= lon <= box["max_lon"]
+        ):
+            return True
+    return False
+
+
 def _vessel_type_label(type_code: int | None) -> str:
-    # AIS vessel type codes (first digit group)
     if type_code is None:
         return "Unknown"
     tc = type_code
@@ -102,8 +177,80 @@ def _vessel_type_label(type_code: int | None) -> str:
     return "Unknown"
 
 
+def _vessel_from_aisstream(msg: dict, regions: dict[str, dict]) -> dict | None:
+    meta = msg.get("MetaData") or {}
+    mmsi = str(meta.get("MMSI") or "")
+    lat, lon = meta.get("latitude"), meta.get("longitude")
+    if not mmsi or lat is None or lon is None:
+        return None
+    try:
+        lat_f = float(lat)
+        lon_f = float(lon)
+    except (TypeError, ValueError):
+        return None
+    pr = (msg.get("Message") or {}).get("PositionReport") or {}
+    return {
+        "mmsi": mmsi,
+        "name": meta.get("ShipName") or "Unknown",
+        "type": _vessel_type_label(meta.get("ShipType")),
+        "lat": round(lat_f, 5),
+        "lon": round(lon_f, 5),
+        "course": pr.get("Cog"),
+        "speed": pr.get("Sog"),
+        "destination": meta.get("destination"),
+        "flag": meta.get("Flag") or meta.get("CountryCode"),
+        "length": meta.get("Dimension", {}).get("A") if isinstance(meta.get("Dimension"), dict) else None,
+        "region": _region_for_point(lat_f, lon_f, regions),
+        "source": "aisstream",
+    }
+
+
+def _prune_stream_vessels() -> None:
+    stale_after = _stream_stale_sec()
+    now = time.time()
+    vessels: dict[str, dict] = _STREAM["vessels"]
+    drop = [mmsi for mmsi, row in vessels.items() if now - float(row.get("_seen_at") or 0) > stale_after]
+    for mmsi in drop:
+        vessels.pop(mmsi, None)
+
+
+def _ingest_stream_message(msg: dict, regions: dict[str, dict]) -> None:
+    vessel = _vessel_from_aisstream(msg, regions)
+    if not vessel:
+        return
+    if not _point_in_regions(vessel["lat"], vessel["lon"], regions):
+        return
+    vessel["_seen_at"] = time.time()
+    _STREAM["vessels"][vessel["mmsi"]] = vessel
+    _STREAM["last_msg_at"] = time.time()
+    max_n = _max_vessels()
+    if len(_STREAM["vessels"]) > max_n:
+        _prune_stream_vessels()
+        if len(_STREAM["vessels"]) > max_n:
+            oldest = sorted(
+                _STREAM["vessels"].items(),
+                key=lambda kv: float(kv[1].get("_seen_at") or 0),
+            )
+            for mmsi, _ in oldest[: len(_STREAM["vessels"]) - max_n]:
+                _STREAM["vessels"].pop(mmsi, None)
+
+
+def _snapshot_from_stream(regions: dict[str, dict] | None = None) -> list[dict]:
+    active = regions or _active_regions()
+    out: list[dict] = []
+    for row in _STREAM["vessels"].values():
+        lat = row.get("lat")
+        lon = row.get("lon")
+        if lat is None or lon is None:
+            continue
+        if not _point_in_regions(float(lat), float(lon), active):
+            continue
+        clean = {k: v for k, v in row.items() if not str(k).startswith("_")}
+        out.append(clean)
+    return out
+
+
 async def _fetch_myshiptracking(region: str, box: dict) -> list[dict]:
-    """Fetch from MyShipTracking JSON endpoint."""
     url = (
         "https://www.myshiptracking.com/requests/vesselsonmap/"
         f"?type=json&minLat={box['min_lat']}&maxLat={box['max_lat']}"
@@ -143,12 +290,13 @@ async def _fetch_myshiptracking(region: str, box: dict) -> list[dict]:
             "flag": v.get("FLAG", v.get("flag", None)),
             "length": v.get("LENGTH", v.get("length", None)),
             "region": region,
+            "source": "myshiptracking",
         })
     return vessels
 
 
-async def _fetch_aisstream(regions: dict[str, dict]) -> list[dict]:
-    """Optional AISstream.io WebSocket snapshot (requires AISSTREAM_API_KEY)."""
+async def _fetch_aisstream_snapshot(regions: dict[str, dict]) -> list[dict]:
+    """One-shot AISstream snapshot when background collector is disabled."""
     api_key = os.getenv("AISSTREAM_API_KEY", "").strip()
     if not api_key:
         return []
@@ -167,6 +315,8 @@ async def _fetch_aisstream(regions: dict[str, dict]) -> list[dict]:
         "FiltersShipMMSI": [],
         "FilterMessageTypes": ["PositionReport"],
     }
+    collect_sec = _collect_sec()
+    wait_timeout = collect_sec + 5.0
     vessels: list[dict] = []
     seen: set[str] = set()
     try:
@@ -176,43 +326,24 @@ async def _fetch_aisstream(regions: dict[str, dict]) -> list[dict]:
             close_timeout=2,
         ) as ws:
             await ws.send(json.dumps(subscription))
-            deadline = time.monotonic() + 8.0
-            while time.monotonic() < deadline and len(vessels) < 500:
+            deadline = time.monotonic() + collect_sec
+            while time.monotonic() < deadline and len(vessels) < _max_vessels():
                 try:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=1.2)
+                    raw = await asyncio.wait_for(ws.recv(), timeout=1.5)
                 except asyncio.TimeoutError:
                     continue
                 msg = json.loads(raw)
-                meta = msg.get("MetaData") or {}
-                mmsi = str(meta.get("MMSI") or "")
-                if not mmsi or mmsi in seen:
+                vessel = _vessel_from_aisstream(msg, regions)
+                if not vessel or vessel["mmsi"] in seen:
                     continue
-                lat, lon = meta.get("latitude"), meta.get("longitude")
-                if lat is None or lon is None:
-                    continue
-                seen.add(mmsi)
-                pr = (msg.get("Message") or {}).get("PositionReport") or {}
-                vessels.append({
-                    "mmsi": mmsi,
-                    "name": meta.get("ShipName") or "Unknown",
-                    "type": _vessel_type_label(meta.get("ShipType")),
-                    "lat": round(float(lat), 5),
-                    "lon": round(float(lon), 5),
-                    "course": pr.get("Cog"),
-                    "speed": pr.get("Sog"),
-                    "destination": meta.get("destination"),
-                    "flag": meta.get("Flag") or meta.get("CountryCode"),
-                    "length": meta.get("Dimension", {}).get("A") if isinstance(meta.get("Dimension"), dict) else None,
-                    "region": _region_for_point(float(lat), float(lon), regions),
-                    "source": "aisstream",
-                })
+                seen.add(vessel["mmsi"])
+                vessels.append(vessel)
     except Exception:
         return []
     return vessels
 
 
 async def _fetch_aishub() -> list[dict]:
-    """Fetch from AISHub if API key is configured."""
     key = os.getenv("AISHUB_API_KEY")
     if not key:
         return []
@@ -245,12 +376,80 @@ async def _fetch_aishub() -> list[dict]:
             "flag": v.get("FLAG"),
             "length": v.get("LENGTH"),
             "region": "global",
+            "source": "aishub",
         })
     return vessels
 
 
+async def _aisstream_collector_loop() -> None:
+    """Persistent AISstream WebSocket — API reads snapshots without blocking."""
+    while True:
+        if not _aisstream_background_on():
+            _STREAM["connected"] = False
+            await asyncio.sleep(10.0)
+            continue
+        regions = _active_regions()
+        api_key = os.getenv("AISSTREAM_API_KEY", "").strip()
+        boxes = [
+            [[box["min_lat"], box["min_lon"]], [box["max_lat"], box["max_lon"]]]
+            for box in regions.values()
+        ]
+        subscription = {
+            "APIKey": api_key,
+            "BoundingBoxes": boxes,
+            "FiltersShipMMSI": [],
+            "FilterMessageTypes": ["PositionReport"],
+        }
+        try:
+            import websockets
+        except ImportError:
+            _STREAM["errors"] = ["websockets package not installed"]
+            await asyncio.sleep(30.0)
+            continue
+        try:
+            async with websockets.connect(
+                "wss://stream.aisstream.io/v0/stream",
+                open_timeout=8,
+                close_timeout=2,
+            ) as ws:
+                await ws.send(json.dumps(subscription))
+                _STREAM["connected"] = True
+                _STREAM["errors"] = []
+                while _aisstream_background_on():
+                    regions = _active_regions()
+                    try:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=45.0)
+                    except asyncio.TimeoutError:
+                        continue
+                    msg = json.loads(raw)
+                    _ingest_stream_message(msg, regions)
+        except asyncio.CancelledError:
+            _STREAM["connected"] = False
+            raise
+        except Exception as exc:
+            _STREAM["connected"] = False
+            _STREAM["errors"] = [str(exc)[:200]]
+            await asyncio.sleep(10.0)
+
+
+def start_aisstream_collector() -> None:
+    global _STREAM_TASK
+    if not _aisstream_background_on():
+        return
+    if _STREAM_TASK and not _STREAM_TASK.done():
+        return
+    _STREAM_TASK = asyncio.create_task(_aisstream_collector_loop())
+
+
+def stop_aisstream_collector() -> None:
+    global _STREAM_TASK
+    if _STREAM_TASK and not _STREAM_TASK.done():
+        _STREAM_TASK.cancel()
+    _STREAM_TASK = None
+    _STREAM["connected"] = False
+
+
 def _demo_fleet() -> list[dict]:
-    """Static demo vessels for offline development."""
     return [
         {"mmsi": "123456789", "name": "Demo Tug Alpha", "type": "Tug", "lat": 53.55, "lon": 9.95, "course": 45, "speed": 5.2, "destination": "Hamburg", "flag": "DE", "length": 32, "region": "hamburg"},
         {"mmsi": "987654321", "name": "Demo Cargo Beta", "type": "Cargo", "lat": 53.52, "lon": 9.92, "course": 120, "speed": 12.5, "destination": "Rotterdam", "flag": "NL", "length": 180, "region": "hamburg"},
@@ -278,10 +477,11 @@ def _build_result(
     errors: list[str] | None,
     stale: bool = False,
     regions: dict[str, dict] | None = None,
+    stream_meta: dict[str, Any] | None = None,
 ) -> dict:
     deduped = _dedupe_vessels(all_vessels)
     active = regions or _active_regions()
-    result = {
+    result: dict[str, Any] = {
         "count": len(deduped),
         "vessels": deduped,
         "regions_tracked": list(active.keys()),
@@ -292,32 +492,62 @@ def _build_result(
     }
     if stale:
         result["stale"] = True
+    if stream_meta:
+        result.update(stream_meta)
     return result
 
 
-async def _fetch_live_vessels() -> tuple[list[dict], list[str], dict[str, dict]]:
-    """Query active regions — AISstream first, then MyShipTracking + AISHub."""
-    regions = _active_regions()
-    errors: list[str] = []
-    all_vessels: list[dict] = []
+async def _supplement_myshiptracking(
+    all_vessels: list[dict],
+    regions: dict[str, dict],
+    errors: list[str],
+    *,
+    min_count: int = 5,
+) -> list[dict]:
+    if len(all_vessels) >= min_count:
+        return all_vessels
+    region_tasks = [
+        _fetch_myshiptracking(region, box) for region, box in regions.items()
+    ]
+    region_results = await asyncio.gather(*region_tasks, return_exceptions=True)
+    merged = list(all_vessels)
+    for region, res in zip(regions.keys(), region_results):
+        if isinstance(res, Exception):
+            errors.append(f"{region}: {res}")
+            continue
+        if res:
+            merged.extend(res)
+    return merged
 
-    try:
-        stream = await asyncio.wait_for(_fetch_aisstream(regions), timeout=10.0)
-        all_vessels.extend(stream)
-    except Exception as exc:
-        errors.append(f"aisstream: {exc}")
+
+async def _build_maritime_result() -> dict:
+    regions = _active_regions()
+    errors: list[str] = list(_STREAM.get("errors") or [])
+    all_vessels = _snapshot_from_stream(regions)
+
+    stream_meta: dict[str, Any] | None = None
+    if _aisstream_background_on():
+        stream_meta = {
+            "stream_connected": bool(_STREAM.get("connected")),
+            "stream_buffer": len(_STREAM.get("vessels") or {}),
+        }
 
     if len(all_vessels) < 5:
-        region_tasks = [
-            _fetch_myshiptracking(region, box) for region, box in regions.items()
-        ]
-        region_results = await asyncio.gather(*region_tasks, return_exceptions=True)
-        for region, res in zip(regions.keys(), region_results):
-            if isinstance(res, Exception):
-                errors.append(f"{region}: {res}")
-                continue
-            if res:
-                all_vessels.extend(res)
+        all_vessels = await _supplement_myshiptracking(all_vessels, regions, errors)
+
+    if len(all_vessels) < 5 and not _aisstream_background_on():
+        collect_sec = _collect_sec()
+        wait_timeout = collect_sec + 5.0
+        try:
+            stream = await asyncio.wait_for(_fetch_aisstream_snapshot(regions), timeout=wait_timeout)
+            all_vessels.extend(stream)
+        except asyncio.TimeoutError:
+            errors.append(f"aisstream: timeout after {wait_timeout:.0f}s")
+        except Exception as exc:
+            errors.append(f"aisstream: {exc}")
+
+    if len(all_vessels) < 5:
+        all_vessels = await _supplement_myshiptracking(all_vessels, regions, errors, min_count=999)
 
     try:
         hub = await _fetch_aishub()
@@ -326,21 +556,32 @@ async def _fetch_live_vessels() -> tuple[list[dict], list[str], dict[str, dict]]
     except Exception as exc:
         errors.append(f"aishub: {exc}")
 
-    return all_vessels, errors, regions
+    demo_mode = False
+    if not all_vessels:
+        all_vessels = _demo_fleet()
+        demo_mode = True
+        errors.append("All live sources failed — returning demo fleet")
+
+    return _build_result(
+        all_vessels,
+        demo_mode=demo_mode,
+        errors=errors or None,
+        regions=regions,
+        stream_meta=stream_meta,
+    )
 
 
 async def warm_maritime() -> dict | None:
     """Force a live maritime refresh (startup warm-up)."""
-    try:
-        vessels, errors, regions = await asyncio.wait_for(
-            _fetch_live_vessels(),
-            timeout=_MARITIME_TOTAL_TIMEOUT,
-        )
-    except asyncio.TimeoutError:
+    start_aisstream_collector()
+    deadline = time.monotonic() + 25.0
+    while time.monotonic() < deadline:
+        if len(_snapshot_from_stream(_active_regions())) >= 5:
+            break
+        await asyncio.sleep(1.0)
+    result = await _build_maritime_result()
+    if result.get("demo_mode") or not result.get("count"):
         return None
-    if not vessels:
-        return None
-    result = _build_result(vessels, demo_mode=False, errors=errors or None, regions=regions)
     _CACHE["maritime:all"] = (time.time(), result)
     feed_registry.write_auto("maritime", result)
     return result
@@ -362,41 +603,29 @@ async def get_maritime():
             return cached[1]
 
         try:
-            all_vessels, errors, regions = await asyncio.wait_for(
-                _fetch_live_vessels(),
-                timeout=_MARITIME_TOTAL_TIMEOUT,
-            )
+            result = await asyncio.wait_for(_build_maritime_result(), timeout=20.0)
         except asyncio.TimeoutError:
             if stale_payload:
                 out = dict(stale_payload)
                 out["stale"] = True
-                out["errors"] = (stale_payload.get("errors") or []) + ["upstream timeout — serving stale cache"]
+                out["errors"] = (stale_payload.get("errors") or []) + ["build timeout — serving stale cache"]
                 return out
-            all_vessels, errors, regions = [], ["upstream timeout"], _active_regions()
+            result = _build_result(
+                _demo_fleet(),
+                demo_mode=True,
+                errors=["build timeout"],
+                regions=_active_regions(),
+            )
 
-        demo_mode = False
-        if not all_vessels:
-            all_vessels = _demo_fleet()
-            demo_mode = True
-            errors.append("All live sources failed — returning demo fleet")
-
-        result = _build_result(
-            all_vessels,
-            demo_mode=demo_mode,
-            errors=errors or None,
-            regions=regions,
-        )
         _CACHE[cache_key] = (time.time(), result)
-        if not demo_mode and result.get("count"):
+        if not result.get("demo_mode") and result.get("count"):
             feed_registry.write_auto("maritime", result)
         return result
 
 
 @router.get("/ports")
 def list_ports():
-    """Return tracked port regions with bounding boxes."""
     return {
-        "ports": [
-            {"id": k, **v} for k, v in PORT_REGIONS.items()
-        ]
+        "ports": [{"id": k, **v} for k, v in PORT_REGIONS.items()],
+        "active": list(_active_regions().keys()),
     }
