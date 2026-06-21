@@ -273,3 +273,15 @@ filesystem_mcp → db_query
 | `docker/mcp/ai_coding-worldbase.profile.yaml` | Exportable Docker MCP profile |
 | `docker/mcp/ops-snapshot.js` | code-mode fetch bundle |
 | `scripts/setup-docker-mcp-worldbase.ps1` | Volume sync + profile import |
+
+---
+
+## Optional firewall (MCP write tools — Phase B)
+
+**Baseline (always, 0 VRAM):** `prompt_guard.slim_prompt_scan` on MCP write tools (`WORLDBASE_SLIM_GUARD_MCP=1` default).
+
+**Optional enrichment:** when `FIREWALL_HOST` and `WORLDBASE_FIREWALL_MCP=1` are set, write tools get a second pass via HAK_GAL `/v1/detect`. **Fail-open** if HAK_GAL is down (unless `WORLDBASE_FIREWALL_MCP_FAIL_CLOSED=1`).
+
+Gated tools: `worldbase_briefing_generate`, `worldbase_globe_fly_to`, `worldbase_globe_toggle_layer`. Read tools unchanged.
+
+HAK_GAL full stack is **not** a hard dependency — see [`docs/FIREWALL.md`](FIREWALL.md) and `research/HAK_GAL_PICK_LIST.md`.

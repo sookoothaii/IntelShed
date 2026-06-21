@@ -6,8 +6,10 @@ interface FirewallEntry {
   query: string
   blocked: boolean
   risk_score: number
-  confidence: number
-  evidence_type: string
+  confidence?: number
+  evidence_type?: string
+  source?: string
+  engine?: string
   score_origin?: {
     layer?: string
     primary_cause?: string
@@ -99,14 +101,66 @@ function LayerBadge({ layer }: { layer: string }) {
   )
 }
 
-export default function FirewallPanel({ history }: { history: FirewallEntry[] }) {
+function normalizeHistoryEntry(item: Record<string, unknown>): FirewallEntry {
+  const rawTs = Number(item.timestamp ?? 0)
+  const timestamp = rawTs > 1e12 ? rawTs : rawTs * 1000
+  const source = String(item.source ?? item.engine ?? '')
+  const blocked = Boolean(item.blocked || item.should_block)
+  const matched = Array.isArray(item.matched_patterns) ? item.matched_patterns as string[] : []
+  const isSlim = source.includes('slim') || String(item.engine ?? '').includes('slim')
+  return {
+    timestamp,
+    query: String(item.query ?? item.text_preview ?? ''),
+    blocked,
+    risk_score: typeof item.risk_score === 'number'
+      ? item.risk_score
+      : (blocked && isSlim ? 1 : 0),
+    confidence: typeof item.confidence === 'number' ? item.confidence : undefined,
+    evidence_type: source || String(item.engine ?? '—'),
+    source,
+    engine: item.engine ? String(item.engine) : undefined,
+    score_origin: item.score_origin as FirewallEntry['score_origin'],
+    routing_metadata: item.routing_metadata,
+    semantic_intelligence: item.semantic_intelligence,
+    cognitive_probes: item.cognitive_probes,
+    tags: item.tags as string[] | undefined,
+    matched_patterns: matched,
+    category: item.category ? String(item.category) : undefined,
+    should_block: item.should_block as boolean | undefined,
+    mirage_active: item.mirage_active as boolean | undefined,
+    mirage_response_type: item.mirage_response_type as string | undefined,
+    decision_trace: item.decision_trace,
+  }
+}
+
+export default function FirewallPanel() {
+  const [history, setHistory] = useState<FirewallEntry[]>([])
   const [selected, setSelected] = useState<FirewallEntry | null>(null)
   const [filter, setFilter] = useState<'all' | 'blocked' | 'allowed'>('all')
   const [testQuery, setTestQuery] = useState('')
   const [testResult, setTestResult] = useState<any>(null)
   const [testBusy, setTestBusy] = useState(false)
   const [firewallStatus, setFirewallStatus] = useState<'online' | 'offline' | 'warn'>('offline')
+  const [slimGuardOn, setSlimGuardOn] = useState(true)
   const [statusDetails, setStatusDetails] = useState('')
+
+  const loadHistory = async () => {
+    try {
+      const r = await fetchApi('/api/firewall/history?limit=50')
+      if (!r.ok) return
+      const d = await r.json()
+      const items = Array.isArray(d.items) ? d.items.map(normalizeHistoryEntry) : []
+      setHistory(items)
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    loadHistory()
+    const t = setInterval(loadHistory, 10000)
+    return () => clearInterval(t)
+  }, [])
 
   useEffect(() => {
     const checkStatus = async () => {
@@ -114,14 +168,20 @@ export default function FirewallPanel({ history }: { history: FirewallEntry[] })
         const r = await fetchApi('/api/firewall/status', { method: 'GET' })
         if (r.ok) {
           const d = await r.json()
-          setFirewallStatus(d.status === 'healthy' ? 'online' : 'warn')
-          setStatusDetails(d.version || 'HAK_GAL v9.4+')
+          setSlimGuardOn(Boolean(d.slim_guard))
+          const hakGalUp = Boolean(d.reachable)
+          setFirewallStatus(hakGalUp ? 'online' : d.slim_guard ? 'warn' : 'offline')
+          const slimCount = d.slim_pattern_count ?? '—'
+          setStatusDetails(
+            d.slim_guard
+              ? `SLIM ${slimCount} patterns · ${hakGalUp ? 'HAK_GAL online' : 'HAK_GAL offline'}`
+              : (d.version || 'HAK_GAL v9.4+')
+          )
         } else {
           setFirewallStatus('offline')
           setStatusDetails('HTTP ' + r.status)
         }
       } catch {
-        // Fallback: try direct HAK_GAL health check via backend proxy
         setFirewallStatus('offline')
         setStatusDetails('Connection failed')
       }
@@ -159,6 +219,7 @@ export default function FirewallPanel({ history }: { history: FirewallEntry[] })
       })
       const d = await r.json()
       setTestResult(d)
+      loadHistory()
     } catch (e) {
       setTestResult({ error: String(e) })
     } finally {
@@ -168,10 +229,22 @@ export default function FirewallPanel({ history }: { history: FirewallEntry[] })
 
   return (
     <div className="panel firewall" style={{ padding: '0 18px', display: 'flex', flexDirection: 'column', gap: 12, height: '100%' }}>
-      <h2 style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 0 }}>
+      <h2 style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 0, flexWrap: 'wrap' }}>
         <span>🛡️</span>
-        HAK_GAL FIREWALL MONITOR
-        <StatusBadge status={firewallStatus} label={firewallStatus === 'online' ? 'HAK_GAL ONLINE' : firewallStatus === 'warn' ? 'HAK_GAL DEGRADED' : 'HAK_GAL OFFLINE'} />
+        FIREWALL MONITOR
+        {slimGuardOn && (
+          <StatusBadge status="online" label="SLIM ON" />
+        )}
+        <StatusBadge
+          status={firewallStatus}
+          label={
+            firewallStatus === 'online'
+              ? 'HAK_GAL ONLINE'
+              : slimGuardOn
+                ? 'HAK_GAL OFFLINE'
+                : 'HAK_GAL OFFLINE'
+          }
+        />
         {statusDetails && <span style={{ fontSize: 10, color: '#6f8c84', marginLeft: 'auto' }}>{statusDetails}</span>}
       </h2>
 
@@ -314,7 +387,7 @@ export default function FirewallPanel({ history }: { history: FirewallEntry[] })
                       <RiskBar risk={entry.risk_score ?? 0} />
                     </td>
                     <td style={{ padding: '6px 10px', textAlign: 'center' }}>
-                      <LayerBadge layer={entry.score_origin?.layer || entry.evidence_type || '—'} />
+                      <LayerBadge layer={entry.score_origin?.layer || entry.source || entry.evidence_type || '—'} />
                     </td>
                     <td style={{ padding: '6px 10px', textAlign: 'center' }}>
                       <button style={{

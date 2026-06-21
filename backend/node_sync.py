@@ -790,6 +790,9 @@ async def latest_briefing():
         quality = prediction_ledger.enrich_quality_meta(quality)
     except Exception:
         pass
+    from operator_briefing import enrich_watch_items_coords
+
+    watch_items = enrich_watch_items_coords(sources.get("watch_items") or [])
     return {
         "created_at": row["created_at"],
         "text": row["text"],
@@ -799,7 +802,7 @@ async def latest_briefing():
         "digest": sources.get("digest"),
         "quality": quality,
         "style": sources.get("style"),
-        "watch_items": sources.get("watch_items") or [],
+        "watch_items": watch_items,
         "digest_line_meta": sources.get("digest_line_meta") or [],
     }
 

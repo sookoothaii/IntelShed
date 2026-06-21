@@ -3,6 +3,23 @@ import { fetchApi } from '../lib/networkFetch';
 
 import FirewallMonitor from './FirewallMonitor';
 
+const CHAT_SESSION_KEY = 'worldbase_chat_session_id'
+
+function getChatSessionId(): string {
+  try {
+    let id = sessionStorage.getItem(CHAT_SESSION_KEY)
+    if (!id) {
+      id = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `wb-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+      sessionStorage.setItem(CHAT_SESSION_KEY, id)
+    }
+    return id
+  } catch {
+    return `wb-${Date.now()}`
+  }
+}
+
 export default function ChatPanel({
   askAI,
   onClearAsk,
@@ -181,6 +198,7 @@ export default function ChatPanel({
           entity_context: entityCtx || undefined,
           search_results: searchCtx || undefined,
           firewall,
+          chat_session_id: getChatSessionId(),
           use_tools: useToolCalls,
           force_fast: forceFast,
         }),

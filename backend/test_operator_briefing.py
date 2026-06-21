@@ -141,6 +141,16 @@ class OperatorBriefingTests(unittest.TestCase):
             self.assertIn("confidence", item)
             self.assertIn("sources", item)
             self.assertIn("id", item)
+        with_coords = [i for i in items if i.get("lat") is not None and i.get("lon") is not None]
+        self.assertGreaterEqual(len(with_coords), 1)
+
+    def test_enrich_watch_items_coords_from_cell_id(self):
+        from operator_briefing import enrich_watch_items_coords
+
+        raw = [{"id": "x", "cell_id": "13.75,100.50", "title": "test"}]
+        out = enrich_watch_items_coords(raw)
+        self.assertAlmostEqual(out[0]["lat"], 13.75)
+        self.assertAlmostEqual(out[0]["lon"], 100.50)
 
     def test_watch_items_in_digest_and_prompt(self):
         snap = {

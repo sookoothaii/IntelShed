@@ -35,7 +35,7 @@ Unless the user says otherwise, prioritize:
 4. **Pi pull loop** — PC generates briefing → Pi `GET /api/node/pull` → portal `briefing_latest.json`
 5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing, DATA → INTEL (ingest, feed sync, Splink resolution, Cytoscape overview)
 
-**Out of scope by default:** HAK_GAL LLM firewall (`FIREWALL_HOST`, `:8001`, firewall tab/chat toggle). Code stays; do not start, fix, or extend unless explicitly requested.
+**Out of scope by default:** HAK_GAL LLM firewall — optional spare-parts HTTP bridge (`FIREWALL_HOST`, `:8001`); baseline guard is `prompt_guard.py` (0 VRAM). Do not assume full HAK_GAL stack runs or fits 16 GB VRAM. Doc: [`docs/FIREWALL.md`](docs/FIREWALL.md).
 
 ---
 
@@ -78,7 +78,7 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_cams_bridge test_fusion_snapshots -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots -v` in `backend/`.
 
 Live contract (opt-in, gated in smoke test §1 when `:8002` is up): `python -m unittest test_health_contract_live -v` — validates `/api/health` feed rows + curated envelope payloads (`cve`, `wildfires`, `gdacs`, …). Skips cleanly if API down.
 
@@ -125,6 +125,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | INTEL graph panel | `frontend/src/components/IntelGraphPanel.tsx` |
 | Pi edge dashboard (DATA → EDGE) | `frontend/src/components/EdgePanel.tsx` — primary node `offgrid-pi`, sparklines via `/api/node/{id}/sensors/history` |
 | Edge online/offline banner | `frontend/src/components/NodeHealthBanner.tsx` |
+| HAK_GAL firewall bridge (optional) | `backend/firewall_bridge.py`, `backend/prompt_guard.py`, `docs/FIREWALL.md` |
 | DB | `backend/worldbase.db`, `backend/data/entities.duckdb` |
 
 ---
@@ -179,3 +180,4 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | Splink resolution test fail | Optional — `pip install 'splink>=4.0,<5'` or ignore if not using Splink |
 | Trust 2/4 in FULL SITUATION | Check `GET /api/trust` probes — GDELT ok with stale cache if `count>0`; Pi edge online; Ollama: `OLLAMA_HOST=127.0.0.1:11434` or `http://127.0.0.1:11434` (probe normalizes both) |
 | Pi pull stale after PC upgrade | `.\scripts\deploy-pi-sync.ps1`; verify `payload_version: 2` in pull JSON |
+| Firewall chat block / unreachable | `GET /api/firewall/status`; HAK_GAL on `:8001`; chat needs `firewall: true` + `chat_session_id`; see [`docs/FIREWALL.md`](docs/FIREWALL.md) |

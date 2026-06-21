@@ -135,7 +135,6 @@ export default function App() {
   const [askAI, setAskAI] = useState<{ id: number; question: string; context: string } | null>(null)
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [situationOpen, setSituationOpen] = useState(false)
-  const [firewallHistory, setFirewallHistory] = useState<any[]>([])
   const [osintPins, setOsintPins] = useState<OsintPin[]>(() => loadOsintPins())
   const [syncCamera, setSyncCamera] = useState<{ lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null>(null)
   const [mapMode, setMapMode] = useState<MapViewMode>(DEFAULT_MAP_VIEW)
@@ -339,7 +338,6 @@ export default function App() {
               <ChatPanel
                 askAI={askAI}
                 onClearAsk={() => setAskAI(null)}
-                onFirewallResult={(r) => setFirewallHistory((h) => [r, ...h].slice(0, 100))}
                 onClientAction={(act) => {
                   if (act?.type === 'focus_globe' && act.lat != null && act.lon != null) {
                     focusOnMap({
@@ -354,7 +352,7 @@ export default function App() {
                 }}
               />
             )}
-            {view === 'firewall' && <FirewallPanel history={firewallHistory} />}
+            {view === 'firewall' && <FirewallPanel />}
             {view === 'osint' && (
               <OsintPanel
                 onFocus={focusOnMap}
@@ -638,6 +636,9 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                   const watchCount = pipe.watch_count ?? meta.watch_count ?? briefing?.watch_items?.length
                   const corroAvg = pipe.corroboration_avg_local ?? meta.corroboration_avg_local
                   const corroBlocker = pipe.corroboration_blocker ?? meta.corroboration_blocker
+                  const predAcc = pipe.prediction_accuracy_30d ?? meta.prediction_accuracy_30d
+                  const predPending = pipe.prediction_pending ?? meta.prediction_pending
+                  const predSample = pipe.prediction_sample_30d ?? meta.prediction_sample_30d
                   const blockerHint =
                     blocker === 'empty_feed_body'
                       ? 'GDELT rate limit or empty body — wait for disk cache'
@@ -646,7 +647,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                         : blocker === 'single_source_local'
                           ? 'LOCAL digest lines share one feed family only'
                           : blocker || ''
-                  if (collected == null && placed == null && !blocker && watchCount == null && corroAvg == null) return null
+                  if (collected == null && placed == null && !blocker && watchCount == null && corroAvg == null && predPending == null) return null
                   return (
                     <div className="analysis-row" style={{ fontSize: 11, marginTop: 8 }}>
                       <span
@@ -668,6 +669,15 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                           title="LOCAL digest corroboration (multi-source verification)"
                         >
                           VERIFY {Math.round(corroAvg * 100)}%
+                        </span>
+                      )}
+                      {predPending != null && (
+                        <span
+                          style={{ color: predAcc != null && predAcc >= 0.6 ? '#00e5a0' : '#7ec8ff' }}
+                          title="Watch-item outcomes after 24–72h horizon (Track 4 ledger)"
+                        >
+                          PRED {predAcc != null ? `${Math.round(predAcc * 100)}%` : '—'}
+                          {predSample != null ? ` n=${predSample}` : ''} · {predPending} pending
                         </span>
                       )}
                       {(blocker || corroBlocker) ? (
@@ -730,6 +740,73 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                         {Math.round((w.confidence ?? 0) * 100)}% · {(w.sources || []).join(', ')}
                         {w.delta_score != null ? ` · Δ${Number(w.delta_score).toFixed(2)}` : ''}
                       </span>
+                      {w.lat != null && w.lon != null && (
+                        <button
+                          className="locate-mini"
+                          title="Fly to watch cell on globe"
+                          onClick={() => {
+                            onClose()
+                            onFocus({
+                              kind: 'watch',
+                              lon: w.lon,
+                              lat: w.lat,
+                              height: 800000,
+                              title: w.title,
+                              lines: [
+                                `HORIZON: ${w.horizon_h}h`,
+                                `CONFIDENCE: ${Math.round((w.confidence ?? 0) * 100)}%`,
+                                `BUCKET: ${w.bucket || '—'}`,
+                                `SOURCES: ${(w.sources || []).join(', ') || '—'}`,
+                              ],
+                            })
+                          }}
+                        >
+                          ◎
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {briefing?.intel?.entities?.length > 0 && (
+                <div className="analysis-section">
+                  <h3>🕸 INTEL ENTITIES ({briefing.intel.count ?? briefing.intel.entities.length})</h3>
+                  {(briefing.intel.by_bucket) && (
+                    <div className="analysis-row" style={{ fontSize: 10, color: '#8fb7a9' }}>
+                      LOCAL {briefing.intel.by_bucket.local ?? 0} · REGION {briefing.intel.by_bucket.regional ?? 0} · GLOBAL {briefing.intel.by_bucket.global ?? 0}
+                    </div>
+                  )}
+                  {briefing.intel.entities.slice(0, 6).map((e: any, i: number) => (
+                    <div key={e.id || i} className="analysis-row" style={{ borderLeft: '3px solid #c084fc' }}>
+                      <span style={{ color: '#c084fc', fontWeight: 'bold', minWidth: 52, textTransform: 'uppercase', fontSize: 10 }}>
+                        {(e.bucket || '—').slice(0, 6)}
+                      </span>
+                      <span style={{ flex: 1 }}>{e.caption || e.id}</span>
+                      <span style={{ color: '#8fb7a9', fontSize: 10 }}>{e.schema || 'Entity'}</span>
+                      {e.lat != null && e.lon != null && (
+                        <button
+                          className="locate-mini"
+                          title="Fly to entity on globe"
+                          onClick={() => {
+                            onClose()
+                            onFocus({
+                              kind: 'intel',
+                              lon: e.lon,
+                              lat: e.lat,
+                              height: 600000,
+                              title: e.caption || e.id,
+                              lines: [
+                                `SCHEMA: ${e.schema || '—'}`,
+                                `BUCKET: ${e.bucket || '—'}`,
+                                `DATASETS: ${(e.datasets || []).join(', ') || '—'}`,
+                              ],
+                            })
+                          }}
+                        >
+                          ◎
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

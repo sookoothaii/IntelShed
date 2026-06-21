@@ -65,9 +65,32 @@ def _watch_item(
         "bucket": bucket,
         "cell_id": cell_id,
     }
-    if delta_score is not None:
-        item["delta_score"] = round(float(delta_score), 4)
+    if cell_id and "," in cell_id:
+        try:
+            lat_s, lon_s = cell_id.split(",", 1)
+            item["lat"] = float(lat_s)
+            item["lon"] = float(lon_s)
+        except (TypeError, ValueError):
+            pass
     return item
+
+
+def enrich_watch_items_coords(watch_items: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Add lat/lon from cell_id for cached briefings stored before coord denorm."""
+    if not watch_items:
+        return []
+    out: list[dict[str, Any]] = []
+    for item in watch_items:
+        row = dict(item)
+        if row.get("lat") is None and row.get("cell_id") and "," in str(row["cell_id"]):
+            try:
+                lat_s, lon_s = str(row["cell_id"]).split(",", 1)
+                row["lat"] = float(lat_s)
+                row["lon"] = float(lon_s)
+            except (TypeError, ValueError):
+                pass
+        out.append(row)
+    return out
 
 
 def _resolve_lang(lang: str | None) -> str:

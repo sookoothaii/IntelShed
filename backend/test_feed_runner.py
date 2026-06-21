@@ -59,5 +59,18 @@ class FeedConnectorTests(unittest.TestCase):
         self.assertEqual(validate_feed_payload(out), [])
 
 
+class FeedConnectorRunTests(unittest.IsolatedAsyncioTestCase):
+    async def test_run_applies_default_source(self):
+        connector = FeedConnector("pegel", ttl_sec=60, default_source="pegelonline.wsv.de")
+
+        async def _fetch():
+            return FeedEnvelope(count=2, updated="2026-06-21T00:00:00+00:00").merge(gauges=[])
+
+        with patch("feeds.runner.feed_registry.write_auto"):
+            out = await connector.run(_fetch, persist=False)
+        self.assertEqual(out.get("source"), "pegelonline.wsv.de")
+        self.assertEqual(validate_feed_payload(out, endpoint="pegel"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

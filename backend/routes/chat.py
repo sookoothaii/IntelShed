@@ -330,27 +330,17 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
     messages = list(payload.get("messages", []))
 
     if payload.get("firewall"):
-        from firewall_bridge import firewall_scan, _extract_user_text
+        from firewall_bridge import _extract_user_text, guard_chat_user_text
+
         user_text = _extract_user_text(messages)
         if user_text:
-            scan = await firewall_scan(user_text)
-            firewall_meta = scan.get("data")
-            if firewall_meta and (firewall_meta.get("should_block") or firewall_meta.get("risk_score", 0) > 0.7):
-                return messages, firewall_meta, {
-                    "message": {
-                        "role": "assistant",
-                        "content": (
-                            "⚠️ **FIREWALL BLOCK**\n\n"
-                            "This message was flagged by the LLM-Security-Firewall.\n"
-                            f"Risk Score: {firewall_meta.get('risk_score', '—')}\n"
-                            f"Matched: {', '.join(firewall_meta.get('matched_patterns', [])[:3]) or '—'}\n\n"
-                            "Set `firewall: false` to bypass (not recommended)."
-                        ),
-                    },
-                    "done": True,
-                    "firewall_blocked": True,
-                    "firewall_meta": firewall_meta,
-                }
+            session_id = payload.get("chat_session_id") or payload.get("session_id")
+            firewall_meta, block_payload = await guard_chat_user_text(
+                user_text,
+                session_id=str(session_id) if session_id else None,
+            )
+            if block_payload:
+                return messages, firewall_meta, block_payload
 
     search_results = payload.get("search_results", "")
     entity_context = payload.get("entity_context", "")

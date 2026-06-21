@@ -55,13 +55,14 @@ flowsint/
 *.log
 npm-debug.log*
 
-# Local-only docs (tracked: README.md + AGENTS.md + docs/screenshots/ + docs/INTEL_INGEST.md)
+# Local-only docs (tracked: README.md + AGENTS.md + docs/screenshots/ + selected docs/*.md)
 docs/**
 !docs/screenshots/
 !docs/screenshots/**
 !docs/INTEL_INGEST.md
 !docs/MCP.md
 !docs/GLOBE.md
+!docs/FIREWALL.md
 # Local-only operator / agent tooling (not part of the OSS repo)
 .cursor/
 briefs/

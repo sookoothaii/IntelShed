@@ -111,6 +111,8 @@ class FeedConnector:
             payload = await fetch()
             if "updated" not in payload:
                 payload["updated"] = utc_now_iso()
+            if self.default_source:
+                payload.setdefault("source", self.default_source)
             _warn_violations(self.cache_key, validate_feed_payload(payload, endpoint=self.cache_key))
             if persist and not payload.get("stale") and not payload.get("error"):
                 # Disk persists under cache_key only; subkey segments memory.

@@ -67,8 +67,16 @@ async def fetch_live_states(timeout: float = 12.0) -> tuple[dict, str]:
     _FETCH_TASK = asyncio.create_task(_fetch_once(timeout))
     try:
         return await asyncio.wait_for(_FETCH_TASK, timeout=timeout)
+    except asyncio.CancelledError:
+        if _STALE:
+            stale = dict(_STALE)
+            return stale, stale.get("source", "stale")
+        raise
     except Exception:
         if _STALE:
             stale = dict(_STALE)
             return stale, stale.get("source", "stale")
         raise
+    finally:
+        if _FETCH_TASK is not None and _FETCH_TASK.done():
+            _FETCH_TASK = None

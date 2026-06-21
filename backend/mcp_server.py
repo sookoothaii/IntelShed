@@ -386,6 +386,13 @@ async def worldbase_feed_allowlist() -> dict[str, Any]:
     return {"feeds": sorted(FEED_SAMPLE_ALLOWLIST)}
 
 
+async def _gate_mcp_write(tool_name: str, arguments: dict[str, Any]) -> None:
+    """Slim guard + optional HAK_GAL — see firewall_bridge.ensure_mcp_tool_allowed."""
+    from firewall_bridge import ensure_mcp_tool_allowed
+
+    await ensure_mcp_tool_allowed(tool_name, arguments)
+
+
 if mcp_write_enabled():
 
     @mcp.tool(name="worldbase_briefing_generate")
@@ -394,6 +401,10 @@ if mcp_write_enabled():
         include_full_text: bool = False,
     ) -> dict[str, Any]:
         """Generate a new 24h security briefing (Ollama + SQLite). Optional lang: en or de."""
+        await _gate_mcp_write(
+            "worldbase_briefing_generate",
+            {"lang": lang, "include_full_text": include_full_text},
+        )
         return await trigger_briefing_generate(lang=lang, include_full_text=include_full_text)
 
 
@@ -407,12 +418,20 @@ if mcp_globe_enabled():
         title: str | None = None,
     ) -> dict[str, Any]:
         """Fly the open HUD globe to lat/lon (Agent Bus → browser stream). Requires HUD at :5176."""
+        await _gate_mcp_write(
+            "worldbase_globe_fly_to",
+            {"lat": lat, "lon": lon, "height": height, "title": title},
+        )
         import agent_bus
         return await agent_bus.publish_fly_to(lat=lat, lon=lon, height=height, title=title)
 
     @mcp.tool(name="worldbase_globe_toggle_layer")
     async def worldbase_globe_toggle_layer(layer: str, enabled: bool | None = None) -> dict[str, Any]:
         """Toggle a globe feed layer on the open HUD (see worldbase_globe_layers for keys)."""
+        await _gate_mcp_write(
+            "worldbase_globe_toggle_layer",
+            {"layer": layer, "enabled": enabled},
+        )
         import agent_bus
         return await agent_bus.publish_toggle_layer(layer=layer, enabled=enabled)
 

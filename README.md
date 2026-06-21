@@ -84,6 +84,20 @@ ollama pull nomic-embed-text   # RAG embeddings
 
 `.\start.ps1` waits for `GET /api/health/ping` before starting Vite (avoids proxy `ECONNREFUSED`). ~**6 s** after backend boot, a feed warm-up refreshes GDELT local pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
 
+### Optional: slim prompt guard (no HAK_GAL required)
+
+A small regex layer (`backend/prompt_guard.py`, 0 VRAM) may reduce obvious abuse on **MCP write tools** and on **chat** when the 🛡️ toggle is on. It is **not** a substitute for API keys or network isolation, and it does not change briefing quality or trust scores.
+
+HAK_GAL on port `:8001` is an **optional** second opinion when a lean orchestrator happens to be running — full stack alongside Ollama on 16 GB VRAM is assumed unreliable unless you measure otherwise. Details → [`docs/FIREWALL.md`](docs/FIREWALL.md).
+
+```env
+# backend/.env — defaults; slim guard on without FIREWALL_HOST
+WORLDBASE_SLIM_GUARD=1
+WORLDBASE_SLIM_GUARD_MCP=1
+```
+
+HUD: **FIREWALL** tab · API: `GET /api/firewall/status`, `GET /api/firewall/history`
+
 ### Optional: live maritime AIS (Thailand corridor)
 
 Free key at [aisstream.io](https://aisstream.io) → `backend/.env`:
@@ -202,6 +216,7 @@ Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](do
 |-----|---------|
 | [`AGENTS.md`](AGENTS.md) | Runtime, endpoints, key files, troubleshooting |
 | [`docs/MCP.md`](docs/MCP.md) | Cursor MCP tools, Agent Bus, Docker gateway |
+| [`docs/FIREWALL.md`](docs/FIREWALL.md) | Slim prompt guard (default) + optional HAK_GAL bridge (`:8001`) |
 | [`docs/GLOBE.md`](docs/GLOBE.md) | Click-to-detail, layers, INTEL FtM, traffic cams |
 | [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md) | Optional document intel ingest (GLiNER) |
 | [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) | Pi ↔ PC sync |
