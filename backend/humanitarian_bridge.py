@@ -4,22 +4,22 @@ from __future__ import annotations
 
 import asyncio
 import os
-import time
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Query
 
-import feed_registry
+from feeds.envelope import FeedEnvelope
+from feeds.runner import FeedConnector
 
 router = APIRouter(prefix="/api/humanitarian", tags=["humanitarian"])
 
 _HDX_SEARCH = "https://data.humdata.org/api/3/action/package_search"
 _UA = {"User-Agent": "WorldBase/1.0 (HDX humanitarian research)"}
-_CACHE: dict[str, tuple[float, dict]] = {}
 _TTL = float(os.getenv("WORLDBASE_HDX_CACHE_SEC", "3600"))
 _REFRESH_LOCK = asyncio.Lock()
+_CONNECTOR = FeedConnector("humanitarian", ttl_sec=_TTL, default_source="hdx")
 
 # Southeast Asia / operator focus — OR-joined for HDX full-text search
 _DEFAULT_QUERIES: tuple[str, ...] = (
@@ -98,38 +98,54 @@ async def fetch_humanitarian_datasets(
 
 
 async def get_humanitarian(*, limit: int = 20, refresh: bool = False) -> dict:
-    cache_key = f"humanitarian:{limit}"
+    subkey = f"humanitarian:{limit}"
     if not refresh:
-        hit = _CACHE.get(cache_key)
-        if hit and (time.time() - hit[0]) < _TTL:
-            return hit[1]
+        hit = _CONNECTOR.get_cached(subkey)
+        if hit is not None:
+            return hit
 
     async with _REFRESH_LOCK:
-        hit = _CACHE.get(cache_key)
-        if not refresh and hit and (time.time() - hit[0]) < _TTL:
-            return hit[1]
+        if not refresh:
+            hit = _CONNECTOR.get_cached(subkey)
+            if hit is not None:
+                return hit
 
-        stale = hit[1] if hit else None
+        stale_hit = _CONNECTOR.peek_memory(subkey)
         try:
-            out = await fetch_humanitarian_datasets(limit=limit)
+            raw = await fetch_humanitarian_datasets(limit=limit)
         except Exception as exc:
-            if stale:
-                s = dict(stale)
-                s["stale"] = True
-                s["error"] = str(exc)[:120]
-                return s
-            return {"count": 0, "datasets": [], "error": str(exc)[:120]}
+            if stale_hit:
+                return _CONNECTOR.build(
+                    FeedEnvelope(count=stale_hit.get("count", 0), stale=True, error=str(exc)[:120]),
+                    persist=False,
+                    subkey=subkey,
+                    datasets=stale_hit.get("datasets") or [],
+                    queries=stale_hit.get("queries") or list(_DEFAULT_QUERIES),
+                )
+            return _CONNECTOR.empty_payload(str(exc)[:120], datasets=[])
 
-        if out.get("datasets"):
-            feed_registry.write_auto("humanitarian", out)
-            _CACHE[cache_key] = (time.time(), out)
-        elif stale:
-            s = dict(stale)
-            s["stale"] = True
-            return s
-        else:
-            _CACHE[cache_key] = (time.time(), out)
-        return out
+        if raw.get("datasets"):
+            return _CONNECTOR.build(
+                FeedEnvelope(count=raw["count"], source="hdx", updated=raw.get("updated")),
+                subkey=subkey,
+                datasets=raw["datasets"],
+                queries=raw.get("queries"),
+            )
+        if stale_hit:
+            return _CONNECTOR.build(
+                FeedEnvelope(count=stale_hit.get("count", 0), stale=True),
+                persist=False,
+                subkey=subkey,
+                datasets=stale_hit.get("datasets") or [],
+                queries=stale_hit.get("queries") or list(_DEFAULT_QUERIES),
+            )
+        return _CONNECTOR.build(
+            FeedEnvelope(count=0, source="hdx", updated=raw.get("updated")),
+            persist=False,
+            subkey=subkey,
+            datasets=[],
+            queries=raw.get("queries"),
+        )
 
 
 @router.get("")

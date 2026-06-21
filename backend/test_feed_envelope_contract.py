@@ -63,6 +63,20 @@ CAMS_SAMPLE = {
     "cities": [],
 }
 
+HUMANITARIAN_SAMPLE = {
+    "count": 4,
+    "source": "hdx",
+    "updated": "2026-06-21T10:00:00+00:00",
+    "datasets": [],
+}
+
+PEGEL_SAMPLE = {
+    "count": 7,
+    "source": "pegelonline.wsv.de",
+    "updated": "2026-06-21T10:00:00+00:00",
+    "gauges": [],
+}
+
 REPRESENTATIVE_FEEDS = {
     "cve": CVE_SAMPLE,
     "outages": OUTAGES_SAMPLE,
@@ -70,6 +84,8 @@ REPRESENTATIVE_FEEDS = {
     "gdelt_pulse_local:thailand": GDELT_PULSE_SAMPLE,
     "wildfires": WILDFIRES_SAMPLE,
     "cams_haze": CAMS_SAMPLE,
+    "humanitarian": HUMANITARIAN_SAMPLE,
+    "pegel": PEGEL_SAMPLE,
 }
 
 

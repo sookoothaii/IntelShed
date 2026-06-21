@@ -6,19 +6,21 @@ Adds 24h history endpoint for sparkline rendering in the dashboard.
 from __future__ import annotations
 
 import asyncio
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
+from feeds.envelope import FeedEnvelope, utc_now_iso
+from feeds.runner import FeedConnector
+
 router = APIRouter(prefix="/api", tags=["pegel"])
 
 _BASE = "https://www.pegelonline.wsv.de/webservices/rest-api/v2"
 _UA = {"User-Agent": "WorldBase/1.0 (research dashboard)"}
 _TTL = 900.0
-_cache: dict[str, Any] = {"data": None, "ts": 0.0}
+_CONNECTOR = FeedConnector("pegel", ttl_sec=_TTL, default_source="pegelonline.wsv.de")
 
 # Curated major gauges (uuid, series W = water level cm, Q = flow m3/s)
 _STATIONS = [
@@ -76,52 +78,27 @@ async def _fetch_one(client: httpx.AsyncClient, st: dict) -> dict | None:
     }
 
 
-@router.get("/pegel")
-async def get_pegel():
-    """Current levels at curated German river gauges. Cached 15 min."""
-    now = time.time()
-    if _cache["data"] is not None and (now - _cache["ts"]) < _TTL:
-        return _cache["data"]
-
+async def _fetch_pegel_payload() -> dict[str, Any]:
     async with httpx.AsyncClient(headers=_UA, follow_redirects=True) as client:
         results = await asyncio.gather(*[_fetch_one(client, st) for st in _STATIONS])
 
     gauges = [g for g in results if g is not None]
     alerts = [g for g in gauges if g["severity"] in ("critical", "high")]
+    err = None if gauges else "No gauge data returned"
+    return FeedEnvelope(
+        count=len(gauges),
+        error=err,
+        updated=utc_now_iso(),
+    ).merge(
+        alerts=len(alerts),
+        gauges=gauges,
+    )
 
-    payload = {
-        "count": len(gauges),
-        "alerts": len(alerts),
-        "gauges": gauges,
-        "source": "pegelonline.wsv.de",
-        "updated": datetime.now(timezone.utc).isoformat(),
-        "error": None if gauges else "No gauge data returned",
-    }
-    _cache["data"] = payload
-    _cache["ts"] = now
 
-    try:
-        import feed_registry
-        
-        # Try PostgreSQL first if configured, fallback to SQLite
-        if feed_registry.is_postgres_mode():
-            from db.database import get_db_context
-            
-            async def _write_pg():
-                async with get_db_context() as db:
-                    await feed_registry.async_write(db, "pegel", payload)
-            
-            # Run async write directly since we are in an async function
-            try:
-                await _write_pg()
-            except Exception:
-                pass  # Fallback to SQLite on error
-        else:
-            feed_registry.write_auto("pegel", payload)
-    except Exception:
-        pass
-
-    return payload
+@router.get("/pegel")
+async def get_pegel():
+    """Current levels at curated German river gauges. Cached 15 min."""
+    return await _CONNECTOR.run(_fetch_pegel_payload)
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +122,8 @@ async def pegel_history(uuid: str, hours: int = Query(24, ge=1, le=168)):
     Falls back to whichever series is configured for the station (most are W,
     a few are Q like Dresden). Caches per (uuid, hours) for 10 minutes.
     """
+    import time
+
     st = _station_by_uuid(uuid)
     if not st:
         raise HTTPException(404, f"unknown gauge uuid {uuid} — call /api/pegel first to discover ids")

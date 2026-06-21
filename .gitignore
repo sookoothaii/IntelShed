@@ -39,6 +39,7 @@ backend/data/**/*.cache
 !.env.example
 !.env.docker.example
 *.local
+credentials/
 offgrid-raspi/scripts/pi-node-token.conf
 
 # Editor / OS

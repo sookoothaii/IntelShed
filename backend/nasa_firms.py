@@ -10,7 +10,8 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import APIRouter, Query
 
-import feed_registry
+from feeds.envelope import FeedEnvelope
+from feeds.runner import FeedConnector
 from stac_bridge import REGION_PRESETS
 
 router = APIRouter(prefix="/api", tags=["firms"])
@@ -25,6 +26,7 @@ _FIRMS_SOURCES = {
 
 _firms_cache: dict = {}
 _FIRMS_TTL = 600  # 10 minutes
+_WILDFIRES_CONNECTOR = FeedConnector("wildfires", ttl_sec=_FIRMS_TTL, default_source="nasa_firms")
 _MAX_GLOBE_FIRES = 300
 _MAX_REGIONAL_GLOBE = 120
 
@@ -367,22 +369,27 @@ async def get_wildfires(
 
     if not has_filters:
         panel_fires = _combine_globe_fires(entry["regional"], entry["global"])
-        result = {
-            "count": entry["count"],
-            "regional_count": entry["regional_count"],
-            "global_count": entry["global_count"],
-            "region": entry["region"],
-            "region_label": entry["region_label"],
-            "updated": entry["updated"],
-            "fires": panel_fires,
-            "errors": entry["errors"],
-            "source": entry["source"],
-            "spatial_resolution": entry["spatial_resolution"],
-            "data_quality": entry["data_quality"],
-            "reference": reference,
-        }
-        feed_registry.write_auto("wildfires", result)
-        return result
+        err = None
+        if entry.get("errors") and entry["count"] == 0:
+            err = "; ".join(str(e) for e in entry["errors"][:3])
+        return _WILDFIRES_CONNECTOR.build(
+            FeedEnvelope(
+                count=entry["count"],
+                source=entry["source"],
+                updated=entry["updated"],
+                error=err,
+            ),
+            persist=not entry.get("errors"),
+            regional_count=entry["regional_count"],
+            global_count=entry["global_count"],
+            region=entry["region"],
+            region_label=entry["region_label"],
+            fires=panel_fires,
+            errors=entry["errors"],
+            spatial_resolution=entry["spatial_resolution"],
+            data_quality=entry["data_quality"],
+            reference=reference,
+        )
 
     page_limit = limit if limit > 0 else 50
     page, matched = filter_fires(
