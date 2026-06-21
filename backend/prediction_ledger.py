@@ -257,6 +257,75 @@ def _eval_maritime(row: sqlite3.Row, snap: dict[str, Any]) -> tuple[bool, str]:
     return False, f"corridor density eased ({count} vessels)"
 
 
+def _eval_hdx(row: sqlite3.Row, snap: dict[str, Any]) -> tuple[bool, str]:
+    datasets = (snap.get("humanitarian") or {}).get("datasets") or []
+    claim = row["claim"] or ""
+    title_hint = ""
+    if "—" in claim:
+        title_hint = claim.split("—", 1)[1].strip().lower()
+    if not title_hint and "watch" in claim.lower():
+        tail = claim.split("watch", 1)[-1].strip(" —-")
+        title_hint = tail.lower()
+    if title_hint:
+        for ds in datasets:
+            title = str(ds.get("title") or "").lower()
+            if not title:
+                continue
+            if title_hint in title or title[:60] in title_hint or title_hint[:40] in title:
+                return True, f"HDX dataset still listed ({str(ds.get('title') or '')[:60]})"
+    if len(datasets) >= 3:
+        return True, f"regional humanitarian activity persists ({len(datasets)} datasets)"
+    if datasets and not title_hint:
+        return True, f"humanitarian feed active ({len(datasets)} datasets)"
+    return False, "watched HDX dataset no longer in feed"
+
+
+def _eval_alert(row: sqlite3.Row, snap: dict[str, Any]) -> tuple[bool, str]:
+    from node_sync import _compile_alerts
+
+    claim = (row["claim"] or "").strip()
+    claim_low = claim.lower()
+    if not claim_low:
+        return False, "empty alert claim"
+    for alert in _compile_alerts(snap):
+        text = str(alert.get("text") or "")
+        text_low = text.lower()
+        if not text_low:
+            continue
+        if row["cell_id"] and not _near_point(
+            alert.get("lat"), alert.get("lon"), row["cell_id"], km=300.0
+        ):
+            continue
+        if claim_low == text_low or claim_low in text_low or text_low in claim_low:
+            sev = (alert.get("severity") or "elevated").lower()
+            return True, f"alert still active ({sev})"
+        if claim_low[:50] in text_low or text_low[:50] in claim_low:
+            return True, "matching alert still in feed"
+    if "gdacs" in claim_low:
+        n = int((snap.get("gdacs") or {}).get("count") or 0)
+        if n >= 5:
+            return True, f"GDACS feed still active ({n} alerts)"
+        return False, f"GDACS count eased ({n})"
+    if any(k in claim_low for k in ("nws", "meteoalarm", "tornado", "flood warning", "hazard")):
+        n = int((snap.get("hazards") or {}).get("count") or 0)
+        if n >= 10:
+            return True, f"hazards feed still active ({n} alerts)"
+        return False, f"hazards count eased ({n})"
+    if "earthquake" in claim_low or claim_low.startswith("m"):
+        return _eval_quake(row, snap)
+    if "kev" in claim_low or "cve-" in claim_low:
+        cves = (snap.get("cve") or {}).get("vulnerabilities") or []
+        if cves:
+            return True, f"KEV catalog still active ({len(cves)} entries)"
+        return False, "KEV feed empty"
+    if "outage" in claim_low or "ioda" in claim_low:
+        n = int((snap.get("outages") or {}).get("count") or 0)
+        if n >= 1:
+            return True, f"outage signals still present ({n})"
+        return False, "outage signals cleared"
+    return False, "alert condition no longer present"
+
+
 def _eval_fusion(
     row: sqlite3.Row,
     fusion_cells: list[dict[str, Any]] | None,
@@ -317,9 +386,10 @@ def _evaluate_row(
         return _eval_spacewx(row, snap)
     if prefix in ("maritime",) or "maritime" in sources:
         return _eval_maritime(row, snap)
-
-    if prefix in ("alert",):
-        return False, f"no outcome rule for prefix={prefix or 'unknown'}"
+    if prefix in ("hdx",) or "humanitarian" in sources:
+        return _eval_hdx(row, snap)
+    if prefix in ("alert",) or "alerts" in sources:
+        return _eval_alert(row, snap)
 
     return False, f"unsupported watch prefix={prefix or 'unknown'}"
 

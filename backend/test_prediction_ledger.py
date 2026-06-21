@@ -233,6 +233,66 @@ class PredictionLedgerTests(unittest.TestCase):
         result = pl.resolve_pending(snap, [])
         self.assertEqual(result["misses"], 1)
 
+    def test_resolve_hdx_hit(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=80)).isoformat()
+        self._insert_row(
+            issued_at=old,
+            prefix="hdx",
+            claim="Humanitarian watch — Myanmar displacement datasets",
+            sources='["humanitarian"]',
+            horizon_h=72,
+        )
+        snap = {
+            "humanitarian": {
+                "datasets": [
+                    {"title": "Myanmar displacement datasets Q2 2026"},
+                    {"title": "Thailand refugee support"},
+                    {"title": "ASEAN crisis funding"},
+                ]
+            }
+        }
+        result = pl.resolve_pending(snap, [])
+        self.assertEqual(result["hits"], 1)
+
+    def test_resolve_hdx_miss(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=80)).isoformat()
+        self._insert_row(
+            issued_at=old,
+            prefix="hdx",
+            claim="Humanitarian watch — Myanmar displacement datasets",
+            sources='["humanitarian"]',
+            horizon_h=72,
+        )
+        snap = {"humanitarian": {"datasets": [{"title": "Unrelated nutrition survey"}]}}
+        result = pl.resolve_pending(snap, [])
+        self.assertEqual(result["misses"], 1)
+
+    def test_resolve_alert_gdacs_hit(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        self._insert_row(
+            issued_at=old,
+            prefix="alert",
+            claim="25 GDACS humanitarian alerts active.",
+            sources='["alerts"]',
+            horizon_h=24,
+        )
+        snap = {"gdacs": {"count": 18, "alerts": [{}] * 18}}
+        result = pl.resolve_pending(snap, [])
+        self.assertEqual(result["hits"], 1)
+
+    def test_resolve_alert_gdacs_miss(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        self._insert_row(
+            issued_at=old,
+            prefix="alert",
+            claim="25 GDACS humanitarian alerts active.",
+            sources='["alerts"]',
+            horizon_h=24,
+        )
+        snap = {"gdacs": {"count": 2, "alerts": [{}, {}]}}
+        result = pl.resolve_pending(snap, [])
+        self.assertEqual(result["misses"], 1)
+
     def test_list_predictions_pending_and_resolved(self):
         old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
         future = datetime.now(timezone.utc).isoformat()
