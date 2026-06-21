@@ -746,6 +746,13 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
             )
     except Exception:
         pass
+    try:
+        import intel_graph_export
+
+        if intel_graph_export.enabled():
+            await asyncio.to_thread(intel_graph_export.export_operator_subgraph)
+    except Exception:
+        pass
     return {
         "created_at": now,
         "text": text,
