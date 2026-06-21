@@ -11,6 +11,7 @@ import json
 import hashlib
 import sqlite3
 import asyncio
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -78,6 +79,36 @@ SENSOR_THRESHOLDS = {
 
 _BRIEFING_LOCK = asyncio.Lock()
 _ALERT_SEVERITY = {"critical": 0, "high": 1, "warning": 2, "medium": 3, "low": 4}
+
+_SNAPSHOT_CACHE: dict | None = None
+_SNAPSHOT_CACHE_AT: float = 0.0
+_SNAPSHOT_CACHE_LOCK = asyncio.Lock()
+
+
+def _snapshot_cache_ttl_sec() -> float:
+    try:
+        return max(30.0, min(300.0, float(os.getenv("WORLDBASE_SNAPSHOT_CACHE_SEC", "90") or "90")))
+    except ValueError:
+        return 90.0
+
+
+def invalidate_snapshot_cache() -> None:
+    """Drop cached feed snapshot (tests, forced refresh)."""
+    global _SNAPSHOT_CACHE, _SNAPSHOT_CACHE_AT
+    _SNAPSHOT_CACHE = None
+    _SNAPSHOT_CACHE_AT = 0.0
+
+
+def snapshot_cache_age_sec() -> float | None:
+    """Seconds since last snapshot cache fill, or None if empty."""
+    if _SNAPSHOT_CACHE is None or not _SNAPSHOT_CACHE_AT:
+        return None
+    return max(0.0, time.monotonic() - _SNAPSHOT_CACHE_AT)
+
+
+async def warm_snapshot_cache(*, force: bool = False) -> dict:
+    """Pre-fill snapshot cache after stack warmup (shared by briefing generate)."""
+    return await _gather_snapshot(force=force)
 
 # Note: HMAC functions now imported from auth.security module
 # which provides timing-safe comparison, replay protection, and token expiration
@@ -373,7 +404,7 @@ def _gdelt_snapshot_meta(snap: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Fusion : gather feeds -> compile critical alerts
 # ---------------------------------------------------------------------------
-async def _gather_snapshot() -> dict:
+async def _gather_snapshot_uncached() -> dict:
     """Pull key feeds from our own API into one compact snapshot (parallel)."""
     snap: dict = {}
     feeds = (
@@ -417,6 +448,25 @@ async def _gather_snapshot() -> dict:
             if data is not None:
                 snap[name] = data
     return snap
+
+
+async def _gather_snapshot(*, force: bool = False) -> dict:
+    """Cached wrapper — TTL WORLDBASE_SNAPSHOT_CACHE_SEC (default 90s)."""
+    global _SNAPSHOT_CACHE, _SNAPSHOT_CACHE_AT
+    ttl = _snapshot_cache_ttl_sec()
+    async with _SNAPSHOT_CACHE_LOCK:
+        now = time.monotonic()
+        if (
+            not force
+            and _SNAPSHOT_CACHE is not None
+            and _SNAPSHOT_CACHE_AT
+            and (now - _SNAPSHOT_CACHE_AT) < ttl
+        ):
+            return _SNAPSHOT_CACHE
+        snap = await _gather_snapshot_uncached()
+        _SNAPSHOT_CACHE = snap
+        _SNAPSHOT_CACHE_AT = now
+        return snap
 
 
 def _compile_alerts(snap: dict) -> list:
@@ -595,17 +645,19 @@ async def generate_briefing(
     ``WORLDBASE_BRIEFING_LANG`` env default for this request only. Result is
     stored in SQLite; the Pi pulls it via /api/node/pull for offline display.
     Open on the LAN — local Ollama only; destructive node commands stay admin-gated.
+    Set ``force=1`` to bypass the snapshot cache (default uses TTL cache).
     """
-    return await generate_briefing_internal(lang=lang)
+    force_snap = request.query_params.get("force", "").strip().lower() in ("1", "true", "yes")
+    return await generate_briefing_internal(lang=lang, force_snapshot=force_snap)
 
 
-async def generate_briefing_internal(lang: str | None = None):
+async def generate_briefing_internal(lang: str | None = None, *, force_snapshot: bool = False):
     """Actual briefing generation logic (no auth). Used by route + autopilot."""
     async with _BRIEFING_LOCK:
-        return await _generate_briefing_unlocked(lang=lang)
+        return await _generate_briefing_unlocked(lang=lang, force_snapshot=force_snapshot)
 
 
-async def _generate_briefing_unlocked(lang: str | None = None):
+async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot: bool = False):
     import fusion_heatmap
     import intel_briefing
     from operator_briefing import (
@@ -614,7 +666,7 @@ async def _generate_briefing_unlocked(lang: str | None = None):
         format_fallback_protocol,
     )
 
-    snap = await _gather_snapshot()
+    snap = await _gather_snapshot(force=force_snapshot)
     alerts = _compile_alerts(snap)
     fusion_hotspots, fusion_lines = await fusion_heatmap.top_hotspots_for_llm(top=3)
     intel_meta = await asyncio.to_thread(intel_briefing.gather_for_briefing)
@@ -743,8 +795,10 @@ def _compress_briefing(text: str, alerts: list) -> str:
 
 
 def _pull_payload_digest(payload: dict) -> str:
-    """SHA-256 of canonical JSON (excludes content_sha256)."""
-    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    """SHA-256 of canonical JSON — excludes volatile keys and content_sha256."""
+    skip = frozenset({"content_sha256", "generated_at"})
+    base = {k: v for k, v in payload.items() if k not in skip}
+    canonical = json.dumps(base, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -761,15 +815,9 @@ async def node_pull(request: Request, mesh: bool = False, x_node_token: str = He
     """
     _verify_node_secret(x_node_token)
     brief = await latest_briefing()
+    # Alerts + fusion from last generate — avoid _gather_snapshot() (~25 feeds, ~50s).
+    alerts = brief.get("alerts") or []
     fusion_hotspots = brief.get("fusion_hotspots") or []
-    try:
-        snap = await _gather_snapshot()
-        alerts = _compile_alerts(snap)
-        if not fusion_hotspots:
-            import fusion_heatmap
-            fusion_hotspots, _ = await fusion_heatmap.top_hotspots_for_llm(top=3)
-    except Exception:
-        alerts = brief.get("alerts", [])
 
     if mesh:
         compressed = _compress_briefing(brief.get("text", ""), alerts)

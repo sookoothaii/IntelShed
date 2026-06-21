@@ -126,13 +126,20 @@ async def get_earthquakes(period: str = "day", magnitude: str = "2.5"):
             "tsunami": props.get("tsunami"),
             "url": props.get("url"),
         })
-    return {
+    result = {
         "count": len(quakes),
         "earthquakes": quakes,
         "source": "earthquake.usgs.gov",
         "stale": stale,
         "error": upstream_err,
     }
+    try:
+        import feed_registry
+
+        feed_registry.write_auto(key, result)
+    except Exception:
+        pass
+    return result
 
 
 @router.get("/api/events")

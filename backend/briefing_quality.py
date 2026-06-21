@@ -20,9 +20,14 @@ _GDELT_DIGEST_PREFIXES = (
 )
 
 
-def _gdelt_item_text(text: str) -> bool:
+def is_gdelt_digest_text(text: str) -> bool:
+    """True when digest line text came from a GDELT feed (local pulse, geo, global)."""
     low = str(text or "").lower().strip()
     return any(low.startswith(prefix) for prefix in _GDELT_DIGEST_PREFIXES)
+
+
+def _gdelt_item_text(text: str) -> bool:
+    return is_gdelt_digest_text(text)
 
 
 def count_gdelt_digest_items(items: list[dict[str, Any]] | None) -> int:

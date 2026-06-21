@@ -149,6 +149,12 @@ async def _stack_warmup() -> None:
             print(f"[WARMUP] Bangkok weather: source={pt.get('source')}", flush=True)
     except Exception as e:
         print(f"[WARMUP] Weather failed: {e}", flush=True)
+    try:
+        snap = await node_sync.warm_snapshot_cache()
+        n = sum(1 for k in snap if snap.get(k))
+        print(f"[WARMUP] Briefing snapshot cache: {n} feeds", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] Snapshot cache failed: {e}", flush=True)
 
 
 async def _entity_resolution_autopilot() -> None:

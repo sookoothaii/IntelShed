@@ -17,6 +17,13 @@ OPERATOR_REGION = os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().low
 BRIEFING_LANG = os.getenv("WORLDBASE_BRIEFING_LANG", "en").strip().lower()
 
 
+def _gdelt_local_slots() -> int:
+    try:
+        return max(0, min(3, int(os.getenv("WORLDBASE_BRIEFING_GDELT_LOCAL_SLOTS", "2") or "2")))
+    except ValueError:
+        return 2
+
+
 def _resolve_lang(lang: str | None) -> str:
     """Override env BRIEFING_LANG when caller passes 'de' or 'en' explicitly."""
     if not lang:
@@ -283,22 +290,48 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     return items
 
 
-def _sort_bucket(lines: list[dict], limit: int = 6) -> list[str]:
-    ranked = sorted(
-        lines,
-        key=lambda x: (_SEVERITY_RANK.get(x.get("severity"), 9), x.get("text", "")),
-    )
+def _severity_key(item: dict) -> tuple[int, str]:
+    return (_SEVERITY_RANK.get(item.get("severity"), 9), item.get("text", ""))
+
+
+def _sort_bucket(lines: list[dict], limit: int = 6, *, gdelt_reserve: int = 0) -> list[str]:
+    """Rank by severity; optionally reserve slots for GDELT so LOCAL media heat survives cap."""
+    from briefing_quality import is_gdelt_digest_text
+
     out: list[str] = []
     seen: set[str] = set()
-    for item in ranked:
+
+    def _append_item(item: dict) -> bool:
         t = item.get("text", "")
         key = t[:80].lower()
         if not t or key in seen:
-            continue
+            return False
         seen.add(key)
         out.append(f"- {t}")
+        return True
+
+    picked: list[dict] = []
+    if gdelt_reserve > 0:
+        gdelt_ranked = sorted(
+            (x for x in lines if is_gdelt_digest_text(x.get("text", ""))),
+            key=_severity_key,
+        )
+        for item in gdelt_ranked:
+            if len(picked) >= gdelt_reserve:
+                break
+            if _append_item(item):
+                picked.append(item)
+            if len(out) >= limit:
+                return out
+
+    remaining = sorted(
+        (x for x in lines if x not in picked),
+        key=_severity_key,
+    )
+    for item in remaining:
         if len(out) >= limit:
             break
+        _append_item(item)
     return out
 
 
@@ -332,7 +365,7 @@ def format_digest_sections(
     for item in items:
         buckets.setdefault(item["bucket"], []).append(item)
 
-    local_lines = _sort_bucket(buckets["local"], 6)
+    local_lines = _sort_bucket(buckets["local"], 6, gdelt_reserve=_gdelt_local_slots())
     regional_lines = _sort_bucket(buckets["regional"], 6)
     global_lines = _sort_bucket(buckets["global"], 8)
 

@@ -4,7 +4,7 @@
 #
 # Usage:
 #   .\scripts\deploy-pi-sync.ps1              # push + pull scripts
-#   .\scripts\deploy-pi-sync.ps1 -Portal      # also offgrid-portal
+#   .\scripts\deploy-pi-sync.ps1 -Portal      # offgrid-portal + portal_ui.html + 120s pull
 #   .\scripts\deploy-pi-sync.ps1 -TrimArduino # remove /mnt/sdcard/.arduino15 (~7 GB)
 #   .\scripts\deploy-pi-sync.ps1 -NoClearBuffer
 
@@ -41,6 +41,7 @@ function Write-LfCopy {
 $pushSrc = Join-Path $Root 'offgrid-raspi\scripts\worldbase_push.py'
 $pullSrc = Join-Path $Root 'offgrid-raspi\scripts\worldbase_pull.py'
 $portalSrc = Join-Path $Root 'offgrid-raspi\offgrid\bin\offgrid-portal'
+$portalUiSrc = Join-Path $Root 'offgrid-raspi\offgrid\content\portal_ui.html'
 
 Write-Host "=== deploy-pi-sync -> $pi ===" -ForegroundColor Cyan
 
@@ -51,8 +52,10 @@ Write-Host 'SCP: worldbase_push.py, worldbase_pull.py' -ForegroundColor Green
 
 if ($Portal) {
     $portalLf = Write-LfCopy $portalSrc 'offgrid-portal'
-    & $scp -i $key $portalLf "${pi}:/tmp/offgrid-portal"
-    Write-Host 'SCP: offgrid-portal' -ForegroundColor Green
+    $portalUiLf = Write-LfCopy $portalUiSrc 'portal_ui.html'
+    & $scp -i $key $portalLf $portalUiLf "${pi}:/tmp/"
+    & $ssh -i $key -o BatchMode=yes $pi "mv /tmp/portal_ui.html /tmp/offgrid-portal-ui.html"
+    Write-Host 'SCP: offgrid-portal, portal_ui.html' -ForegroundColor Green
 }
 
 $trimBlock = ''
@@ -80,6 +83,12 @@ if ($Portal) {
     $portalBlock = @"
 cp /tmp/offgrid-portal $PiProject/offgrid/bin/offgrid-portal
 chmod +x $PiProject/offgrid/bin/offgrid-portal
+cp /tmp/offgrid-portal-ui.html $PiProject/offgrid/content/portal_ui.html
+sudo mkdir -p /etc/systemd/system/worldbase_pull.service.d
+cat <<'OPERATORDROP' | sudo tee /etc/systemd/system/worldbase_pull.service.d/operator-interval.conf >/dev/null
+[Service]
+Environment=WORLDBASE_PULL_INTERVAL=120
+OPERATORDROP
 "@
 }
 
@@ -93,14 +102,19 @@ sudo cp /tmp/worldbase_pull.py /usr/local/bin/worldbase_pull.py
 sudo chmod +x /usr/local/bin/worldbase_pull.py
 $portalBlock
 $clearBuffer
+if [ -f /etc/systemd/system/worldbase_pull.service.d/operator-interval.conf ]; then
+  sudo systemctl daemon-reload
+fi
 sudo systemctl restart worldbase_push worldbase_pull
 $restartPortal
 sleep 2
 echo "--- services ---"
-systemctl is-active worldbase_push worldbase_pull
+systemctl is-active worldbase_push worldbase_pull offgrid-portal
+echo "--- pull interval ---"
+systemctl show worldbase_pull -p Environment --no-pager | tr ' ' '\n' | grep PULL_INTERVAL || true
 $trimBlock
 echo "--- push log ---"
-journalctl -u worldbase_push -n 3 --no-pager
+journalctl -u worldbase_push -n 3
 "@
 
 $remote = ($remote -replace "`r`n", "`n") -replace "`r", ""

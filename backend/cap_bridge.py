@@ -210,6 +210,13 @@ async def hazards_active(limit: int = 80):
         "sources": ["nws", "meteoalarm"],
         "errors": errors or None,
         "cached_at": time.time(),
+        "source": "nws+meteoalarm",
     }
     _CACHE[key] = (time.time(), out)
+    try:
+        import feed_registry
+
+        feed_registry.write_auto("hazards", out)
+    except Exception:
+        pass
     return out

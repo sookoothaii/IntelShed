@@ -168,14 +168,14 @@ def _baseline_for_key(
 def detect_drift(feeds: dict[str, dict[str, Any]], conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
     drifting: list[dict[str, Any]] = []
     watch = set(_watch_keys())
-    for key in watch:
-        meta = feeds.get(key)
+    for watch_key in watch:
+        eff_key, meta = _resolve_watch_meta(watch_key, feeds)
         if not meta:
             continue
         current = meta.get("count")
         if current is None:
             continue
-        baseline = _baseline_for_key(conn, key, now)
+        baseline = _baseline_for_key(conn, eff_key or watch_key, now)
         if not baseline:
             continue
         prev = int(baseline["count"])
@@ -186,7 +186,8 @@ def detect_drift(feeds: dict[str, dict[str, Any]], conn: sqlite3.Connection, now
             drop_pct = round(100.0 * (1.0 - curr / prev), 1) if prev else 0.0
             drifting.append(
                 {
-                    "cache_key": key,
+                    "cache_key": watch_key,
+                    "resolved_key": eff_key,
                     "previous_count": prev,
                     "current_count": curr,
                     "drop_pct": drop_pct,
@@ -196,6 +197,19 @@ def detect_drift(feeds: dict[str, dict[str, Any]], conn: sqlite3.Connection, now
                 }
             )
     return drifting
+
+
+def _resolve_watch_meta(
+    watch_key: str, feeds: dict[str, dict[str, Any]]
+) -> tuple[str | None, dict[str, Any] | None]:
+    """Map drift watch keys to feed_cache rows (supports quakes:* alias)."""
+    if watch_key in feeds:
+        return watch_key, feeds[watch_key]
+    if watch_key == "quakes:day":
+        for key, meta in feeds.items():
+            if key.startswith("quakes:"):
+                return key, meta
+    return None, None
 
 
 def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: int = 12) -> list[dict[str, Any]]:
@@ -210,13 +224,13 @@ def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: i
 
     rows: list[dict[str, Any]] = []
     watch = _watch_keys()
-    for key in watch:
-        meta = feeds.get(key)
+    for watch_key in watch:
+        eff_key, meta = _resolve_watch_meta(watch_key, feeds)
+        spec = key_to_spec.get(watch_key)
         if not meta:
-            spec = key_to_spec.get(key)
             rows.append({
-                "cache_key": key,
-                "connector_id": key_to_connector.get(key),
+                "cache_key": watch_key,
+                "connector_id": key_to_connector.get(watch_key),
                 "connector_name": spec.name if spec else None,
                 "license": spec.license if spec else None,
                 "bridge": spec.bridge if spec else None,
@@ -226,7 +240,7 @@ def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: i
             continue
         cached_at = _parse_ts(meta.get("cached_at"))
         age_sec = round((now - cached_at).total_seconds(), 1) if cached_at else None
-        ttl = feed_ttl_sec(key)
+        ttl = feed_ttl_sec(eff_key or watch_key)
         fresh = age_sec is not None and age_sec < ttl
         err = meta.get("error")
         stale = bool(meta.get("stale"))
@@ -240,11 +254,12 @@ def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: i
             status = "aging"
         else:
             status = "stale"
-        spec = key_to_spec.get(key)
+        spec = key_to_spec.get(watch_key)
         rows.append(
             {
-                "cache_key": key,
-                "connector_id": key_to_connector.get(key),
+                "cache_key": watch_key,
+                "resolved_key": eff_key,
+                "connector_id": key_to_connector.get(watch_key),
                 "connector_name": spec.name if spec else None,
                 "license": spec.license if spec else None,
                 "bridge": spec.bridge if spec else None,

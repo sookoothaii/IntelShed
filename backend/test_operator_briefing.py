@@ -78,6 +78,30 @@ class OperatorBriefingTests(unittest.TestCase):
         self.assertIn("Humanitarian", combined)
         self.assertIn("Myanmar", combined)
 
+    def test_local_gdelt_reserved_slots_survive_severity_cap(self):
+        """GDELT local news keeps LOCAL slots even when AQ/CAMS outrank on severity."""
+        snap = {
+            "airquality": {
+                "cities": [
+                    {"city": f"City{i}", "lat": 13.75, "lon": 100.5, "pm25": 80.0}
+                    for i in range(6)
+                ],
+            },
+            "gdelt_pulse_local": {
+                "articles": [{"title": f"Thailand story {i}"} for i in range(4)],
+            },
+        }
+        digest = format_digest_sections(snap, [], "none", [])
+        gdelt_lines = [ln for ln in digest["local"] if "Local news" in ln]
+        self.assertGreaterEqual(len(gdelt_lines), 2, digest["local"])
+
+        from briefing_quality import gdelt_digest_pipeline_meta
+
+        meta = gdelt_digest_pipeline_meta(snap, digest)
+        self.assertGreaterEqual(meta["digest_gdelt_lines"], 2)
+        self.assertTrue(meta["pipeline_placed_ok"])
+        self.assertIsNone(meta["pipeline_blocker"])
+
 
 if __name__ == "__main__":
     unittest.main()

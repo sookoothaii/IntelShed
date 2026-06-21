@@ -125,6 +125,23 @@ async def run_trust_probes() -> dict[str, Any]:
     except Exception as exc:
         feed_drift = {"ok": False, "detail": str(exc)[:120], "drifting": [], "freshness": []}
 
+    briefing_pipeline: dict[str, Any] = {}
+    try:
+        from node_sync import latest_briefing
+
+        brief = await latest_briefing()
+        meta = (brief.get("quality") or {}).get("meta") or {}
+        briefing_pipeline = {
+            "gdelt_collected": meta.get("gdelt_collected"),
+            "gdelt_digest_lines": meta.get("gdelt_digest_lines"),
+            "pipeline_ok": meta.get("gdelt_pipeline_ok"),
+            "pipeline_placed_ok": meta.get("gdelt_pipeline_placed_ok"),
+            "pipeline_blocker": meta.get("gdelt_pipeline_blocker"),
+            "pipeline_yield": meta.get("gdelt_pipeline_yield"),
+        }
+    except Exception:
+        pass
+
     return {
         "time": datetime.now(timezone.utc).isoformat(),
         "score": score,
@@ -132,4 +149,5 @@ async def run_trust_probes() -> dict[str, Any]:
         "status": status,
         "probes": probes,
         "feed_drift": feed_drift,
+        "briefing_pipeline": briefing_pipeline,
     }

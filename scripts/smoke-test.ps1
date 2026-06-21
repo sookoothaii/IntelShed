@@ -23,16 +23,38 @@ function Get-WorldBaseApiKey {
 
 $WorldBaseApiKey = Get-WorldBaseApiKey
 
+function Get-NodeIngestToken {
+    $envFile = Join-Path $Root 'backend\.env'
+    if (-not (Test-Path -LiteralPath $envFile)) { return $null }
+    foreach ($line in Get-Content -LiteralPath $envFile) {
+        if ($line -match '^\s*NODE_INGEST_TOKEN\s*=\s*(.+)\s*$') {
+            $val = $Matches[1].Trim().Trim('"').Trim("'")
+            if ($val) { return $val }
+        }
+    }
+    return $null
+}
+
+$NodeIngestToken = Get-NodeIngestToken
+
 function Test-Endpoint {
     param(
         [string]$Name,
         [string]$Url,
         [scriptblock]$Assert,
         [int]$TimeoutSec = 30,
-        [switch]$Optional
+        [switch]$Optional,
+        [hashtable]$Headers = @{}
     )
     try {
-        $r = Invoke-RestMethod -Uri $Url -TimeoutSec $TimeoutSec
+        $params = @{
+            Uri        = $Url
+            TimeoutSec = $TimeoutSec
+        }
+        if ($Headers.Count -gt 0) {
+            $params['Headers'] = $Headers
+        }
+        $r = Invoke-RestMethod @params
         & $Assert $r
         Write-Host "  PASS  $Name" -ForegroundColor Green
         $script:passed++
@@ -208,6 +230,20 @@ Test-Endpoint "briefing latest" "$Backend/api/briefing" {
     param($d)
     if ($null -eq $d.text) { throw 'no text field' }
 } -TimeoutSec 15 -Optional
+
+Write-Host ""
+Write-Host '[7b] Pi node pull (cached alerts — no live snapshot)' -ForegroundColor Cyan
+if ($NodeIngestToken) {
+    $pullHeaders = @{ 'X-Node-Token' = $NodeIngestToken }
+    Test-Endpoint "node pull v2" "$Backend/api/node/pull" {
+        param($d)
+        if ($d.payload_version -ne 2) { throw "payload_version=$($d.payload_version)" }
+        if (-not $d.briefing_at) { throw 'missing briefing_at' }
+    } -TimeoutSec 10 -Optional -Headers $pullHeaders
+} else {
+    Write-Host '  WARN  node pull — NODE_INGEST_TOKEN not set in backend/.env' -ForegroundColor Yellow
+    $warn++
+}
 
 Write-Host ""
 Write-Host "[8] Frontend build" -ForegroundColor Cyan

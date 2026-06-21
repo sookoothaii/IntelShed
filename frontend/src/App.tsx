@@ -628,6 +628,40 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                     })}
                   </div>
                 )}
+                {(trust?.briefing_pipeline || briefingQuality?.meta) && (() => {
+                  const pipe = trust?.briefing_pipeline || {}
+                  const meta = briefingQuality?.meta || {}
+                  const collected = pipe.gdelt_collected ?? meta.gdelt_collected
+                  const placed = pipe.gdelt_digest_lines ?? meta.gdelt_digest_lines
+                  const blocker = pipe.pipeline_blocker ?? meta.gdelt_pipeline_blocker
+                  const placedOk = pipe.pipeline_placed_ok ?? meta.gdelt_pipeline_placed_ok
+                  const blockerHint =
+                    blocker === 'empty_feed_body'
+                      ? 'GDELT rate limit or empty body — wait for disk cache'
+                      : blocker === 'bucket_cap'
+                        ? 'LOCAL bucket full — GDELT slots env may help'
+                        : blocker || ''
+                  if (collected == null && placed == null && !blocker) return null
+                  return (
+                    <div className="analysis-row" style={{ fontSize: 11, marginTop: 8 }}>
+                      <span
+                        style={{
+                          color: placedOk === false ? '#ffd23f' : '#00e5a0',
+                          fontWeight: 'bold',
+                        }}
+                      >
+                        GDELT {collected ?? '—'}→{placed ?? '—'}
+                      </span>
+                      {blocker ? (
+                        <span style={{ color: '#ffd23f' }} title={blockerHint}>
+                          BLOCKER: {blocker}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#8fb7a9' }}>pipeline OK</span>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )}
             <div className="analysis-col">

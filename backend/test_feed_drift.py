@@ -84,6 +84,23 @@ class FeedDriftTests(unittest.TestCase):
         cve = next(r for r in rows if r["cache_key"] == "cve")
         self.assertEqual(cve["status"], "fresh")
 
+    def test_quakes_day_resolves_prefixed_cache_key(self):
+        self._seed_cache("quakes:day:2.5", 42, hours_ago=0.05)
+        with fd._conn() as conn:
+            feeds = fd._read_feed_cache(conn)
+        rows = fd.build_freshness(feeds, datetime.now(timezone.utc))
+        quakes = next(r for r in rows if r["cache_key"] == "quakes:day")
+        self.assertEqual(quakes["status"], "fresh")
+        self.assertEqual(quakes["resolved_key"], "quakes:day:2.5")
+        self.assertEqual(quakes["count"], 42)
+
+    def test_hazards_missing_when_not_in_cache(self):
+        with fd._conn() as conn:
+            feeds = fd._read_feed_cache(conn)
+        rows = fd.build_freshness(feeds, datetime.now(timezone.utc))
+        haz = next(r for r in rows if r["cache_key"] == "hazards")
+        self.assertEqual(haz["status"], "missing")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -252,6 +252,18 @@ CONNECTOR_CATALOG: dict[str, ConnectorManifest] = {
         license="HDX / UN OCHA open data",
         notes="Myanmar border, displacement, regional crises.",
     ),
+    "hazards": _c(
+        "hazards",
+        "NWS + Meteoalarm active alerts",
+        "alerts",
+        ("/api/hazards",),
+        ttl_sec=300,
+        license="US NWS + Meteoalarm open CAP feeds",
+        bridge="cap_bridge.py",
+        globe_layer="hazards",
+        cache_key="hazards",
+        notes="Weather and hazard CAP; no API key.",
+    ),
     "intel_ftm": _c(
         "intel_ftm",
         "FollowTheMoney entity graph",
