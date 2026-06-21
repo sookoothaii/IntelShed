@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Request, Depends
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Depends
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from auth.security import verify_api_key
@@ -805,6 +805,31 @@ async def latest_briefing():
         "watch_items": watch_items,
         "digest_line_meta": sources.get("digest_line_meta") or [],
     }
+
+
+@router.get("/predictions")
+async def predictions_status(
+    pending_limit: int = Query(8, ge=1, le=50),
+    resolved_limit: int = Query(5, ge=1, le=30),
+):
+    """Track 4 — pending watch outcomes and recent resolved samples."""
+    import prediction_ledger
+
+    if not prediction_ledger.autopilot_on():
+        return {
+            "enabled": False,
+            "stats": {},
+            "pending": [],
+            "resolved_recent": [],
+            "overdue_count": 0,
+            "due_next": None,
+        }
+    out = prediction_ledger.list_predictions(
+        pending_limit=pending_limit,
+        resolved_limit=resolved_limit,
+    )
+    out["enabled"] = True
+    return out
 
 
 def _compress_briefing(text: str, alerts: list) -> str:

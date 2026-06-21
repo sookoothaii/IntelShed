@@ -458,6 +458,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
         { key: 'airquality', url: '/api/airquality' },
         { key: 'gdacs', url: '/api/gdacs' },
         { key: 'briefing', url: '/api/briefing' },
+        { key: 'predictions', url: '/api/predictions' },
         { key: 'trust', url: '/api/trust' },
         { key: 'cve', url: '/api/cve?limit=15' },
         { key: 'pegel', url: '/api/pegel' },
@@ -485,6 +486,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   const digest = briefing?.digest
   const briefingQuality = briefing?.quality
   const trust = results.trust
+  const predictions = results.predictions
   const fusionHotspots = briefing?.fusion_hotspots || []
   const cveFeed = results.cve
   const quakes = (results.earthquakes?.earthquakes || []).slice(0, 15)
@@ -509,6 +511,18 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
     if (pm25 <= 35) return '#ffd23f'
     if (pm25 <= 55) return '#ff6b35'
     return '#ff2d00'
+  }
+  const formatPredDue = (iso: string | null | undefined, overdue?: boolean) => {
+    if (!iso) return '—'
+    if (overdue) return 'OVERDUE'
+    try {
+      const ms = new Date(iso).getTime() - Date.now()
+      const h = Math.round(ms / 3600000)
+      if (h <= 0) return 'due now'
+      return `${h}h left`
+    } catch {
+      return '—'
+    }
   }
   const gdacsType = (title: string) => {
     const t = (title || '').toLowerCase()
@@ -764,6 +778,51 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                           ◎
                         </button>
                       )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {predictions?.enabled && (
+                predictions.pending?.length > 0 || predictions.resolved_recent?.length > 0
+              ) && (
+                <div className="analysis-section">
+                  <h3>
+                    📊 PREDICTION LEDGER ({predictions.stats?.pending ?? 0} pending
+                    {predictions.overdue_count > 0 ? ` · ${predictions.overdue_count} overdue` : ''}
+                    {predictions.due_next ? ` · next ${formatPredDue(predictions.due_next)}` : ''})
+                  </h3>
+                  {predictions.stats?.sample_size > 0 && (
+                    <div className="analysis-row" style={{ fontSize: 10, color: '#8fb7a9' }}>
+                      30d hit rate {Math.round((predictions.stats.accuracy ?? 0) * 100)}% · n={predictions.stats.sample_size}
+                    </div>
+                  )}
+                  {predictions.pending?.slice(0, 6).map((p: any) => (
+                    <div
+                      key={p.id ?? p.watch_id}
+                      className="analysis-row"
+                      style={{ borderLeft: `3px solid ${p.overdue ? '#ffd23f' : '#7ec8ff'}` }}
+                    >
+                      <span style={{ color: p.overdue ? '#ffd23f' : '#7ec8ff', fontWeight: 'bold', minWidth: 72 }}>
+                        {formatPredDue(p.due_at, p.overdue)}
+                      </span>
+                      <span style={{ flex: 1 }}>{p.claim}</span>
+                      <span style={{ color: '#8fb7a9', fontSize: 10 }}>
+                        {(p.prefix || '—').toUpperCase()} · {p.horizon_h}h
+                      </span>
+                    </div>
+                  ))}
+                  {predictions.resolved_recent?.slice(0, 4).map((p: any) => (
+                    <div
+                      key={`r-${p.id}`}
+                      className="analysis-row"
+                      style={{ borderLeft: `3px solid ${p.hit ? '#00e5a0' : '#ff6b35'}` }}
+                    >
+                      <span style={{ color: p.hit ? '#00e5a0' : '#ff6b35', fontWeight: 'bold', minWidth: 72 }}>
+                        {p.hit ? 'HIT' : 'MISS'}
+                      </span>
+                      <span style={{ flex: 1 }} title={p.outcome || ''}>{p.claim}</span>
+                      <span style={{ color: '#8fb7a9', fontSize: 10 }}>{(p.prefix || '—').toUpperCase()}</span>
                     </div>
                   ))}
                 </div>

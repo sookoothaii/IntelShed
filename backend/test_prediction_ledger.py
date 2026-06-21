@@ -161,6 +161,25 @@ class PredictionLedgerTests(unittest.TestCase):
         self.assertEqual(q["meta"]["prediction_sample_30d"], 1)
         self.assertEqual(q["meta"]["prediction_accuracy_30d"], 1.0)
 
+    def test_list_predictions_pending_and_resolved(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        future = datetime.now(timezone.utc).isoformat()
+        self._insert_row(watch_id="resolved1", issued_at=old, prefix="gdelt")
+        self._insert_row(watch_id="pending1", issued_at=future, prefix="cams")
+        pl.resolve_pending(
+            {
+                "gdelt_pulse_local": {"articles": [{}, {}, {}, {}]},
+                "gdelt_geo_local": {"events": [{}, {}, {}]},
+            },
+            [],
+        )
+        out = pl.list_predictions(pending_limit=5, resolved_limit=5)
+        self.assertEqual(out["stats"]["pending"], 1)
+        self.assertEqual(len(out["resolved_recent"]), 1)
+        self.assertEqual(out["resolved_recent"][0]["hit"], 1)
+        self.assertEqual(len(out["pending"]), 1)
+        self.assertFalse(out["pending"][0]["overdue"])
+
 
 if __name__ == "__main__":
     unittest.main()

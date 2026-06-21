@@ -359,6 +359,92 @@ def accuracy_30d(*, window_days: int | None = None) -> dict[str, Any]:
     }
 
 
+def _serialize_row(row: sqlite3.Row) -> dict[str, Any]:
+    issued = _parse_ts(row["issued_at"])
+    horizon = int(row["horizon_h"] or 48)
+    due = (issued + timedelta(hours=horizon)) if issued else None
+    now = datetime.now(timezone.utc)
+    hit = row["hit"]
+    overdue = bool(due and now >= due and hit is None)
+    sources: list[str] = []
+    try:
+        sources = json.loads(row["sources"] or "[]")
+    except Exception:
+        sources = []
+    return {
+        "id": int(row["id"]),
+        "watch_id": row["watch_id"],
+        "prefix": row["prefix"],
+        "claim": row["claim"],
+        "issued_at": row["issued_at"],
+        "due_at": due.isoformat() if due else None,
+        "horizon_h": horizon,
+        "bucket": row["bucket"],
+        "cell_id": row["cell_id"],
+        "sources": sources,
+        "overdue": overdue,
+        "hit": hit,
+        "outcome": row["outcome"],
+        "outcome_at": row["outcome_at"],
+    }
+
+
+def list_predictions(
+    *,
+    pending_limit: int = 8,
+    resolved_limit: int = 5,
+) -> dict[str, Any]:
+    """Pending + recently resolved watch outcomes for HUD / trust."""
+    init_prediction_db()
+    stats = accuracy_30d()
+    now = datetime.now(timezone.utc)
+    pending_cap = max(1, min(int(pending_limit), 50))
+    resolved_cap = max(1, min(int(resolved_limit), 30))
+    with _conn() as conn:
+        pending_rows = conn.execute(
+            """
+            SELECT * FROM briefing_predictions
+            WHERE hit IS NULL
+            ORDER BY issued_at ASC
+            LIMIT ?
+            """,
+            (pending_cap,),
+        ).fetchall()
+        resolved_rows = conn.execute(
+            """
+            SELECT * FROM briefing_predictions
+            WHERE hit IS NOT NULL
+            ORDER BY outcome_at DESC
+            LIMIT ?
+            """,
+            (resolved_cap,),
+        ).fetchall()
+        all_pending = conn.execute(
+            """
+            SELECT issued_at, horizon_h FROM briefing_predictions
+            WHERE hit IS NULL
+            """
+        ).fetchall()
+    overdue_count = 0
+    due_next: str | None = None
+    for row in all_pending:
+        issued = _parse_ts(row["issued_at"])
+        if issued is None:
+            continue
+        due = issued + timedelta(hours=int(row["horizon_h"] or 48))
+        if now >= due:
+            overdue_count += 1
+        elif due_next is None or due < _parse_ts(due_next):
+            due_next = due.isoformat()
+    return {
+        "stats": stats,
+        "pending": [_serialize_row(r) for r in pending_rows],
+        "resolved_recent": [_serialize_row(r) for r in resolved_rows],
+        "overdue_count": overdue_count,
+        "due_next": due_next,
+    }
+
+
 def enrich_quality_meta(quality: dict[str, Any] | None) -> dict[str, Any] | None:
     """Merge live 30d ledger stats into stored briefing quality.meta."""
     if not quality:
