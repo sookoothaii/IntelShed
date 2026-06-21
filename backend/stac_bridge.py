@@ -177,6 +177,11 @@ def stac_collections():
             },
         ],
         "regions": [{"id": k, **v} for k, v in REGION_PRESETS.items()],
+        "feed_snapshots": {
+            "id": "worldbase-feeds",
+            "collection_href": "/api/stac/feeds/collection",
+            "items_href": "/api/stac/feeds/items",
+        },
     }
 
 
@@ -311,3 +316,152 @@ async def fetch_recent_thailand_items(limit: int = 6) -> list[dict]:
         return out.get("items") or []
     except Exception:
         return []
+
+
+# ---------------------------------------------------------------------------
+# STAC Items for live feed snapshots (connector registry + feed_cache)
+# ---------------------------------------------------------------------------
+_FEEDS_COLLECTION_ID = "worldbase-feeds"
+_SELF = os.getenv("WORLDBASE_SELF", "http://127.0.0.1:8002").rstrip("/")
+
+
+def _feed_item_status(meta: dict[str, Any], ttl_sec: float, now: datetime) -> str:
+    cached_at_raw = meta.get("cached_at")
+    if not cached_at_raw:
+        return "unknown"
+    try:
+        ts = datetime.fromisoformat(str(cached_at_raw).replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        age_sec = (now - ts).total_seconds()
+    except Exception:
+        return "unknown"
+    if meta.get("error"):
+        return "error"
+    if meta.get("stale"):
+        return "stale"
+    if age_sec < ttl_sec:
+        return "fresh"
+    if age_sec < ttl_sec * 2:
+        return "aging"
+    return "stale"
+
+
+def _feed_stac_item(spec, cache_meta: dict[str, Any] | None, *, now: datetime) -> dict[str, Any]:
+    from connector_registry import feed_ttl_sec
+
+    cache_key = spec.cache_key or spec.id
+    endpoint = spec.endpoints[0] if spec.endpoints else f"/api/{spec.id}"
+    meta = cache_meta or {}
+    ttl = feed_ttl_sec(cache_key)
+    status = _feed_item_status(meta, ttl, now) if cache_meta else "missing"
+    cached_at = meta.get("cached_at") or now.isoformat()
+    item_id = f"worldbase-{spec.id}"
+    return {
+        "type": "Feature",
+        "stac_version": "1.0.0",
+        "id": item_id,
+        "collection": _FEEDS_COLLECTION_ID,
+        "geometry": None,
+        "properties": {
+            "datetime": cached_at,
+            "title": spec.name,
+            "license": spec.license,
+            "worldbase:connector_id": spec.id,
+            "worldbase:cache_key": cache_key,
+            "worldbase:category": spec.category,
+            "worldbase:count": meta.get("count"),
+            "worldbase:status": status,
+            "worldbase:bridge": spec.bridge,
+            "worldbase:source": meta.get("source"),
+            "worldbase:region": list(spec.region),
+        },
+        "links": [
+            {"rel": "self", "href": f"{_SELF}/api/stac/feeds/items/{spec.id}", "type": "application/geo+json"},
+            {"rel": "collection", "href": f"{_SELF}/api/stac/feeds/collection", "type": "application/json"},
+            {"rel": "via", "href": f"{_SELF}{endpoint}", "type": "application/json"},
+        ],
+        "assets": {
+            "json": {
+                "href": f"{_SELF}{endpoint}",
+                "type": "application/json",
+                "roles": ["data"],
+                "title": spec.name,
+            }
+        },
+    }
+
+
+def build_feed_stac_items(*, connector_id: str | None = None) -> dict[str, Any]:
+    """Build a STAC ItemCollection from connector catalog + feed_cache rows."""
+    from connector_registry import CONNECTOR_CATALOG, _read_feed_cache_keys
+
+    now = datetime.now(timezone.utc)
+    cache = _read_feed_cache_keys()
+
+    items: list[dict[str, Any]] = []
+    for spec in sorted(CONNECTOR_CATALOG.values(), key=lambda s: s.id):
+        if not spec.cache_key:
+            continue
+        if connector_id and spec.id != connector_id:
+            continue
+        cache_meta = cache.get(spec.cache_key)
+        items.append(_feed_stac_item(spec, cache_meta, now=now))
+
+    return {
+        "type": "FeatureCollection",
+        "stac_version": "1.0.0",
+        "collection": _FEEDS_COLLECTION_ID,
+        "time": now.isoformat(),
+        "numberMatched": len(items),
+        "numberReturned": len(items),
+        "features": items,
+        "links": [
+            {"rel": "self", "href": f"{_SELF}/api/stac/feeds/items", "type": "application/geo+json"},
+            {"rel": "collection", "href": f"{_SELF}/api/stac/feeds/collection", "type": "application/json"},
+        ],
+    }
+
+
+@router.get("/feeds/collection")
+def stac_feeds_collection():
+    """STAC Collection describing cached WorldBase connector feed snapshots."""
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "type": "Collection",
+        "stac_version": "1.0.0",
+        "id": _FEEDS_COLLECTION_ID,
+        "title": "WorldBase live feed snapshots",
+        "description": "Synthetic STAC items pointing at WorldBase connector JSON endpoints (feed_cache overlay).",
+        "license": "proprietary",
+        "extent": {
+            "spatial": {"bbox": [[-180, -90, 180, 90]]},
+            "temporal": {"interval": [[None, now]]},
+        },
+        "links": [
+            {"rel": "self", "href": f"{_SELF}/api/stac/feeds/collection", "type": "application/json"},
+            {"rel": "items", "href": f"{_SELF}/api/stac/feeds/items", "type": "application/geo+json"},
+            {"rel": "root", "href": f"{_SELF}/api/stac/collections", "type": "application/json"},
+        ],
+    }
+
+
+@router.get("/feeds/items")
+def stac_feeds_items(connector_id: str | None = Query(None, description="Filter to one connector id")):
+    """STAC ItemCollection for connector feeds that use feed_cache."""
+    return build_feed_stac_items(connector_id=connector_id)
+
+
+@router.get("/feeds/items/{connector_id}")
+def stac_feeds_item(connector_id: str):
+    """Single STAC Item for a connector feed snapshot."""
+    from connector_registry import CONNECTOR_CATALOG
+
+    spec = CONNECTOR_CATALOG.get(connector_id)
+    if not spec or not spec.cache_key:
+        raise HTTPException(404, f"connector '{connector_id}' has no feed cache key")
+    payload = build_feed_stac_items(connector_id=connector_id)
+    feats = payload.get("features") or []
+    if not feats:
+        raise HTTPException(404, f"no STAC item for connector '{connector_id}'")
+    return feats[0]

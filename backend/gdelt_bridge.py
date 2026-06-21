@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 import time
+from typing import Annotated, Literal
 
 import httpx
 from fastapi import APIRouter, Query
@@ -14,15 +16,28 @@ from stac_bridge import REGION_PRESETS
 
 router = APIRouter(prefix="/api/gdelt", tags=["gdelt"])
 
-# GDELT DOC/GEO: one request per ~5s globally; serialize + backoff on 429.
+# GDELT DOC/GEO: one request per ~5s globally; serialize + adaptive backoff on 429.
 _GDELT_LOCK = asyncio.Lock()
 _GDELT_LAST_CALL = 0.0
 _GDELT_BACKOFF_UNTIL = 0.0
+_GDELT_CONSECUTIVE_429 = 0
 _GDELT_MIN_INTERVAL = float(os.getenv("WORLDBASE_GDELT_MIN_INTERVAL", "5.5"))
-_GDELT_BACKOFF_SEC = float(os.getenv("WORLDBASE_GDELT_BACKOFF_SEC", "45"))
+_GDELT_BACKOFF_BASE = float(os.getenv("WORLDBASE_GDELT_BACKOFF_SEC", "45"))
+_GDELT_BACKOFF_MAX = float(os.getenv("WORLDBASE_GDELT_BACKOFF_MAX_SEC", "300"))
+_GDELT_LOCAL_MAX_RETRIES = int(os.getenv("WORLDBASE_GDELT_LOCAL_RETRIES", "2"))
+_GDELT_LOCAL_RETRY_MAX_SEC = float(os.getenv("WORLDBASE_GDELT_LOCAL_RETRY_MAX_SEC", "20"))
+_GDELT_CACHE_LOCAL_SEC = int(os.getenv("WORLDBASE_GDELT_CACHE_LOCAL_SEC", "600"))
+_GDELT_CACHE_GLOBAL_SEC = int(os.getenv("WORLDBASE_GDELT_CACHE_GLOBAL_SEC", "900"))
+_GDELT_HTTP_LOCAL_SEC = float(os.getenv("WORLDBASE_GDELT_HTTP_LOCAL_SEC", "20"))
+_GDELT_HTTP_GLOBAL_SEC = float(os.getenv("WORLDBASE_GDELT_HTTP_GLOBAL_SEC", "30"))
+_GDELT_COLD_START_SEC = float(os.getenv("WORLDBASE_GDELT_COLD_START_SEC", "18"))
+
+Priority = Literal["local", "global"]
 
 _UA = {"User-Agent": "WorldBase/1.0 (civic OSINT)"}
 _CACHE: dict[str, tuple[float, dict]] = {}
+_INFLIGHT: dict[str, asyncio.Task] = {}
+_LOG = logging.getLogger(__name__)
 
 # httpx logs every request at INFO — noisy when GDELT returns 429 (handled fail-soft).
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -58,6 +73,12 @@ def _operator_region() -> str:
     return os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower()
 
 
+def _resolve_region(region: str | None) -> str:
+    if not region:
+        return _operator_region()
+    return region.strip().lower()
+
+
 def _region_bbox(region: str) -> list[float] | None:
     preset = REGION_PRESETS.get(region)
     if not preset:
@@ -70,60 +91,230 @@ def _in_bbox(lat: float, lon: float, bbox: list[float]) -> bool:
     return south <= lat <= north and west <= lon <= east
 
 
-async def _gdelt_throttle() -> str | None:
-    """Serialize GDELT HTTP calls; return error string if in backoff window."""
-    global _GDELT_LAST_CALL, _GDELT_BACKOFF_UNTIL
-    async with _GDELT_LOCK:
-        now = time.monotonic()
-        if now < _GDELT_BACKOFF_UNTIL:
-            wait = int(_GDELT_BACKOFF_UNTIL - now)
-            return f"GDELT rate limit (backoff {wait}s)"
-        gap = _GDELT_MIN_INTERVAL - (now - _GDELT_LAST_CALL)
-        if gap > 0:
-            await asyncio.sleep(gap)
-        _GDELT_LAST_CALL = time.monotonic()
-    return None
+def _backoff_seconds() -> float:
+    if _GDELT_CONSECUTIVE_429 <= 0:
+        return _GDELT_BACKOFF_BASE
+    exp = min(_GDELT_CONSECUTIVE_429 - 1, 8)
+    return min(_GDELT_BACKOFF_BASE * (1.5**exp), _GDELT_BACKOFF_MAX)
+
+
+def _in_backoff() -> bool:
+    return time.monotonic() < _GDELT_BACKOFF_UNTIL
+
+
+def _backoff_remaining_sec() -> int:
+    if not _in_backoff():
+        return 0
+    return max(1, int(_GDELT_BACKOFF_UNTIL - time.monotonic()))
 
 
 def _gdelt_rate_limited() -> None:
-    global _GDELT_BACKOFF_UNTIL
-    _GDELT_BACKOFF_UNTIL = time.monotonic() + _GDELT_BACKOFF_SEC
+    global _GDELT_BACKOFF_UNTIL, _GDELT_CONSECUTIVE_429
+    _GDELT_CONSECUTIVE_429 = min(_GDELT_CONSECUTIVE_429 + 1, 10)
+    _GDELT_BACKOFF_UNTIL = time.monotonic() + _backoff_seconds()
 
 
-async def _fetch_doc_articles(query: str, maxrecords: int = 40) -> tuple[list[dict], str | None]:
-    throttle_err = await _gdelt_throttle()
-    if throttle_err:
-        return [], throttle_err
+def _gdelt_success() -> None:
+    global _GDELT_CONSECUTIVE_429, _GDELT_BACKOFF_UNTIL
+    if _GDELT_CONSECUTIVE_429 > 0:
+        _GDELT_CONSECUTIVE_429 -= 1
+    if _GDELT_CONSECUTIVE_429 == 0:
+        _GDELT_BACKOFF_UNTIL = 0.0
+
+
+async def _gdelt_wait_retry(attempt: int) -> None:
+    # In-request spacing aligned with GDELT ~5s limit (not full backoff window).
+    base = min(6.0 * (2**attempt), 30.0)
+    jitter = random.uniform(0, base * 0.15)
+    await asyncio.sleep(base + jitter)
+
+
+async def _gdelt_throttle(*, priority: Priority = "global") -> str | None:
+    """Serialize GDELT HTTP calls. Local priority waits out backoff; global skips."""
+    global _GDELT_LAST_CALL
+
+    while True:
+        now = time.monotonic()
+        if now < _GDELT_BACKOFF_UNTIL:
+            if priority == "global":
+                return f"GDELT rate limit (backoff {_backoff_remaining_sec()}s)"
+            await asyncio.sleep(min(_GDELT_BACKOFF_UNTIL - now, 30.0))
+            continue
+
+        async with _GDELT_LOCK:
+            now = time.monotonic()
+            gap = _GDELT_MIN_INTERVAL - (now - _GDELT_LAST_CALL)
+            if gap <= 0:
+                _GDELT_LAST_CALL = time.monotonic()
+                return None
+
+        await asyncio.sleep(gap)
+
+
+def _cache_fresh(key: str, ttl_sec: int) -> dict | None:
+    cached = _CACHE.get(key)
+    if cached and (time.time() - cached[0]) < ttl_sec:
+        return cached[1]
+    return None
+
+
+def _cache_any(key: str) -> dict | None:
+    cached = _CACHE.get(key)
+    return cached[1] if cached else None
+
+
+def _stale_response(key: str, *, error: str | None = None, extra: dict | None = None) -> dict | None:
+    stale = _CACHE.get(key)
+    if not stale:
+        return None
+    out = stale[1].copy()
+    out["stale"] = True
+    if error:
+        out["error"] = error
+    if extra:
+        out.update(extra)
+    return out
+
+
+def _http_timeout(priority: Priority, *, geo: bool = False) -> float:
+    if priority == "local":
+        return _GDELT_HTTP_LOCAL_SEC + (5.0 if geo else 0.0)
+    return _GDELT_HTTP_GLOBAL_SEC + (10.0 if geo else 0.0)
+
+
+async def _single_flight(key: str, factory):
+    task = _INFLIGHT.get(key)
+    if task is not None and not task.done():
+        return await asyncio.shield(task)
+    task = asyncio.create_task(factory())
+    _INFLIGHT[key] = task
     try:
-        async with httpx.AsyncClient(timeout=45.0, headers=_UA) as client:
-            r = await client.get(
-                "https://api.gdeltproject.org/api/v2/doc/doc",
-                params={
-                    "query": query,
-                    "mode": "ArtList",
-                    "maxrecords": maxrecords,
-                    "format": "json",
-                },
-            )
-            if r.status_code == 429:
-                _gdelt_rate_limited()
-                return [], "GDELT rate limit (retry in ~5s)"
-            r.raise_for_status()
-            data = r.json()
-    except Exception as e:
-        return [], str(e)
+        return await task
+    finally:
+        if _INFLIGHT.get(key) is task:
+            _INFLIGHT.pop(key, None)
 
-    articles = []
-    for art in data.get("articles") or []:
-        articles.append({
-            "title": art.get("title"),
-            "url": art.get("url"),
-            "seendate": art.get("seendate"),
-            "domain": art.get("domain"),
-            "language": art.get("language"),
-            "sourcecountry": art.get("sourcecountry"),
-        })
-    return articles, None
+
+def _kick_refresh(key: str, factory) -> None:
+    task = _INFLIGHT.get(key)
+    if task is not None and not task.done():
+        return
+
+    async def _run():
+        try:
+            await factory()
+        except Exception:
+            _LOG.debug("GDELT background refresh failed for %s", key, exc_info=True)
+
+    task = asyncio.create_task(_run())
+    _INFLIGHT[key] = task
+
+    def _done(done_task: asyncio.Task) -> None:
+        if _INFLIGHT.get(key) is done_task:
+            _INFLIGHT.pop(key, None)
+
+    task.add_done_callback(_done)
+
+
+async def _cold_start_or_swr(
+    key: str,
+    *,
+    reg: str,
+    query: str,
+    refresh: bool,
+    refresh_factory,
+    empty: dict,
+) -> dict:
+    cached = _cache_any(key)
+    if not refresh:
+        if cached:
+            out = cached.copy()
+            out["stale"] = True
+            return out
+        return empty
+
+    if cached:
+        out = cached.copy()
+        out["stale"] = True
+        _kick_refresh(key, refresh_factory)
+        return out
+
+    async def _cold_fetch():
+        try:
+            return await asyncio.wait_for(refresh_factory(), timeout=_GDELT_COLD_START_SEC)
+        except asyncio.TimeoutError:
+            _kick_refresh(key, refresh_factory)
+            warming = empty.copy()
+            warming["warming"] = True
+            warming["error"] = "GDELT fetch slow; warming cache in background"
+            return warming
+
+    return await _single_flight(key, _cold_fetch)
+
+
+async def _fetch_doc_articles(
+    query: str,
+    maxrecords: int = 40,
+    *,
+    priority: Priority = "global",
+) -> tuple[list[dict], str | None]:
+    max_retries = _GDELT_LOCAL_MAX_RETRIES if priority == "local" else 1
+    last_err: str | None = None
+    retry_started = time.monotonic()
+
+    for attempt in range(max_retries):
+        if priority == "local" and (time.monotonic() - retry_started) > _GDELT_LOCAL_RETRY_MAX_SEC:
+            return [], last_err or "GDELT local retry budget exceeded"
+
+        throttle_err = await _gdelt_throttle(priority=priority)
+        if throttle_err:
+            last_err = throttle_err
+            if priority == "local" and attempt < max_retries - 1:
+                await _gdelt_wait_retry(attempt)
+                continue
+            return [], last_err
+
+        try:
+            async with httpx.AsyncClient(timeout=_http_timeout(priority), headers=_UA) as client:
+                r = await client.get(
+                    "https://api.gdeltproject.org/api/v2/doc/doc",
+                    params={
+                        "query": query,
+                        "mode": "ArtList",
+                        "maxrecords": maxrecords,
+                        "format": "json",
+                    },
+                )
+                if r.status_code == 429:
+                    _gdelt_rate_limited()
+                    last_err = f"GDELT rate limit (backoff {_backoff_remaining_sec()}s)"
+                    if priority == "local" and attempt < max_retries - 1:
+                        await _gdelt_wait_retry(attempt)
+                        continue
+                    return [], last_err
+                r.raise_for_status()
+                data = r.json()
+        except Exception as e:
+            last_err = str(e)
+            if priority == "local" and attempt < max_retries - 1:
+                await _gdelt_wait_retry(attempt)
+                continue
+            return [], last_err
+
+        articles = []
+        for art in data.get("articles") or []:
+            articles.append({
+                "title": art.get("title"),
+                "url": art.get("url"),
+                "seendate": art.get("seendate"),
+                "domain": art.get("domain"),
+                "language": art.get("language"),
+                "sourcecountry": art.get("sourcecountry"),
+            })
+        _gdelt_success()
+        return articles, None
+
+    return [], last_err
 
 
 async def _fetch_geo_events(
@@ -131,73 +322,104 @@ async def _fetch_geo_events(
     timespan: str,
     maxrecords: int,
     bbox: list[float] | None = None,
+    *,
+    priority: Priority = "global",
 ) -> tuple[list[dict], str | None]:
-    throttle_err = await _gdelt_throttle()
-    if throttle_err:
-        return [], throttle_err
-    try:
-        async with httpx.AsyncClient(timeout=60.0, headers=_UA) as client:
-            r = await client.get(
-                "https://api.gdeltproject.org/api/v2/geo/geo",
-                params={
-                    "query": query,
-                    "mode": "PointData",
-                    "format": "GeoJSON",
-                    "timespan": timespan,
-                    "maxrecords": min(maxrecords, 120),
-                },
-            )
-            if r.status_code == 429:
-                _gdelt_rate_limited()
-                return [], "GDELT rate limit"
-            r.raise_for_status()
-            gj = r.json()
-    except Exception as e:
-        return [], str(e)
+    max_retries = _GDELT_LOCAL_MAX_RETRIES if priority == "local" else 1
+    last_err: str | None = None
+    retry_started = time.monotonic()
 
-    events = []
-    for f in gj.get("features") or []:
-        props = f.get("properties") or {}
-        geom = f.get("geometry") or {}
-        coords = geom.get("coordinates") or [None, None]
-        lon, lat = coords[0], coords[1]
-        if lat is None or lon is None:
-            continue
-        lat_f, lon_f = float(lat), float(lon)
-        if bbox and not _in_bbox(lat_f, lon_f, bbox):
-            continue
-        events.append({
-            "name": (props.get("name") or props.get("html") or "")[:200],
-            "url": props.get("url") or props.get("shareimage"),
-            "count": props.get("count"),
-            "lat": lat_f,
-            "lon": lon_f,
-            "date": props.get("date"),
-        })
-    return events, None
+    for attempt in range(max_retries):
+        if priority == "local" and (time.monotonic() - retry_started) > _GDELT_LOCAL_RETRY_MAX_SEC:
+            return [], last_err or "GDELT local retry budget exceeded"
+
+        throttle_err = await _gdelt_throttle(priority=priority)
+        if throttle_err:
+            last_err = throttle_err
+            if priority == "local" and attempt < max_retries - 1:
+                await _gdelt_wait_retry(attempt)
+                continue
+            return [], last_err
+
+        try:
+            async with httpx.AsyncClient(timeout=_http_timeout(priority, geo=True), headers=_UA) as client:
+                r = await client.get(
+                    "https://api.gdeltproject.org/api/v2/geo/geo",
+                    params={
+                        "query": query,
+                        "mode": "PointData",
+                        "format": "GeoJSON",
+                        "timespan": timespan,
+                        "maxrecords": min(maxrecords, 120),
+                    },
+                )
+                if r.status_code == 429:
+                    _gdelt_rate_limited()
+                    last_err = f"GDELT rate limit (backoff {_backoff_remaining_sec()}s)"
+                    if priority == "local" and attempt < max_retries - 1:
+                        await _gdelt_wait_retry(attempt)
+                        continue
+                    return [], last_err
+                r.raise_for_status()
+                gj = r.json()
+        except Exception as e:
+            last_err = str(e)
+            if priority == "local" and attempt < max_retries - 1:
+                await _gdelt_wait_retry(attempt)
+                continue
+            return [], last_err
+
+        events = []
+        for f in gj.get("features") or []:
+            props = f.get("properties") or {}
+            geom = f.get("geometry") or {}
+            coords = geom.get("coordinates") or [None, None]
+            lon, lat = coords[0], coords[1]
+            if lat is None or lon is None:
+                continue
+            lat_f, lon_f = float(lat), float(lon)
+            if bbox and not _in_bbox(lat_f, lon_f, bbox):
+                continue
+            events.append({
+                "name": (props.get("name") or props.get("html") or "")[:200],
+                "url": props.get("url") or props.get("shareimage"),
+                "count": props.get("count"),
+                "lat": lat_f,
+                "lon": lon_f,
+                "date": props.get("date"),
+            })
+        _gdelt_success()
+        return events, None
+
+    return [], last_err
 
 
 @router.get("/pulse")
 async def gdelt_pulse():
     """
     Recent global news themes with source countries (GDELT DOC 2.0).
-    Cached 10 minutes to stay under GDELT rate limits.
+    Cached 15 minutes to stay under GDELT rate limits.
     """
     key = "pulse"
-    cached = _CACHE.get(key)
-    if cached and (time.time() - cached[0]) < 600:
-        return cached[1]
+    fresh = _cache_fresh(key, _GDELT_CACHE_GLOBAL_SEC)
+    if fresh:
+        return fresh
 
-    slot = int(time.time() // 600) % len(_QUERIES)
-    query = _QUERIES[slot]
-    articles, err = await _fetch_doc_articles(query, maxrecords=40)
-    if err and not articles:
-        stale = _CACHE.get(key)
+    if _in_backoff():
+        stale = _stale_response(
+            key,
+            error=f"GDELT rate limit (backoff {_backoff_remaining_sec()}s)",
+        )
         if stale:
-            out = stale[1].copy()
-            out["stale"] = True
-            out["error"] = err
-            return out
+            return stale
+
+    slot = int(time.time() // _GDELT_CACHE_GLOBAL_SEC) % len(_QUERIES)
+    query = _QUERIES[slot]
+    articles, err = await _fetch_doc_articles(query, maxrecords=40, priority="global")
+    if err and not articles:
+        stale = _stale_response(key, error=err)
+        if stale:
+            return stale
         return {"count": 0, "articles": [], "query": query, "error": err}
 
     out = {
@@ -214,27 +436,14 @@ async def gdelt_pulse():
     return out
 
 
-@router.get("/pulse/local")
-async def gdelt_pulse_local(region: str | None = Query(None, description="Operator region preset")):
-    """
-    Headlines scoped to the operator home region (for briefing LOCAL block).
-    Cached 10 minutes. Uses WORLDBASE_OPERATOR_REGION when region is omitted.
-    """
-    reg = (region or _operator_region()).lower()
+async def _refresh_pulse_local(reg: str) -> dict:
     query = _REGION_DOC_QUERIES.get(reg) or f"({reg.replace('_', ' ')})"
     key = f"pulse:local:{reg}"
-    cached = _CACHE.get(key)
-    if cached and (time.time() - cached[0]) < 600:
-        return cached[1]
-
-    articles, err = await _fetch_doc_articles(query, maxrecords=25)
+    articles, err = await _fetch_doc_articles(query, maxrecords=25, priority="local")
     if err and not articles:
-        stale = _CACHE.get(key)
+        stale = _stale_response(key, error=err, extra={"region": reg, "query": query})
         if stale:
-            out = stale[1].copy()
-            out["stale"] = True
-            out["error"] = err
-            return out
+            return stale
         return {
             "count": 0,
             "articles": [],
@@ -258,6 +467,68 @@ async def gdelt_pulse_local(region: str | None = Query(None, description="Operat
     return out
 
 
+async def gdelt_pulse_local_data(
+    region: str | None = None,
+    *,
+    refresh: bool = True,
+) -> dict:
+    """
+    Region-scoped GDELT DOC pulse. Set refresh=False for fast trust probes (cache only).
+    """
+    reg = _resolve_region(region)
+    query = _REGION_DOC_QUERIES.get(reg) or f"({reg.replace('_', ' ')})"
+    key = f"pulse:local:{reg}"
+    fresh = _cache_fresh(key, _GDELT_CACHE_LOCAL_SEC)
+    if fresh:
+        return fresh
+
+    backoff_err = f"GDELT rate limit (backoff {_backoff_remaining_sec()}s)"
+    if _in_backoff():
+        stale = _stale_response(key, error=backoff_err, extra={"region": reg, "query": query})
+        if stale:
+            return stale
+        cached = _cache_any(key)
+        if cached:
+            out = cached.copy()
+            out["stale"] = True
+            out["error"] = backoff_err
+            return out
+        return {
+            "count": 0,
+            "articles": [],
+            "query": query,
+            "region": reg,
+            "error": backoff_err,
+        }
+
+    empty = {
+        "count": 0,
+        "articles": [],
+        "query": query,
+        "region": reg,
+        "error": "no cached local pulse yet",
+    }
+    return await _cold_start_or_swr(
+        key,
+        reg=reg,
+        query=query,
+        refresh=refresh,
+        refresh_factory=lambda: _refresh_pulse_local(reg),
+        empty=empty,
+    )
+
+
+@router.get("/pulse/local")
+async def gdelt_pulse_local(
+    region: Annotated[str | None, Query(description="Operator region preset")] = None,
+):
+    """
+    Headlines scoped to the operator home region (for briefing LOCAL block).
+    Cached 10 minutes. Uses WORLDBASE_OPERATOR_REGION when region is omitted.
+    """
+    return await gdelt_pulse_local_data(region, refresh=True)
+
+
 @router.get("/geo")
 async def gdelt_geo(timespan: str = "1d", maxrecords: int = 60):
     """
@@ -265,19 +536,26 @@ async def gdelt_geo(timespan: str = "1d", maxrecords: int = 60):
     Cached 15 minutes. No API key.
     """
     key = f"geo:{timespan}"
-    cached = _CACHE.get(key)
-    if cached and (time.time() - cached[0]) < 900:
-        return cached[1]
+    fresh = _cache_fresh(key, _GDELT_CACHE_GLOBAL_SEC)
+    if fresh:
+        return fresh
+
+    if _in_backoff():
+        stale = _stale_response(
+            key,
+            error=f"GDELT rate limit (backoff {_backoff_remaining_sec()}s)",
+        )
+        if stale:
+            return stale
 
     query = "(conflict OR protest OR earthquake OR flood OR explosion)"
-    bbox = None
-    events, err = await _fetch_geo_events(query, timespan, maxrecords, bbox)
+    events, err = await _fetch_geo_events(
+        query, timespan, maxrecords, None, priority="global"
+    )
     if err and not events:
-        stale = _CACHE.get(key)
+        stale = _stale_response(key, error=err)
         if stale:
-            out = stale[1].copy()
-            out["stale"] = True
-            return out
+            return stale
         return {"count": 0, "events": [], "error": err}
 
     out = {
@@ -294,31 +572,21 @@ async def gdelt_geo(timespan: str = "1d", maxrecords: int = 60):
     return out
 
 
-@router.get("/geo/local")
-async def gdelt_geo_local(
-    region: str | None = Query(None),
-    timespan: str = "1d",
-    maxrecords: int = 50,
-):
-    """
-    GDELT GEO points filtered to the operator region bbox.
-    Cached 15 minutes. For briefing LOCAL / REGION buckets.
-    """
-    reg = (region or _operator_region()).lower()
+async def _refresh_geo_local(reg: str, timespan: str, maxrecords: int) -> dict:
     bbox = _region_bbox(reg)
     query = _REGION_GEO_QUERIES.get(reg) or "(conflict OR protest OR earthquake OR flood)"
     key = f"geo:local:{reg}:{timespan}"
-    cached = _CACHE.get(key)
-    if cached and (time.time() - cached[0]) < 900:
-        return cached[1]
-
-    events, err = await _fetch_geo_events(query, timespan, maxrecords, bbox)
+    events, err = await _fetch_geo_events(
+        query, timespan, maxrecords, bbox, priority="local"
+    )
     if err and not events:
-        stale = _CACHE.get(key)
+        stale = _stale_response(
+            key,
+            error=err,
+            extra={"region": reg, "query": query, "bbox": bbox},
+        )
         if stale:
-            out = stale[1].copy()
-            out["stale"] = True
-            return out
+            return stale
         return {"count": 0, "events": [], "region": reg, "query": query, "error": err}
 
     out = {
@@ -335,3 +603,70 @@ async def gdelt_geo_local(
         out["stale"] = True
     _CACHE[key] = (time.time(), out)
     return out
+
+
+async def gdelt_geo_local_data(
+    region: str | None = None,
+    *,
+    timespan: str = "1d",
+    maxrecords: int = 50,
+    refresh: bool = True,
+) -> dict:
+    reg = _resolve_region(region)
+    bbox = _region_bbox(reg)
+    query = _REGION_GEO_QUERIES.get(reg) or "(conflict OR protest OR earthquake OR flood)"
+    key = f"geo:local:{reg}:{timespan}"
+    fresh = _cache_fresh(key, _GDELT_CACHE_LOCAL_SEC)
+    if fresh:
+        return fresh
+
+    backoff_err = f"GDELT rate limit (backoff {_backoff_remaining_sec()}s)"
+    if _in_backoff():
+        stale = _stale_response(
+            key,
+            error=backoff_err,
+            extra={"region": reg, "query": query, "bbox": bbox},
+        )
+        if stale:
+            return stale
+        cached = _cache_any(key)
+        if cached:
+            out = cached.copy()
+            out["stale"] = True
+            out["error"] = backoff_err
+            return out
+        return {"count": 0, "events": [], "region": reg, "query": query, "error": backoff_err}
+
+    empty = {
+        "count": 0,
+        "events": [],
+        "region": reg,
+        "query": query,
+        "error": "no cached geo local yet",
+    }
+    return await _cold_start_or_swr(
+        key,
+        reg=reg,
+        query=query,
+        refresh=refresh,
+        refresh_factory=lambda: _refresh_geo_local(reg, timespan, maxrecords),
+        empty=empty,
+    )
+
+
+@router.get("/geo/local")
+async def gdelt_geo_local(
+    region: Annotated[str | None, Query()] = None,
+    timespan: str = "1d",
+    maxrecords: int = 50,
+):
+    """
+    GDELT GEO points filtered to the operator region bbox.
+    Cached 10 minutes. For briefing LOCAL / REGION buckets.
+    """
+    return await gdelt_geo_local_data(
+        region,
+        timespan=timespan,
+        maxrecords=maxrecords,
+        refresh=True,
+    )

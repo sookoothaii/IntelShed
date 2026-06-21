@@ -592,7 +592,21 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                 ))}
                 {trust?.feed_drift?.freshness?.length > 0 && (
                   <div style={{ marginTop: 8, fontSize: 10, color: '#8fb7a9' }}>
-                    {trust.feed_drift.freshness.map((f: any) => (
+                    {trust.feed_drift.freshness.map((f: any) => {
+                      const label = f.connector_name || f.connector_id || f.cache_key
+                      const src = Array.isArray(f.source) ? f.source.join(', ') : f.source
+                      const tip = [
+                        f.connector_id && `id=${f.connector_id}`,
+                        f.license && `license=${f.license}`,
+                        f.bridge && `bridge=${f.bridge}`,
+                        f.endpoint && `api=${f.endpoint}`,
+                        src && `source=${src}`,
+                        `status=${f.status}`,
+                        f.count != null && `count=${f.count}`,
+                        f.age_sec != null && `age=${f.age_sec}s`,
+                        f.error && `error=${f.error}`,
+                      ].filter(Boolean).join(' · ')
+                      return (
                       <span
                         key={f.cache_key}
                         style={{
@@ -606,15 +620,12 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                                 ? '#ff6b35'
                                 : '#ffd23f',
                         }}
-                        title={
-                          f.error
-                            ? String(f.error)
-                            : `${f.cache_key} count=${f.count ?? '—'} age=${f.age_sec ?? '—'}s`
-                        }
+                        title={tip}
                       >
-                        {f.cache_key}:{f.count ?? '—'}
+                        {label}:{f.count ?? '—'}
                       </span>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>

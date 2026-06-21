@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $Root = $PSScriptRoot
+$BackendUrl = 'http://127.0.0.1:8002'
 
 function Start-LoggedPowerShell {
     param(
@@ -24,6 +25,45 @@ function Start-LoggedPowerShell {
     Write-Host "  Started: $Title" -ForegroundColor Green
 }
 
+function Stop-OldWorldBaseJobs {
+    $py = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match 'uvicorn\s+main:app' }
+    foreach ($p in $py) {
+        Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    $node = Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -match 'vite' }
+    foreach ($p in $node) {
+        Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-BackendReady {
+    try {
+        $r = Invoke-RestMethod -Uri "$BackendUrl/api/health/ping" -TimeoutSec 4
+        return ($r.status -eq 'ok')
+    } catch {
+        return $false
+    }
+}
+
+function Wait-BackendReady {
+    param(
+        [int]$MaxAttempts = 30,
+        [int]$SleepSec = 2
+    )
+    Write-Host "  Waiting for backend ($BackendUrl/api/health/ping)..." -ForegroundColor DarkGray
+    foreach ($i in 1..$MaxAttempts) {
+        if (Test-BackendReady) {
+            Write-Host "  Backend ready (${i}s)." -ForegroundColor Green
+            return $true
+        }
+        Start-Sleep -Seconds $SleepSec
+    }
+    Write-Host '  Backend not ready — check the Backend :8002 window for errors.' -ForegroundColor Yellow
+    return $false
+}
+
 Write-Host ''
 Write-Host '=====================================' -ForegroundColor Cyan
 Write-Host '  WORLDBASE' -ForegroundColor Cyan
@@ -32,8 +72,7 @@ Write-Host ''
 
 # Kill alte Prozesse
 Write-Host '[0/4] Cleaning up...' -ForegroundColor Yellow
-Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*uvicorn*main:app*' } | Stop-Process -Force -ErrorAction SilentlyContinue
-Get-Process node -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*vite*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+Stop-OldWorldBaseJobs
 Start-Sleep 2
 
 # Backend
@@ -67,9 +106,13 @@ $py = $venvPython.Replace("'", "''")
 Start-LoggedPowerShell -Title 'Backend :8002' -WorkingDirectory $backendPath -Command (
     "& '$py' -m uvicorn main:app --host $bindHost --port 8002 --reload"
 )
-Start-Sleep 3
 
-# Frontend
+$backendReady = Wait-BackendReady
+if (-not $backendReady) {
+    Write-Host '  Continuing anyway — Vite proxy will fail until backend is up.' -ForegroundColor Yellow
+}
+
+# Frontend — only after backend warm-up (avoids ECONNREFUSED on first HUD load)
 Write-Host '[2/4] Frontend...' -ForegroundColor Cyan
 $frontendPath = Join-Path $Root 'frontend'
 if (-not (Test-Path -LiteralPath (Join-Path $frontendPath 'node_modules'))) {
@@ -80,19 +123,11 @@ if (-not (Test-Path -LiteralPath (Join-Path $frontendPath 'node_modules'))) {
 }
 
 Start-LoggedPowerShell -Title 'Frontend :5176' -WorkingDirectory $frontendPath -Command 'npm run dev -- --port 5176'
-Start-Sleep 2
+Start-Sleep 3
 
 if (-not $SkipSmoke) {
-    Write-Host '[3/4] Smoke test (backend warm-up ~45s)...' -ForegroundColor Cyan
-    $ready = $false
-    foreach ($i in 1..18) {
-        try {
-            $h = Invoke-RestMethod -Uri 'http://127.0.0.1:8002/api/health' -TimeoutSec 5
-            if ($h.status -eq 'ok') { $ready = $true; break }
-        } catch { }
-        Start-Sleep 3
-    }
-    if ($ready) {
+    Write-Host '[3/4] Smoke test...' -ForegroundColor Cyan
+    if ($backendReady -or (Wait-BackendReady -MaxAttempts 5 -SleepSec 2)) {
         $smoke = Join-Path $Root 'scripts\smoke-test.ps1'
         & $smoke
         if ($LASTEXITCODE -ne 0) {
@@ -117,5 +152,6 @@ Write-Host '  http://localhost:5176' -ForegroundColor Green
 Write-Host '  http://localhost:8002/docs' -ForegroundColor Green
 Write-Host ''
 Write-Host "  Backend bind: $bindHost" -ForegroundColor DarkGray
+Write-Host '  Tip: if Vite shows proxy ECONNREFUSED, backend is still starting or reloading.' -ForegroundColor DarkGray
 Write-Host '  Security: .\scripts\pc-security-audit.ps1' -ForegroundColor DarkGray
 Write-Host ''

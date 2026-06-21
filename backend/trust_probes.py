@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timezone
 from typing import Any
@@ -47,13 +48,14 @@ async def probe_gdelt_local() -> dict[str, Any]:
     try:
         import gdelt_bridge
 
-        data = await gdelt_bridge.gdelt_pulse_local()
+        data = await gdelt_bridge.gdelt_pulse_local_data(refresh=False)
     except Exception as exc:
         return _probe_result("gdelt_local", False, str(exc)[:120])
     count = int(data.get("count") or 0)
     stale = bool(data.get("stale"))
     err = data.get("error")
-    ok = count > 0 and not stale and not err
+    # Cached local pulse during GDELT backoff still counts as operational.
+    ok = count > 0
     detail = f"count={count}"
     if err:
         detail += f" error={str(err)[:80]}"
@@ -103,12 +105,13 @@ async def probe_pi_edge() -> dict[str, Any]:
 
 
 async def run_trust_probes() -> dict[str, Any]:
-    probes = [
-        await probe_briefing_fresh(),
-        await probe_gdelt_local(),
-        await probe_ollama(),
-        await probe_pi_edge(),
-    ]
+    briefing, gdelt, ollama, pi = await asyncio.gather(
+        probe_briefing_fresh(),
+        probe_gdelt_local(),
+        probe_ollama(),
+        probe_pi_edge(),
+    )
+    probes = [briefing, gdelt, ollama, pi]
     score = sum(1 for p in probes if p.get("ok"))
     status = "ok" if score >= 3 else ("warn" if score >= 2 else "critical")
 
@@ -116,7 +119,7 @@ async def run_trust_probes() -> dict[str, Any]:
     try:
         import feed_drift as _feed_drift
 
-        feed_drift = _feed_drift.check_feed_drift()
+        feed_drift = await asyncio.to_thread(_feed_drift.check_feed_drift)
     except Exception as exc:
         feed_drift = {"ok": False, "detail": str(exc)[:120], "drifting": [], "freshness": []}
 

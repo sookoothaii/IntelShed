@@ -202,16 +202,27 @@ def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: i
     from connector_registry import CONNECTOR_CATALOG, feed_ttl_sec
 
     key_to_connector: dict[str, str] = {}
+    key_to_spec: dict[str, Any] = {}
     for cid, spec in CONNECTOR_CATALOG.items():
         if spec.cache_key:
             key_to_connector[spec.cache_key] = cid
+            key_to_spec[spec.cache_key] = spec
 
     rows: list[dict[str, Any]] = []
     watch = _watch_keys()
     for key in watch:
         meta = feeds.get(key)
         if not meta:
-            rows.append({"cache_key": key, "connector_id": key_to_connector.get(key), "status": "missing"})
+            spec = key_to_spec.get(key)
+            rows.append({
+                "cache_key": key,
+                "connector_id": key_to_connector.get(key),
+                "connector_name": spec.name if spec else None,
+                "license": spec.license if spec else None,
+                "bridge": spec.bridge if spec else None,
+                "endpoint": spec.endpoints[0] if spec and spec.endpoints else None,
+                "status": "missing",
+            })
             continue
         cached_at = _parse_ts(meta.get("cached_at"))
         age_sec = round((now - cached_at).total_seconds(), 1) if cached_at else None
@@ -229,10 +240,15 @@ def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: i
             status = "aging"
         else:
             status = "stale"
+        spec = key_to_spec.get(key)
         rows.append(
             {
                 "cache_key": key,
                 "connector_id": key_to_connector.get(key),
+                "connector_name": spec.name if spec else None,
+                "license": spec.license if spec else None,
+                "bridge": spec.bridge if spec else None,
+                "endpoint": spec.endpoints[0] if spec and spec.endpoints else None,
                 "count": meta.get("count"),
                 "age_sec": age_sec,
                 "ttl_sec": ttl,

@@ -46,11 +46,20 @@ class BriefingQualityTests(unittest.TestCase):
         self.assertTrue(q["checks"]["gdelt_present"])
         self.assertEqual(q["meta"]["gdelt_local_pulse"], 5)
 
-    def test_gdelt_stale_feed_not_counted(self):
+    def test_gdelt_stale_with_counts_still_counts(self):
         now = datetime.now(timezone.utc).isoformat()
         sources = {
             "digest": {"local_count": 1},
-            "gdelt": {"local_pulse_count": 3, "stale": True},
+            "gdelt": {"local_pulse_count": 3, "stale": True, "error": "rate limit"},
+        }
+        q = score_briefing(text="LOCAL\n- item", sources=sources, created_at=now)
+        self.assertTrue(q["checks"]["gdelt_present"])
+
+    def test_gdelt_stale_empty_not_counted(self):
+        now = datetime.now(timezone.utc).isoformat()
+        sources = {
+            "digest": {"local_count": 1},
+            "gdelt": {"local_pulse_count": 0, "geo_local_count": 0, "stale": True},
         }
         q = score_briefing(text="LOCAL\n- item", sources=sources, created_at=now)
         self.assertFalse(q["checks"]["gdelt_present"])

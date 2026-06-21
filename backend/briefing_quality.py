@@ -23,9 +23,11 @@ def _gdelt_from_feed(meta: dict[str, Any]) -> bool:
         return False
     local_pulse = int(meta.get("local_pulse_count") or 0)
     geo_local = int(meta.get("geo_local_count") or 0)
+    if local_pulse > 0 or geo_local > 0:
+        return True
     if meta.get("stale"):
         return False
-    return local_pulse > 0 or geo_local > 0
+    return False
 
 
 def _digest_lines(digest: dict[str, Any] | None, key: str) -> list[str]:

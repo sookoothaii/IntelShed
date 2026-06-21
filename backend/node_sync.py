@@ -383,6 +383,8 @@ async def _gather_snapshot() -> dict:
         ("military", "/api/military"),
         ("gdacs", "/api/gdacs"),
         ("hazards", "/api/hazards?limit=40"),
+        ("gdelt_pulse_local", "/api/gdelt/pulse/local"),
+        ("gdelt_geo_local", "/api/gdelt/geo/local?timespan=1d&maxrecords=40"),
         ("gdelt_geo", "/api/gdelt/geo?timespan=1d&maxrecords=30"),
         ("river", "/api/anomalies/river"),
         ("outages", "/api/outages?limit=20"),
@@ -390,8 +392,6 @@ async def _gather_snapshot() -> dict:
         ("cve", "/api/cve?limit=15"),
         ("nodes", "/api/nodes"),
         ("gdelt_pulse", "/api/gdelt/pulse"),
-        ("gdelt_pulse_local", "/api/gdelt/pulse/local"),
-        ("gdelt_geo_local", "/api/gdelt/geo/local?timespan=1d&maxrecords=40"),
         ("airquality", "/api/airquality"),
     )
 
