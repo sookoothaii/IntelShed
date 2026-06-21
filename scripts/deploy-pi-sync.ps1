@@ -117,6 +117,14 @@ OPERATORDROP
 $restartPortal = if ($Portal) { 'sudo systemctl restart offgrid-portal' } else { '' }
 $restartLcd = if ($Lcd) { 'sudo systemctl restart system-tiles' } else { '' }
 
+$portalVerifyBlock = ''
+if ($Portal) {
+    $portalVerifyBlock = @'
+echo "--- portal intel ---"
+curl -sf http://127.0.0.1:8093/api/status | python3 -c "import sys,json; b=json.load(sys.stdin).get('geo',{}).get('brief',{}); print('intel_node_count', b.get('intel_node_count')); print('intel_edge_count', b.get('intel_edge_count')); print('source', b.get('source'))"
+'@
+}
+
 $lcdBlock = ''
 if ($Lcd) {
     $lcdBlock = @"
@@ -126,6 +134,10 @@ cp /tmp/watch_rank.py $PiProject/offgrid/lib/watch_rank.py
 "@
 }
 
+$cacheOwnershipBlock = @'
+sudo chown user0:user0 /var/lib/offgrid/briefing_latest.json /var/lib/offgrid/pull_state.json 2>/dev/null || true
+'@
+
 $remote = @"
 set -e
 sudo cp /tmp/worldbase_push.py /usr/local/bin/worldbase_push.py
@@ -134,6 +146,7 @@ sudo cp /tmp/worldbase_pull.py /usr/local/bin/worldbase_pull.py
 sudo chmod +x /usr/local/bin/worldbase_pull.py
 $portalBlock
 $lcdBlock
+$cacheOwnershipBlock
 $clearBuffer
 if [ -f /etc/systemd/system/worldbase_pull.service.d/operator-interval.conf ]; then
   sudo systemctl daemon-reload
@@ -149,6 +162,7 @@ systemctl show worldbase_pull -p Environment --no-pager | tr ' ' '\n' | grep PUL
 $trimBlock
 echo "--- push log ---"
 journalctl -u worldbase_push --no-pager -n 3 || true
+$portalVerifyBlock
 "@
 
 $remote = ($remote -replace "`r`n", "`n") -replace "`r", ""
