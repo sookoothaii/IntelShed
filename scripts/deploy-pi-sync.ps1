@@ -120,7 +120,7 @@ echo "--- pull interval ---"
 systemctl show worldbase_pull -p Environment --no-pager | tr ' ' '\n' | grep PULL_INTERVAL || true
 $trimBlock
 echo "--- push log ---"
-journalctl -u worldbase_push --no-pager --lines=3
+journalctl -u worldbase_push --no-pager -n 3 || true
 "@
 
 $remote = ($remote -replace "`r`n", "`n") -replace "`r", ""
