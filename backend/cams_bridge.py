@@ -8,21 +8,20 @@ from __future__ import annotations
 
 import asyncio
 import os
-import time
-from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter
 
-import feed_registry
+from feeds.envelope import FeedEnvelope, utc_now_iso
+from feeds.runner import FeedConnector
 
 router = APIRouter(prefix="/api/cams", tags=["cams"])
 
 _UA = {"User-Agent": "WorldBase/1.0 (CAMS haze via Open-Meteo)"}
-_CACHE: dict[str, tuple[float, dict]] = {}
 _TTL = float(os.getenv("WORLDBASE_CAMS_CACHE_SEC", "3600"))
 _FETCH_TIMEOUT = 18.0
 _REFRESH_LOCK = asyncio.Lock()
+_CONNECTOR = FeedConnector("cams_haze", ttl_sec=_TTL, default_source="open-meteo/cams")
 
 # Thailand + ASEAN reference cities (burning season / transboundary haze)
 _HAZE_CITIES: tuple[tuple[str, float, float], ...] = (
@@ -109,46 +108,60 @@ async def fetch_haze_data() -> dict:
         "elevated_count": len(elevated),
         "cities": cities,
         "source": "open-meteo/cams",
-        "updated": datetime.now(timezone.utc).isoformat(),
+        "updated": utc_now_iso(),
     }
     if not cities:
         out["error"] = "no CAMS haze data returned"
     return out
 
 
+def _wrap_haze_payload(raw: dict, *, stale: bool = False, error: str | None = None) -> dict:
+    elevated = raw.get("elevated_count")
+    if elevated is None and raw.get("cities"):
+        elevated = sum(
+            1 for c in raw["cities"] if c.get("severity") in ("high", "medium")
+        )
+    return _CONNECTOR.build(
+        FeedEnvelope(
+            count=int(raw.get("count") or len(raw.get("cities") or [])),
+            stale=stale,
+            error=error or raw.get("error"),
+        ),
+        persist=bool(raw.get("cities")) and not stale and not error,
+        cities=raw.get("cities") or [],
+        elevated_count=elevated or 0,
+    )
+
+
 async def get_haze(*, refresh: bool = False) -> dict:
-    cache_key = "cams_haze"
     if not refresh:
-        hit = _CACHE.get(cache_key)
-        if hit and (time.time() - hit[0]) < _TTL:
-            return hit[1]
+        hit = _CONNECTOR.get_cached()
+        if hit is not None:
+            return hit
 
     async with _REFRESH_LOCK:
-        hit = _CACHE.get(cache_key)
-        if not refresh and hit and (time.time() - hit[0]) < _TTL:
-            return hit[1]
+        if not refresh:
+            hit = _CONNECTOR.get_cached()
+            if hit is not None:
+                return hit
 
-        stale = hit[1] if hit else None
+        stale_hit = _CONNECTOR.peek_memory()
         try:
-            out = await asyncio.wait_for(fetch_haze_data(), timeout=_FETCH_TIMEOUT + 4)
+            raw = await asyncio.wait_for(fetch_haze_data(), timeout=_FETCH_TIMEOUT + 4)
         except asyncio.TimeoutError:
-            if stale:
-                s = dict(stale)
-                s["stale"] = True
-                s["error"] = "upstream timeout — serving stale cache"
-                return s
-            out = {"count": 0, "cities": [], "error": "upstream timeout"}
+            if stale_hit:
+                return _wrap_haze_payload(stale_hit, stale=True, error="upstream timeout — serving stale cache")
+            return _CONNECTOR.build(
+                FeedEnvelope(count=0, error="upstream timeout"),
+                persist=False,
+                cities=[],
+            )
 
-        if out.get("cities"):
-            feed_registry.write_auto(cache_key, out)
-            _CACHE[cache_key] = (time.time(), out)
-        elif stale:
-            s = dict(stale)
-            s["stale"] = True
-            return s
-        else:
-            _CACHE[cache_key] = (time.time(), out)
-        return out
+        if raw.get("cities"):
+            return _wrap_haze_payload(raw)
+        if stale_hit:
+            return _wrap_haze_payload(stale_hit, stale=True)
+        return _wrap_haze_payload(raw)
 
 
 @router.get("/haze")

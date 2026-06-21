@@ -5,21 +5,21 @@ from __future__ import annotations
 import os
 import re
 import time
-from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter
 
 import geo_centroids
 
-import feed_registry
+from feeds.envelope import FeedEnvelope, utc_now_iso
+from feeds.runner import FeedConnector
 
 router = APIRouter(prefix="/api/outages", tags=["outages"])
 
 _UA = {"User-Agent": "WorldBase/1.0 (civic OSINT)"}
 _IODA = "https://api.ioda.inetintel.cc.gatech.edu/v2"
 _CF_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
-_CACHE: dict[str, tuple[float, dict]] = {}
+_CONNECTOR = FeedConnector("outages", ttl_sec=300.0)
 
 _ISO2_ISO3 = {
     "US": "USA", "DE": "DEU", "GB": "GBR", "UK": "GBR", "FR": "FRA", "IT": "ITA",
@@ -200,17 +200,7 @@ async def _fetch_cloudflare(
         return [], f"cloudflare: {e}"
 
 
-@router.get("")
-async def internet_outages(hours: int = 72, limit: int = 40):
-    """
-    Macro internet outages — IODA alerts/events (no key).
-    Optional Cloudflare Radar when CLOUDFLARE_API_TOKEN is set.
-    """
-    key = f"outages:{hours}"
-    cached = _CACHE.get(key)
-    if cached and (time.time() - cached[0]) < 300:
-        return cached[1]
-
+async def _fetch_outages(hours: int, limit: int) -> dict:
     notes: list[str] = []
     items: list[dict] = []
     async with httpx.AsyncClient() as client:
@@ -225,19 +215,30 @@ async def internet_outages(hours: int = 72, limit: int = 40):
             notes.append(cf_note)
 
     geocoded = sum(1 for i in items if i.get("lat") is not None)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    out = {
-        "count": len(items),
-        "geocoded": geocoded,
-        "items": items,
-        "sources": ["ioda"] + (["cloudflare"] if _CF_TOKEN else []),
-        "upstream": ["ioda.inetintel.cc.gatech.edu"] + (["cloudflare.com/radar"] if _CF_TOKEN else []),
-        "hours": hours,
-        "notes": notes or None,
-        "updated": now_iso,
-        "cached_at": now_iso,
-        "error": notes[0] if notes and not items else None,
-    }
-    _CACHE[key] = (time.time(), out)
-    feed_registry.write_auto("outages", out)
-    return out
+    now_iso = utc_now_iso()
+    return FeedEnvelope(
+        count=len(items),
+        sources=["ioda"] + (["cloudflare"] if _CF_TOKEN else []),
+        upstream=["ioda.inetintel.cc.gatech.edu"] + (["cloudflare.com/radar"] if _CF_TOKEN else []),
+        updated=now_iso,
+        cached_at=now_iso,
+        geocoded=geocoded,
+        error=notes[0] if notes and not items else None,
+    ).merge(
+        items=items,
+        hours=hours,
+        notes=notes or None,
+    )
+
+
+@router.get("")
+async def internet_outages(hours: int = 72, limit: int = 40):
+    """
+    Macro internet outages — IODA alerts/events (no key).
+    Optional Cloudflare Radar when CLOUDFLARE_API_TOKEN is set.
+    """
+    subkey = f"outages:{hours}"
+    return await _CONNECTOR.run(
+        lambda: _fetch_outages(hours, limit),
+        subkey=subkey,
+    )

@@ -7,6 +7,8 @@ Phase 2 can promote these helpers into a FeedConnector runner.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 # Fields /api/health extracts from feed_cache JSON (see main.py health builder).
@@ -96,6 +98,63 @@ def validate_feed_payload(payload: Any, *, endpoint: str = "") -> list[str]:
         violations.append(f"{prefix}updated must be str when present")
 
     return violations
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@dataclass
+class FeedEnvelope:
+    """Observability fields shared by /api/health, trust probes, and STAC feeds."""
+
+    count: int
+    source: str | None = None
+    sources: list[str] | None = None
+    upstream: list[str] | None = None
+    updated: str | None = None
+    stale: bool = False
+    error: str | None = None
+    cached_at: str | None = None
+    demo_mode: bool | None = None
+    stream_connected: bool | None = None
+    geocoded: int | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def merge(self, **fields: Any) -> dict[str, Any]:
+        """Build a contract-shaped payload dict (extra bridge fields last)."""
+        return build_feed_envelope(self, **fields)
+
+
+def build_feed_envelope(envelope: FeedEnvelope, **fields: Any) -> dict[str, Any]:
+    """Assemble a feed payload from envelope observability fields + bridge data."""
+    out: dict[str, Any] = {"count": envelope.count}
+    if envelope.source is not None:
+        out["source"] = envelope.source
+    if envelope.sources is not None:
+        out["sources"] = envelope.sources
+    if envelope.upstream is not None:
+        out["upstream"] = envelope.upstream
+    updated = envelope.updated or utc_now_iso()
+    out["updated"] = updated
+    if envelope.cached_at is not None:
+        out["cached_at"] = envelope.cached_at
+    if envelope.stale:
+        out["stale"] = True
+    if envelope.error is not None:
+        out["error"] = envelope.error
+    elif "error" not in fields:
+        out["error"] = None
+    if envelope.demo_mode is not None:
+        out["demo_mode"] = envelope.demo_mode
+    if envelope.stream_connected is not None:
+        out["stream_connected"] = envelope.stream_connected
+    if envelope.geocoded is not None:
+        out["geocoded"] = envelope.geocoded
+    if envelope.extra:
+        out.update(envelope.extra)
+    out.update(fields)
+    return out
 
 
 def validate_health_feed_row(row: Any, *, cache_key: str = "") -> list[str]:
