@@ -55,8 +55,10 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 
 | Action | Endpoint / file |
 |--------|-----------------|
-| Latest text | `GET /api/briefing` — text, `digest`, `intel`, `quality`, `fusion_hotspots` |
+| Latest text | `GET /api/briefing` — text, `digest`, `intel`, `quality`, `fusion_hotspots`, `digest_line_meta`, `watch_items` |
 | Force generate | `POST /api/briefing/generate` |
+| **Prediction ledger** | `quality.meta.prediction_accuracy_30d` / `prediction_pending` — watch outcomes after horizon; `backend/prediction_ledger.py` |
+| **FtM subgraph** | `GET /api/intel/subgraph?hops=2&bbox=` — 2-hop graph around operator bbox; briefing prompt `INTEL SUBGRAPH` block |
 | FtM → digest bridge | `backend/intel_briefing.py` |
 | Autopilot | `WORLDBASE_BRIEFING_AUTOPILOT=1`, interval `WORLDBASE_BRIEFING_INTERVAL` (default 6 h) |
 | FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
@@ -68,14 +70,14 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | **Maritime AIS** | `GET /api/maritime` — background AISstream WebSocket when `AISSTREAM_API_KEY` set (`stream_connected`, `stream_buffer` in JSON); MyShipTracking/AISHub fallback; Thailand corridor default |
 | **STAC feed snapshots** | `GET /api/stac/feeds/collection`, `GET /api/stac/feeds/items` — connector cache as STAC Items with bbox/geometry, registry links; DATA → **FEEDS** tab: STAC JSON + ⊕ fly-to |
 | **Connectors** | `GET /api/connectors` — manifest catalog + cache overlay; export via `scripts/export_connectors.py` |
-| **MCP (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — 12 tools when Agent Bus on — [`docs/MCP.md`](docs/MCP.md) |
+| **MCP (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — 13 tools when Agent Bus on — [`docs/MCP.md`](docs/MCP.md) |
 | **Agent Bus** | `POST /api/agent/publish`, `GET /api/agent/stream` — globe fly/layer when HUD open — [`docs/MCP.md`](docs/MCP.md#agent-bus) |
 | **FtM globe layer** | `GET /api/intel/entities?geolocated=1` → HUD **INTEL** toggle (`intelFt`) — [`docs/GLOBE.md`](docs/GLOBE.md#intel-ftm-globe-layer) |
 | **Docker MCP setup** | `.\scripts\setup-docker-mcp-worldbase.ps1` — fetch + database-server profile |
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_cams_bridge -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_intel_subgraph test_prediction_ledger test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_cams_bridge test_fusion_snapshots -v` in `backend/`.
 
 Live contract (opt-in, gated in smoke test §1 when `:8002` is up): `python -m unittest test_health_contract_live -v` — validates `/api/health` feed rows + curated envelope payloads (`cve`, `wildfires`, `gdacs`, …). Skips cleanly if API down.
 
@@ -103,6 +105,8 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | MCP + Agent Bus | `backend/mcp_server.py`, `backend/agent_bus.py`, [`docs/MCP.md`](docs/MCP.md) |
 | Operator digest | `backend/operator_briefing.py` |
 | FtM → 24h briefing | `backend/intel_briefing.py` |
+| FtM subgraph (Track 3) | `backend/intel_subgraph.py` — `GET /api/intel/subgraph` |
+| Prediction ledger (Track 4) | `backend/prediction_ledger.py` |
 | GDELT | `backend/gdelt_bridge.py` — adaptive backoff, region-first priority, stale-while-revalidate; local pulse persisted to `feed_cache` (`gdelt_pulse_local:{region}`) |
 | CAMS haze | `backend/cams_bridge.py` — Open-Meteo/CAMS dust + AOD for Thailand/ASEAN cities |
 | Humanitarian (HDX) | `backend/humanitarian_bridge.py` — CKAN search for Southeast Asia crises |
@@ -162,7 +166,7 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | GDELT trust 0 after cold boot | Wait ~90 s for startup warm-up or `GET /api/gdelt/pulse/local`; disk cache `gdelt_pulse_local:thailand` hydrates trust probe |
 | Pi old brief | deploy scripts + token; `brief.source` should be `worldbase-pc` |
 | INTEL ingest 503 | optional ML stack not installed — see `docs/INTEL_INGEST.md` + `backend/requirements.txt` |
-| API 500 / startup crash (DuckDB) | Only one process may open `entities.duckdb`; `ftm_store.init_store()` is fail-soft — check `GET /api/health` → `ftm.ready` |
+| API 500 / startup crash (DuckDB) | Only one process may open `entities.duckdb`; `ftm_store.init_store()` is fail-soft — check `GET /api/health` → `ftm.ready`. Do not test FtM via external CLI while stack runs. After `FATAL … invalidated`, restart backend (`.\start.ps1`). FtM read routes run on the event-loop thread (no `asyncio.to_thread`). |
 | Paths break in PS | `-LiteralPath` for `D:\MCP Mods\worldbase` |
 | Globe blank / terrain 503 | Ion CDN blip or stale Vite env — restart frontend; ellipsoid fallback in `cesiumTerrain.ts` |
 | Webcam click shows text only | Old build — card must pass `webcam` ref to `focusOn`; expect **LIVE FEED** modal with iframe |

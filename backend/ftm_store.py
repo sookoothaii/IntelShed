@@ -30,6 +30,7 @@ from typing import Any, Iterable
 
 import duckdb
 from fastapi import APIRouter, Query, Request
+from fastapi.responses import JSONResponse
 from followthemoney import model
 
 # ---------------------------------------------------------------------------
@@ -143,6 +144,45 @@ def init_store() -> bool:
         _INIT_ERROR = str(exc)
         print(f"[FTM] store unavailable: {exc}", flush=True)
         return False
+
+
+def reset_store() -> bool:
+    """Close and reopen DuckDB after a fatal/invalidated connection."""
+    global _CONN, _INIT_ERROR
+    with _LOCK:
+        if _CONN is not None:
+            try:
+                _CONN.close()
+            except Exception:
+                pass
+            _CONN = None
+        _INIT_ERROR = None
+    return init_store()
+
+
+def _is_invalidated_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return "invalidated" in msg or "fatal error" in msg
+
+
+def run_query(sql: str, params: list[Any] | tuple[Any, ...] | None = None) -> list:
+    """Run a read query on the process store connection (same thread as init_store)."""
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            if not store_ready() and not init_store():
+                raise RuntimeError(store_status().get("error") or "ftm store unavailable")
+            with _LOCK:
+                return _conn().execute(sql, list(params or ())).fetchall()
+        except Exception as exc:
+            last_exc = exc
+            if attempt == 0 and _is_invalidated_error(exc):
+                reset_store()
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -919,7 +959,7 @@ router = APIRouter(prefix="/api", tags=["intel"])
 @router.get("/intel/stats")
 async def api_intel_stats():
     try:
-        return await asyncio.to_thread(stats)
+        return stats()
     except Exception as exc:  # fail-soft
         return {"entities": 0, "statements": 0, "edges": 0, "error": str(exc)}
 
@@ -934,24 +974,52 @@ async def api_intel_entities(
     """Recent entities (compat route). Set geolocated=1 for FtM globe layer."""
     try:
         if geolocated:
-            ents = await asyncio.to_thread(
-                entities_for_briefing,
+            ents = entities_for_briefing(
                 window_hours=window_hours,
                 fetch_limit=limit,
                 exclude_schemas=["Airplane"],
                 include_same_as=False,
             )
             return {"count": len(ents), "entities": ents, "window_hours": window_hours}
-        return await asyncio.to_thread(list_entities_recent, limit, dataset)
+        return list_entities_recent(limit, dataset)
     except Exception as exc:
         return {"count": 0, "entities": [], "error": str(exc)}
+
+
+@router.get("/intel/subgraph")
+async def api_intel_subgraph(
+    bbox: str | None = Query(None, description="west,south,east,north — default operator region"),
+    hops: int = Query(2, ge=1, le=3),
+    window_hours: int = Query(24, ge=1, le=168),
+    region: str | None = Query(None, description="Operator region preset when bbox omitted"),
+):
+    """2-hop FtM subgraph seeded by geolocated entities in bbox (Track 3)."""
+    import intel_subgraph
+
+    try:
+        parsed = intel_subgraph.parse_bbox(bbox)
+        return intel_subgraph.build_subgraph(
+            bbox=parsed,
+            region=region,
+            hops=hops,
+            window_hours=window_hours,
+        )
+    except Exception as exc:
+        return {
+            "available": False,
+            "reason": str(exc)[:200],
+            "error": str(exc)[:200],
+            "nodes": [],
+            "edges": [],
+            "seeds": [],
+        }
 
 
 @router.get("/intel/graph/stats")
 async def api_intel_graph_stats():
     """Graph + store roll-up (compat alias — prefer /api/intel/stats for counts only)."""
     try:
-        return await asyncio.to_thread(graph_stats)
+        return graph_stats()
     except Exception as exc:
         return {"entities": 0, "edges": 0, "error": str(exc)}
 
@@ -980,7 +1048,10 @@ async def api_graph_overview(
 ):
     ds = [d.strip() for d in datasets.split(",") if d.strip()] if datasets else None
     sch = [s.strip() for s in schemas.split(",") if s.strip()] if schemas else None
-    return await asyncio.to_thread(graph_overview, limit, ds, sch)
+    try:
+        return graph_overview(limit, ds, sch)
+    except Exception as exc:
+        return {"found": False, "nodes": [], "edges": [], "error": str(exc)}
 
 
 @router.get("/entity/{entity_id}/graph")
@@ -989,13 +1060,19 @@ async def api_entity_graph(
     depth: int = Query(1, ge=1, le=3),
     limit: int = Query(200, ge=1, le=1000),
 ):
-    return await asyncio.to_thread(graph_view, entity_id, depth, limit)
+    try:
+        return graph_view(entity_id, depth, limit)
+    except Exception as exc:
+        return {"root": entity_id, "found": False, "nodes": [], "edges": [], "error": str(exc)}
 
 
 @router.get("/entity/{entity_id}")
 async def api_get_entity(entity_id: str):
     """Canonical FtM JSON for one entity (additive to /entity/{id}/context)."""
-    ent = await asyncio.to_thread(get_entity_full, entity_id)
+    try:
+        ent = get_entity_full(entity_id)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)[:200]}, status_code=503)
     if not ent:
         return {"id": entity_id, "found": False}
     return {**ent, "found": True}

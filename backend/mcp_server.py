@@ -345,6 +345,35 @@ async def worldbase_fusion_hotspots(top: int = 10) -> dict[str, Any]:
     return await fetch_fusion_hotspots(top=top)
 
 
+@mcp.tool(name="worldbase_intel_subgraph")
+async def worldbase_intel_subgraph(
+    hops: int = 2,
+    window_hours: int = 24,
+    bbox: str | None = None,
+    region: str | None = None,
+) -> dict[str, Any]:
+    """2-hop FtM subgraph around operator bbox (who/what links near home region)."""
+    import intel_subgraph
+
+    parsed = intel_subgraph.parse_bbox(bbox)
+    try:
+        return intel_subgraph.build_subgraph(
+            bbox=parsed,
+            region=region,
+            hops=hops,
+            window_hours=window_hours,
+        )
+    except Exception as exc:
+        return {
+            "available": False,
+            "reason": str(exc)[:200],
+            "error": str(exc)[:200],
+            "nodes": [],
+            "edges": [],
+            "seeds": [],
+        }
+
+
 @mcp.tool(name="worldbase_feed_sample")
 async def worldbase_feed_sample(feed_id: str, limit: int = 5) -> dict[str, Any]:
     """Sample rows from an allowlisted feed (cache first, then live bridge)."""

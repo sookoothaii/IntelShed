@@ -265,7 +265,18 @@ def finalize_intel_for_digest(
 
 
 def format_intel_prompt_block(intel_meta: dict[str, Any], lang: str = "en") -> str:
-    """Dedicated INTEL ENTITIES section for the LLM prompt."""
+    """Dedicated INTEL section for the LLM prompt (subgraph when enabled)."""
+    try:
+        import intel_subgraph
+
+        if intel_subgraph.subgraph_enabled() and briefing_intel_enabled():
+            window = int(intel_meta.get("window_hours") or _env_int("WORLDBASE_BRIEFING_INTEL_WINDOW_HOURS", 24))
+            sg = intel_subgraph.build_subgraph(window_hours=window)
+            if sg.get("available") and sg.get("nodes"):
+                return intel_subgraph.format_subgraph_prompt_block(sg, lang=lang)
+    except Exception:
+        pass
+
     items = intel_meta.get("items") or []
     if not items:
         if lang.startswith("de"):

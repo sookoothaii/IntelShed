@@ -4,7 +4,7 @@
 
 Transport: **Streamable HTTP** at `http://127.0.0.1:8002/api/mcp` (same host as the API).
 
-**Tool count (typical):** 7 read + 1 write (`worldbase_briefing_generate`) + 4 globe (when Agent Bus enabled) = **12 tools**.
+**Tool count (typical):** 8 read + 1 write (`worldbase_briefing_generate`) + 4 globe (when Agent Bus enabled) = **13 tools**.
 
 Globe camera control uses the **Agent Bus** when enabled — see [Agent Bus](#agent-bus) below. FtM entities on the globe (**INTEL** layer) are a separate HUD feature — see [`docs/GLOBE.md`](GLOBE.md#intel-ftm-globe-layer).
 
@@ -70,6 +70,7 @@ Omit the `headers` block when `WORLDBASE_API_KEY` is unset and the API binds to 
 | `worldbase_nodes` | Pi / edge nodes (online, GPS, sensors) |
 | `worldbase_situations` | Unified situation board (limit param, default 20) |
 | `worldbase_fusion_hotspots` | Top fusion heatmap cells |
+| `worldbase_intel_subgraph` | 2-hop FtM subgraph around operator bbox (`hops`, optional `bbox`, `window_hours`) |
 | `worldbase_feed_sample` | Allowlisted feed sample (`feed_id`, `limit`) |
 | `worldbase_feed_allowlist` | Valid `feed_id` values for feed sample |
 
