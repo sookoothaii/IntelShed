@@ -141,6 +141,9 @@ async def run_trust_probes() -> dict[str, Any]:
             "watch_count": meta.get("watch_count"),
             "corroboration_avg_local": meta.get("corroboration_avg_local"),
             "corroboration_blocker": meta.get("corroboration_blocker"),
+            "prediction_accuracy_30d": meta.get("prediction_accuracy_30d"),
+            "prediction_sample_30d": meta.get("prediction_sample_30d"),
+            "prediction_pending": meta.get("prediction_pending"),
         }
     except Exception:
         pass

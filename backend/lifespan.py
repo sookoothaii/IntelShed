@@ -173,6 +173,38 @@ async def _entity_resolution_autopilot() -> None:
         await asyncio.sleep(interval)
 
 
+async def _prediction_ledger_autopilot() -> None:
+    await asyncio.sleep(180)
+    import prediction_ledger
+
+    while True:
+        try:
+            snap = await node_sync.warm_snapshot_cache()
+            fusion_cells: list[dict] = []
+            try:
+                grid = await fusion_heatmap.fusion_heatmap(cell_deg=2.0, top=60, include_geojson=0)
+                fusion_cells = list(grid.get("cells") or [])
+            except Exception:
+                fusion_cells = []
+            result = await asyncio.to_thread(
+                prediction_ledger.resolve_pending,
+                snap,
+                fusion_cells,
+            )
+            if result.get("resolved"):
+                stats = prediction_ledger.accuracy_30d()
+                print(
+                    "[AUTOPILOT] Prediction ledger: "
+                    f"resolved={result.get('resolved')} "
+                    f"hits={result.get('hits')} misses={result.get('misses')} "
+                    f"30d={stats.get('accuracy')} n={stats.get('sample_size')}",
+                    flush=True,
+                )
+        except Exception as e:
+            print(f"[AUTOPILOT] Prediction ledger failed: {e}", flush=True)
+        await asyncio.sleep(prediction_ledger.resolve_interval_s())
+
+
 async def _briefing_autopilot() -> None:
     await asyncio.sleep(30)
     while True:
@@ -206,6 +238,9 @@ def register_lifecycle(app) -> None:
         import feed_drift
 
         feed_drift.init_drift_db()
+        import prediction_ledger
+
+        prediction_ledger.init_prediction_db()
         aircraft_trails.init_trail_db()
         from ollama_config import briefing_autopilot_on
 
@@ -219,6 +254,15 @@ def register_lifecycle(app) -> None:
             print(
                 "[AUTOPILOT] Entity resolution autopilot disabled "
                 "(WORLDBASE_ENTITY_RESOLUTION_AUTOPILOT=0)",
+                flush=True,
+            )
+        import prediction_ledger
+
+        if prediction_ledger.autopilot_on():
+            asyncio.create_task(_prediction_ledger_autopilot())
+        else:
+            print(
+                "[AUTOPILOT] Prediction ledger disabled (WORLDBASE_PREDICTION_LEDGER=0)",
                 flush=True,
             )
         asyncio.create_task(aircraft_routes.aircraft_warmup())

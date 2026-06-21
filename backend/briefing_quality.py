@@ -377,6 +377,14 @@ def score_briefing(
     corro_avg = corro_meta.get("corroboration_avg_local")
     corro_blocker = corro_meta.get("corroboration_blocker")
 
+    pred_meta: dict[str, Any] = {}
+    try:
+        import prediction_ledger
+
+        pred_meta = prediction_ledger.accuracy_30d()
+    except Exception:
+        pred_meta = {}
+
     score = (
         0.35 * coverage + 0.25 * timeliness + 0.25 * geo_relevance + 0.15 * (passed / 4.0)
     )
@@ -420,6 +428,9 @@ def score_briefing(
             "age_hours": round(age_hours, 2) if age_hours is not None else None,
             "max_age_hours": max_age_hours,
             "watch_count": len(sources.get("watch_items") or []),
+            "prediction_accuracy_30d": pred_meta.get("accuracy"),
+            "prediction_sample_30d": pred_meta.get("sample_size"),
+            "prediction_pending": pred_meta.get("pending"),
         },
     }
 

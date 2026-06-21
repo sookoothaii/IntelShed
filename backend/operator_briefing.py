@@ -57,6 +57,7 @@ def _watch_item(
 ) -> dict[str, Any]:
     item: dict[str, Any] = {
         "id": _watch_id(prefix, key),
+        "prefix": prefix,
         "title": title[:200],
         "horizon_h": max(24, min(72, int(horizon_h))),
         "confidence": round(max(0.0, min(1.0, confidence)), 3),
@@ -826,6 +827,15 @@ def _lang_instructions(lang: str | None = None) -> str:
     )
 
 
+def _prediction_calibration_line(lang: str | None = None) -> str:
+    try:
+        import prediction_ledger
+
+        return prediction_ledger.format_accuracy_line(lang=lang)
+    except Exception:
+        return "Forecast calibration: unavailable."
+
+
 def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = None) -> str:
     region = digest.get("region_label", "Thailand")
     lang = _resolve_lang(lang or digest.get("lang"))
@@ -903,6 +913,7 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
         f"REGION signals:\n" + "\n".join(digest["regional"]) + "\n\n"
         f"GLOBAL signals:\n" + "\n".join(digest["global"]) + "\n\n"
         f"{intel_prompt}\n\n"
+        f"{_prediction_calibration_line(lang=lang)}\n\n"
         f"WATCH ITEMS (monitor over stated horizon — do not invent more):\n"
         f"{format_watch_items_block(digest.get('watch_items') or [], lang=lang)}\n\n"
         f"Fusion hotspots (spatial grid):\n{digest['fusion']}\n\n"

@@ -734,6 +734,17 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         await rag_memory.ingest_briefing(text, now)
     except Exception:
         pass
+    try:
+        import prediction_ledger
+
+        if prediction_ledger.autopilot_on():
+            await asyncio.to_thread(
+                prediction_ledger.record_watch_items,
+                digest.get("watch_items") or [],
+                now,
+            )
+    except Exception:
+        pass
     return {
         "created_at": now,
         "text": text,
@@ -772,6 +783,12 @@ async def latest_briefing():
             )
         except Exception:
             quality = None
+    try:
+        import prediction_ledger
+
+        quality = prediction_ledger.enrich_quality_meta(quality)
+    except Exception:
+        pass
     return {
         "created_at": row["created_at"],
         "text": row["text"],
