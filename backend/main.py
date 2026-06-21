@@ -599,13 +599,9 @@ async def health():
                     try:
                         val = json.loads(value_json)
                         if isinstance(val, dict):
-                            meta["count"] = val.get("count")
-                            meta["source"] = val.get("source") or val.get("sources")
-                            meta["updated"] = val.get("updated")
-                            meta["error"] = val.get("error")
-                            meta["stale"] = val.get("stale")
-                            meta["demo_mode"] = val.get("demo_mode")
-                            meta["geocoded"] = val.get("geocoded") or val.get("count_mapped")
+                            from feeds.envelope import extract_health_feed_meta
+
+                            meta.update(extract_health_feed_meta(val))
                     except Exception:
                         pass
                 try:
@@ -1342,27 +1338,26 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
     Set payload['firewall'] = True to route user messages through the LLM-Security-Firewall.
     """
     from ollama_config import chat_timeout, keep_alive
+    import chat_routing
 
-    provider = payload.get("provider", "ollama")
-    model = payload.get("model", os.getenv("OLLAMA_MODEL", "qwen3:8b"))
-    use_stream = payload.get("stream", False)
-    use_tools = payload.get("use_tools", provider == "ollama")
-    force_fast = payload.get("force_fast") or bool(payload.get("entity_context"))
-    if force_fast:
-        use_tools = False
+    opts = chat_routing.resolve_chat_options(
+        payload,
+        default_model=os.getenv("OLLAMA_MODEL", "qwen3:8b"),
+    )
+    provider = opts["provider"]
+    model = opts["model"]
+    use_stream = opts["use_stream"]
+    use_tools = opts["use_tools"]
+    force_fast = opts["force_fast"]
 
     def _ollama_chat_body(model_name: str, messages: list, *, stream: bool) -> dict:
-        body: dict = {
-            "model": model_name,
-            "messages": messages,
-            "stream": stream,
-            "keep_alive": keep_alive(),
-        }
-        if "qwen3" in model_name.lower():
-            body["think"] = False
-        if force_fast:
-            body["options"] = {"num_predict": 260, "temperature": 0.4}
-        return body
+        return chat_routing.build_ollama_chat_body(
+            model_name,
+            messages,
+            stream=stream,
+            force_fast=force_fast,
+            keep_alive=keep_alive(),
+        )
 
     # ------------------------------------------------------------------
     # OLLAMA (local, default)

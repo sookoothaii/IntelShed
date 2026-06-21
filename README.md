@@ -73,7 +73,7 @@ ollama pull qwen3:8b
 ollama pull nomic-embed-text   # RAG embeddings
 ```
 
-**Verify stack:** `.\scripts\smoke-test.ps1` (30 checks — backend, feeds, trust probes, STAC feed items, Vite proxy, Ollama chat, build)
+**Verify stack:** `.\scripts\smoke-test.ps1` (31 checks — backend, feeds, trust probes, live feed envelope contract, STAC feed items, Vite proxy, Ollama chat, build)
 
 `.\start.ps1` waits for `GET /api/health/ping` before starting Vite so the HUD does not hit proxy `ECONNREFUSED` on first load. After boot, the backend runs a **feed warm-up** (~90 s): GDELT local pulse, traffic cams, maritime, CAMS haze, air quality, Bangkok weather.
 

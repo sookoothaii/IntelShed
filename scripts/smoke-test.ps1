@@ -82,6 +82,25 @@ Test-Endpoint "trust probes" "$Backend/api/trust" {
     if ($null -eq $d.feed_drift) { throw "missing feed_drift block" }
 } -TimeoutSec 20
 
+# Phase 0 safety net: live envelope contract over /api/health + curated feeds.
+Push-Location (Join-Path $Root 'backend')
+try {
+    $env:WORLDBASE_SMOKE_BASE = $Backend
+    python -m unittest test_health_contract_live 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  PASS  feed envelope contract (live)" -ForegroundColor Green
+        $passed++
+    } else {
+        Write-Host "  FAIL  feed envelope contract (live)" -ForegroundColor Red
+        $failed++
+    }
+} catch {
+    Write-Host "  FAIL  feed envelope contract (live) - $_" -ForegroundColor Red
+    $failed++
+} finally {
+    Pop-Location
+}
+
 Write-Host ""
 Write-Host "[2] Phase 2 fusion APIs" -ForegroundColor Cyan
 Test-Endpoint "stac collections" "$Backend/api/stac/collections" {
