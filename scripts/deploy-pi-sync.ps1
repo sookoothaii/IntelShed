@@ -4,12 +4,14 @@
 #
 # Usage:
 #   .\scripts\deploy-pi-sync.ps1              # push + pull scripts
-#   .\scripts\deploy-pi-sync.ps1 -Portal      # offgrid-portal + portal_ui.html + 120s pull
+#   .\scripts\deploy-pi-sync.ps1 -Portal      # offgrid-portal + portal_ui.html + watch_rank + 120s pull
+#   .\scripts\deploy-pi-sync.ps1 -Portal -Lcd # also system_tiles.py (GEOPOL LCD headline)
 #   .\scripts\deploy-pi-sync.ps1 -TrimArduino # remove /mnt/sdcard/.arduino15 (~7 GB)
 #   .\scripts\deploy-pi-sync.ps1 -NoClearBuffer
 
 param(
     [switch]$Portal,
+    [switch]$Lcd,
     [switch]$TrimArduino,
     [switch]$NoClearBuffer
 )
@@ -43,6 +45,7 @@ $pullSrc = Join-Path $Root 'offgrid-raspi\scripts\worldbase_pull.py'
 $portalSrc = Join-Path $Root 'offgrid-raspi\offgrid\bin\offgrid-portal'
 $portalUiSrc = Join-Path $Root 'offgrid-raspi\offgrid\content\portal_ui.html'
 $watchRankSrc = Join-Path $Root 'offgrid-raspi\offgrid\lib\watch_rank.py'
+$lcdSrc = Join-Path $Root 'offgrid-raspi\system_tiles.py'
 
 Write-Host "=== deploy-pi-sync -> $pi ===" -ForegroundColor Cyan
 
@@ -61,6 +64,15 @@ if ($Portal) {
     & $scp -i $key $portalLf $portalUiLf $watchRankLf "${pi}:/tmp/"
     & $ssh -i $key -o BatchMode=yes $pi "mv /tmp/portal_ui.html /tmp/offgrid-portal-ui.html"
     Write-Host 'SCP: offgrid-portal, portal_ui.html, watch_rank.py' -ForegroundColor Green
+}
+
+if ($Lcd) {
+    if (-not (Test-Path $lcdSrc)) {
+        throw "Missing source: $lcdSrc"
+    }
+    $lcdLf = Write-LfCopy $lcdSrc 'system_tiles.py'
+    & $scp -i $key $lcdLf "${pi}:/tmp/"
+    Write-Host 'SCP: system_tiles.py' -ForegroundColor Green
 }
 
 $trimBlock = ''
@@ -99,6 +111,15 @@ OPERATORDROP
 }
 
 $restartPortal = if ($Portal) { 'sudo systemctl restart offgrid-portal' } else { '' }
+$restartLcd = if ($Lcd) { 'sudo systemctl restart system-tiles' } else { '' }
+
+$lcdBlock = ''
+if ($Lcd) {
+    $lcdBlock = @"
+cp /tmp/system_tiles.py $PiProject/system_tiles.py
+chmod +x $PiProject/system_tiles.py
+"@
+}
 
 $remote = @"
 set -e
@@ -107,15 +128,17 @@ sudo chmod +x /usr/local/bin/worldbase_push.py
 sudo cp /tmp/worldbase_pull.py /usr/local/bin/worldbase_pull.py
 sudo chmod +x /usr/local/bin/worldbase_pull.py
 $portalBlock
+$lcdBlock
 $clearBuffer
 if [ -f /etc/systemd/system/worldbase_pull.service.d/operator-interval.conf ]; then
   sudo systemctl daemon-reload
 fi
 sudo systemctl restart worldbase_push worldbase_pull
 $restartPortal
+$restartLcd
 sleep 2
 echo "--- services ---"
-systemctl is-active worldbase_push worldbase_pull offgrid-portal
+systemctl is-active worldbase_push worldbase_pull offgrid-portal system-tiles
 echo "--- pull interval ---"
 systemctl show worldbase_pull -p Environment --no-pager | tr ' ' '\n' | grep PULL_INTERVAL || true
 $trimBlock
