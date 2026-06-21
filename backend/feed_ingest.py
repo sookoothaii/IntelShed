@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 import ftm_store
+import intel_proximity
 from ingest.mapping_runner import apply_mapping, list_mappings
 
 # ---------------------------------------------------------------------------
@@ -323,6 +324,20 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
         except Exception as exc:
             out["errors"] = list(out["errors"]) + [f"resolution: {exc}"]
 
+    if out["ok"]:
+        try:
+            import intel_proximity
+
+            if intel_proximity.enabled():
+                spatial = await asyncio.to_thread(
+                    intel_proximity.link_proximity_edges,
+                    window_hours=24,
+                )
+                out["spatial_edges"] = spatial
+                totals["edges"] += spatial.get("edges_added", 0)
+        except Exception as exc:
+            out["errors"] = list(out["errors"]) + [f"spatial: {exc}"]
+
     _LAST_RUN = out
     _LAST_ERROR = errors[0] if errors else None
     return out
@@ -339,6 +354,7 @@ def status() -> dict:
         "last_error": _LAST_ERROR,
         "ftm_stats": ftm_store.stats(),
         "resolve_after_feeds": resolve_after_feeds(),
+        "spatial_edges": intel_proximity.enabled(),
     }
 
 
