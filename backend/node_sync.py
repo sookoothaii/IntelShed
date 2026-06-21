@@ -699,6 +699,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
             "by_bucket": intel_src.get("by_bucket") or {},
             "window_hours": intel_src.get("window_hours"),
             "entities": intel_src.get("entities") or [],
+            "prompt_metrics": intel_src.get("prompt_metrics") or {},
         },
         "digest": {
             "region": digest.get("region"),
@@ -864,6 +865,13 @@ async def node_pull(request: Request, mesh: bool = False, x_node_token: str = He
         "digest": brief.get("digest"),
         "watch_items": brief.get("watch_items") or [],
     }
+    try:
+        import intel_graph_export
+
+        if intel_graph_export.enabled():
+            payload["intel_subgraph"] = await asyncio.to_thread(intel_graph_export.compact_for_pull)
+    except Exception:
+        payload["intel_subgraph"] = {"available": False}
     digest = _pull_payload_digest(payload)
     payload["content_sha256"] = digest
 

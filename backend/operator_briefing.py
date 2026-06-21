@@ -785,6 +785,13 @@ def format_digest_sections(
     watch_items = build_watch_items(
         snap, alerts, fusion_hotspots, fusion_deltas=fusion_deltas
     )
+    prompt_metrics: dict[str, Any] = {}
+    try:
+        import intel_briefing
+
+        prompt_metrics = intel_briefing.intel_prompt_metrics(intel_block, lang=lang)
+    except Exception:
+        pass
     return {
         "region": OPERATOR_REGION,
         "region_label": region_label,
@@ -805,6 +812,7 @@ def format_digest_sections(
             "items": intel_block.get("items") or [],
             "window_hours": intel_block.get("window_hours"),
             "error": intel_block.get("error"),
+            "prompt_metrics": prompt_metrics,
         },
         "cyber": cyber_lines,
         "infra": infra_bits,
@@ -892,7 +900,7 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
         import intel_briefing
 
         intel_prompt = intel_briefing.format_intel_prompt_block(
-            {"items": digest.get("intel", {}).get("items") or []},
+            digest.get("intel") or {},
             lang=lang,
         )
     except Exception:

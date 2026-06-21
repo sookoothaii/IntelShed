@@ -26,7 +26,9 @@ import globe_snapshot
 import gtfs_ingestor
 import humanitarian_bridge
 import intel_ingest
+import intel_graph_export
 import intel_proximity
+import intel_semantic_links
 import markets_bridge
 import nasa_firms
 import node_sync
@@ -96,6 +98,8 @@ def register_routers(app) -> None:
     app.include_router(ftm_store.router)
     app.include_router(intel_ingest.router)
     app.include_router(intel_proximity.router)
+    app.include_router(intel_semantic_links.router)
+    app.include_router(intel_graph_export.router)
     app.include_router(entity_resolution.router)
     app.include_router(feed_ingest.router)
     app.include_router(credentials_router.router)

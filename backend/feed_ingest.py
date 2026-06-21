@@ -11,7 +11,9 @@ from typing import Any
 import httpx
 
 import ftm_store
+import intel_graph_export
 import intel_proximity
+import intel_semantic_links
 from ingest.mapping_runner import apply_mapping, list_mappings
 
 # ---------------------------------------------------------------------------
@@ -338,6 +340,36 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
         except Exception as exc:
             out["errors"] = list(out["errors"]) + [f"spatial: {exc}"]
 
+        try:
+            import intel_semantic_links
+
+            if intel_semantic_links.enabled():
+                semantic = await asyncio.to_thread(
+                    intel_semantic_links.link_semantic_edges,
+                    window_hours=24,
+                )
+                out["semantic_edges"] = semantic
+                totals["edges"] += semantic.get("edges_added", 0)
+            if intel_semantic_links.sanctions_enabled():
+                sanction = await intel_semantic_links.link_sanction_edges(window_hours=24)
+                out["sanction_edges"] = sanction
+                totals["edges"] += sanction.get("edges_added", 0)
+        except Exception as exc:
+            out["errors"] = list(out["errors"]) + [f"semantic: {exc}"]
+
+        try:
+            import intel_graph_export
+
+            if intel_graph_export.enabled():
+                exported = await asyncio.to_thread(intel_graph_export.export_operator_subgraph)
+                out["subgraph_export"] = {
+                    "node_count": exported.get("node_count"),
+                    "edge_count": exported.get("edge_count"),
+                    "export_path": exported.get("export_path"),
+                }
+        except Exception as exc:
+            out["errors"] = list(out["errors"]) + [f"subgraph_export: {exc}"]
+
     _LAST_RUN = out
     _LAST_ERROR = errors[0] if errors else None
     return out
@@ -355,6 +387,8 @@ def status() -> dict:
         "ftm_stats": ftm_store.stats(),
         "resolve_after_feeds": resolve_after_feeds(),
         "spatial_edges": intel_proximity.enabled(),
+        "semantic_edges": intel_semantic_links.enabled(),
+        "subgraph_export": intel_graph_export.enabled(),
     }
 
 

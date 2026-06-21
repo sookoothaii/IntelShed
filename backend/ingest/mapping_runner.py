@@ -82,6 +82,9 @@ def apply_mapping(
             skipped += 1
             continue
         for query in queries:
+            req_cols = query.get("require_any") or []
+            if req_cols and not any(record.get(c) not in (None, "") for c in req_cols):
+                continue
             entity_specs: dict[str, dict] = query.get("entities") or {}
             alias_ids: dict[str, str] = {}
             try:

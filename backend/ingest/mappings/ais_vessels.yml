@@ -20,3 +20,30 @@ ais_vessels:
               column: type
             callSign:
               column: callsign
+    - entities:
+        vessel:
+          schema: Vessel
+          keys:
+            - mmsi
+          properties:
+            name:
+              column: name
+        position:
+          schema: Address
+          keys:
+            - mmsi
+          properties:
+            full:
+              column: name
+            latitude:
+              column: lat
+            longitude:
+              column: lon
+      require_any:
+        - lat
+        - lon
+      links:
+        - source: vessel
+          target: position
+          kind: atLocation
+          confidence: 0.88

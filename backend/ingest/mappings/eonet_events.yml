@@ -22,3 +22,30 @@ eonet_events:
               column: lat
             longitude:
               column: lon
+    - entities:
+        event:
+          schema: Event
+          keys:
+            - id
+          properties:
+            name:
+              column: title
+        place:
+          schema: Address
+          keys:
+            - id
+          properties:
+            full:
+              column: title
+            latitude:
+              column: lat
+            longitude:
+              column: lon
+      require_any:
+        - lat
+        - lon
+      links:
+        - source: event
+          target: place
+          kind: atLocation
+          confidence: 0.9

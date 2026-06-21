@@ -26,3 +26,30 @@ gdacs_alerts:
               columns:
                 - eventtype
                 - alertlevel
+    - entities:
+        event:
+          schema: Event
+          keys:
+            - eventid
+          properties:
+            name:
+              column: title
+        place:
+          schema: Address
+          keys:
+            - eventid
+          properties:
+            full:
+              column: title
+            latitude:
+              column: lat
+            longitude:
+              column: lon
+      require_any:
+        - lat
+        - lon
+      links:
+        - source: event
+          target: place
+          kind: atLocation
+          confidence: 0.9

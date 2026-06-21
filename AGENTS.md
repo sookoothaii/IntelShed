@@ -64,7 +64,7 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | Autopilot | `WORLDBASE_BRIEFING_AUTOPILOT=1`, interval `WORLDBASE_BRIEFING_INTERVAL` (default 6 h) |
 | FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
 | German output | `WORLDBASE_BRIEFING_LANG=de` (UI strings stay English) |
-| Pi payload | `GET /api/node/pull` — v2: ETag/304, SHA-256, quality (+ `X-Node-Token` when set) |
+| Pi payload | `GET /api/node/pull` — v2: ETag/304, SHA-256, quality, `intel_subgraph` compact graph (+ `X-Node-Token` when set) |
 | **Trust probes** | `GET /api/trust` — field score 0–4 (briefing, GDELT, Ollama, Pi edge) + `feed_drift` freshness (connector provenance) |
 | **CAMS haze (Thailand/ASEAN)** | `GET /api/cams/haze` — PM2.5, dust, AOD via Open-Meteo/CAMS; feeds briefing LOCAL |
 | **HDX humanitarian** | `GET /api/humanitarian` — UN OCHA datasets (Myanmar border, displacement); briefing REGION |

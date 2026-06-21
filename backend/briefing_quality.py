@@ -431,6 +431,10 @@ def score_briefing(
             "prediction_accuracy_30d": pred_meta.get("accuracy"),
             "prediction_sample_30d": pred_meta.get("sample_size"),
             "prediction_pending": pred_meta.get("pending"),
+            "intel_prompt_mode": (intel.get("prompt_metrics") or {}).get("prompt_mode"),
+            "intel_flat_chars": (intel.get("prompt_metrics") or {}).get("intel_flat_chars"),
+            "intel_subgraph_chars": (intel.get("prompt_metrics") or {}).get("intel_subgraph_chars"),
+            "intel_active_chars": (intel.get("prompt_metrics") or {}).get("intel_active_chars"),
         },
     }
 

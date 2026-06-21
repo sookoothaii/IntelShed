@@ -264,19 +264,8 @@ def finalize_intel_for_digest(
     }
 
 
-def format_intel_prompt_block(intel_meta: dict[str, Any], lang: str = "en") -> str:
-    """Dedicated INTEL section for the LLM prompt (subgraph when enabled)."""
-    try:
-        import intel_subgraph
-
-        if intel_subgraph.subgraph_enabled() and briefing_intel_enabled():
-            window = int(intel_meta.get("window_hours") or _env_int("WORLDBASE_BRIEFING_INTEL_WINDOW_HOURS", 24))
-            sg = intel_subgraph.build_subgraph(window_hours=window)
-            if sg.get("available") and sg.get("nodes"):
-                return intel_subgraph.format_subgraph_prompt_block(sg, lang=lang)
-    except Exception:
-        pass
-
+def _format_flat_intel_block(intel_meta: dict[str, Any], lang: str = "en") -> str:
+    """Flat entity list block (legacy prompt shape)."""
     items = intel_meta.get("items") or []
     if not items:
         if lang.startswith("de"):
@@ -311,6 +300,53 @@ def format_intel_prompt_block(intel_meta: dict[str, Any], lang: str = "en") -> s
     if len(parts) == 1:
         parts.append(buckets.get("global") and "\n".join(buckets["global"]) or "- none")
     return "\n\n".join(parts)
+
+
+def intel_prompt_metrics(intel_meta: dict[str, Any] | None, lang: str = "en") -> dict[str, Any]:
+    """Token proxy for flat vs subgraph intel blocks (Track 3+ Sprint 3)."""
+    intel_meta = intel_meta or {}
+    flat_block = _format_flat_intel_block(intel_meta, lang=lang)
+    subgraph_block = ""
+    mode = "flat"
+    subgraph_available = False
+    try:
+        import intel_subgraph
+
+        if intel_subgraph.subgraph_enabled() and briefing_intel_enabled():
+            window = int(intel_meta.get("window_hours") or _env_int("WORLDBASE_BRIEFING_INTEL_WINDOW_HOURS", 24))
+            sg = intel_subgraph.build_subgraph(window_hours=window)
+            if sg.get("available") and sg.get("nodes"):
+                subgraph_block = intel_subgraph.format_subgraph_prompt_block(sg, lang=lang)
+                subgraph_available = True
+                mode = "subgraph"
+    except Exception:
+        pass
+
+    active_block = subgraph_block if mode == "subgraph" else flat_block
+    return {
+        "prompt_mode": mode,
+        "intel_flat_chars": len(flat_block),
+        "intel_subgraph_chars": len(subgraph_block),
+        "intel_active_chars": len(active_block),
+        "subgraph_available": subgraph_available,
+    }
+
+
+def format_intel_prompt_block(intel_meta: dict[str, Any], lang: str = "en") -> str:
+    """Dedicated INTEL section for the LLM prompt (subgraph when enabled)."""
+    metrics = intel_prompt_metrics(intel_meta, lang=lang)
+    if metrics["prompt_mode"] == "subgraph":
+        try:
+            import intel_subgraph
+
+            window = int(intel_meta.get("window_hours") or _env_int("WORLDBASE_BRIEFING_INTEL_WINDOW_HOURS", 24))
+            sg = intel_subgraph.build_subgraph(window_hours=window)
+            if sg.get("available") and sg.get("nodes"):
+                return intel_subgraph.format_subgraph_prompt_block(sg, lang=lang)
+        except Exception:
+            pass
+
+    return _format_flat_intel_block(intel_meta, lang=lang)
 
 
 def format_intel_chat_context(intel_meta: dict[str, Any]) -> str:
