@@ -138,6 +138,7 @@ async def run_trust_probes() -> dict[str, Any]:
             "pipeline_placed_ok": meta.get("gdelt_pipeline_placed_ok"),
             "pipeline_blocker": meta.get("gdelt_pipeline_blocker"),
             "pipeline_yield": meta.get("gdelt_pipeline_yield"),
+            "watch_count": meta.get("watch_count"),
         }
     except Exception:
         pass

@@ -34,6 +34,15 @@ class BriefingQualityTests(unittest.TestCase):
         self.assertGreaterEqual(q["score"], 0.0)
         self.assertLessEqual(q["score"], 1.0)
 
+    def test_watch_count_in_quality_meta(self):
+        now = datetime.now(timezone.utc).isoformat()
+        sources = {
+            "watch_items": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+            "digest": {"local_count": 1},
+        }
+        q = score_briefing(text="LOCAL\n- test", sources=sources, created_at=now)
+        self.assertEqual(q["meta"]["watch_count"], 3)
+
     def test_gdelt_from_feed_metadata(self):
         now = datetime.now(timezone.utc).isoformat()
         text = "LOCAL (Thailand)\n- Bangkok update"

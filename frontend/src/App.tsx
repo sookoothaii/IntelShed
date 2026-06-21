@@ -635,13 +635,14 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                   const placed = pipe.gdelt_digest_lines ?? meta.gdelt_digest_lines
                   const blocker = pipe.pipeline_blocker ?? meta.gdelt_pipeline_blocker
                   const placedOk = pipe.pipeline_placed_ok ?? meta.gdelt_pipeline_placed_ok
+                  const watchCount = pipe.watch_count ?? meta.watch_count ?? briefing?.watch_items?.length
                   const blockerHint =
                     blocker === 'empty_feed_body'
                       ? 'GDELT rate limit or empty body — wait for disk cache'
                       : blocker === 'bucket_cap'
                         ? 'LOCAL bucket full — GDELT slots env may help'
                         : blocker || ''
-                  if (collected == null && placed == null && !blocker) return null
+                  if (collected == null && placed == null && !blocker && watchCount == null) return null
                   return (
                     <div className="analysis-row" style={{ fontSize: 11, marginTop: 8 }}>
                       <span
@@ -652,6 +653,11 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       >
                         GDELT {collected ?? '—'}→{placed ?? '—'}
                       </span>
+                      {watchCount != null && (
+                        <span style={{ color: '#7ec8ff' }} title="Anticipatory watch items (24–72h)">
+                          WATCH {watchCount}
+                        </span>
+                      )}
                       {blocker ? (
                         <span style={{ color: '#ffd23f' }} title={blockerHint}>
                           BLOCKER: {blocker}
@@ -696,6 +702,21 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       <span style={{ color: '#ff2d00', fontWeight: 'bold', minWidth: 70 }}>ANOMALY</span>
                       <span>{a.callsign || a.icao24} — {a.reasons?.join(', ')}</span>
                       <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'anomaly', lon: a.lon, lat: a.lat, height: 400000, title: `Anomaly ${a.icao24}`, lines: a.reasons || [] }) }}>◎</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {briefing?.watch_items?.length > 0 && (
+                <div className="analysis-section">
+                  <h3>👁 WATCH ITEMS ({briefing.watch_items.length})</h3>
+                  {briefing.watch_items.map((w: any, i: number) => (
+                    <div key={w.id || i} className="analysis-row" style={{ borderLeft: '3px solid #7ec8ff' }}>
+                      <span style={{ color: '#7ec8ff', fontWeight: 'bold', minWidth: 52 }}>{w.horizon_h}h</span>
+                      <span>{w.title}</span>
+                      <span style={{ color: '#8fb7a9', fontSize: 10 }}>
+                        {Math.round((w.confidence ?? 0) * 100)}% · {(w.sources || []).join(', ')}
+                      </span>
                     </div>
                   ))}
                 </div>

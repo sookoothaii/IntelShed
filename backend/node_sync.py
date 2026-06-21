@@ -716,6 +716,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         },
         "gdelt": gdelt_meta,
         "style": "security_advisor_24h",
+        "watch_items": digest.get("watch_items") or [],
     }
     from briefing_quality import attach_quality_to_sources
 
@@ -738,6 +739,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         "fusion_hotspots": fusion_hotspots,
         "digest": sources_payload.get("digest"),
         "quality": sources_payload.get("quality"),
+        "watch_items": digest.get("watch_items") or [],
     }
 
 
@@ -776,6 +778,7 @@ async def latest_briefing():
         "digest": sources.get("digest"),
         "quality": quality,
         "style": sources.get("style"),
+        "watch_items": sources.get("watch_items") or [],
     }
 
 
@@ -838,6 +841,7 @@ async def node_pull(request: Request, mesh: bool = False, x_node_token: str = He
         "fusion_hotspots": fusion_hotspots,
         "quality": brief.get("quality"),
         "digest": brief.get("digest"),
+        "watch_items": brief.get("watch_items") or [],
     }
     digest = _pull_payload_digest(payload)
     payload["content_sha256"] = digest

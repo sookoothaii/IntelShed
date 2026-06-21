@@ -7,8 +7,11 @@ import unittest
 from operator_briefing import (
     _pm25_severity,
     _text_bucket,
+    build_security_advisor_prompt,
+    build_watch_items,
     classify_item,
     format_digest_sections,
+    format_watch_items_block,
 )
 
 
@@ -101,6 +104,61 @@ class OperatorBriefingTests(unittest.TestCase):
         self.assertGreaterEqual(meta["digest_gdelt_lines"], 2)
         self.assertTrue(meta["pipeline_placed_ok"])
         self.assertIsNone(meta["pipeline_blocker"])
+
+    def test_build_watch_items_fusion_and_cams(self):
+        snap = {
+            "cams_haze": {
+                "cities": [
+                    {
+                        "city": "Chiang Mai",
+                        "lat": 18.79,
+                        "lon": 98.98,
+                        "pm25": 78.0,
+                        "severity": "high",
+                    }
+                ],
+            },
+            "gdelt_pulse_local": {
+                "articles": [{"title": f"Story {i}"} for i in range(5)],
+            },
+        }
+        fusion = [
+            {
+                "lat": 13.0,
+                "lon": 100.5,
+                "score": 0.82,
+                "sources": ["quakes", "gdacs"],
+                "samples": [{"label": "M5.2 near Bangkok basin"}],
+            }
+        ]
+        items = build_watch_items(snap, [], fusion)
+        self.assertGreaterEqual(len(items), 2)
+        titles = " ".join(i["title"] for i in items)
+        self.assertIn("Chiang Mai", titles)
+        self.assertIn("fusion", titles.lower())
+        for item in items:
+            self.assertIn("horizon_h", item)
+            self.assertIn("confidence", item)
+            self.assertIn("sources", item)
+            self.assertIn("id", item)
+
+    def test_watch_items_in_digest_and_prompt(self):
+        snap = {
+            "cams_haze": {
+                "cities": [
+                    {"city": "Bangkok", "lat": 13.75, "lon": 100.5, "pm25": 80.0, "severity": "high"},
+                ],
+            },
+            "gdelt_pulse_local": {"articles": [{"title": "Thailand alert"}] * 5},
+        }
+        fusion = [{"lat": 14.0, "lon": 101.0, "score": 0.9, "sources": ["hazards"], "samples": [{"label": "Flood watch"}]}]
+        digest = format_digest_sections(snap, [], "none", fusion)
+        self.assertGreaterEqual(len(digest.get("watch_items") or []), 2)
+        block = format_watch_items_block(digest["watch_items"])
+        self.assertIn("horizon", block)
+        prompt = build_security_advisor_prompt(digest)
+        self.assertIn("WATCH ITEMS", prompt)
+        self.assertIn("Bangkok", prompt)
 
 
 if __name__ == "__main__":

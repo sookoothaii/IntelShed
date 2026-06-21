@@ -65,6 +65,7 @@ docs/**
 # Local-only operator / agent tooling (not part of the OSS repo)
 .cursor/
 briefs/
+research/
 LLM_HANDOFF.md
 worldbase.code-workspace
 GAP_REPORT.md

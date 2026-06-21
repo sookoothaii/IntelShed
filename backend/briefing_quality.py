@@ -244,6 +244,7 @@ def score_briefing(
             "gdelt_error": gdelt_meta.get("error"),
             "age_hours": round(age_hours, 2) if age_hours is not None else None,
             "max_age_hours": max_age_hours,
+            "watch_count": len(sources.get("watch_items") or []),
         },
     }
 

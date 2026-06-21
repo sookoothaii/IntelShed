@@ -7,6 +7,7 @@ the LLM writes the narrative protocol.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 from typing import Any
@@ -22,6 +23,46 @@ def _gdelt_local_slots() -> int:
         return max(0, min(3, int(os.getenv("WORLDBASE_BRIEFING_GDELT_LOCAL_SLOTS", "2") or "2")))
     except ValueError:
         return 2
+
+
+def _watch_max_items() -> int:
+    try:
+        return max(1, min(8, int(os.getenv("WORLDBASE_BRIEFING_WATCH_MAX", "5") or "5")))
+    except ValueError:
+        return 5
+
+
+def _watch_id(prefix: str, key: str) -> str:
+    digest = hashlib.sha256(f"{prefix}:{key}".encode("utf-8")).hexdigest()
+    return digest[:12]
+
+
+def _cell_id(lat: float | None, lon: float | None) -> str | None:
+    if lat is None or lon is None:
+        return None
+    return f"{float(lat):.2f},{float(lon):.2f}"
+
+
+def _watch_item(
+    *,
+    prefix: str,
+    key: str,
+    title: str,
+    horizon_h: int,
+    confidence: float,
+    sources: list[str],
+    bucket: str = "global",
+    cell_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": _watch_id(prefix, key),
+        "title": title[:200],
+        "horizon_h": max(24, min(72, int(horizon_h))),
+        "confidence": round(max(0.0, min(1.0, confidence)), 3),
+        "sources": sources[:6],
+        "bucket": bucket,
+        "cell_id": cell_id,
+    }
 
 
 def _resolve_lang(lang: str | None) -> str:
@@ -290,6 +331,237 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     return items
 
 
+def build_watch_items(
+    snap: dict,
+    alerts: list[dict],
+    fusion_hotspots: list[dict] | None = None,
+    *,
+    max_items: int | None = None,
+) -> list[dict[str, Any]]:
+    """Forward-looking watch list from feeds — pre-LLM, rule-based (Track 1)."""
+    cap = max_items if max_items is not None else _watch_max_items()
+    local_bbox = _region_bbox(OPERATOR_REGION)
+    regional_bbox = _ASEAN_BBOX if OPERATOR_REGION == "thailand" else local_bbox
+    if regional_bbox is None and local_bbox:
+        w, s, e, n = local_bbox
+        regional_bbox = [w - 8, s - 6, e + 8, n + 4]
+
+    candidates: list[dict[str, Any]] = []
+
+    for i, cell in enumerate(fusion_hotspots or []):
+        score = float(cell.get("score") or 0)
+        if score < 0.45:
+            continue
+        lat, lon = cell.get("lat"), cell.get("lon")
+        sources = list(cell.get("sources") or [])
+        sample = (cell.get("samples") or [{}])[0].get("label") or ""
+        title = sample[:120] if sample else f"Fusion hotspot #{i + 1}"
+        bucket = classify_item(lat, lon, title, local_bbox, regional_bbox)
+        candidates.append(
+            _watch_item(
+                prefix="fusion",
+                key=f"{lat},{lon},{score}",
+                title=f"Monitor fusion cell: {title}",
+                horizon_h=48,
+                confidence=0.55 + score * 0.4,
+                sources=sources or ["fusion"],
+                bucket=bucket,
+                cell_id=_cell_id(lat, lon),
+            )
+        )
+
+    for row in (snap.get("cams_haze", {}) or {}).get("cities") or []:
+        pm25 = row.get("pm25")
+        dust = row.get("dust")
+        sev = row.get("severity") or (
+            _pm25_severity(float(pm25)) if pm25 is not None else "low"
+        )
+        if sev not in ("medium", "high") and (pm25 is None or float(pm25) < 35):
+            continue
+        name = row.get("city") or "City"
+        lat, lon = row.get("lat"), row.get("lon")
+        bucket = classify_item(lat, lon, name, local_bbox, regional_bbox)
+        parts = []
+        if pm25 is not None:
+            parts.append(f"PM2.5 {pm25} µg/m³")
+        if dust is not None:
+            parts.append(f"dust {dust} µg/m³")
+        candidates.append(
+            _watch_item(
+                prefix="cams",
+                key=name.lower(),
+                title=f"Haze trajectory — {name}: {', '.join(parts)}",
+                horizon_h=72,
+                confidence=0.7 if sev == "high" else 0.55,
+                sources=["cams_haze"],
+                bucket=bucket,
+                cell_id=_cell_id(lat, lon),
+            )
+        )
+
+    local_pulse = snap.get("gdelt_pulse_local") or {}
+    geo_local = snap.get("gdelt_geo_local") or {}
+    pulse_n = len(local_pulse.get("articles") or [])
+    geo_n = len(geo_local.get("events") or [])
+    if pulse_n >= 4 or geo_n >= 3:
+        candidates.append(
+            _watch_item(
+                prefix="gdelt",
+                key=f"{pulse_n}:{geo_n}",
+                title=(
+                    f"Elevated media attention — {pulse_n} local headlines, "
+                    f"{geo_n} geo signals"
+                ),
+                horizon_h=24,
+                confidence=min(0.85, 0.45 + (pulse_n + geo_n) * 0.04),
+                sources=["gdelt_pulse_local", "gdelt_geo_local"],
+                bucket="local" if pulse_n >= geo_n else "regional",
+            )
+        )
+
+    for q in (snap.get("earthquakes", {}) or {}).get("earthquakes", [])[:15]:
+        mag = float(q.get("mag") or q.get("magnitude") or 0)
+        if mag < 5.0:
+            continue
+        place = q.get("place") or "Earthquake"
+        lat, lon = q.get("lat"), q.get("lon")
+        bucket = classify_item(lat, lon, place, local_bbox, regional_bbox)
+        if bucket == "global" and mag < 6.0:
+            continue
+        candidates.append(
+            _watch_item(
+                prefix="quake",
+                key=f"{place}:{mag}",
+                title=f"Aftershock / impact watch — M{mag} {place}",
+                horizon_h=48,
+                confidence=0.6 if mag < 6 else 0.8,
+                sources=["earthquakes"],
+                bucket=bucket,
+                cell_id=_cell_id(lat, lon),
+            )
+        )
+
+    for a in (snap.get("gdacs", {}) or {}).get("alerts", [])[:8]:
+        title = a.get("title") or "GDACS alert"
+        lat, lon = a.get("lat"), a.get("lon")
+        bucket = classify_item(lat, lon, title, local_bbox, regional_bbox)
+        level = (a.get("alertlevel") or a.get("severity") or "").lower()
+        if bucket == "global" and "red" not in level and "orange" not in level:
+            continue
+        candidates.append(
+            _watch_item(
+                prefix="gdacs",
+                key=title[:80],
+                title=f"Disaster evolution — {title[:100]}",
+                horizon_h=72,
+                confidence=0.75 if "red" in level else 0.6,
+                sources=["gdacs"],
+                bucket=bucket,
+                cell_id=_cell_id(lat, lon),
+            )
+        )
+
+    sw = snap.get("spaceweather", {}) or {}
+    kp = sw.get("kp_index")
+    if kp is not None and float(kp) >= 5:
+        candidates.append(
+            _watch_item(
+                prefix="spacewx",
+                key=str(kp),
+                title=f"Space weather — Kp {float(kp):.1f} (HF/GPS risk)",
+                horizon_h=24,
+                confidence=min(0.9, 0.5 + float(kp) * 0.05),
+                sources=["spaceweather"],
+                bucket="global",
+            )
+        )
+
+    thai_vessels = [
+        v for v in (snap.get("maritime", {}) or {}).get("vessels") or []
+        if (v.get("region") or "") in ("malacca", "laem_chabang", "bangkok_port", "phuket")
+    ]
+    if len(thai_vessels) >= 12:
+        candidates.append(
+            _watch_item(
+                prefix="maritime",
+                key=str(len(thai_vessels)),
+                title=f"Maritime corridor density — {len(thai_vessels)} vessels tracked",
+                horizon_h=48,
+                confidence=0.5,
+                sources=["maritime"],
+                bucket="regional",
+            )
+        )
+
+    for ds in (snap.get("humanitarian", {}) or {}).get("datasets") or []:
+        title = ds.get("title") or ""
+        if not title:
+            continue
+        bucket = _text_bucket(title) or "regional"
+        candidates.append(
+            _watch_item(
+                prefix="hdx",
+                key=title[:60],
+                title=f"Humanitarian watch — {title[:90]}",
+                horizon_h=72,
+                confidence=0.55,
+                sources=["humanitarian"],
+                bucket=bucket,
+            )
+        )
+
+    for a in alerts[:6]:
+        sev = (a.get("severity") or "low").lower()
+        if sev not in ("critical", "high", "warning", "medium"):
+            continue
+        text = a.get("text") or "Alert"
+        lat, lon = a.get("lat"), a.get("lon")
+        bucket = classify_item(lat, lon, text, local_bbox, regional_bbox)
+        conf = 0.85 if sev == "critical" else 0.7 if sev == "high" else 0.55
+        candidates.append(
+            _watch_item(
+                prefix="alert",
+                key=text[:60],
+                title=text[:160],
+                horizon_h=24,
+                confidence=conf,
+                sources=["alerts"],
+                bucket=bucket,
+                cell_id=_cell_id(lat, lon),
+            )
+        )
+
+    seen_ids: set[str] = set()
+    ranked: list[dict[str, Any]] = []
+    for item in sorted(candidates, key=lambda x: -float(x.get("confidence") or 0)):
+        wid = item.get("id") or ""
+        if wid in seen_ids:
+            continue
+        seen_ids.add(wid)
+        ranked.append(item)
+        if len(ranked) >= cap:
+            break
+    return ranked
+
+
+def format_watch_items_block(watch_items: list[dict[str, Any]], lang: str | None = None) -> str:
+    """Plain-text watch block for LLM prompt."""
+    lang = _resolve_lang(lang)
+    if not watch_items:
+        if lang.startswith("de"):
+            return "- Keine priorisierten Watch-Items (Feeds ruhig)."
+        return "- No ranked watch items (feeds quiet)."
+    lines: list[str] = []
+    for i, w in enumerate(watch_items, 1):
+        hrs = w.get("horizon_h", 24)
+        conf = float(w.get("confidence") or 0)
+        src = ", ".join(w.get("sources") or [])
+        lines.append(
+            f"- #{i} [{hrs}h horizon, conf={conf:.2f}] {w.get('title')} (sources: {src})"
+        )
+    return "\n".join(lines)
+
+
 def _severity_key(item: dict) -> tuple[int, str]:
     return (_SEVERITY_RANK.get(item.get("severity"), 9), item.get("text", ""))
 
@@ -422,6 +694,7 @@ def format_digest_sections(
         empty_local = "- No local signals in feeds (last 24h)."
         empty_regional = "- No regional signals highlighted."
         empty_global = "- No global highlights beyond baseline."
+    watch_items = build_watch_items(snap, alerts, fusion_hotspots)
     return {
         "region": OPERATOR_REGION,
         "region_label": region_label,
@@ -432,6 +705,7 @@ def format_digest_sections(
         "global": global_lines or [empty_global],
         "fusion": fusion_lines,
         "fusion_hotspots": fusion_hotspots,
+        "watch_items": watch_items,
         "intel": {
             "enabled": intel_block.get("enabled", False),
             "count": intel_block.get("count", 0),
@@ -476,9 +750,11 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
             "RECOMMENDATION — 1–2 Sätze: ruhig, umsetzbar, keine Panik\n"
         )
         no_data_clause = (
-            "Nutze NUR das untenstehende Feed-Digest und die INTEL ENTITIES. "
+            "Nutze NUR das untenstehende Feed-Digest, WATCH ITEMS und INTEL ENTITIES. "
             "Wenn ein Abschnitt keine Daten hat, schreibe klar, dass die Feeds dort "
             "nichts Auffälliges zeigen (keine Ereignisse erfinden). "
+            "Bei WATCH ITEMS: in RECOMMENDATION erwähnen, wenn relevant — "
+            "keine zusätzlichen Watch-Themen erfinden. "
             "Bei INTEL ENTITIES: nenne konkrete Akteure/Orte/Ereignisse aus dem FtM-Graph, "
             "nicht generische Feed-Schlagzeilen wiederholen."
         )
@@ -498,8 +774,10 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
             "RECOMMENDATION — 1–2 sentences: calm, actionable, no panic\n"
         )
         no_data_clause = (
-            "Use ONLY the feed digest and INTEL ENTITIES below. If a section has no data, "
-            "say clearly that feeds show nothing notable (do not invent events). "
+            "Use ONLY the feed digest, WATCH ITEMS, and INTEL ENTITIES below. "
+            "If a section has no data, say clearly that feeds show nothing notable "
+            "(do not invent events). For WATCH ITEMS: reflect them in RECOMMENDATION "
+            "when relevant — do not add watch topics not listed. "
             "For INTEL ENTITIES: name specific actors/places/events from the FtM graph; "
             "do not repeat generic feed headlines."
         )
@@ -535,6 +813,8 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
         f"REGION signals:\n" + "\n".join(digest["regional"]) + "\n\n"
         f"GLOBAL signals:\n" + "\n".join(digest["global"]) + "\n\n"
         f"{intel_prompt}\n\n"
+        f"WATCH ITEMS (monitor over stated horizon — do not invent more):\n"
+        f"{format_watch_items_block(digest.get('watch_items') or [], lang=lang)}\n\n"
         f"Fusion hotspots (spatial grid):\n{digest['fusion']}\n\n"
         f"Cyber (CISA KEV):\n" + "\n".join(digest["cyber"]) + "\n\n"
         f"Infra:\n" + "\n".join(f"- {x}" for x in digest["infra"]) + "\n\n"
@@ -547,6 +827,8 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
 def format_fallback_protocol(digest: dict[str, Any], lang: str | None = None) -> str:
     region = digest.get("region_label", "Thailand")
     lang = _resolve_lang(lang or digest.get("lang"))
+    watch_items = digest.get("watch_items") or []
+    intel_items = digest.get("intel", {}).get("items") or []
     if lang.startswith("de"):
         parts = [
             f"LOKAL ({region}): " + " ".join(digest["local"]).replace("- ", ""),
@@ -554,7 +836,14 @@ def format_fallback_protocol(digest: dict[str, Any], lang: str | None = None) ->
             "GLOBAL: " + " ".join(digest["global"][:3]).replace("- ", ""),
             "Fusion: " + digest["fusion"].replace("\n", " "),
         ]
-        intel_items = digest.get("intel", {}).get("items") or []
+        if watch_items:
+            parts.append(
+                "WATCH: "
+                + "; ".join(
+                    f"{w.get('title', '')[:60]} ({w.get('horizon_h')}h)"
+                    for w in watch_items[:3]
+                )
+            )
         if intel_items:
             parts.append(
                 "INTEL: " + " ".join(i.get("text", "") for i in intel_items[:4])
@@ -569,7 +858,14 @@ def format_fallback_protocol(digest: dict[str, Any], lang: str | None = None) ->
         "GLOBAL: " + " ".join(digest["global"][:3]).replace("- ", ""),
         "Fusion: " + digest["fusion"].replace("\n", " "),
     ]
-    intel_items = digest.get("intel", {}).get("items") or []
+    if watch_items:
+        parts.append(
+            "WATCH: "
+            + "; ".join(
+                f"{w.get('title', '')[:60]} ({w.get('horizon_h')}h)"
+                for w in watch_items[:3]
+            )
+        )
     if intel_items:
         parts.append("INTEL: " + " ".join(i.get("text", "") for i in intel_items[:4]))
     parts.append("NOTE: LLM offline — review raw digest above.")
