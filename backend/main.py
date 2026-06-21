@@ -1,22 +1,16 @@
 """WorldBase API — FastAPI backend, SQLite cache, no Docker."""
 
 import asyncio
-import json
 import os
-import re
 import sqlite3
 from datetime import datetime, timezone
 from contextlib import contextmanager
 
-import httpx
-from fastapi import FastAPI, Request, Depends
-from auth.security import verify_api_key
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from starlette.datastructures import MutableHeaders
 
-# Rate Limiting
-from middleware.rate_limit import setup_rate_limiting, rate_limit_general
+from middleware.rate_limit import setup_rate_limiting
 
 import globe_snapshot
 import feeds_extra
@@ -41,9 +35,6 @@ import flowsint_bridge
 import entity_store
 import ftm_store
 import situations
-import chat_tools
-import opensky_client
-import aircraft_provider
 import gdelt_bridge
 import cap_bridge
 import anomaly_river
@@ -250,12 +241,16 @@ def prune_feed_cache(max_age_sec: float = _FEED_CACHE_MAX_AGE_SEC) -> int:
 
 
 import agent_bus
+from routes import aircraft as aircraft_routes
 from routes import chat as chat_routes
 from routes import core_feeds
+from routes import health as health_routes
 
 app.include_router(agent_bus.router)
 app.include_router(core_feeds.router)
 app.include_router(chat_routes.router)
+app.include_router(health_routes.router)
+app.include_router(aircraft_routes.router)
 app.include_router(globe_snapshot.router)
 app.include_router(feeds_extra.router)
 app.include_router(node_sync.router)
@@ -468,30 +463,8 @@ async def _briefing_autopilot():
         await asyncio.sleep(_BRIEFING_INTERVAL)
 
 
-async def _aircraft_warmup():
-    """Prime aircraft cache on boot so first UI load is fast."""
-    await asyncio.sleep(2)
-    try:
-        data, source = await aircraft_provider.fetch_live_states(timeout=14.0)
-        _cache_set("aircraft", data)
-        n = len(data.get("states") or [])
-        print(f"[WARMUP] aircraft cache primed ({n} states, {source})", flush=True)
-    except Exception as e:
-        print(f"[WARMUP] aircraft cache skipped: {e}", flush=True)
-
-
-_AIRCRAFT_REFRESH_TASK: asyncio.Task | None = None
-
-
-async def _refresh_aircraft_cache() -> None:
-    global _AIRCRAFT_REFRESH_TASK
-    try:
-        data, _source = await aircraft_provider.fetch_live_states(timeout=14.0)
-        _cache_set("aircraft", data)
-    except Exception:
-        pass
-    finally:
-        _AIRCRAFT_REFRESH_TASK = None
+# Aircraft cache warmup/refresh + /api/aircraft moved to routes/aircraft.py.
+# aircraft_routes.aircraft_warmup() is scheduled in on_startup() below.
 
 
 @app.on_event("startup")
@@ -524,7 +497,7 @@ def on_startup():
         asyncio.create_task(_entity_resolution_autopilot())
     else:
         print("[AUTOPILOT] Entity resolution autopilot disabled (WORLDBASE_ENTITY_RESOLUTION_AUTOPILOT=0)", flush=True)
-    asyncio.create_task(_aircraft_warmup())
+    asyncio.create_task(aircraft_routes.aircraft_warmup())
     asyncio.create_task(_phase1_background_tasks())
     asyncio.create_task(_aircraft_trail_loop())
     asyncio.create_task(_situations_prewarm())
@@ -543,193 +516,11 @@ def on_shutdown():
     ais_bridge.stop_aisstream_collector()
 
 
-from connector_registry import feed_ttl_sec as _feed_ttl_sec
-
-
-def _feed_status(age_sec: float | None) -> str:
-    """fresh | warn | stale | unknown"""
-    if age_sec is None:
-        return "unknown"
-    if age_sec < 300:
-        return "fresh"
-    if age_sec < 3600:
-        return "warn"
-    return "stale"
-
-
-@app.get("/api/health/ping")
-async def health_ping():
-    """Fast liveness probe for the HUD status bar (no feed parsing)."""
-    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
-
-
-@app.get("/api/health")
-async def health():
-    # Determine database type
-    db_type = "sqlite"
-    db_connected = False
-    if os.getenv("DATABASE_URL"):
-        db_type = "postgresql" if "postgresql" in os.getenv("DATABASE_URL", "").lower() else "other"
-        # Test connection
-        try:
-            from db.database import health_check as pg_health
-            db_connected = await pg_health()
-        except Exception:
-            db_connected = False
-    else:
-        # Test SQLite
-        try:
-            import sqlite3
-            conn = sqlite3.connect(DB_PATH, timeout=2.0)
-            conn.execute("SELECT 1")
-            conn.close()
-            db_connected = True
-        except Exception:
-            db_connected = False
-
-    def _build():
-        now = datetime.now(timezone.utc)
-        feeds = {}
-        try:
-            import json
-            import sqlite3
-            conn = sqlite3.connect(DB_PATH, timeout=5.0)
-            conn.execute("PRAGMA busy_timeout=5000")
-            c = conn.cursor()
-            c.execute("SELECT key, value, cached_at FROM feed_cache ORDER BY key")
-            for key, value_json, cached_at in c.fetchall():
-                meta: dict = {}
-                if value_json and len(value_json) < 120_000:
-                    try:
-                        val = json.loads(value_json)
-                        if isinstance(val, dict):
-                            from feeds.envelope import extract_health_feed_meta
-
-                            meta.update(extract_health_feed_meta(val))
-                    except Exception:
-                        pass
-                try:
-                    age = (now - datetime.fromisoformat(cached_at)).total_seconds()
-                    ttl = _feed_ttl_sec(key)
-                    feeds[key] = {
-                        "cached_at": cached_at,
-                        "age_sec": round(age, 1),
-                        "ttl_sec": ttl,
-                        "fresh": age < ttl,
-                        "status": _feed_status(age),
-                        **meta,
-                    }
-                except Exception:
-                    feeds[key] = {"cached_at": cached_at, "age_sec": None, "fresh": None, "status": "unknown", **meta}
-            conn.close()
-        except Exception:
-            pass
-        fresh_n = sum(1 for f in feeds.values() if f.get("fresh"))
-        stale_n = sum(1 for f in feeds.values() if f.get("status") == "stale")
-        err_n = sum(1 for f in feeds.values() if f.get("error"))
-        try:
-            from credentials.registry import is_configured, provider_for_feed
-
-            for fk, fm in feeds.items():
-                pid = provider_for_feed(fk)
-                if pid:
-                    fm["provider_id"] = pid
-                    fm["key_configured"] = is_configured(pid)
-        except Exception:
-            pass
-        return {
-            "status": "ok",
-            "time": now.isoformat(),
-            "feeds": feeds,
-            "feed_count": len(feeds),
-            "feeds_fresh": fresh_n,
-            "feeds_stale": stale_n,
-            "feeds_error": err_n,
-        }
-
-    result = await asyncio.to_thread(_build)
-    result["database"] = db_type
-    result["db_connected"] = db_connected
-    try:
-        import ftm_store
-        result["ftm"] = ftm_store.store_status()
-    except Exception:
-        result["ftm"] = {"ready": False, "error": "unavailable"}
-    try:
-        from credentials.registry import providers_status
-        result["credentials"] = {
-            "configured": providers_status()["configured"],
-            "total": providers_status()["count"],
-            "url": "/api/credentials/status",
-        }
-    except Exception:
-        pass
-    return result
-
-
-# Simple in-memory TTL cache to avoid upstream rate limits (shared with
-# routes/core_feeds.py via runtime_cache so feed + chat context see one store).
-from runtime_cache import STORE as _CACHE
-from runtime_cache import cache_get as _cache_get
-from runtime_cache import cache_get_stale as _cache_get_stale
-from runtime_cache import cache_set as _cache_set
-
-
-# build_chat_context() and the chat/LLM proxy endpoints moved to routes/chat.py
-# (registered via app.include_router(chat.router) in the include block above).
-
-
-@app.get("/api/aircraft")
-async def get_aircraft(limit: int = 800):
-    """Live aircraft: OpenSky (OAuth) when configured, else adsb.lol/adsb.fi grid."""
-    import asyncio
-
-    global _AIRCRAFT_REFRESH_TASK
-
-    cache_key = "aircraft"
-    cached = _cache_get(cache_key, ttl=45.0)
-    source = "cache"
-    if cached is None:
-        stale = _cache_get_stale(cache_key) or aircraft_provider.last_known_states()
-        if stale:
-            if _AIRCRAFT_REFRESH_TASK is None or _AIRCRAFT_REFRESH_TASK.done():
-                _AIRCRAFT_REFRESH_TASK = asyncio.create_task(_refresh_aircraft_cache())
-            cached = stale
-            source = stale.get("source", "stale")
-        else:
-            try:
-                cached, source = await asyncio.wait_for(
-                    aircraft_provider.fetch_live_states(timeout=12.0),
-                    timeout=14.0,
-                )
-                _cache_set(cache_key, cached)
-            except Exception as e:
-                if stale:
-                    cached = stale
-                    source = cached.get("source", "stale")
-                else:
-                    return {
-                        "count": 0,
-                        "timestamp": None,
-                        "states": [],
-                        "source": None,
-                        "error": (
-                            f"Aircraft feeds unavailable ({e.__class__.__name__}). "
-                            "Optional: OPENSKY_CLIENT_ID/SECRET in backend/.env; "
-                            "otherwise adsb.fi / adsb.lol is used automatically."
-                        ),
-                    }
-    else:
-        source = cached.get("source", "cache")
-
-    states = cached.get("states", []) or []
-    with_pos = [s for s in states if len(s) > 6 and s[5] is not None and s[6] is not None]
-    return {
-        "count": len(with_pos),
-        "timestamp": cached.get("time"),
-        "source": source,
-        "states": with_pos[: max(0, min(limit, 5000))],
-    }
+# Health endpoints (/api/health/ping, /api/health) moved to routes/health.py.
+# build_chat_context() and the chat/LLM proxy endpoints moved to routes/chat.py.
+# The live aircraft endpoint (/api/aircraft) and its cache warmup/refresh moved
+# to routes/aircraft.py (warmup scheduled in on_startup). All registered via
+# app.include_router(...) in the include block above.
 
 
 # Core feed endpoints (/api/satellites, /api/earthquakes, /api/events, /api/iss,
