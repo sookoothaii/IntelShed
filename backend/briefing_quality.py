@@ -9,6 +9,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+import math
+
 _SECTION_LOCAL = re.compile(r"\bLOCAL\b", re.I)
 _SECTION_INTEL = re.compile(r"\bINTEL\b", re.I)
 _GDELT_HINT = re.compile(r"\bGDELT\b|\bgdelt\b|local news|Local news|Regional media heat|Media heat", re.I)
@@ -141,6 +143,168 @@ def _gdelt_from_feed(meta: dict[str, Any]) -> bool:
     return False
 
 
+_GDELT_FEED_FAMILY = frozenset({
+    "gdelt_pulse_local",
+    "gdelt_geo_local",
+    "gdelt_pulse",
+    "gdelt_geo",
+})
+_STOP_WORDS = frozenset({
+    "the", "and", "for", "with", "near", "from", "that", "this", "what", "news", "local", "media",
+})
+
+
+def _source_family(feed: str) -> str:
+    if feed in _GDELT_FEED_FAMILY:
+        return "gdelt"
+    return feed
+
+
+def _infer_feed_sources(item: dict[str, Any]) -> list[str]:
+    explicit = [s for s in (item.get("sources") or []) if s]
+    if explicit:
+        return explicit
+    text = str(item.get("text") or "").lower()
+    if text.startswith("local news:"):
+        return ["gdelt_pulse_local"]
+    if text.startswith("regional media heat:"):
+        return ["gdelt_geo_local"]
+    if text.startswith("media heat:") or text.startswith("news:"):
+        return ["gdelt_geo"]
+    if text.startswith("cams haze"):
+        return ["cams_haze"]
+    if text.startswith("air quality"):
+        return ["airquality"]
+    if text.startswith("humanitarian data:"):
+        return ["humanitarian"]
+    if text.startswith("m") and " — " in text:
+        return ["earthquakes"]
+    return ["unknown"]
+
+
+def _text_fingerprint(text: str) -> set[str]:
+    cleaned = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
+    return {w for w in cleaned.split() if len(w) > 3 and w not in _STOP_WORDS}
+
+
+def _geo_bucket(lat: float | None, lon: float | None, cell_deg: float = 2.0) -> tuple[float, float] | None:
+    if lat is None or lon is None:
+        return None
+    try:
+        lat_f, lon_f = float(lat), float(lon)
+    except (TypeError, ValueError):
+        return None
+    return (
+        round(math.floor(lat_f / cell_deg) * cell_deg + cell_deg / 2, 2),
+        round(math.floor(lon_f / cell_deg) * cell_deg + cell_deg / 2, 2),
+    )
+
+
+def _items_match(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    if a is b:
+        return False
+    if a.get("bucket") != b.get("bucket"):
+        return False
+    geo_a = _geo_bucket(a.get("lat"), a.get("lon"))
+    geo_b = _geo_bucket(b.get("lat"), b.get("lon"))
+    if geo_a and geo_b and geo_a == geo_b:
+        return True
+    fp_a = _text_fingerprint(a.get("text", ""))
+    fp_b = _text_fingerprint(b.get("text", ""))
+    if not fp_a or not fp_b:
+        return False
+    overlap = len(fp_a & fp_b)
+    union = len(fp_a | fp_b)
+    return union > 0 and (overlap / union) >= 0.35
+
+
+def _severity_rank(sev: str | None) -> int:
+    return {"high": 0, "medium": 1, "low": 2}.get(str(sev or "low").lower(), 2)
+
+
+def corroborate_digest_item(item: dict[str, Any], pool: list[dict[str, Any]]) -> dict[str, Any]:
+    """Score one digest row against the full collected item pool."""
+    own_sources = _infer_feed_sources(item)
+    families = {_source_family(s) for s in own_sources}
+    matched_sources: set[str] = set(own_sources)
+    matched_families: set[str] = set(families)
+    peer_severities: list[int] = [_severity_rank(item.get("severity"))]
+    conflict = False
+
+    for peer in pool:
+        if peer is item or not _items_match(item, peer):
+            continue
+        peer_sources = _infer_feed_sources(peer)
+        matched_sources.update(peer_sources)
+        matched_families.update(_source_family(s) for s in peer_sources)
+        peer_severities.append(_severity_rank(peer.get("severity")))
+
+    independent = len(matched_families)
+    if independent >= 2:
+        corroboration = min(1.0, 0.55 + 0.2 * independent)
+    elif independent == 1 and len(matched_sources) >= 2:
+        corroboration = 0.65
+    elif _severity_rank(item.get("severity")) <= 1:
+        corroboration = 0.45
+    else:
+        corroboration = 0.3
+
+    if len(peer_severities) > 1 and (max(peer_severities) - min(peer_severities)) >= 2:
+        conflict = True
+        corroboration = max(0.15, corroboration - 0.25)
+
+    label = "corroborated" if corroboration >= 0.75 else "single-source"
+    if conflict:
+        label = "contradictory"
+
+    return {
+        "bucket": item.get("bucket") or "global",
+        "text": f"- {item.get('text', '')}".strip(),
+        "corroboration": round(corroboration, 3),
+        "sources": sorted(matched_sources),
+        "source_families": sorted(matched_families),
+        "conflict": conflict,
+        "label": label,
+    }
+
+
+def build_digest_line_meta(
+    all_items: list[dict[str, Any]],
+    picked_by_bucket: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Parallel metadata for digest lines placed in each bucket."""
+    meta: list[dict[str, Any]] = []
+    for bucket, picked in picked_by_bucket.items():
+        for item in picked or []:
+            row = corroborate_digest_item(item, all_items)
+            row["bucket"] = bucket
+            meta.append(row)
+    return meta
+
+
+def corroboration_summary(meta: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """Aggregate corroboration stats for quality scoring and trust UI."""
+    rows = meta or []
+    local_rows = [r for r in rows if r.get("bucket") == "local"]
+    if not local_rows:
+        return {
+            "corroboration_avg_local": None,
+            "corroboration_blocker": None,
+            "local_verified_lines": 0,
+        }
+    scores = [float(r.get("corroboration") or 0) for r in local_rows]
+    avg = round(sum(scores) / len(scores), 3)
+    families = {fam for r in local_rows for fam in (r.get("source_families") or [])}
+    blocker = None
+    if len(local_rows) >= 3 and avg < 0.5 and len(families) <= 1:
+        blocker = "single_source_local"
+    return {
+        "corroboration_avg_local": avg,
+        "corroboration_blocker": blocker,
+        "local_verified_lines": len(local_rows),
+    }
+
+
 def _digest_lines(digest: dict[str, Any] | None, key: str) -> list[str]:
     if not digest:
         return []
@@ -209,11 +373,18 @@ def score_briefing(
     }
     passed = sum(1 for v in checks.values() if v)
 
-    score = round(
-        0.35 * coverage + 0.25 * timeliness + 0.25 * geo_relevance + 0.15 * (passed / 4.0),
-        3,
+    corro_meta = corroboration_summary(sources.get("digest_line_meta"))
+    corro_avg = corro_meta.get("corroboration_avg_local")
+    corro_blocker = corro_meta.get("corroboration_blocker")
+
+    score = (
+        0.35 * coverage + 0.25 * timeliness + 0.25 * geo_relevance + 0.15 * (passed / 4.0)
     )
-    score = max(0.0, min(1.0, score))
+    if corro_avg is not None and corro_avg < 0.5:
+        score -= 0.04
+    if corro_blocker == "single_source_local":
+        score -= 0.06
+    score = round(max(0.0, min(1.0, score)), 3)
 
     return {
         "score": score,
@@ -242,6 +413,10 @@ def score_briefing(
             "gdelt_pipeline_placed_ok": gdelt_meta.get("pipeline_placed_ok"),
             "gdelt_pipeline_blocker": gdelt_meta.get("pipeline_blocker"),
             "gdelt_error": gdelt_meta.get("error"),
+            "corroboration_avg_local": corro_meta.get("corroboration_avg_local"),
+            "corroboration_blocker": corro_blocker,
+            "local_verified_lines": corro_meta.get("local_verified_lines"),
+            "pipeline_blocker": gdelt_meta.get("pipeline_blocker") or corro_blocker,
             "age_hours": round(age_hours, 2) if age_hours is not None else None,
             "max_age_hours": max_age_hours,
             "watch_count": len(sources.get("watch_items") or []),

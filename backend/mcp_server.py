@@ -208,7 +208,7 @@ async def fetch_fusion_hotspots(*, top: int = 10) -> dict[str, Any]:
     import fusion_heatmap
 
     top = max(1, min(top, 25))
-    hotspots, summary = await fusion_heatmap.top_hotspots_for_llm(top=top)
+    hotspots, summary, _deltas = await fusion_heatmap.top_hotspots_for_llm(top=top)
     return {
         "top": top,
         "hotspots": hotspots,

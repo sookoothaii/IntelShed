@@ -53,8 +53,9 @@ def _watch_item(
     sources: list[str],
     bucket: str = "global",
     cell_id: str | None = None,
+    delta_score: float | None = None,
 ) -> dict[str, Any]:
-    return {
+    item: dict[str, Any] = {
         "id": _watch_id(prefix, key),
         "title": title[:200],
         "horizon_h": max(24, min(72, int(horizon_h))),
@@ -63,6 +64,9 @@ def _watch_item(
         "bucket": bucket,
         "cell_id": cell_id,
     }
+    if delta_score is not None:
+        item["delta_score"] = round(float(delta_score), 4)
+    return item
 
 
 def _resolve_lang(lang: str | None) -> str:
@@ -159,11 +163,22 @@ def classify_item(
     return "global"
 
 
-def _line(severity: str, text: str, bucket: str) -> dict:
+def _line(
+    severity: str,
+    text: str,
+    bucket: str,
+    *,
+    sources: list[str] | None = None,
+    lat: float | None = None,
+    lon: float | None = None,
+) -> dict:
     return {
         "severity": severity,
         "text": text.strip(),
         "bucket": bucket,
+        "sources": list(sources or []),
+        "lat": lat,
+        "lon": lon,
     }
 
 
@@ -196,6 +211,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
             _pm25_severity(float(pm25)),
             f"Air quality {name}: PM2.5 {pm25} µg/m³",
             bucket,
+            sources=["airquality"],
+            lat=lat,
+            lon=lon,
         ))
 
     for row in (snap.get("cams_haze", {}) or {}).get("cities") or []:
@@ -219,6 +237,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
             sev,
             f"CAMS haze {name}: " + ", ".join(parts),
             bucket,
+            sources=["cams_haze"],
+            lat=lat,
+            lon=lon,
         ))
 
     for ds in (snap.get("humanitarian", {}) or {}).get("datasets") or []:
@@ -228,7 +249,7 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         if org:
             text += f" ({org})"
         bucket = _text_bucket(title) or "regional"
-        items.append(_line("medium", text, bucket))
+        items.append(_line("medium", text, bucket, sources=["humanitarian"]))
 
     thai_vessels = [
         v for v in (snap.get("maritime", {}) or {}).get("vessels") or []
@@ -244,18 +265,26 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
             "low",
             f"Maritime traffic (Thailand corridor): {len(thai_vessels)} vessels ({summary})",
             "local" if any(r in by_region for r in ("laem_chabang", "bangkok_port", "phuket")) else "regional",
+            sources=["maritime"],
         ))
 
     local_pulse = snap.get("gdelt_pulse_local", {}) or {}
     for art in (local_pulse.get("articles") or [])[:10]:
         title = art.get("title") or art.get("url") or "Headline"
-        items.append(_line("low", f"Local news: {title[:120]}", "local"))
+        items.append(_line("low", f"Local news: {title[:120]}", "local", sources=["gdelt_pulse_local"]))
 
     for row in (snap.get("gdelt_geo_local", {}) or {}).get("events", [])[:12]:
         name = row.get("name") or "GDELT signal"
         lat, lon = row.get("lat"), row.get("lon")
         bucket = classify_item(lat, lon, str(name), local_bbox, regional_bbox)
-        items.append(_line("medium", f"Regional media heat: {str(name)[:100]}", bucket))
+        items.append(_line(
+            "medium",
+            f"Regional media heat: {str(name)[:100]}",
+            bucket,
+            sources=["gdelt_geo_local"],
+            lat=lat,
+            lon=lon,
+        ))
 
     for q in (snap.get("earthquakes", {}) or {}).get("earthquakes", [])[:40]:
         place = q.get("place") or "Earthquake"
@@ -264,19 +293,26 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         text = f"M{mag} — {place}"
         bucket = classify_item(lat, lon, text, local_bbox, regional_bbox)
         sev = "high" if (mag or 0) >= 6 else "medium" if (mag or 0) >= 5 else "low"
-        items.append(_line(sev, text, bucket))
+        items.append(_line(sev, text, bucket, sources=["earthquakes"], lat=lat, lon=lon))
 
     for ev in (snap.get("events", {}) or {}).get("events", [])[:25]:
         title = ev.get("title") or ev.get("category") or "Event"
         lat, lon = ev.get("lat"), ev.get("lon")
         bucket = classify_item(lat, lon, title, local_bbox, regional_bbox)
-        items.append(_line("low", f"{ev.get('category', 'EVENT')}: {title}", bucket))
+        items.append(_line(
+            "low",
+            f"{ev.get('category', 'EVENT')}: {title}",
+            bucket,
+            sources=["events"],
+            lat=lat,
+            lon=lon,
+        ))
 
     for a in (snap.get("gdacs", {}) or {}).get("alerts", [])[:15]:
         title = a.get("title") or "GDACS alert"
         lat, lon = a.get("lat"), a.get("lon")
         bucket = classify_item(lat, lon, title, local_bbox, regional_bbox)
-        items.append(_line("medium", title, bucket))
+        items.append(_line("medium", title, bucket, sources=["gdacs"], lat=lat, lon=lon))
 
     for h in (snap.get("hazards", {}) or {}).get("alerts", [])[:20]:
         label = h.get("event") or h.get("headline") or "Hazard"
@@ -286,19 +322,26 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         severity = "high" if "extreme" in sev else "medium" if "severe" in sev else "low"
         if bucket == "local" and severity == "low":
             severity = "medium"
-        items.append(_line(severity, label, bucket))
+        items.append(_line(severity, label, bucket, sources=["hazards"], lat=lat, lon=lon))
 
     for g in (snap.get("geopolitics", {}) or {}).get("items", [])[:15]:
         name = g.get("name") or g.get("title") or "Crisis"
         lat, lon = g.get("lat"), g.get("lon")
         bucket = classify_item(lat, lon, name, local_bbox, regional_bbox)
-        items.append(_line("medium", f"Crisis: {name}", bucket))
+        items.append(_line("medium", f"Crisis: {name}", bucket, sources=["geopolitics"], lat=lat, lon=lon))
 
     for row in (snap.get("gdelt_geo", {}) or {}).get("events", [])[:20]:
         name = row.get("name") or "GDELT signal"
         lat, lon = row.get("lat"), row.get("lon")
         bucket = classify_item(lat, lon, str(name), local_bbox, regional_bbox)
-        items.append(_line("low", f"Media heat: {str(name)[:100]}", bucket))
+        items.append(_line(
+            "low",
+            f"Media heat: {str(name)[:100]}",
+            bucket,
+            sources=["gdelt_geo"],
+            lat=lat,
+            lon=lon,
+        ))
 
     pulse = snap.get("gdelt_pulse", {}) or {}
     seen_titles: set[str] = {
@@ -311,22 +354,27 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         if key in seen_titles:
             continue
         bucket = _text_bucket(title) or "global"
-        items.append(_line("low", f"News: {title[:120]}", bucket))
+        items.append(_line("low", f"News: {title[:120]}", bucket, sources=["gdelt_pulse"]))
 
     for v in (snap.get("volcanoes", {}) or {}).get("volcanoes", [])[:10]:
         name = v.get("name") or "Volcano"
         lat, lon = v.get("lat"), v.get("lon")
         bucket = classify_item(lat, lon, name, local_bbox, regional_bbox)
-        items.append(_line("low", f"Volcano: {name}", bucket))
+        items.append(_line("low", f"Volcano: {name}", bucket, sources=["volcanoes"], lat=lat, lon=lon))
 
     for sig in (snap.get("river", {}) or {}).get("anomalies") or []:
-        items.append(_line("high", f"Feed anomaly: {sig.get('feed')} score={sig.get('score')}", "global"))
+        items.append(_line(
+            "high",
+            f"Feed anomaly: {sig.get('feed')} score={sig.get('score')}",
+            "global",
+            sources=["river"],
+        ))
 
     for a in alerts[:12]:
         text = a.get("text") or ""
         lat, lon = a.get("lat"), a.get("lon")
         bucket = classify_item(lat, lon, text, local_bbox, regional_bbox)
-        items.append(_line(a.get("severity", "low"), text, bucket))
+        items.append(_line(a.get("severity", "low"), text, bucket, sources=["alerts"], lat=lat, lon=lon))
 
     return items
 
@@ -336,9 +384,10 @@ def build_watch_items(
     alerts: list[dict],
     fusion_hotspots: list[dict] | None = None,
     *,
+    fusion_deltas: list[dict] | None = None,
     max_items: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Forward-looking watch list from feeds — pre-LLM, rule-based (Track 1)."""
+    """Forward-looking watch list from feeds — pre-LLM, rule-based (Track 1 + 5 deltas)."""
     cap = max_items if max_items is not None else _watch_max_items()
     local_bbox = _region_bbox(OPERATOR_REGION)
     regional_bbox = _ASEAN_BBOX if OPERATOR_REGION == "thailand" else local_bbox
@@ -347,8 +396,37 @@ def build_watch_items(
         regional_bbox = [w - 8, s - 6, e + 8, n + 4]
 
     candidates: list[dict[str, Any]] = []
+    delta_cells = {c.get("cell_id") for c in (fusion_deltas or []) if c.get("cell_id")}
+
+    for cell in fusion_deltas or []:
+        delta = float(cell.get("delta_score") or 0)
+        if delta < 0.12:
+            continue
+        lat, lon = cell.get("lat"), cell.get("lon")
+        cid = cell.get("cell_id") or _cell_id(lat, lon)
+        score = float(cell.get("score") or 0)
+        sources = list(cell.get("sources") or [])
+        sample = (cell.get("samples") or [{}])[0].get("label") or ""
+        label = sample[:100] if sample else (cid or "fusion cell")
+        bucket = classify_item(lat, lon, label, local_bbox, regional_bbox)
+        candidates.append(
+            _watch_item(
+                prefix="fusion_delta",
+                key=f"{cid}:{delta}",
+                title=f"Rising fusion cell (Δ+{delta:.2f}): {label}",
+                horizon_h=48,
+                confidence=min(0.92, 0.5 + delta + score * 0.25),
+                sources=sources or ["fusion"],
+                bucket=bucket,
+                cell_id=cid,
+                delta_score=delta,
+            )
+        )
 
     for i, cell in enumerate(fusion_hotspots or []):
+        cid = cell.get("cell_id") or _cell_id(cell.get("lat"), cell.get("lon"))
+        if cid and cid in delta_cells:
+            continue
         score = float(cell.get("score") or 0)
         if score < 0.45:
             continue
@@ -556,8 +634,10 @@ def format_watch_items_block(watch_items: list[dict[str, Any]], lang: str | None
         hrs = w.get("horizon_h", 24)
         conf = float(w.get("confidence") or 0)
         src = ", ".join(w.get("sources") or [])
+        delta = w.get("delta_score")
+        delta_tag = f", Δ={float(delta):+.2f}" if delta is not None else ""
         lines.append(
-            f"- #{i} [{hrs}h horizon, conf={conf:.2f}] {w.get('title')} (sources: {src})"
+            f"- #{i} [{hrs}h horizon, conf={conf:.2f}{delta_tag}] {w.get('title')} (sources: {src})"
         )
     return "\n".join(lines)
 
@@ -566,11 +646,12 @@ def _severity_key(item: dict) -> tuple[int, str]:
     return (_SEVERITY_RANK.get(item.get("severity"), 9), item.get("text", ""))
 
 
-def _sort_bucket(lines: list[dict], limit: int = 6, *, gdelt_reserve: int = 0) -> list[str]:
+def _sort_bucket(lines: list[dict], limit: int = 6, *, gdelt_reserve: int = 0) -> tuple[list[str], list[dict]]:
     """Rank by severity; optionally reserve slots for GDELT so LOCAL media heat survives cap."""
     from briefing_quality import is_gdelt_digest_text
 
     out: list[str] = []
+    picked: list[dict] = []
     seen: set[str] = set()
 
     def _append_item(item: dict) -> bool:
@@ -580,31 +661,32 @@ def _sort_bucket(lines: list[dict], limit: int = 6, *, gdelt_reserve: int = 0) -
             return False
         seen.add(key)
         out.append(f"- {t}")
+        picked.append(item)
         return True
 
-    picked: list[dict] = []
+    gdelt_picked: list[dict] = []
     if gdelt_reserve > 0:
         gdelt_ranked = sorted(
             (x for x in lines if is_gdelt_digest_text(x.get("text", ""))),
             key=_severity_key,
         )
         for item in gdelt_ranked:
-            if len(picked) >= gdelt_reserve:
+            if len(gdelt_picked) >= gdelt_reserve:
                 break
             if _append_item(item):
-                picked.append(item)
+                gdelt_picked.append(item)
             if len(out) >= limit:
-                return out
+                return out, picked
 
     remaining = sorted(
-        (x for x in lines if x not in picked),
+        (x for x in lines if x not in gdelt_picked),
         key=_severity_key,
     )
     for item in remaining:
         if len(out) >= limit:
             break
         _append_item(item)
-    return out
+    return out, picked
 
 
 def format_digest_sections(
@@ -613,6 +695,7 @@ def format_digest_sections(
     fusion_lines: str,
     fusion_hotspots: list[dict],
     *,
+    fusion_deltas: list[dict] | None = None,
     intel_meta: dict | None = None,
     lang: str | None = None,
 ) -> dict[str, Any]:
@@ -637,12 +720,16 @@ def format_digest_sections(
     for item in items:
         buckets.setdefault(item["bucket"], []).append(item)
 
-    local_lines = _sort_bucket(buckets["local"], 6, gdelt_reserve=_gdelt_local_slots())
-    regional_lines = _sort_bucket(buckets["regional"], 6)
-    global_lines = _sort_bucket(buckets["global"], 8)
+    local_lines, local_picked = _sort_bucket(buckets["local"], 6, gdelt_reserve=_gdelt_local_slots())
+    regional_lines, regional_picked = _sort_bucket(buckets["regional"], 6)
+    global_lines, global_picked = _sort_bucket(buckets["global"], 8)
 
-    from briefing_quality import count_gdelt_digest_items
+    from briefing_quality import build_digest_line_meta, count_gdelt_digest_items
 
+    digest_line_meta = build_digest_line_meta(
+        items,
+        {"local": local_picked, "regional": regional_picked, "global": global_picked},
+    )
     gdelt_collected = count_gdelt_digest_items(items)
 
     sw = snap.get("spaceweather", {}) or {}
@@ -694,7 +781,9 @@ def format_digest_sections(
         empty_local = "- No local signals in feeds (last 24h)."
         empty_regional = "- No regional signals highlighted."
         empty_global = "- No global highlights beyond baseline."
-    watch_items = build_watch_items(snap, alerts, fusion_hotspots)
+    watch_items = build_watch_items(
+        snap, alerts, fusion_hotspots, fusion_deltas=fusion_deltas
+    )
     return {
         "region": OPERATOR_REGION,
         "region_label": region_label,
@@ -706,6 +795,7 @@ def format_digest_sections(
         "fusion": fusion_lines,
         "fusion_hotspots": fusion_hotspots,
         "watch_items": watch_items,
+        "digest_line_meta": digest_line_meta,
         "intel": {
             "enabled": intel_block.get("enabled", False),
             "count": intel_block.get("count", 0),

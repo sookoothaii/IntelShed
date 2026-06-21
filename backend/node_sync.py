@@ -668,13 +668,14 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
 
     snap = await _gather_snapshot(force=force_snapshot)
     alerts = _compile_alerts(snap)
-    fusion_hotspots, fusion_lines = await fusion_heatmap.top_hotspots_for_llm(top=3)
+    fusion_hotspots, fusion_lines, fusion_deltas = await fusion_heatmap.top_hotspots_for_llm(top=3)
     intel_meta = await asyncio.to_thread(intel_briefing.gather_for_briefing)
     digest = format_digest_sections(
         snap,
         alerts,
         fusion_lines,
         fusion_hotspots,
+        fusion_deltas=fusion_deltas,
         intel_meta=intel_meta,
         lang=lang,
     )
@@ -717,6 +718,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         "gdelt": gdelt_meta,
         "style": "security_advisor_24h",
         "watch_items": digest.get("watch_items") or [],
+        "digest_line_meta": digest.get("digest_line_meta") or [],
     }
     from briefing_quality import attach_quality_to_sources
 
@@ -740,6 +742,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         "digest": sources_payload.get("digest"),
         "quality": sources_payload.get("quality"),
         "watch_items": digest.get("watch_items") or [],
+        "digest_line_meta": digest.get("digest_line_meta") or sources_payload.get("digest_line_meta") or [],
     }
 
 
@@ -779,6 +782,7 @@ async def latest_briefing():
         "quality": quality,
         "style": sources.get("style"),
         "watch_items": sources.get("watch_items") or [],
+        "digest_line_meta": sources.get("digest_line_meta") or [],
     }
 
 

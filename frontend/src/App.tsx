@@ -636,13 +636,17 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                   const blocker = pipe.pipeline_blocker ?? meta.gdelt_pipeline_blocker
                   const placedOk = pipe.pipeline_placed_ok ?? meta.gdelt_pipeline_placed_ok
                   const watchCount = pipe.watch_count ?? meta.watch_count ?? briefing?.watch_items?.length
+                  const corroAvg = pipe.corroboration_avg_local ?? meta.corroboration_avg_local
+                  const corroBlocker = pipe.corroboration_blocker ?? meta.corroboration_blocker
                   const blockerHint =
                     blocker === 'empty_feed_body'
                       ? 'GDELT rate limit or empty body — wait for disk cache'
                       : blocker === 'bucket_cap'
                         ? 'LOCAL bucket full — GDELT slots env may help'
-                        : blocker || ''
-                  if (collected == null && placed == null && !blocker && watchCount == null) return null
+                        : blocker === 'single_source_local'
+                          ? 'LOCAL digest lines share one feed family only'
+                          : blocker || ''
+                  if (collected == null && placed == null && !blocker && watchCount == null && corroAvg == null) return null
                   return (
                     <div className="analysis-row" style={{ fontSize: 11, marginTop: 8 }}>
                       <span
@@ -658,9 +662,17 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                           WATCH {watchCount}
                         </span>
                       )}
-                      {blocker ? (
+                      {corroAvg != null && (
+                        <span
+                          style={{ color: corroAvg >= 0.75 ? '#00e5a0' : corroAvg >= 0.5 ? '#ffd23f' : '#ff6b35' }}
+                          title="LOCAL digest corroboration (multi-source verification)"
+                        >
+                          VERIFY {Math.round(corroAvg * 100)}%
+                        </span>
+                      )}
+                      {(blocker || corroBlocker) ? (
                         <span style={{ color: '#ffd23f' }} title={blockerHint}>
-                          BLOCKER: {blocker}
+                          BLOCKER: {blocker || corroBlocker}
                         </span>
                       ) : (
                         <span style={{ color: '#8fb7a9' }}>pipeline OK</span>
@@ -716,6 +728,36 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       <span>{w.title}</span>
                       <span style={{ color: '#8fb7a9', fontSize: 10 }}>
                         {Math.round((w.confidence ?? 0) * 100)}% · {(w.sources || []).join(', ')}
+                        {w.delta_score != null ? ` · Δ${Number(w.delta_score).toFixed(2)}` : ''}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {briefing?.digest_line_meta?.length > 0 && (
+                <div className="analysis-section">
+                  <h3>✓ DIGEST VERIFICATION ({briefing.digest_line_meta.length})</h3>
+                  {briefing.digest_line_meta.slice(0, 8).map((row: any, i: number) => (
+                    <div
+                      key={i}
+                      className="analysis-row"
+                      style={{
+                        borderLeft: `3px solid ${
+                          row.label === 'corroborated'
+                            ? '#00e5a0'
+                            : row.label === 'contradictory'
+                              ? '#ff2d00'
+                              : '#ffd23f'
+                        }`,
+                      }}
+                    >
+                      <span style={{ fontWeight: 'bold', minWidth: 88, textTransform: 'uppercase', fontSize: 10 }}>
+                        {row.label || 'single-source'}
+                      </span>
+                      <span style={{ flex: 1 }}>{String(row.text || '').replace(/^-\s*/, '').slice(0, 120)}</span>
+                      <span style={{ color: '#8fb7a9', fontSize: 10 }}>
+                        {Math.round((row.corroboration ?? 0) * 100)}% · {(row.sources || []).slice(0, 3).join(', ')}
                       </span>
                     </div>
                   ))}

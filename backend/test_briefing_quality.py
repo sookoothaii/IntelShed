@@ -150,5 +150,87 @@ class GdeltPipelineMetaTests(unittest.TestCase):
         self.assertFalse(meta["pipeline_placed_ok"])
 
 
+class CorroborationTests(unittest.TestCase):
+    def test_quake_gdacs_dual_source(self):
+        from briefing_quality import build_digest_line_meta, corroborate_digest_item
+
+        lat, lon = 13.75, 100.5
+        quake = {
+            "severity": "medium",
+            "text": "M5.4 — 10 km NE of Bangkok",
+            "bucket": "local",
+            "sources": ["earthquakes"],
+            "lat": lat,
+            "lon": lon,
+        }
+        gdacs = {
+            "severity": "medium",
+            "text": "Orange earthquake alert Thailand",
+            "bucket": "local",
+            "sources": ["gdacs"],
+            "lat": lat,
+            "lon": lon,
+        }
+        pool = [quake, gdacs]
+        meta = corroborate_digest_item(quake, pool)
+        self.assertGreaterEqual(meta["corroboration"], 0.8)
+        self.assertEqual(meta["label"], "corroborated")
+        self.assertIn("earthquakes", meta["sources"])
+        self.assertIn("gdacs", meta["sources"])
+
+    def test_single_source_local_blocker(self):
+        from briefing_quality import build_digest_line_meta, corroboration_summary
+
+        picked = [
+            {
+                "severity": "low",
+                "text": "Air quality Bangkok: PM2.5 12 µg/m³",
+                "bucket": "local",
+                "sources": ["airquality"],
+                "lat": 13.75,
+                "lon": 100.5,
+            },
+            {
+                "severity": "low",
+                "text": "Air quality Chiang Mai: PM2.5 14 µg/m³",
+                "bucket": "local",
+                "sources": ["airquality"],
+                "lat": 18.79,
+                "lon": 98.98,
+            },
+            {
+                "severity": "low",
+                "text": "Air quality Phuket: PM2.5 9 µg/m³",
+                "bucket": "local",
+                "sources": ["airquality"],
+                "lat": 7.88,
+                "lon": 98.39,
+            },
+        ]
+        meta = build_digest_line_meta(picked, {"local": picked})
+        summary = corroboration_summary(meta)
+        self.assertIsNotNone(summary["corroboration_avg_local"])
+        self.assertLess(summary["corroboration_avg_local"], 0.5)
+        self.assertEqual(summary["corroboration_blocker"], "single_source_local")
+
+    def test_corroboration_penalizes_quality_score(self):
+        now = datetime.now(timezone.utc).isoformat()
+        meta_rows = [
+            {
+                "bucket": "local",
+                "corroboration": 0.35,
+                "source_families": ["airquality"],
+                "label": "single-source",
+            }
+        ] * 3
+        sources = {
+            "digest": {"local_count": 3},
+            "digest_line_meta": meta_rows,
+        }
+        q = score_briefing(text="LOCAL\n- lines", sources=sources, created_at=now)
+        self.assertEqual(q["meta"]["corroboration_blocker"], "single_source_local")
+        self.assertLess(q["score"], 0.96)
+
+
 if __name__ == "__main__":
     unittest.main()

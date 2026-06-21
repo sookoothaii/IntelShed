@@ -27,9 +27,14 @@ asyncio.gathers them. A 30s in-memory cache keeps the cost negligible.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
+import os
+import re
+import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Query
 
@@ -37,6 +42,13 @@ router = APIRouter(prefix="/api/fusion", tags=["fusion-heatmap"])
 
 _CACHE: dict[str, tuple[float, dict]] = {}
 _CACHE_TTL = 60.0
+_DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
+)
+_SNAPSHOT_INTERVAL_S = float(os.getenv("WORLDBASE_FUSION_SNAPSHOT_INTERVAL_S", str(6 * 3600)))
+_COMPARE_TOLERANCE_H = float(os.getenv("WORLDBASE_FUSION_COMPARE_TOLERANCE_H", "3"))
+_MAX_SNAPSHOT_AGE_D = float(os.getenv("WORLDBASE_FUSION_SNAPSHOT_RETAIN_D", "14"))
+_COMPARE_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*h(?:ours?)?$", re.I)
 
 
 def _cell_key(lat: float, lon: float, cell_deg: float) -> tuple[float, float]:
@@ -44,6 +56,260 @@ def _cell_key(lat: float, lon: float, cell_deg: float) -> tuple[float, float]:
     cell_lat = math.floor(lat / cell_deg) * cell_deg
     cell_lon = math.floor(lon / cell_deg) * cell_deg
     return round(cell_lat, 4), round(cell_lon, 4)
+
+
+def fusion_cell_id(lat: float | None, lon: float | None) -> str | None:
+    """Stable cell id (center lat/lon) — matches operator_briefing watch items."""
+    if lat is None or lon is None:
+        return None
+    return f"{float(lat):.2f},{float(lon):.2f}"
+
+
+def parse_compare_hours(compare: str | None) -> float | None:
+    """Parse compare query values like ``24h`` or ``6hours``."""
+    if not compare or not str(compare).strip():
+        return None
+    m = _COMPARE_RE.match(str(compare).strip())
+    if not m:
+        return None
+    try:
+        hours = float(m.group(1))
+    except ValueError:
+        return None
+    return hours if hours > 0 else None
+
+
+def _conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(_DB_PATH, timeout=5.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=5000")
+    return conn
+
+
+def init_fusion_snapshots_db() -> None:
+    with _conn() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS fusion_grid_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cell_deg REAL NOT NULL,
+                recorded_at TEXT NOT NULL,
+                payload TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_fusion_grid_snapshots_deg_time
+                ON fusion_grid_snapshots(cell_deg, recorded_at);
+        """)
+        conn.commit()
+
+
+def _parse_ts(raw: str | None) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return ts
+    except Exception:
+        return None
+
+
+def _compact_cells(cells: list[dict]) -> list[dict]:
+    out: list[dict] = []
+    for c in cells:
+        lat, lon = c.get("lat"), c.get("lon")
+        cid = c.get("cell_id") or fusion_cell_id(lat, lon)
+        if not cid:
+            continue
+        out.append({
+            "cell_id": cid,
+            "lat": lat,
+            "lon": lon,
+            "score": c.get("score"),
+            "intensity": c.get("intensity"),
+            "sources": c.get("sources") or [],
+        })
+    return out
+
+
+def _last_snapshot_at(cell_deg: float) -> datetime | None:
+    init_fusion_snapshots_db()
+    with _conn() as conn:
+        row = conn.execute(
+            """
+            SELECT recorded_at FROM fusion_grid_snapshots
+            WHERE cell_deg = ?
+            ORDER BY recorded_at DESC
+            LIMIT 1
+            """,
+            (round(cell_deg, 4),),
+        ).fetchone()
+    return _parse_ts(row["recorded_at"]) if row else None
+
+
+def record_snapshot_if_due(cell_deg: float, cells: list[dict], *, now: datetime | None = None) -> bool:
+    """Persist fusion grid snapshot at most every 6h (configurable). Returns True if stored."""
+    now = now or datetime.now(timezone.utc)
+    last = _last_snapshot_at(cell_deg)
+    if last and (now - last).total_seconds() < _SNAPSHOT_INTERVAL_S:
+        return False
+    compact = _compact_cells(cells)
+    if not compact:
+        return False
+    init_fusion_snapshots_db()
+    payload = json.dumps({"cells": compact}, ensure_ascii=False, separators=(",", ":"))
+    with _conn() as conn:
+        conn.execute(
+            "INSERT INTO fusion_grid_snapshots (cell_deg, recorded_at, payload) VALUES (?, ?, ?)",
+            (round(cell_deg, 4), now.isoformat(), payload),
+        )
+        cutoff = (now - timedelta(days=_MAX_SNAPSHOT_AGE_D)).isoformat()
+        conn.execute(
+            "DELETE FROM fusion_grid_snapshots WHERE cell_deg = ? AND recorded_at < ?",
+            (round(cell_deg, 4), cutoff),
+        )
+        conn.commit()
+    return True
+
+
+def _load_snapshot_near(cell_deg: float, target: datetime) -> dict | None:
+    init_fusion_snapshots_db()
+    tol = timedelta(hours=_COMPARE_TOLERANCE_H)
+    with _conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT recorded_at, payload FROM fusion_grid_snapshots
+            WHERE cell_deg = ?
+            ORDER BY recorded_at DESC
+            LIMIT 80
+            """,
+            (round(cell_deg, 4),),
+        ).fetchall()
+    best: dict | None = None
+    best_delta = float("inf")
+    for row in rows:
+        ts = _parse_ts(row["recorded_at"])
+        if not ts:
+            continue
+        delta = abs((ts - target).total_seconds())
+        if delta > tol.total_seconds():
+            continue
+        if delta < best_delta:
+            best_delta = delta
+            try:
+                payload = json.loads(row["payload"])
+            except Exception:
+                continue
+            best = {
+                "recorded_at": row["recorded_at"],
+                "cells": payload.get("cells") or [],
+            }
+    return best
+
+
+def apply_compare(cells: list[dict], cell_deg: float, compare_hours: float) -> dict[str, Any]:
+    """Attach baseline_score and delta_score to cells vs snapshot near now-compare_hours."""
+    now = datetime.now(timezone.utc)
+    target = now - timedelta(hours=compare_hours)
+    baseline = _load_snapshot_near(cell_deg, target)
+    baseline_map = {
+        c["cell_id"]: c for c in (baseline or {}).get("cells") or [] if c.get("cell_id")
+    }
+    top_delta: dict | None = None
+    for c in cells:
+        cid = c.get("cell_id") or fusion_cell_id(c.get("lat"), c.get("lon"))
+        c["cell_id"] = cid
+        base = baseline_map.get(cid) if cid else None
+        if base is not None:
+            try:
+                b_score = float(base.get("score") or 0)
+                c_score = float(c.get("score") or 0)
+            except (TypeError, ValueError):
+                b_score, c_score = 0.0, 0.0
+            c["baseline_score"] = round(b_score, 4)
+            c["delta_score"] = round(c_score - b_score, 4)
+        elif cid and float(c.get("score") or 0) >= 0.35:
+            c["baseline_score"] = None
+            c["delta_score"] = round(float(c.get("score") or 0), 4)
+        else:
+            c["baseline_score"] = None
+            c["delta_score"] = None
+        ds = c.get("delta_score")
+        if ds is not None and (top_delta is None or ds > top_delta.get("delta_score", -1)):
+            top_delta = {
+                "cell_id": cid,
+                "delta_score": ds,
+                "lat": c.get("lat"),
+                "lon": c.get("lon"),
+                "score": c.get("score"),
+            }
+    snapshots_stored = 0
+    init_fusion_snapshots_db()
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM fusion_grid_snapshots WHERE cell_deg = ?",
+            (round(cell_deg, 4),),
+        ).fetchone()
+        snapshots_stored = int(row["n"]) if row else 0
+    return {
+        "hours": compare_hours,
+        "available": baseline is not None,
+        "baseline_at": (baseline or {}).get("recorded_at"),
+        "target_at": target.isoformat(),
+        "snapshots_stored": snapshots_stored,
+        "top_delta": top_delta,
+    }
+
+
+def extract_delta_watch_cells(
+    cells: list[dict],
+    *,
+    min_delta: float = 0.12,
+    top: int = 5,
+) -> list[dict]:
+    """Cells with meaningful positive delta for anticipatory watch items."""
+    ranked = [
+        c for c in cells
+        if c.get("delta_score") is not None and float(c["delta_score"]) >= min_delta
+    ]
+    ranked.sort(key=lambda x: -float(x.get("delta_score") or 0))
+    return ranked[:top]
+
+
+def fusion_compare_summary(cell_deg: float = 2.0, compare_hours: float = 24.0) -> dict:
+    """Lightweight compare meta for trust probes (uses last in-memory grid if fresh)."""
+    now_ts = time.time()
+    prefix = f"{cell_deg:.2f}|"
+    cells: list[dict] = []
+    for key, (cached_at, payload) in _CACHE.items():
+        if not key.startswith(prefix):
+            continue
+        if (now_ts - cached_at) >= _CACHE_TTL:
+            continue
+        cells = list(payload.get("cells") or [])
+        if cells:
+            break
+    if not cells:
+        return {
+            "available": False,
+            "hours": compare_hours,
+            "detail": "no recent grid cache",
+            "snapshots_stored": 0,
+        }
+    meta = apply_compare([dict(c) for c in cells], cell_deg, compare_hours)
+    top = meta.get("top_delta")
+    detail = "no baseline yet"
+    if meta.get("available") and top:
+        detail = f"top Δ={top.get('delta_score')} cell={top.get('cell_id')}"
+    elif meta.get("available"):
+        detail = "baseline ok, no rising cells"
+    return {
+        "available": bool(meta.get("available")),
+        "hours": compare_hours,
+        "baseline_at": meta.get("baseline_at"),
+        "snapshots_stored": meta.get("snapshots_stored", 0),
+        "top_delta": top,
+        "detail": detail,
+    }
 
 
 def _safe_lat_lon(d: dict) -> tuple[float, float] | None:
@@ -222,21 +488,8 @@ async def _gather_aircraft_density(cell_deg: float) -> list[dict]:
     return out
 
 
-@router.get("/heatmap")
-async def fusion_heatmap(
-    cell_deg: float = Query(2.0, ge=0.5, le=10.0, description="Grid cell size in degrees"),
-    top: int = Query(60, ge=10, le=400, description="Return at most N hottest cells"),
-    include_geojson: int = Query(0, ge=0, le=1, description="Include GeoJSON polygons (heavier)"),
-):
-    """Aggregate every WorldBase spatial feed onto a single intensity grid."""
-    cache_key = f"{cell_deg:.2f}|{top}|{include_geojson}"
-    now = time.time()
-    cached = _CACHE.get(cache_key)
-    if cached and (now - cached[0]) < _CACHE_TTL:
-        out = dict(cached[1])
-        out["cached"] = True
-        return out
-
+async def _compute_grid(cell_deg: float, top: int) -> tuple[list[dict], dict, int, int]:
+    """Gather feeds, aggregate grid — returns (ranked_cells, contributors, total_points, total_cells)."""
     quakes, gdacs, hazards, volcs, anoms, outages, pegel, density = await asyncio.gather(
         _gather_quakes(),
         _gather_gdacs(),
@@ -273,27 +526,65 @@ async def fusion_heatmap(
         c["score"] = round(c["intensity"] / max_intensity, 4) if max_intensity > 0 else 0.0
         c["intensity"] = round(c["intensity"], 4)
         c["sources"] = sorted(c["contributions"].keys())
+        c["cell_id"] = fusion_cell_id(c["lat"], c["lon"])
 
+    contributors = {
+        "quakes": len(quakes),
+        "gdacs": len(gdacs),
+        "hazards": len(hazards),
+        "volcanoes": len(volcs),
+        "aircraft_anomalies": len(anoms),
+        "outages": len(outages),
+        "pegel": len(pegel),
+        "aircraft_density": len(density),
+    }
+    return ranked, contributors, len(all_points), len(cells)
+
+
+@router.get("/heatmap")
+async def fusion_heatmap(
+    cell_deg: float = Query(2.0, ge=0.5, le=10.0, description="Grid cell size in degrees"),
+    top: int = Query(60, ge=10, le=400, description="Return at most N hottest cells"),
+    include_geojson: int = Query(0, ge=0, le=1, description="Include GeoJSON polygons (heavier)"),
+    compare: str | None = Query(
+        None,
+        description="Compare to grid snapshot N hours ago (e.g. 24h) — adds delta_score per cell",
+    ),
+):
+    """Aggregate every WorldBase spatial feed onto a single intensity grid."""
+    compare_hours = parse_compare_hours(compare)
+    cache_key = f"{cell_deg:.2f}|{top}|{include_geojson}|{compare_hours or ''}"
+    now = time.time()
+    cached = _CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _CACHE_TTL:
+        out = dict(cached[1])
+        out["cached"] = True
+        return out
+
+    ranked, contributors, total_points, total_cells = await _compute_grid(cell_deg, top)
+    record_snapshot_if_due(cell_deg, ranked)
+
+    compare_meta: dict | None = None
+    if compare_hours is not None:
+        compare_meta = apply_compare(ranked, cell_deg, compare_hours)
+        ranked.sort(
+            key=lambda c: -(abs(float(c.get("delta_score") or 0)) if c.get("delta_score") is not None else float(c.get("score") or 0)),
+        )
+
+    max_intensity = ranked[0]["intensity"] if ranked else 0.0
     payload = {
         "cell_deg": cell_deg,
         "max_intensity": round(max_intensity, 4),
-        "total_points": len(all_points),
-        "total_cells": len(cells),
+        "total_points": total_points,
+        "total_cells": total_cells,
         "returned": len(ranked),
         "cells": ranked,
-        "contributors": {
-            "quakes": len(quakes),
-            "gdacs": len(gdacs),
-            "hazards": len(hazards),
-            "volcanoes": len(volcs),
-            "aircraft_anomalies": len(anoms),
-            "outages": len(outages),
-            "pegel": len(pegel),
-            "aircraft_density": len(density),
-        },
+        "contributors": contributors,
         "scanned_at": datetime.now(timezone.utc).isoformat(),
         "cached": False,
     }
+    if compare_meta is not None:
+        payload["compare"] = compare_meta
 
     if include_geojson and ranked:
         feats = []
@@ -367,6 +658,8 @@ def slim_hotspot_cells(cells: list[dict], top: int = 3) -> list[dict]:
             "score": c.get("score"),
             "intensity": c.get("intensity"),
             "sources": c.get("sources") or [],
+            "cell_id": c.get("cell_id"),
+            "delta_score": c.get("delta_score"),
             "samples": [
                 {"source": s.get("source"), "label": (s.get("label") or "")[:80]}
                 for s in (c.get("samples") or [])[:2]
@@ -378,8 +671,21 @@ def slim_hotspot_cells(cells: list[dict], top: int = 3) -> list[dict]:
 async def top_hotspots_for_llm(
     cell_deg: float = 2.0,
     top: int = 3,
-) -> tuple[list[dict], str]:
-    """Fetch ranked fusion cells and format for LLM prompts."""
-    data = await fusion_heatmap(cell_deg=cell_deg, top=max(top, 10), include_geojson=0)
-    cells = (data.get("cells") or [])[:top]
-    return slim_hotspot_cells(cells, top=top), format_hotspots_for_llm(cells, top=top)
+    *,
+    compare_hours: float | None = 24.0,
+) -> tuple[list[dict], str, list[dict]]:
+    """Fetch ranked fusion cells, LLM text, and delta-ranked cells for watch items."""
+    compare_arg = f"{compare_hours:g}h" if compare_hours else None
+    data = await fusion_heatmap(
+        cell_deg=cell_deg,
+        top=max(top, 10),
+        include_geojson=0,
+        compare=compare_arg,
+    )
+    cells = (data.get("cells") or [])[: max(top, 10)]
+    deltas = extract_delta_watch_cells(cells, top=top)
+    return (
+        slim_hotspot_cells(cells, top=top),
+        format_hotspots_for_llm(cells, top=top),
+        deltas,
+    )

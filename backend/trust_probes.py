@@ -136,12 +136,22 @@ async def run_trust_probes() -> dict[str, Any]:
             "gdelt_digest_lines": meta.get("gdelt_digest_lines"),
             "pipeline_ok": meta.get("gdelt_pipeline_ok"),
             "pipeline_placed_ok": meta.get("gdelt_pipeline_placed_ok"),
-            "pipeline_blocker": meta.get("gdelt_pipeline_blocker"),
+            "pipeline_blocker": meta.get("gdelt_pipeline_blocker") or meta.get("corroboration_blocker"),
             "pipeline_yield": meta.get("gdelt_pipeline_yield"),
             "watch_count": meta.get("watch_count"),
+            "corroboration_avg_local": meta.get("corroboration_avg_local"),
+            "corroboration_blocker": meta.get("corroboration_blocker"),
         }
     except Exception:
         pass
+
+    fusion_compare: dict[str, Any] = {"available": False, "detail": "skipped"}
+    try:
+        import fusion_heatmap as _fusion
+
+        fusion_compare = await asyncio.to_thread(_fusion.fusion_compare_summary, 2.0, 24.0)
+    except Exception as exc:
+        fusion_compare = {"available": False, "detail": str(exc)[:120]}
 
     return {
         "time": datetime.now(timezone.utc).isoformat(),
@@ -150,5 +160,6 @@ async def run_trust_probes() -> dict[str, Any]:
         "status": status,
         "probes": probes,
         "feed_drift": feed_drift,
+        "fusion_compare": fusion_compare,
         "briefing_pipeline": briefing_pipeline,
     }

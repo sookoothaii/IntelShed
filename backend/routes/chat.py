@@ -203,7 +203,7 @@ async def build_chat_context() -> str:
 
     # Fusion heatmap top-3 (spatial situational awareness)
     try:
-        fusion_hotspots, fusion_lines = await fusion_heatmap.top_hotspots_for_llm(top=3)
+        fusion_hotspots, fusion_lines, _fusion_deltas = await fusion_heatmap.top_hotspots_for_llm(top=3)
         if fusion_hotspots:
             parts.append("\nFUSION HOTSPOTS (8-feed grid, top 3):")
             parts.append(fusion_lines)
