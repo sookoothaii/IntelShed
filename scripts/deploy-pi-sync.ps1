@@ -70,9 +70,13 @@ if ($Lcd) {
     if (-not (Test-Path $lcdSrc)) {
         throw "Missing source: $lcdSrc"
     }
+    if (-not (Test-Path $watchRankSrc)) {
+        throw "Missing source: $watchRankSrc"
+    }
     $lcdLf = Write-LfCopy $lcdSrc 'system_tiles.py'
-    & $scp -i $key $lcdLf "${pi}:/tmp/"
-    Write-Host 'SCP: system_tiles.py' -ForegroundColor Green
+    $watchRankLf = Write-LfCopy $watchRankSrc 'watch_rank.py'
+    & $scp -i $key $lcdLf $watchRankLf "${pi}:/tmp/"
+    Write-Host 'SCP: system_tiles.py, watch_rank.py' -ForegroundColor Green
 }
 
 $trimBlock = ''
@@ -118,6 +122,7 @@ if ($Lcd) {
     $lcdBlock = @"
 cp /tmp/system_tiles.py $PiProject/system_tiles.py
 chmod +x $PiProject/system_tiles.py
+cp /tmp/watch_rank.py $PiProject/offgrid/lib/watch_rank.py
 "@
 }
 
