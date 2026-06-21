@@ -1,7 +1,7 @@
 """Process-local in-memory TTL cache.
 
 Shared by the core feed endpoints (routes/core_feeds.py) and the chat context
-builder in main.py, so they must read/write the SAME store (e.g. /api/chat
+builder (routes/chat.py), so they must read/write the SAME store (e.g. /api/chat
 context reads ``quakes:day:2.5`` and ``eonet`` populated by the feed endpoints).
 This is the in-memory layer; durable snapshots live in feed_registry (SQLite).
 """
