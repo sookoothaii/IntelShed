@@ -127,10 +127,23 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_entities_schema ON entities(schema);
         CREATE INDEX IF NOT EXISTS idx_stmt_entity ON statements(entity_id);
+        """
+    )
+    _ensure_edge_indexes(con)
+
+
+def _ensure_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
         CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
         """
     )
+
+
+def _drop_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute("DROP INDEX IF EXISTS idx_edges_source")
+    con.execute("DROP INDEX IF EXISTS idx_edges_target")
 
 
 def init_store() -> bool:
@@ -664,14 +677,35 @@ def delete_edges_for_dataset(dataset: str) -> int:
 
     Entity resolution is append-only, so this is the supported way to reset a
     resolution run (e.g. after a config change) without touching ingested data.
+
+    DuckDB 1.5.x can FATAL on bulk DELETE when secondary edge indexes drift;
+    drop indexes first, then rebuild (same class of bug as upsert schema change).
     """
     with _LOCK:
         con = _conn()
         before = con.execute(
             "SELECT count(*) FROM edges WHERE dataset = ?", [dataset]
         ).fetchone()
-        con.execute("DELETE FROM edges WHERE dataset = ?", [dataset])
-        return int(before[0] if before else 0)
+        count = int(before[0] if before else 0)
+        if count == 0:
+            return 0
+        _drop_edge_indexes(con)
+        try:
+            con.execute("DELETE FROM edges WHERE dataset = ?", [dataset])
+        except Exception:
+            con.execute(
+                """
+                CREATE OR REPLACE TEMP TABLE _ftm_edges_keep AS
+                SELECT * FROM edges WHERE dataset != ?
+                """,
+                [dataset],
+            )
+            con.execute("DELETE FROM edges")
+            con.execute("INSERT INTO edges SELECT * FROM _ftm_edges_keep")
+            con.execute("DROP TABLE IF EXISTS _ftm_edges_keep")
+        finally:
+            _ensure_edge_indexes(con)
+        return count
 
 
 def list_entities_recent(limit: int = 50, dataset: str | None = None) -> dict:

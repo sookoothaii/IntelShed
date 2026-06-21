@@ -64,6 +64,17 @@ class IntelProximityTests(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertEqual(out["edges_added"], 0)
 
+    def test_link_proximity_refresh_does_not_accumulate(self):
+        for key, lat, lon in (("a", 13.75, 100.5), ("b", 13.76, 100.51), ("c", 13.77, 100.52)):
+            self._seed(key, lat, lon)
+        bbox = [100.0, 13.0, 101.0, 14.5]
+        first = ip.link_proximity_edges(bbox=bbox, window_hours=48, max_km=120, entity_cap=10)
+        second = ip.link_proximity_edges(bbox=bbox, window_hours=48, max_km=120, entity_cap=10)
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["ok"])
+        self.assertGreaterEqual(first["edges_total"], 1)
+        self.assertEqual(second["edges_total"], first["edges_total"])
+
 
 if __name__ == "__main__":
     unittest.main()

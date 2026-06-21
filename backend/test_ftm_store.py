@@ -92,6 +92,18 @@ class FtmStoreTest(unittest.TestCase):
         self.assertEqual(len(g["edges"]), 1)
         self.assertEqual(g["edges"][0]["confidence"], 0.9)
 
+    def test_delete_edges_for_dataset_refresh_is_idempotent(self):
+        ftm_store.add_edge("a", "b", "nearby", dataset="spatial-proximity")
+        ftm_store.add_edge("a", "c", "nearby", dataset="spatial-proximity")
+        ftm_store.add_edge("a", "d", "contains", dataset="gdacs")
+        self.assertEqual(ftm_store.count_edges_for_dataset("spatial-proximity"), 2)
+        deleted = ftm_store.delete_edges_for_dataset("spatial-proximity")
+        self.assertEqual(deleted, 2)
+        self.assertEqual(ftm_store.count_edges_for_dataset("spatial-proximity"), 0)
+        self.assertEqual(ftm_store.count_edges_for_dataset("gdacs"), 1)
+        ftm_store.add_edge("a", "b", "nearby", dataset="spatial-proximity")
+        self.assertEqual(ftm_store.delete_edges_for_dataset("spatial-proximity"), 1)
+
     def test_graph_overview_returns_recent_entities(self):
         p = ftm_store.make_entity("Event", ["ov1"], {"name": "Overview Event"})
         ftm_store.upsert(p, dataset="gdacs")
