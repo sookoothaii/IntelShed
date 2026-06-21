@@ -336,6 +336,10 @@ def format_digest_sections(
     regional_lines = _sort_bucket(buckets["regional"], 6)
     global_lines = _sort_bucket(buckets["global"], 8)
 
+    from briefing_quality import count_gdelt_digest_items
+
+    gdelt_collected = count_gdelt_digest_items(items)
+
     sw = snap.get("spaceweather", {}) or {}
     cve_items = (snap.get("cve", {}) or {}).get("vulnerabilities", [])[:5]
     nodes = (snap.get("nodes", {}) or {}).get("nodes", [])
@@ -407,6 +411,7 @@ def format_digest_sections(
         "cyber": cyber_lines,
         "infra": infra_bits,
         "nodes": node_lines,
+        "_gdelt_collected": gdelt_collected,
     }
 
 

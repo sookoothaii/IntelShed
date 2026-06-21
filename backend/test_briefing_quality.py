@@ -64,6 +64,82 @@ class BriefingQualityTests(unittest.TestCase):
         q = score_briefing(text="LOCAL\n- item", sources=sources, created_at=now)
         self.assertFalse(q["checks"]["gdelt_present"])
 
+    def test_gdelt_pipeline_meta_in_quality(self):
+        now = datetime.now(timezone.utc).isoformat()
+        sources = {
+            "digest": {"local_count": 3},
+            "gdelt": {
+                "feed_operator_available": 10,
+                "gdelt_collected": 4,
+                "digest_gdelt_lines": 2,
+                "pipeline_yield": 0.4,
+                "placement_yield": 0.5,
+                "pipeline_ok": True,
+                "pipeline_placed_ok": True,
+            },
+        }
+        q = score_briefing(text="LOCAL\n- Local news: test", sources=sources, created_at=now)
+        self.assertEqual(q["meta"]["gdelt_collected"], 4)
+        self.assertEqual(q["meta"]["gdelt_digest_lines"], 2)
+        self.assertEqual(q["meta"]["gdelt_pipeline_yield"], 0.4)
+        self.assertTrue(q["meta"]["gdelt_pipeline_ok"])
+
+
+class GdeltPipelineMetaTests(unittest.TestCase):
+    def test_pipeline_counts_digest_lines(self):
+        snap = {
+            "gdelt_pulse_local": {"count": 8, "articles": [{}] * 8},
+            "gdelt_geo_local": {"count": 2, "events": [{}, {}]},
+        }
+        digest = {
+            "local": ["- Local news: Bangkok flood", "- Air quality Bangkok"],
+            "regional": ["- Regional media heat: Myanmar border"],
+            "global": ["- News: Global headline"],
+            "_gdelt_collected": 12,
+        }
+        from briefing_quality import gdelt_digest_pipeline_meta
+
+        meta = gdelt_digest_pipeline_meta(snap, digest)
+        self.assertEqual(meta["digest_gdelt_lines"], 3)
+        self.assertEqual(meta["gdelt_collected"], 12)
+        self.assertEqual(meta["feed_operator_available"], 10)
+        self.assertEqual(meta["pipeline_yield"], 1.0)
+        self.assertEqual(meta["placement_yield"], 0.25)
+        self.assertTrue(meta["pipeline_ok"])
+        self.assertTrue(meta["pipeline_placed_ok"])
+
+    def test_pipeline_ok_when_no_feed(self):
+        from briefing_quality import gdelt_digest_pipeline_meta
+
+        meta = gdelt_digest_pipeline_meta({}, {"local": ["- Air quality only"]})
+        self.assertTrue(meta["pipeline_ok"])
+        self.assertIsNone(meta["pipeline_yield"])
+
+    def test_empty_feed_body_blocker(self):
+        snap = {
+            "gdelt_pulse_local": {"count": 25, "articles": [], "error": "rate limit"},
+        }
+        digest = {"local": ["- Air quality Bangkok"], "_gdelt_collected": 0}
+        from briefing_quality import gdelt_digest_pipeline_meta
+
+        meta = gdelt_digest_pipeline_meta(snap, digest)
+        self.assertEqual(meta["feed_operator_available"], 0)
+        self.assertEqual(meta["pipeline_blocker"], "empty_feed_body")
+        self.assertFalse(meta["pipeline_ok"])
+
+    def test_bucket_cap_blocker(self):
+        snap = {"gdelt_pulse_local": {"articles": [{}] * 5}}
+        digest = {
+            "local": ["- Air quality only"],
+            "_gdelt_collected": 5,
+        }
+        from briefing_quality import gdelt_digest_pipeline_meta
+
+        meta = gdelt_digest_pipeline_meta(snap, digest)
+        self.assertEqual(meta["pipeline_blocker"], "bucket_cap")
+        self.assertTrue(meta["pipeline_ok"])
+        self.assertFalse(meta["pipeline_placed_ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

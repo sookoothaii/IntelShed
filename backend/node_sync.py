@@ -356,11 +356,15 @@ def _gdelt_snapshot_meta(snap: dict) -> dict:
     geo_local = snap.get("gdelt_geo_local") or {}
     pulse = snap.get("gdelt_pulse") or {}
     geo = snap.get("gdelt_geo") or {}
+    from briefing_quality import _gdelt_block_volume
+
     return {
-        "local_pulse_count": int(local.get("count") or len(local.get("articles") or [])),
-        "geo_local_count": int(geo_local.get("count") or len(geo_local.get("events") or [])),
-        "pulse_count": int(pulse.get("count") or len(pulse.get("articles") or [])),
-        "geo_count": int(geo.get("count") or len(geo.get("events") or [])),
+        "local_pulse_count": _gdelt_block_volume(local, list_key="articles"),
+        "geo_local_count": _gdelt_block_volume(geo_local, list_key="events"),
+        "pulse_count": _gdelt_block_volume(pulse, list_key="articles"),
+        "geo_count": _gdelt_block_volume(geo, list_key="events"),
+        "feed_operator_available": _gdelt_block_volume(local, list_key="articles")
+        + _gdelt_block_volume(geo_local, list_key="events"),
         "stale": bool(local.get("stale") or geo_local.get("stale")),
         "error": local.get("error") or geo_local.get("error"),
     }
@@ -629,6 +633,10 @@ async def _generate_briefing_unlocked(lang: str | None = None):
 
     now = datetime.now(timezone.utc).isoformat()
     intel_src = digest.get("intel") or {}
+    from briefing_quality import gdelt_digest_pipeline_meta
+
+    gdelt_meta = _gdelt_snapshot_meta(snap)
+    gdelt_meta.update(gdelt_digest_pipeline_meta(snap, digest))
     sources_payload = {
         "alerts": alerts,
         "fusion_hotspots": fusion_hotspots,
@@ -649,7 +657,12 @@ async def _generate_briefing_unlocked(lang: str | None = None):
             "global_count": len(digest.get("global") or []),
             "intel_count": intel_src.get("count", 0),
         },
-        "gdelt": _gdelt_snapshot_meta(snap),
+        "_digest_sections": {
+            "local": digest.get("local") or [],
+            "regional": digest.get("regional") or [],
+            "global": digest.get("global") or [],
+        },
+        "gdelt": gdelt_meta,
         "style": "security_advisor_24h",
     }
     from briefing_quality import attach_quality_to_sources
