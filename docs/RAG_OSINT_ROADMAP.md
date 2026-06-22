@@ -48,10 +48,10 @@ Public agent entry: [`AGENTS.md`](../AGENTS.md). Intel graph baseline: [`INTEL_I
 | Track | Status | Notes |
 |-------|--------|-------|
 | **R0.1–R0.4** | **Done** | BGE reranker, chunk prefixes, ledger→RAG, NEWS ingest |
-| **R1.1–R1.3** | **Done** | Spatial bbox filter + CRAG-lite in chat CTX + adaptive YAML chunking |
+| **R1.1–R1.4** | **Done** | Spatial bbox + CRAG-lite + adaptive YAML chunking + briefing agentic loop |
 | **Dev reload** | **Done** | `start.ps1` excludes SQLite/DuckDB from `--reload` watch |
 
-**Verify:** `GET /api/memory/stats` → `rerank_enabled`, `spatial_enabled`, `adaptive_chunking`; `python -m unittest test_rag_chunking -v`.
+**Verify:** `GET /api/memory/stats` → `adaptive_chunking`; `python -m unittest test_rag_chunking test_briefing_agentic -v`; briefing `sources.agentic` after generate.
 
 ---
 
@@ -82,7 +82,7 @@ Public agent entry: [`AGENTS.md`](../AGENTS.md). Intel graph baseline: [`INTEL_I
 | **R1.1** | **Spatial-RAG** — geohash + bbox pre-filter | `rag_spatial.py`, `rag_memory.py` | ✅ |
 | **R1.2** | **CRAG-lite chat** — low score → situations + subgraph | `rag_crag.py`, `routes/chat.py` | ✅ |
 | **R1.3** | **Adaptive chunking** per feed type in `ingest/mappings/*.yml` | `rag_chunking.py`, `feed_ingest.py`, YAML mappings | ✅ |
-| **R1.4** | **Briefing agentic loop** (max 3 rounds) | `operator_briefing.py` | pending |
+| **R1.4** | **Briefing agentic loop** (max 3 rounds) | `briefing_agentic.py`, `operator_briefing.py`, `node_sync.py` | ✅ |
 
 ### R2 — Optional (operator “go” only)
 

@@ -680,6 +680,9 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         intel_meta=intel_meta,
         lang=lang,
     )
+    from briefing_agentic import run_briefing_agentic_loop
+
+    digest, agentic_meta = await run_briefing_agentic_loop(digest, snap=snap)
     prompt = build_security_advisor_prompt(digest, lang=lang)
     text = await _ollama_briefing(prompt)
     if not text:
@@ -721,6 +724,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         "style": "security_advisor_24h",
         "watch_items": digest.get("watch_items") or [],
         "digest_line_meta": digest.get("digest_line_meta") or [],
+        "agentic": agentic_meta,
     }
     from briefing_quality import attach_quality_to_sources
 
@@ -763,6 +767,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         "quality": sources_payload.get("quality"),
         "watch_items": digest.get("watch_items") or [],
         "digest_line_meta": digest.get("digest_line_meta") or sources_payload.get("digest_line_meta") or [],
+        "agentic": agentic_meta,
     }
 
 
@@ -812,6 +817,7 @@ async def latest_briefing():
         "style": sources.get("style"),
         "watch_items": watch_items,
         "digest_line_meta": sources.get("digest_line_meta") or [],
+        "agentic": sources.get("agentic"),
     }
 
 

@@ -977,6 +977,16 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
     except Exception:
         intel_prompt = "- Intel graph unavailable."
 
+    rag_block = ""
+    try:
+        from briefing_agentic import format_rag_recall_block
+
+        rag_block = format_rag_recall_block(digest.get("rag_recall"), lang=lang)
+        if rag_block:
+            rag_block = f"{rag_block}\n\n"
+    except Exception:
+        rag_block = ""
+
     return (
         "You produce a 24-hour security & situational awareness protocol for one operator.\n"
         + _lang_instructions(lang)
@@ -995,6 +1005,7 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
         f"{_prediction_calibration_line(lang=lang)}\n\n"
         f"WATCH ITEMS (monitor over stated horizon — do not invent more):\n"
         f"{format_watch_items_block(digest.get('watch_items') or [], lang=lang)}\n\n"
+        f"{rag_block}"
         f"Fusion hotspots (spatial grid):\n{digest['fusion']}\n\n"
         f"Cyber (CISA KEV):\n" + "\n".join(digest["cyber"]) + "\n\n"
         f"Infra:\n" + "\n".join(f"- {x}" for x in digest["infra"]) + "\n\n"
