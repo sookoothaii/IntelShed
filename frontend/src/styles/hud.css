@@ -2138,6 +2138,44 @@ html, body, #root {
   overflow: auto;
 }
 
+.situation-fusion-block {
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(255, 107, 53, 0.35);
+  border-radius: 6px;
+  background: rgba(255, 45, 0, 0.06);
+}
+.situation-fusion-block h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: #ff6b35;
+}
+.situation-fusion-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(26, 46, 51, 0.5);
+}
+.situation-fusion-row:last-child {
+  border-bottom: none;
+}
+.situation-fusion-rank {
+  color: #ff6b35;
+  font-weight: 700;
+  min-width: 24px;
+}
+.situation-fusion-label {
+  flex: 1;
+  color: #c8d4cf;
+}
+.situation-fusion-score {
+  color: #8fb7a9;
+  font-size: 10px;
+}
+
 .situation-loading,
 .situation-empty {
   padding: 16px;

@@ -29,8 +29,17 @@ function sevClass(sev: string): string {
   return 'sit-sev-low'
 }
 
+type FusionHotspot = {
+  lat?: number
+  lon?: number
+  label?: string
+  summary?: string
+  score?: number
+}
+
 export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, onAskAI }: Props) {
   const [items, setItems] = useState<SituationItem[]>([])
+  const [fusionHotspots, setFusionHotspots] = useState<FusionHotspot[]>([])
   const [loading, setLoading] = useState(true)
   const [entityCtx, setEntityCtx] = useState<Record<string, unknown> | null>(null)
   const [entityLoading, setEntityLoading] = useState(false)
@@ -40,11 +49,29 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
     const load = async () => {
       setLoading(true)
       try {
-        const r = await fetchApi('/api/situations')
-        const d = await r.json()
-        if (!cancelled) setItems(d.items || [])
+        const [sitRes, briefRes] = await Promise.all([
+          fetchApi('/api/situations'),
+          fetchApi('/api/briefing'),
+        ])
+        if (!cancelled) {
+          if (sitRes.ok) {
+            const d = await sitRes.json()
+            setItems(d.items || [])
+          } else {
+            setItems([])
+          }
+          if (briefRes.ok) {
+            const b = await briefRes.json()
+            setFusionHotspots(b.fusion_hotspots || [])
+          } else {
+            setFusionHotspots([])
+          }
+        }
       } catch {
-        if (!cancelled) setItems([])
+        if (!cancelled) {
+          setItems([])
+          setFusionHotspots([])
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -134,6 +161,42 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
         )}
 
         <div className="situation-body">
+          {fusionHotspots.length > 0 && (
+            <div className="situation-fusion-block">
+              <h3>FUSION HOTSPOTS ({fusionHotspots.length})</h3>
+              {fusionHotspots.slice(0, 3).map((h, i) => (
+                <div key={i} className="situation-fusion-row">
+                  <span className="situation-fusion-rank">#{i + 1}</span>
+                  <span className="situation-fusion-label">
+                    {h.label || h.summary || `${h.lat?.toFixed(1) ?? '—'}, ${h.lon?.toFixed(1) ?? '—'}`}
+                  </span>
+                  {h.score != null && (
+                    <span className="situation-fusion-score">score {Number(h.score).toFixed(1)}</span>
+                  )}
+                  {h.lat != null && h.lon != null && (
+                    <button
+                      type="button"
+                      className="locate-mini"
+                      onClick={() => {
+                        onClose()
+                        onFocus({
+                          kind: 'fusion',
+                          lon: h.lon!,
+                          lat: h.lat!,
+                          height: 800000,
+                          title: h.label || `Fusion hotspot ${i + 1}`,
+                          lines: [`Score: ${h.score ?? '—'}`, h.summary].filter(Boolean) as string[],
+                        })
+                      }}
+                    >
+                      ◎
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           <ul className="situation-list">
             {all.map((it) => (
               <li key={it.id} className={`situation-row ${sevClass(it.severity)}`}>

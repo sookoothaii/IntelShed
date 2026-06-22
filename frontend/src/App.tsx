@@ -130,6 +130,39 @@ function agenticBadgeMeta(agentic: AgenticTrace | null | undefined): {
   }
 }
 
+function useSituationsBadge() {
+  const [badge, setBadge] = useState<{ label: string; tip: string; tone: 'ok' | 'warn' } | null>(null)
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await fetchApi('/api/situations')
+        if (!r.ok) return
+        const d = await r.json()
+        const items = d.items || []
+        const count = d.count ?? items.length
+        if (count <= 0) {
+          setBadge(null)
+          return
+        }
+        const high = items.filter((i: { severity?: string }) =>
+          i.severity === 'critical' || i.severity === 'high',
+        ).length
+        setBadge({
+          label: String(count),
+          tip: `${count} situation(s)${high > 0 ? ` · ${high} high/critical` : ''}`,
+          tone: high > 0 ? 'warn' : 'ok',
+        })
+      } catch {
+        // ignore
+      }
+    }
+    load()
+    const t = setInterval(load, 60000)
+    return () => clearInterval(t)
+  }, [])
+  return badge
+}
+
 function useBriefingAgenticBadge() {
   const [agentic, setAgentic] = useState<AgenticTrace | null>(null)
   useEffect(() => {
@@ -293,6 +326,7 @@ export default function App() {
   const [windyMapKey, setWindyMapKey] = useState<string | null>(null)
   useAlertNotifications()
   const agenticBadge = useBriefingAgenticBadge()
+  const situationsBadge = useSituationsBadge()
 
   useEffect(() => {
     fetchApi('/api/windy/config')
@@ -442,7 +476,18 @@ export default function App() {
         </nav>
 
         <div className="hud-meta">
-          <button className="mega-analysis-btn" onClick={() => setSituationOpen(true)}>SITUATIONS</button>
+          <button
+            className="mega-analysis-btn"
+            onClick={() => setSituationOpen(true)}
+            title={situationsBadge?.tip || 'Open unified situation board'}
+          >
+            SITUATIONS
+            {situationsBadge && (
+              <span className={`mega-analysis-badge mega-analysis-badge--${situationsBadge.tone}`}>
+                {situationsBadge.label}
+              </span>
+            )}
+          </button>
           <button
             className="mega-analysis-btn secondary"
             onClick={() => setAnalysisOpen(true)}
