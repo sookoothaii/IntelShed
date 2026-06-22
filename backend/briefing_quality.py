@@ -157,6 +157,8 @@ _STOP_WORDS = frozenset({
 def _source_family(feed: str) -> str:
     if feed in _GDELT_FEED_FAMILY:
         return "gdelt"
+    if feed == "newsdata":
+        return "newsdata"
     return feed
 
 
@@ -167,6 +169,8 @@ def _infer_feed_sources(item: dict[str, Any]) -> list[str]:
     text = str(item.get("text") or "").lower()
     if text.startswith("local news:"):
         return ["gdelt_pulse_local"]
+    if text.startswith("news:"):
+        return ["newsdata"]
     if text.startswith("regional media heat:"):
         return ["gdelt_geo_local"]
     if text.startswith("media heat:") or text.startswith("news:"):

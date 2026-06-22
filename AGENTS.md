@@ -56,18 +56,20 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | Action | Endpoint / file |
 |--------|-----------------|
 | Latest text | `GET /api/briefing` — text, `digest`, `intel`, `quality`, `fusion_hotspots`, `digest_line_meta`, `watch_items` |
-| Force generate | `POST /api/briefing/generate` |
+| Force generate | `POST /api/briefing/generate` — header `X-API-Key` when `WORLDBASE_API_KEY` is set; `?force=1` bypasses snapshot cache |
 | **Prediction ledger** | `quality.meta.prediction_accuracy_30d` / `prediction_pending` — watch outcomes after horizon; `backend/prediction_ledger.py` |
 | **FtM subgraph** | `GET /api/intel/subgraph?hops=2&bbox=` — 2-hop graph around operator bbox; briefing prompt `INTEL SUBGRAPH` block |
 | **Spatial proximity edges** | `POST /api/intel/spatial/run` — rebuild `nearby` links after feed ingest (Track 3+) |
 | FtM → digest bridge | `backend/intel_briefing.py` |
 | Autopilot | `WORLDBASE_BRIEFING_AUTOPILOT=1`, interval `WORLDBASE_BRIEFING_INTERVAL` (default 6 h) |
 | FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
+| NewsData digest slots | `WORLDBASE_BRIEFING_NEWSDATA_SLOTS=2` (default) — reserved `News:` lines survive severity cap |
 | German output | `WORLDBASE_BRIEFING_LANG=de` (UI strings stay English) |
 | Pi payload | `GET /api/node/pull` — v2: ETag/304, SHA-256, quality, `intel_subgraph` compact graph (+ `X-Node-Token` when set) |
 | **Trust probes** | `GET /api/trust` — field score 0–4 (briefing, GDELT, Ollama, Pi edge) + `feed_drift` freshness (connector provenance) |
 | **CAMS haze (Thailand/ASEAN)** | `GET /api/cams/haze` — PM2.5, dust, AOD via Open-Meteo/CAMS; feeds briefing LOCAL |
 | **HDX humanitarian** | `GET /api/humanitarian` — UN OCHA datasets (Myanmar border, displacement); briefing REGION |
+| **NewsData.io (optional)** | `GET /api/newsdata`, `GET /api/newsdata/sources` — headlines complement GDELT; corroboration family `newsdata`; Free tier ~12h delay; `NEWSDATA_API_KEY` |
 | **Maritime AIS** | `GET /api/maritime` — background AISstream WebSocket when `AISSTREAM_API_KEY` set (`stream_connected`, `stream_buffer` in JSON); MyShipTracking/AISHub fallback; Thailand corridor default |
 | **STAC feed snapshots** | `GET /api/stac/feeds/collection`, `GET /api/stac/feeds/items` — connector cache as STAC Items with bbox/geometry, registry links; DATA → **FEEDS** tab: STAC JSON + ⊕ fly-to |
 | **Connectors** | `GET /api/connectors` — manifest catalog + cache overlay; export via `scripts/export_connectors.py` |
@@ -78,7 +80,9 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_prediction_ground_truth test_corroboration_ground_truth test_newsdata_bridge test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots -v` in `backend/`.
+
+Ground-truth pilots (offline): `python corroboration_ground_truth.py --fixtures`, `python prediction_ground_truth.py --fixtures`; wrappers `.\scripts\corroboration-ground-truth-pilot.ps1`, `.\scripts\prediction-ground-truth-pilot.ps1`, `.\scripts\fusion-baseline-status.ps1`.
 
 Live contract (opt-in, gated in smoke test §1 when `:8002` is up): `python -m unittest test_health_contract_live -v` — validates `/api/health` feed rows + curated envelope payloads (`cve`, `wildfires`, `gdacs`, …). Skips cleanly if API down.
 
@@ -112,6 +116,8 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | GDELT | `backend/gdelt_bridge.py` — adaptive backoff, region-first priority, stale-while-revalidate; local pulse persisted to `feed_cache` (`gdelt_pulse_local:{region}`) |
 | CAMS haze | `backend/cams_bridge.py` — Open-Meteo/CAMS dust + AOD for Thailand/ASEAN cities |
 | Humanitarian (HDX) | `backend/humanitarian_bridge.py` — CKAN search for Southeast Asia crises |
+| NewsData headlines | `backend/newsdata_bridge.py` — optional API key; briefing + corroboration family |
+| Ground-truth pilots | `backend/corroboration_ground_truth.py`, `backend/prediction_ground_truth.py` |
 | Maritime AIS | `backend/ais_bridge.py` — persistent AISstream collector + MyShipTracking; Malacca / Laem Chabang / Bangkok / Phuket / Singapore when operator region is Thailand |
 | Feed drift | `backend/feed_drift.py` — count snapshots + freshness in `/api/trust` |
 | STAC (imagery + feeds) | `backend/stac_bridge.py` — Element84 search + connector feed ItemCollection (bbox, geometry, registry links) |

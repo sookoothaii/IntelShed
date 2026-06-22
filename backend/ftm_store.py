@@ -80,15 +80,25 @@ def store_ready() -> bool:
     return _CONN is not None
 
 
-def store_status() -> dict[str, Any]:
-    """Compact readiness for /api/health and operator monitors."""
+def store_status(*, _recover: bool = True) -> dict[str, Any]:
+    """Compact readiness for /api/health and operator monitors.
+
+    On DuckDB FATAL/invalidated, closes and reopens the file once (B-02 light).
+    """
     if _CONN is not None:
         try:
             with _LOCK:
                 n = _CONN.execute("SELECT count(*) FROM entities").fetchone()[0]
             return {"ready": True, "entities": int(n), "error": None}
         except Exception as exc:
+            if _recover and _is_invalidated_error(exc):
+                print(f"[FTM] store invalidated — resetting: {exc}", flush=True)
+                reset_store()
+                return store_status(_recover=False)
             return {"ready": False, "entities": 0, "error": str(exc)}
+    if _recover:
+        if init_store():
+            return store_status(_recover=False)
     return {"ready": False, "entities": 0, "error": _INIT_ERROR or "not initialized"}
 
 
@@ -148,12 +158,31 @@ def _drop_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
 
 def init_store() -> bool:
     """Idempotent: open the connection and ensure the schema exists (fail-soft)."""
-    global _INIT_ERROR
+    global _CONN, _INIT_ERROR
     try:
         with _LOCK:
-            _conn()
+            con = _conn()
+            con.execute("SELECT 1").fetchone()
+        _INIT_ERROR = None
         return True
     except Exception as exc:
+        if _is_invalidated_error(exc):
+            print(f"[FTM] init probe failed — resetting: {exc}", flush=True)
+            with _LOCK:
+                if _CONN is not None:
+                    try:
+                        _CONN.close()
+                    except Exception:
+                        pass
+                    _CONN = None
+                _INIT_ERROR = None
+            try:
+                with _LOCK:
+                    _conn().execute("SELECT 1").fetchone()
+                _INIT_ERROR = None
+                return True
+            except Exception as retry_exc:
+                exc = retry_exc
         _INIT_ERROR = str(exc)
         print(f"[FTM] store unavailable: {exc}", flush=True)
         return False
@@ -175,27 +204,72 @@ def reset_store() -> bool:
 
 def _is_invalidated_error(exc: BaseException) -> bool:
     msg = str(exc).lower()
-    return "invalidated" in msg or "fatal error" in msg
+    return (
+        "invalidated" in msg
+        or "fatal error" in msg
+        or "delete all rows from index" in msg
+    )
 
 
-def run_query(sql: str, params: list[Any] | tuple[Any, ...] | None = None) -> list:
-    """Run a read query on the process store connection (same thread as init_store)."""
+def _run_with_recovery(fn):
+    """Run ``fn(con)`` under the process lock; retry once after reset on DuckDB FATAL."""
     last_exc: Exception | None = None
     for attempt in range(2):
         try:
-            if not store_ready() and not init_store():
-                raise RuntimeError(store_status().get("error") or "ftm store unavailable")
+            if _CONN is None and not init_store():
+                raise RuntimeError(store_status(_recover=False).get("error") or "ftm store unavailable")
             with _LOCK:
-                return _conn().execute(sql, list(params or ())).fetchall()
+                return fn(_conn())
         except Exception as exc:
             last_exc = exc
             if attempt == 0 and _is_invalidated_error(exc):
+                print(f"[FTM] operation failed — resetting: {exc}", flush=True)
                 reset_store()
                 continue
             raise
     if last_exc:
         raise last_exc
-    return []
+    raise RuntimeError("ftm store unavailable")
+
+
+def run_query(sql: str, params: list[Any] | tuple[Any, ...] | None = None) -> list:
+    """Run a read query on the process store connection (same thread as init_store)."""
+    return _run_with_recovery(
+        lambda con: con.execute(sql, list(params or ())).fetchall()
+    )
+
+
+def _drop_entity_schema_index(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute("DROP INDEX IF EXISTS idx_entities_schema")
+
+
+def _ensure_entity_schema_index(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute("CREATE INDEX IF NOT EXISTS idx_entities_schema ON entities(schema)")
+
+
+def _is_index_delete_error(exc: BaseException) -> bool:
+    return "delete all rows from index" in str(exc).lower()
+
+
+def _delete_entity_rows(con: duckdb.DuckDBPyConnection, entity_id: str) -> None:
+    """Remove entity + statements; drop schema index first (DuckDB 1.5.x index drift)."""
+    _drop_entity_schema_index(con)
+    con.execute("DELETE FROM statements WHERE entity_id = ?", [entity_id])
+    try:
+        con.execute("DELETE FROM entities WHERE id = ?", [entity_id])
+    except Exception as exc:
+        if not _is_index_delete_error(exc) and not _is_invalidated_error(exc):
+            raise
+        con.execute(
+            """
+            CREATE OR REPLACE TEMP TABLE _ftm_entities_keep AS
+            SELECT * FROM entities WHERE id != ?
+            """,
+            [entity_id],
+        )
+        con.execute("DELETE FROM entities")
+        con.execute("INSERT INTO entities SELECT * FROM _ftm_entities_keep")
+        con.execute("DROP TABLE IF EXISTS _ftm_entities_keep")
 
 
 # ---------------------------------------------------------------------------
@@ -272,70 +346,74 @@ def upsert(proxy, dataset: str, *, seen_at: str | None = None,
     seen_at = seen_at or _now()
     incoming = proxy.to_dict().get("properties", {}) or {}
     schema_name = proxy.schema.name
-    with _LOCK:
-        con = _conn()
-        row = con.execute(
-            "SELECT properties, datasets, first_seen, lat, lon FROM entities WHERE id = ?",
-            [eid],
-        ).fetchone()
-        if row:
-            existing_props = json.loads(row[0] or "{}")
-            datasets = set(json.loads(row[1] or "[]"))
-            first_seen = row[2] or seen_at
-            lat = lat if lat is not None else row[3]
-            lon = lon if lon is not None else row[4]
-            merged_props = _merge_props(existing_props, incoming)
-        else:
-            datasets = set()
-            first_seen = seen_at
-            merged_props = incoming
-        datasets.add(dataset)
 
-        merged_proxy = model.get_proxy(
-            {"id": eid, "schema": schema_name, "properties": merged_props}
-        )
-        if lat is None:
-            lat = _first_float(merged_props.get("latitude"))
-        if lon is None:
-            lon = _first_float(merged_props.get("longitude"))
+    def _do(con: duckdb.DuckDBPyConnection) -> str:
+        try:
+            row = con.execute(
+                "SELECT properties, datasets, first_seen, lat, lon FROM entities WHERE id = ?",
+                [eid],
+            ).fetchone()
+            if row:
+                existing_props = json.loads(row[0] or "{}")
+                datasets = set(json.loads(row[1] or "[]"))
+                first_seen = row[2] or seen_at
+                use_lat = lat if lat is not None else row[3]
+                use_lon = lon if lon is not None else row[4]
+                merged_props = _merge_props(existing_props, incoming)
+            else:
+                datasets = set()
+                first_seen = seen_at
+                use_lat = lat
+                use_lon = lon
+                merged_props = incoming
+            datasets.add(dataset)
 
-        # DELETE + INSERT avoids DuckDB INSERT OR REPLACE index failures when
-        # schema changes on a reused id (e.g. Event vs Address in feed mappings).
-        if row:
-            con.execute("DELETE FROM statements WHERE entity_id = ?", [eid])
-            con.execute("DELETE FROM entities WHERE id = ?", [eid])
+            merged_proxy = model.get_proxy(
+                {"id": eid, "schema": schema_name, "properties": merged_props}
+            )
+            if use_lat is None:
+                use_lat = _first_float(merged_props.get("latitude"))
+            if use_lon is None:
+                use_lon = _first_float(merged_props.get("longitude"))
 
-        con.execute(
-            """
-            INSERT INTO entities
-                (id, schema, caption, properties, datasets, lat, lon, first_seen, last_seen)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                eid,
-                merged_proxy.schema.name,
-                merged_proxy.caption,
-                json.dumps(merged_props),
-                json.dumps(sorted(datasets)),
-                lat,
-                lon,
-                first_seen,
-                seen_at,
-            ],
-        )
-        for prop, values in incoming.items():
-            for v in values:
-                if v is None or v == "":
-                    continue
-                con.execute(
-                    """
-                    INSERT OR IGNORE INTO statements
-                        (entity_id, prop, value, dataset, seen_at, lang)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    [eid, prop, str(v), dataset, seen_at, None],
-                )
-    return eid
+            if row:
+                _delete_entity_rows(con, eid)
+
+            con.execute(
+                """
+                INSERT INTO entities
+                    (id, schema, caption, properties, datasets, lat, lon, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    eid,
+                    merged_proxy.schema.name,
+                    merged_proxy.caption,
+                    json.dumps(merged_props),
+                    json.dumps(sorted(datasets)),
+                    use_lat,
+                    use_lon,
+                    first_seen,
+                    seen_at,
+                ],
+            )
+            for prop, values in incoming.items():
+                for v in values:
+                    if v is None or v == "":
+                        continue
+                    con.execute(
+                        """
+                        INSERT OR IGNORE INTO statements
+                            (entity_id, prop, value, dataset, seen_at, lang)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        [eid, prop, str(v), dataset, seen_at, None],
+                    )
+            return eid
+        finally:
+            _ensure_entity_schema_index(con)
+
+    return _run_with_recovery(_do)
 
 
 def upsert_legacy(entity_id: str, entity_type: str, *, label: str | None = None,
@@ -369,8 +447,9 @@ def add_edge(source_id: str, target_id: str, kind: str, dataset: str = "worldbas
              seen_at: str | None = None) -> None:
     if not source_id or not target_id:
         return
-    with _LOCK:
-        _conn().execute(
+
+    def _do(con: duckdb.DuckDBPyConnection) -> None:
+        con.execute(
             """
             INSERT OR IGNORE INTO edges
                 (source_id, target_id, kind, properties, confidence, dataset, seen_at)
@@ -386,6 +465,8 @@ def add_edge(source_id: str, target_id: str, kind: str, dataset: str = "worldbas
                 seen_at or _now(),
             ],
         )
+
+    _run_with_recovery(_do)
 
 
 def get_entity(entity_id: str) -> dict | None:
@@ -681,8 +762,7 @@ def delete_edges_for_dataset(dataset: str) -> int:
     DuckDB 1.5.x can FATAL on bulk DELETE when secondary edge indexes drift;
     drop indexes first, then rebuild (same class of bug as upsert schema change).
     """
-    with _LOCK:
-        con = _conn()
+    def _do(con: duckdb.DuckDBPyConnection) -> int:
         before = con.execute(
             "SELECT count(*) FROM edges WHERE dataset = ?", [dataset]
         ).fetchone()
@@ -706,6 +786,8 @@ def delete_edges_for_dataset(dataset: str) -> int:
         finally:
             _ensure_edge_indexes(con)
         return count
+
+    return _run_with_recovery(_do)
 
 
 def list_entities_recent(limit: int = 50, dataset: str | None = None) -> dict:

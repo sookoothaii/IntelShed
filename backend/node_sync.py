@@ -430,6 +430,7 @@ async def _gather_snapshot_uncached() -> dict:
         ("airquality", "/api/airquality"),
         ("cams_haze", "/api/cams/haze"),
         ("humanitarian", "/api/humanitarian?limit=15"),
+        ("newsdata", "/api/newsdata?limit=10"),
         ("maritime", "/api/maritime"),
     )
 

@@ -30,6 +30,7 @@ data/sanctions/
 *.duckdb
 *.duckdb.wal
 backend/data/entities.duckdb*
+backend/data/*.json
 backend/data/tle/*.tle
 backend/data/**/*.cache
 

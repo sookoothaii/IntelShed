@@ -190,18 +190,15 @@ def build_subgraph(
     node_limit: int | None = None,
 ) -> dict[str, Any]:
     """2-hop (configurable) subgraph seeded by geolocated entities in bbox."""
-    if not ftm_store.init_store():
-        err = (ftm_store.store_status().get("error") or "ftm store unavailable")
-        if "invalidated" in str(err).lower() or "fatal" in str(err).lower():
-            ftm_store.reset_store()
-        if not ftm_store.init_store():
-            return {
-                "available": False,
-                "reason": ftm_store.store_status().get("error") or err,
-                "nodes": [],
-                "edges": [],
-                "seeds": [],
-            }
+    st = ftm_store.store_status()
+    if not st.get("ready"):
+        return {
+            "available": False,
+            "reason": st.get("error") or "ftm store unavailable",
+            "nodes": [],
+            "edges": [],
+            "seeds": [],
+        }
 
     target_bbox = list(bbox) if bbox else operator_bbox(region)
     hop_n = hops if hops is not None else default_hops()

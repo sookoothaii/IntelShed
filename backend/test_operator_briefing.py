@@ -81,6 +81,52 @@ class OperatorBriefingTests(unittest.TestCase):
         self.assertIn("Humanitarian", combined)
         self.assertIn("Myanmar", combined)
 
+    def test_digest_includes_newsdata_headlines(self):
+        snap = {
+            "newsdata": {
+                "configured": True,
+                "articles": [
+                    {"title": "US-Iran peace talks continue in Switzerland"},
+                    {"title": "Thailand tourism rebounds after floods"},
+                ],
+            },
+        }
+        digest = format_digest_sections(snap, [], "none", [])
+        combined = " ".join(digest["local"] + digest["regional"] + digest["global"])
+        self.assertIn("News: US-Iran", combined)
+        self.assertIn("News: Thailand", combined)
+
+        from briefing_quality import build_digest_line_meta, corroborate_digest_item
+
+        all_items = [
+            {
+                "severity": "low",
+                "text": "News: US-Iran peace talks continue in Switzerland",
+                "bucket": "global",
+                "sources": ["newsdata"],
+            }
+        ]
+        meta = corroborate_digest_item(all_items[0], all_items)
+        self.assertIn("newsdata", meta["source_families"])
+
+    def test_newsdata_reserved_slots_survive_severity_cap(self):
+        """NewsData headlines keep slots even when higher-severity peers dominate."""
+        snap = {
+            "newsdata": {
+                "configured": True,
+                "articles": [{"title": "ASEAN security summit tensions rise in Singapore"}],
+            },
+            "humanitarian": {
+                "datasets": [
+                    {"title": f"Myanmar crisis dataset {i} Thailand border", "organization": "UNHCR"}
+                    for i in range(8)
+                ],
+            },
+        }
+        digest = format_digest_sections(snap, [], "none", [])
+        combined = " ".join(digest["local"] + digest["regional"] + digest["global"])
+        self.assertIn("News: ASEAN", combined)
+
     def test_local_gdelt_reserved_slots_survive_severity_cap(self):
         """GDELT local news keeps LOCAL slots even when AQ/CAMS outrank on severity."""
         snap = {

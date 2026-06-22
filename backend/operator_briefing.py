@@ -25,6 +25,17 @@ def _gdelt_local_slots() -> int:
         return 2
 
 
+def _newsdata_slots() -> int:
+    try:
+        return max(0, min(3, int(os.getenv("WORLDBASE_BRIEFING_NEWSDATA_SLOTS", "2") or "2")))
+    except ValueError:
+        return 2
+
+
+def _is_newsdata_item(item: dict) -> bool:
+    return "newsdata" in (item.get("sources") or [])
+
+
 def _watch_max_items() -> int:
     try:
         return max(1, min(8, int(os.getenv("WORLDBASE_BRIEFING_WATCH_MAX", "5") or "5")))
@@ -298,6 +309,13 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     for art in (local_pulse.get("articles") or [])[:10]:
         title = art.get("title") or art.get("url") or "Headline"
         items.append(_line("low", f"Local news: {title[:120]}", "local", sources=["gdelt_pulse_local"]))
+
+    newsdata = snap.get("newsdata") or {}
+    if newsdata.get("configured") is not False:
+        for art in (newsdata.get("articles") or [])[:5]:
+            title = art.get("title") or "Headline"
+            bucket = _text_bucket(title) or "regional"
+            items.append(_line("low", f"News: {title[:120]}", bucket, sources=["newsdata"]))
 
     for row in (snap.get("gdelt_geo_local", {}) or {}).get("events", [])[:12]:
         name = row.get("name") or "GDELT signal"
@@ -672,13 +690,20 @@ def _severity_key(item: dict) -> tuple[int, str]:
     return (_SEVERITY_RANK.get(item.get("severity"), 9), item.get("text", ""))
 
 
-def _sort_bucket(lines: list[dict], limit: int = 6, *, gdelt_reserve: int = 0) -> tuple[list[str], list[dict]]:
-    """Rank by severity; optionally reserve slots for GDELT so LOCAL media heat survives cap."""
+def _sort_bucket(
+    lines: list[dict],
+    limit: int = 6,
+    *,
+    gdelt_reserve: int = 0,
+    newsdata_reserve: int = 0,
+) -> tuple[list[str], list[dict]]:
+    """Rank by severity; reserve slots for GDELT / NewsData so media headlines survive cap."""
     from briefing_quality import is_gdelt_digest_text
 
     out: list[str] = []
     picked: list[dict] = []
     seen: set[str] = set()
+    reserved: list[dict] = []
 
     def _append_item(item: dict) -> bool:
         t = item.get("text", "")
@@ -690,24 +715,31 @@ def _sort_bucket(lines: list[dict], limit: int = 6, *, gdelt_reserve: int = 0) -
         picked.append(item)
         return True
 
-    gdelt_picked: list[dict] = []
-    if gdelt_reserve > 0:
-        gdelt_ranked = sorted(
-            (x for x in lines if is_gdelt_digest_text(x.get("text", ""))),
-            key=_severity_key,
-        )
-        for item in gdelt_ranked:
-            if len(gdelt_picked) >= gdelt_reserve:
+    def _reserve_from(pool: list[dict], *, cap: int, predicate) -> None:
+        if cap <= 0:
+            return
+        ranked = sorted((x for x in pool if predicate(x)), key=_severity_key)
+        for item in ranked:
+            if sum(1 for x in reserved if predicate(x)) >= cap:
                 break
+            if item in reserved:
+                continue
             if _append_item(item):
-                gdelt_picked.append(item)
+                reserved.append(item)
             if len(out) >= limit:
-                return out, picked
+                return
 
-    remaining = sorted(
-        (x for x in lines if x not in gdelt_picked),
-        key=_severity_key,
-    )
+    if gdelt_reserve > 0:
+        _reserve_from(lines, cap=gdelt_reserve, predicate=lambda x: is_gdelt_digest_text(x.get("text", "")))
+        if len(out) >= limit:
+            return out, picked
+
+    if newsdata_reserve > 0:
+        _reserve_from(lines, cap=newsdata_reserve, predicate=_is_newsdata_item)
+        if len(out) >= limit:
+            return out, picked
+
+    remaining = sorted((x for x in lines if x not in reserved), key=_severity_key)
     for item in remaining:
         if len(out) >= limit:
             break
@@ -746,9 +778,11 @@ def format_digest_sections(
     for item in items:
         buckets.setdefault(item["bucket"], []).append(item)
 
-    local_lines, local_picked = _sort_bucket(buckets["local"], 6, gdelt_reserve=_gdelt_local_slots())
-    regional_lines, regional_picked = _sort_bucket(buckets["regional"], 6)
-    global_lines, global_picked = _sort_bucket(buckets["global"], 8)
+    local_lines, local_picked = _sort_bucket(
+        buckets["local"], 6, gdelt_reserve=_gdelt_local_slots(), newsdata_reserve=_newsdata_slots()
+    )
+    regional_lines, regional_picked = _sort_bucket(buckets["regional"], 6, newsdata_reserve=_newsdata_slots())
+    global_lines, global_picked = _sort_bucket(buckets["global"], 8, newsdata_reserve=_newsdata_slots())
 
     from briefing_quality import build_digest_line_meta, count_gdelt_digest_items
 

@@ -231,6 +231,35 @@ class CorroborationTests(unittest.TestCase):
         self.assertEqual(q["meta"]["corroboration_blocker"], "single_source_local")
         self.assertLess(q["score"], 0.96)
 
+    def test_newsdata_infer_and_gdelt_corroboration(self):
+        from briefing_quality import (
+            _infer_feed_sources,
+            _source_family,
+            corroborate_digest_item,
+        )
+
+        self.assertEqual(_infer_feed_sources({"text": "News: Thailand floods"}), ["newsdata"])
+        self.assertEqual(_source_family("newsdata"), "newsdata")
+        self.assertNotEqual(_source_family("newsdata"), _source_family("gdelt_pulse_local"))
+
+        news = {
+            "severity": "low",
+            "text": "News: US-Iran peace talks continue in Switzerland",
+            "bucket": "global",
+            "sources": ["newsdata"],
+        }
+        gdelt = {
+            "severity": "low",
+            "text": "Local news: Iran US negotiations continue Switzerland talks",
+            "bucket": "global",
+            "sources": ["gdelt_pulse_local"],
+        }
+        row = corroborate_digest_item(news, [news, gdelt])
+        self.assertGreaterEqual(row["corroboration"], 0.75)
+        self.assertEqual(row["label"], "corroborated")
+        self.assertIn("newsdata", row["source_families"])
+        self.assertIn("gdelt", row["source_families"])
+
 
 if __name__ == "__main__":
     unittest.main()

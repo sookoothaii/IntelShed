@@ -126,9 +126,48 @@ class FtmStoreTest(unittest.TestCase):
     def test_store_status_reports_init_error(self):
         ftm_store._CONN = None
         ftm_store._INIT_ERROR = "IO Error: file locked"
-        st = ftm_store.store_status()
+        st = ftm_store.store_status(_recover=False)
         self.assertFalse(st["ready"])
         self.assertIn("locked", st["error"])
+
+    def test_store_status_opens_uninitialized_store(self):
+        ftm_store._CONN = None
+        ftm_store._INIT_ERROR = None
+        st = ftm_store.store_status()
+        self.assertTrue(st["ready"])
+        self.assertGreaterEqual(st["entities"], 0)
+
+    def test_airplane_reupsert_is_idempotent(self):
+        """Repeated aircraft ingest must not FATAL DuckDB schema index (B-02)."""
+        for i in range(5):
+            ftm_store.upsert_legacy(
+                "aircraft:39de4a",
+                "aircraft",
+                label=f"FL{i}",
+                lat=13.7 + i * 0.01,
+                lon=100.5,
+                source_feed="opensky",
+            )
+        st = ftm_store.store_status()
+        self.assertTrue(st["ready"])
+        ent = ftm_store.get_entity("aircraft:39de4a")
+        self.assertIsNotNone(ent)
+        self.assertEqual(ent["schema"], "Airplane")
+
+    def test_situation_gdacs_reupsert_is_idempotent(self):
+        """GDACS situation ids (Thing schema) — feed ingest must not FATAL index."""
+        for i in range(5):
+            proxy = ftm_store._proxy_with_id(
+                f"situation:gdacs:{12 + i % 2}",
+                "Thing",
+                {"name": [f"GDACS alert {i}"]},
+            )
+            ftm_store.upsert(proxy, dataset="gdacs", lat=14.0 + i * 0.01, lon=100.0)
+        st = ftm_store.store_status()
+        self.assertTrue(st["ready"])
+        ent = ftm_store.get_entity("situation:gdacs:12")
+        self.assertIsNotNone(ent)
+        self.assertEqual(ent["schema"], "Thing")
 
     def test_compat_entity_list_and_graph_stats(self):
         p = ftm_store.make_entity("Person", ["c1"], {"name": "Compat Test"})
