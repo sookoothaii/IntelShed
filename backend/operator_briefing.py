@@ -72,6 +72,8 @@ def _watch_item(
             item["lon"] = float(lon_s)
         except (TypeError, ValueError):
             pass
+    if delta_score is not None:
+        item["delta_score"] = round(float(delta_score), 4)
     return item
 
 
