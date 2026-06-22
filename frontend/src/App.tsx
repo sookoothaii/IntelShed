@@ -669,6 +669,11 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   }
 
   useEffect(() => {
+    setAnalysisTab('operator')
+    setTrustExpanded(false)
+  }, [])
+
+  useEffect(() => {
     if (typeof window === 'undefined') return
     window.localStorage?.setItem('worldbase_briefing_lang', briefLang)
   }, [briefLang])
@@ -771,15 +776,16 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
 
   const alertCount =
     (correlations?.situations?.length || 0)
-    + (anomalies?.anomalies?.length || 0)
     + (briefing?.watch_items?.length || 0)
-    + (gdacs?.length || 0)
+    + gdacs.length
+    + ((anomalies?.count || 0) > 0 ? 1 : 0)
   const feedCount =
     (military?.count || 0)
     + quakes.length
     + allEvents.length
     + wildfires.length
-    + (cveFeed?.vulnerabilities?.length || 0)
+    + (cveFeed?.vulnerabilities?.length ?? 0)
+    + (air?.cities?.length ?? 0)
 
   return (
     <div className="analysis-overlay" onClick={onClose}>
@@ -838,6 +844,15 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                 <span>LOCAL {digest?.local_count ?? '—'}</span>
                 <span>AGENTIC {agenticTrace?.rounds ?? '—'}/{agenticTrace?.max_rounds ?? 3}</span>
                 <span>FUSION {fusionHotspots.length}</span>
+              </div>
+            )}
+            {analysisTab === 'feeds' && (
+              <div className="analysis-summary-strip analysis-summary-strip--feeds">
+                <span>MILITARY {military?.count ?? 0}</span>
+                <span>SEISMIC {quakes.length}</span>
+                <span>EVENTS {allEvents.length + wildfires.length}</span>
+                <span>CVE {cveFeed?.vulnerabilities?.length ?? 0}</span>
+                <span style={{ color: '#6f8c84' }}>Expand sections below — all collapsed by default</span>
               </div>
             )}
           <div className="analysis-body analysis-body--tabbed">
@@ -1308,8 +1323,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
               )}
 
               {analysisTab === 'feeds' && (cveFeed?.vulnerabilities?.length ?? 0) > 0 && (
-                <div className="analysis-section">
-                  <h3>🔐 CISA KEV ({cveFeed.vulnerabilities.length})</h3>
+                <AnalysisCollapsible title="🔐 CISA KEV" count={cveFeed.vulnerabilities.length} defaultOpen={false}>
                   {cveFeed.vulnerabilities.slice(0, 8).map((v: any, i: number) => (
                     <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${v.ransomware === 'Known' ? '#ff2d00' : '#ff6b35'}` }}>
                       <span style={{ fontWeight: 'bold', minWidth: 120 }}>{v.cve_id}</span>
@@ -1317,13 +1331,12 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       <span style={{ color: '#6f8c84', fontSize: 10 }}>due {v.due_date || '—'}</span>
                     </div>
                   ))}
-                </div>
+                </AnalysisCollapsible>
               )}
 
               {analysisTab === 'feeds' && quakes.length > 0 && (
-                <div className="analysis-section">
-                  <h3>🌋 SEISMIC ({quakes.length} today)</h3>
-                  {quakes.map((q: any, i: number) => (
+                <AnalysisCollapsible title="🌋 SEISMIC" count={quakes.length} defaultOpen={false}>
+                  {quakes.slice(0, 6).map((q: any, i: number) => (
                     <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${q.mag >= 5 ? '#ff2d00' : q.mag >= 3.5 ? '#ff6b35' : '#00e5a0'}` }}>
                       <span style={{ fontWeight: 'bold', minWidth: 50 }}>M{q.mag?.toFixed(1) ?? '—'}</span>
                       <span style={{ flex: 1 }}>{q.place || '—'}</span>
@@ -1332,12 +1345,11 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'quake', lon: q.lon, lat: q.lat, height: 400000, title: `M${q.mag} ${q.place}`, lines: [`Depth: ${q.depth} km`, `Time: ${new Date(q.time).toLocaleString()}`, `Tsunami: ${q.tsunami ? 'YES' : 'no'}`] }) }}>◎</button>
                     </div>
                   ))}
-                </div>
+                </AnalysisCollapsible>
               )}
 
               {analysisTab === 'feeds' && results.spaceweather && (
-                <div className="analysis-section">
-                  <h3>☀️ SPACE WEATHER</h3>
+                <AnalysisCollapsible title="☀️ SPACE WEATHER" defaultOpen={false}>
                   <div className="analysis-row">
                     <span>Kp: <strong>{results.spaceweather.kp_index ?? '—'}</strong></span>
                     <span>Scale: {results.spaceweather.scale ?? '—'}</span>
@@ -1345,13 +1357,12 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                     <span style={{ color: results.spaceweather.hf_radio_impact ? '#ff6b35' : '#6f8c84' }}>HF: {results.spaceweather.hf_radio_impact ? 'IMPACTED' : 'OK'}</span>
                     <span style={{ color: '#6f8c84' }}>History: {results.spaceweather.history?.length ?? 0} pts</span>
                   </div>
-                </div>
+                </AnalysisCollapsible>
               )}
 
               {analysisTab === 'feeds' && allEvents.length > 0 && (
-                <div className="analysis-section">
-                  <h3>🔔 EVENTS ({allEvents.length})</h3>
-                  {allEvents.map((e: any, i: number) => (
+                <AnalysisCollapsible title="🔔 EVENTS" count={allEvents.length} defaultOpen={false}>
+                  {allEvents.slice(0, 5).map((e: any, i: number) => (
                     <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${(e.magnitude || 0) > 6 ? '#ff2d00' : '#ff6b35'}` }}>
                       <span style={{ minWidth: 90, fontWeight: 'bold' }}>{e.category || 'EVENT'}</span>
                       <span style={{ flex: 1 }}>{e.title || '—'}</span>
@@ -1361,13 +1372,12 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       )}
                     </div>
                   ))}
-                </div>
+                </AnalysisCollapsible>
               )}
 
               {analysisTab === 'feeds' && wildfires.length > 0 && (
-                <div className="analysis-section">
-                  <h3>🔥 WILDFIRES ({wildfires.length})</h3>
-                  {wildfires.map((e: any, i: number) => (
+                <AnalysisCollapsible title="🔥 WILDFIRES" count={wildfires.length} defaultOpen={false}>
+                  {wildfires.slice(0, 5).map((e: any, i: number) => (
                     <div key={i} className="analysis-row" style={{ borderLeft: '3px solid #ff2d00' }}>
                       <span style={{ flex: 1 }}>{e.title || '—'}</span>
                       <span style={{ color: '#6f8c84' }}>{e.date ? new Date(e.date).toLocaleDateString() : '—'}</span>
@@ -1376,7 +1386,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       )}
                     </div>
                   ))}
-                </div>
+                </AnalysisCollapsible>
               )}
 
               {analysisTab === 'feeds' && military?.count > 0 && (
@@ -1395,8 +1405,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
               )}
 
               {analysisTab === 'feeds' && air?.cities?.length > 0 && (
-                <div className="analysis-section">
-                  <h3>💨 AIR QUALITY ({air.cities.length} cities)</h3>
+                <AnalysisCollapsible title="💨 AIR QUALITY" count={air.cities.length} defaultOpen={false}>
                   <div className="analysis-grid">
                     {air.cities.map((c: any, i: number) => (
                       <div key={i} className="analysis-card" style={{ borderLeft: `3px solid ${aqColor(c.pm25)}` }}>
@@ -1406,12 +1415,11 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       </div>
                     ))}
                   </div>
-                </div>
+                </AnalysisCollapsible>
               )}
 
               {analysisTab === 'feeds' && (pegel?.gauges?.length ?? 0) > 0 && (
-                <div className="analysis-section">
-                  <h3>🌊 RIVER GAUGES DE ({pegel.gauges.length})</h3>
+                <AnalysisCollapsible title="🌊 RIVER GAUGES DE" count={pegel.gauges.length} defaultOpen={false}>
                   {pegel.gauges.filter((g: any) => g.severity === 'critical' || g.severity === 'high').map((g: any, i: number) => (
                     <div key={`a-${i}`} className="analysis-row" style={{ borderLeft: '3px solid #ff6b35' }}>
                       <span style={{ fontWeight: 'bold', minWidth: 100 }}>{g.name}</span>
@@ -1429,12 +1437,11 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'pegel', lon: g.lon, lat: g.lat, height: 350000, title: `${g.name} (${g.water})`, lines: [`Level: ${g.value} ${g.unit}`] }) }}>◎</button>
                     </div>
                   ))}
-                </div>
+                </AnalysisCollapsible>
               )}
 
               {analysisTab === 'feeds' && results.markets?.crypto && (
-                <div className="analysis-section">
-                  <h3>📈 CRYPTO MARKETS</h3>
+                <AnalysisCollapsible title="📈 CRYPTO MARKETS" defaultOpen={false}>
                   <div className="analysis-grid">
                     {Object.entries(results.markets.crypto).map(([k, v]: [string, any]) => {
                       const price = v.usd ?? v.price ?? null
@@ -1448,12 +1455,11 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       )
                     })}
                   </div>
-                </div>
+                </AnalysisCollapsible>
               )}
 
               {analysisTab === 'feeds' && nodes?.nodes?.length > 0 && (
-                <div className="analysis-section">
-                  <h3>📡 NODES ({nodes.count})</h3>
+                <AnalysisCollapsible title="📡 NODES" count={nodes.count} defaultOpen={false}>
                   {nodes.nodes.map((n: any, i: number) => {
                     const disk = n.health?.disk_pct
                     const diskWarn = disk != null && disk >= 85
@@ -1471,12 +1477,11 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                       )}
                     </div>
                   )})}
-                </div>
+                </AnalysisCollapsible>
               )}
 
               {analysisTab === 'feeds' && health?.feeds && (
-                <div className="analysis-section">
-                  <h3>🔌 FEED HEALTH</h3>
+                <AnalysisCollapsible title="🔌 FEED HEALTH" count={Object.keys(health.feeds).length} defaultOpen={false}>
                   <div className="analysis-grid">
                     {Object.entries(health.feeds)
                       .sort(([, a]: [string, any], [, b]: [string, any]) => (b.age_sec || 0) - (a.age_sec || 0))
@@ -1490,7 +1495,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                         )
                       })}
                   </div>
-                </div>
+                </AnalysisCollapsible>
               )}
 
             </div>
