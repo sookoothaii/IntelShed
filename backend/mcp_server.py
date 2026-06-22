@@ -35,6 +35,7 @@ FEED_SAMPLE_ALLOWLIST: frozenset[str] = frozenset({
     "spaceweather",
     "wildfires",
     "energy_de",
+    "newsdata",
 })
 
 _TEXT_PREVIEW_CHARS = 4000
@@ -276,6 +277,11 @@ async def _fetch_feed_live(feed_id: str, limit: int) -> dict[str, Any]:
     if feed_id == "pegel":
         import pegel_bridge
         data = await pegel_bridge.get_pegel()
+        return _trim_payload(data, limit) or {}
+
+    if feed_id == "newsdata":
+        import newsdata_bridge
+        data = await newsdata_bridge.get_newsdata(limit=limit)
         return _trim_payload(data, limit) or {}
 
     feeds_extra_map = {

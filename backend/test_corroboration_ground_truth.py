@@ -10,7 +10,7 @@ import corroboration_ground_truth as cg
 class CorroborationGroundTruthTests(unittest.TestCase):
     def test_all_fixtures_pass(self):
         report = cg.run_fixture_pilot()
-        self.assertEqual(report["total"], 5)
+        self.assertEqual(report["total"], len(cg.GROUND_TRUTH_CASES))
         self.assertEqual(report["passed"], report["total"])
         self.assertEqual(report["accuracy"], 1.0)
 

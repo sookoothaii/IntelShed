@@ -81,9 +81,22 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_prediction_ground_truth test_corroboration_ground_truth test_newsdata_bridge test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_prediction_ground_truth test_corroboration_ground_truth test_subgraph_prompt_ground_truth test_newsdata_bridge test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots -v` in `backend/`.
 
-Ground-truth pilots (offline): `python corroboration_ground_truth.py --fixtures`, `python prediction_ground_truth.py --fixtures`; wrappers `.\scripts\corroboration-ground-truth-pilot.ps1`, `.\scripts\prediction-ground-truth-pilot.ps1`, `.\scripts\fusion-baseline-status.ps1`.
+Ground-truth pilots (offline): `python corroboration_ground_truth.py --fixtures`, `python prediction_ground_truth.py --fixtures`, `python subgraph_prompt_ground_truth.py --fixtures`; wrappers `.\scripts\corroboration-ground-truth-pilot.ps1`, `.\scripts\prediction-ground-truth-pilot.ps1`, `.\scripts\subgraph-prompt-ab-pilot.ps1`, `.\scripts\fusion-baseline-status.ps1`.
+
+| Pilot | Measures | Live when |
+|-------|----------|-----------|
+| B-03 `prediction_ground_truth.py` | Watch-item hit/miss rules | Horizons elapsed (`prediction_pending` drops) |
+| B-04 `corroboration_ground_truth.py` | Digest corroboration scores | `GET /api/briefing` → `digest_line_meta` |
+| B-05 `subgraph_prompt_ground_truth.py` | Flat vs subgraph prompt chars + overlap | API-only (`/api/briefing` + `/api/intel/subgraph`) |
+| B-06 `fusion-baseline-status.ps1` | Fusion grid snapshots vs 28 target | `GET /api/trust` → `fusion_compare` |
+
+**B-06 note:** Snapshots accumulate when `GET /api/fusion/heatmap` runs (briefing/autopilot path) at most every 6 h (`fusion_heatmap.record_snapshot_if_due`). `fusion_compare.available=false` + `no recent grid cache` until first heatmap fetch after cold boot; baseline compare needs snapshots ≥24 h apart.
+
+**B-05 note:** Subgraph prompt can be **larger** than flat when edge count is high (edge lines dominate). Prompt format caps: 24 nodes / 20 edges in `format_subgraph_prompt_block`; graph build caps via `WORLDBASE_INTEL_SUBGRAPH_NODE_LIMIT` (default 80).
+
+**Firewall probe:** `.\scripts\firewall-probe.ps1` — slim guard regression (not in smoke test §1).
 
 Live contract (opt-in, gated in smoke test §1 when `:8002` is up): `python -m unittest test_health_contract_live -v` — validates `/api/health` feed rows + curated envelope payloads (`cve`, `wildfires`, `gdacs`, …). Skips cleanly if API down.
 
@@ -118,7 +131,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | CAMS haze | `backend/cams_bridge.py` — Open-Meteo/CAMS dust + AOD for Thailand/ASEAN cities |
 | Humanitarian (HDX) | `backend/humanitarian_bridge.py` — CKAN search for Southeast Asia crises |
 | NewsData headlines | `backend/newsdata_bridge.py` — optional API key; briefing + corroboration family |
-| Ground-truth pilots | `backend/corroboration_ground_truth.py`, `backend/prediction_ground_truth.py` |
+| Ground-truth pilots | `backend/corroboration_ground_truth.py`, `backend/prediction_ground_truth.py`, `backend/subgraph_prompt_ground_truth.py` |
 | Maritime AIS | `backend/ais_bridge.py` — persistent AISstream collector + MyShipTracking; Malacca / Laem Chabang / Bangkok / Phuket / Singapore when operator region is Thailand |
 | Feed drift | `backend/feed_drift.py` — count snapshots + freshness in `/api/trust` |
 | STAC (imagery + feeds) | `backend/stac_bridge.py` — Element84 search + connector feed ItemCollection (bbox, geometry, registry links) |

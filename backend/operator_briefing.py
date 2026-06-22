@@ -323,7 +323,8 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
                 categories=art.get("category"),
             ):
                 continue
-            bucket = _text_bucket(title) or "regional"
+            desc = art.get("description") or ""
+            bucket = _text_bucket(f"{title} {desc}") or "global"
             items.append(_line("low", f"News: {title[:120]}", bucket, sources=["newsdata"]))
 
     for row in (snap.get("gdelt_geo_local", {}) or {}).get("events", [])[:12]:

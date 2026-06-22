@@ -127,6 +127,17 @@ class OperatorBriefingTests(unittest.TestCase):
         combined = " ".join(digest["local"] + digest["regional"] + digest["global"])
         self.assertIn("News: ASEAN", combined)
 
+    def test_newsdata_generic_headline_defaults_global_bucket(self):
+        snap = {
+            "newsdata": {
+                "configured": True,
+                "articles": [{"title": "Prime Day tech deals for smart home devices"}],
+            },
+        }
+        digest = format_digest_sections(snap, [], "none", [])
+        self.assertIn("News: Prime Day", " ".join(digest["global"]))
+        self.assertNotIn("News: Prime Day", " ".join(digest["regional"]))
+
     def test_digest_skips_sports_headlines(self):
         snap = {
             "newsdata": {

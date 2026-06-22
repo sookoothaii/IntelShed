@@ -99,7 +99,7 @@ REST equivalents: `POST /api/agent/publish`, `GET /api/agent/stream` (SSE), `POS
 
 ### Feed allowlist
 
-`worldbase_feed_sample` only accepts: `aircraft`, `airquality`, `earthquakes`, `eonet`, `gdacs`, `gdacs_v2`, `geopolitics`, `markets`, `military`, `outages`, `pegel`, `reliefweb`, `spaceweather`, `wildfires`, `energy_de`.
+`worldbase_feed_sample` only accepts: `aircraft`, `airquality`, `earthquakes`, `eonet`, `gdacs`, `gdacs_v2`, `geopolitics`, `markets`, `military`, `newsdata`, `outages`, `pegel`, `reliefweb`, `spaceweather`, `wildfires`, `energy_de`.
 
 Reads `feed_cache` first; falls back to live bridge fetch for a subset when cache is empty.
 

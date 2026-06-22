@@ -67,6 +67,8 @@ Slim guard works **without** `FIREWALL_HOST`.
 | `GET /api/firewall/history` | In-memory decision ring (slim + HAK_GAL) |
 | `POST /api/firewall/test` | Manual probe — slim guard first, then optional HAK_GAL |
 
+**Operator script:** `.\scripts\firewall-probe.ps1` — slim-guard regression (12 checks, HAK_GAL optional WARN/SKIP). Does not require `:8001`.
+
 ---
 
 ## Roadmap

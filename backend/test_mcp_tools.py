@@ -41,8 +41,15 @@ class MCPFeedSampleTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("not_a_real_feed", str(ctx.exception))
 
     async def test_allowlist_includes_core_feeds(self):
-        for fid in ("earthquakes", "gdacs", "wildfires", "aircraft"):
+        for fid in ("earthquakes", "gdacs", "wildfires", "aircraft", "newsdata"):
             self.assertIn(fid, FEED_SAMPLE_ALLOWLIST)
+
+    async def test_newsdata_feed_sample_live_bridge(self):
+        fake = {"count": 2, "articles": [{"title": "A"}, {"title": "B"}], "configured": True}
+        with patch("newsdata_bridge.get_newsdata", new=AsyncMock(return_value=fake)):
+            out = await fetch_feed_sample("newsdata", limit=1)
+        self.assertEqual(out["feed_id"], "newsdata")
+        self.assertEqual(len(out["sample"]["articles"]), 1)
 
     async def test_cache_hit_returns_sample(self):
         sample = {"count": 2, "items": [{"a": 1}, {"b": 2}]}
