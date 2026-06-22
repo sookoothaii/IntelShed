@@ -9,6 +9,8 @@
 
 **Spatial intelligence workstation** — live OSINT feeds on a Cesium globe, fusion analytics, and local AI chat.
 
+WorldBase is a thin integration layer: almost everything here rests on libraries, datasets, and tools that other people built and shared. We are grateful to every maintainer whose work makes this project possible.
+
 `FastAPI` · `React` · `Vite` · `SQLite` · `Ollama` · optional `Pi` edge sync
 
 WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-raspi`](https://github.com/sookoothaii/offgrid-raspi)) with heavy fusion, a 24h security briefing, and globe UX. Run WorldBase alone on a PC, or **Pi + PC together** via push/pull sync (see below).
@@ -21,15 +23,16 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 |---|---|
 | **Globe** | 30+ live layers — aircraft, quakes, disasters, energy, maritime, transit |
 | **MAP** | Offline Protomaps via PMTiles — regional (`thailand`) or full planet (`planet_full` ~130 GB) |
-| **Intelligence** | Situations, FtM entity graph (INTEL globe layer), OpenSanctions via Yente, RAG memory (sqlite-vec + FTS + RRF) |
+| **Intelligence** | Situations, FtM entity graph (INTEL globe layer), OpenSanctions via Yente, hybrid RAG (sqlite-vec + FTS5 + RRF + optional BGE rerank) |
+| **Briefing** | 24h security digest (LOCAL / REGION / GLOBAL), watch items, prediction ledger, **agentic loop** (coverage → RAG retrieve → corroboration) |
 | **NEWS** | HUD **NEWS** tab — NewsData + GDELT local/global headline feed |
-| **Track R** | R0 + R1.1–R1.4 shipped (rerank, spatial, CRAG-lite, adaptive chunking, briefing agentic loop) — [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
+| **Track R** | **R0 + R1.1–R1.4 shipped** — rerank, spatial bbox, CRAG-lite chat, adaptive YAML chunking, briefing agentic loop — [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
 | **Connectors** | Manifest registry + cache overlay — `GET /api/connectors`, DATA → **FEEDS**, STAC feed items |
 | **AI** | Local chat via Ollama (`qwen3:8b` default) |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → hardened briefing pull back to Pi |
 | **Trust** | Rule-based briefing quality + field trust score (FULL SITUATION panel; feed drift + connector provenance) |
 | **Thailand operator** | CAMS haze, HDX humanitarian, GDELT local, maritime Malacca corridor — enriched LOCAL/REGION briefing blocks |
-| **MCP** | Cursor/Claude: 12 tools — briefing, nodes, feeds, generate, optional globe control — [`docs/MCP.md`](docs/MCP.md) |
+| **MCP** | Cursor/Claude: **13 tools** — briefing, nodes, feeds, generate, optional globe control — [`docs/MCP.md`](docs/MCP.md) |
 | **Agent Bus** | MCP/REST → fly globe + toggle layers when HUD open at `:5176` |
 | **Philosophy** | Positive intelligence — better decisions, not attacks |
 
@@ -75,14 +78,16 @@ WORLDBASE_AGENT_BUS=1          # globe fly_to / layer toggle via MCP
 VITE_WORLDBASE_AGENT_BUS=1     # HUD must be open at :5176
 ```
 
-Restart backend + Vite; add `worldbase` to Cursor MCP (`http://127.0.0.1:8002/api/mcp` + `X-API-Key` if set). Expect **12 tools** when Agent Bus is on.
+Restart backend + Vite; add `worldbase` to Cursor MCP (`http://127.0.0.1:8002/api/mcp` + `X-API-Key` if set). Expect **13 tools** when Agent Bus is on.
 
 ```powershell
 ollama pull qwen3:8b
 ollama pull nomic-embed-text   # RAG embeddings
+# Optional Track R reranker (CPU):
+pip install sentence-transformers   # when RAG_RERANK=1 in backend/.env
 ```
 
-**Verify stack:** `.\scripts\smoke-test.ps1` → expect **31/31 PASS** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, Vite proxy, Ollama chat, frontend build).
+**Verify stack:** `.\scripts\smoke-test.ps1` → expect **32/32 PASS** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, Vite proxy, Ollama chat, frontend build).
 
 `.\start.ps1` waits for `GET /api/health/ping` before starting Vite (avoids proxy `ECONNREFUSED`). ~**6 s** after backend boot, a feed warm-up refreshes GDELT local + **global** pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
 
@@ -198,7 +203,8 @@ Feed health → `GET /api/health` · trust score → `GET /api/trust` · key cat
                             │ /api/*
 ┌───────────────────────────▼─────────────────────────────┐
 │  FastAPI + SQLite feed_cache                 :8002        │
-│  MCP · Agent Bus · briefing quality · /api/trust          │
+│  MCP · Agent Bus · hybrid RAG · briefing agentic loop   │
+│  briefing quality · /api/trust                            │
 └───────────────────────────┬─────────────────────────────┘
          ┌──────────────────┼──────────────────┐
          ▼                  ▼                  ▼
@@ -228,20 +234,53 @@ Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](do
 
 ## Standing on the shoulders of giants
 
-WorldBase is not a standalone invention. It exists entirely because of the generous, brilliant work of the open-source and open-data communities. We are deeply humbled and profoundly grateful to build upon the foundations laid by others. **To the giants whose shoulders we stand on: Thank you.**
+WorldBase is not a standalone invention. It is glue, configuration, and operator workflow on top of decades of open-source and open-data labour. We are deeply humbled by that fact and **profoundly grateful** to everyone who wrote the code, published the datasets, and answered questions in issue trackers so strangers could build on their work.
 
-| Inspiration & Foundation | Contribution & Gratitude |
-|--------------------------|--------------------------|
-| **[Bilawal Sidhu](https://www.youtube.com/watch?v=rXvU7bPJ8n4)** · *WorldView* | The original visionary spark. The tactical globe UX, vision modes (NVG/FLIR/CRT), and the concept of multi-feed fusion on Cesium started here. |
-| **[K-AI-STACK/WorldView](https://github.com/K-AI-STACK/WorldView)** | For pioneering the open layer catalog and the Cesium-first OSINT dashboard structure that made this possible. |
-| **[kevtoe/worldview](https://github.com/kevtoe/worldview)** | For providing the foundational full-stack proxy pattern, tactical UI tokens, and Resium + Vite references. |
-| **[petieclark/worldview](https://github.com/petieclark/worldview)** | For the robust backend key proxying, health endpoint designs, and Docker deployment models. |
-| **[Reconurge/Flowsint](https://github.com/reconurge/flowsint)** | For the incredible OSINT graph visualization and making threat intelligence accessible. |
-| **[CesiumJS](https://cesium.com/)** & **[MapLibre](https://maplibre.org/)** | For building the stunning 3D/2D rendering engines that power the spatial intelligence core. |
-| **[SQLite](https://sqlite.org/)** & **[sqlite-vec](https://github.com/asg017/sqlite-vec)** | For proving that local, offline-first databases can power blazing-fast vector search and RAG memory without cloud lock-in. |
-| **[Ollama](https://ollama.com/)** & **[Qwen](https://qwenlm.github.io/)** | For democratizing LLMs and enabling local, private intelligence analysis at the edge. |
-| **[OpenSanctions](https://www.opensanctions.org/)** & **[Yente](https://github.com/opensanctions/yente)** | For the tireless work of maintaining public, CC-BY datasets and an enterprise-grade matching API that brings transparency to the world. |
-| **Public Civic Data Providers** | USGS, NASA (EONET/FIRMS/GIBS), NOAA SWPC, GDACS, SMARD, IODA, Open-Meteo, CelesTrak, adsb.lol/adsb.fi, Element84, Pegelonline, and every single engineer maintaining free civic APIs. You are the lifeblood of this project. |
+**To the giants whose shoulders we stand on: thank you.**
+
+### Lineage & UX inspiration
+
+| Project / person | Why we are grateful |
+|------------------|---------------------|
+| **[Bilawal Sidhu](https://www.youtube.com/watch?v=rXvU7bPJ8n4)** · *WorldView* | The original spark — tactical globe UX, vision modes, and multi-feed fusion on Cesium. |
+| **[K-AI-STACK/WorldView](https://github.com/K-AI-STACK/WorldView)** | Open layer catalog and Cesium-first OSINT dashboard structure. |
+| **[kevtoe/worldview](https://github.com/kevtoe/worldview)** | Full-stack proxy pattern, tactical UI tokens, Resium + Vite references. |
+| **[petieclark/worldview](https://github.com/petieclark/worldview)** | Backend key proxying, health endpoints, Docker deployment patterns. |
+| **[Reconurge/Flowsint](https://github.com/reconurge/flowsint)** | OSINT graph visualization — threat intel made approachable. |
+
+### Core stack (we would not run without these)
+
+| Project | Role in WorldBase |
+|---------|-------------------|
+| **[CesiumJS](https://cesium.com/)** & **[MapLibre](https://maplibre.org/)** | 3D/2D globe and offline map rendering. |
+| **[React](https://react.dev/)** & **[Vite](https://vite.dev/)** | HUD, panels, dev server. |
+| **[FastAPI](https://fastapi.tiangolo.com/)**, **[Pydantic](https://docs.pydantic.dev/)**, **[Uvicorn](https://www.uvicorn.org/)** | API, validation, async server. |
+| **[SQLite](https://sqlite.org/)** & **[sqlite-vec](https://github.com/asg017/sqlite-vec)** | Local cache, briefing store, hybrid vector + FTS RAG — no cloud lock-in. |
+| **[DuckDB](https://duckdb.org/)** | FtM entity graph storage when intel ingest is enabled. |
+| **[Ollama](https://ollama.com/)** & **[Qwen](https://qwenlm.github.io/)** | Local LLM chat and briefing generation on operator hardware. |
+| **[FollowTheMoney](https://followthemoney.tech/)** / **[aleph](https://github.com/alephdata/aleph)** ecosystem | Entity schema and graph patterns for OSINT ingest. |
+| **[sentence-transformers](https://www.sbert.net/)** & **[BAAI/bge-reranker](https://huggingface.co/BAAI/bge-reranker-base)** | Optional CPU reranker after RRF (Track R0). |
+| **[GLiNER](https://github.com/urchade/GLiNER)** (optional) | Zero-shot entity extraction for document intel — Apache-2.0. |
+
+### Open data & civic APIs
+
+We do not own the feeds. We fetch, cache, and fuse what others maintain — often on volunteer or public budget:
+
+**USGS**, **NASA** (EONET, FIRMS, GIBS), **NOAA SWPC**, **GDACS**, **GDELT Project**, **SMARD**, **IODA**, **Open-Meteo**, **CAMS**, **HDX / UN OCHA**, **CelesTrak**, **adsb.lol / adsb.fi**, **Element84 STAC**, **Pegelonline**, **OpenSanctions**, **ReliefWeb**, and every engineer keeping civic endpoints alive. **You are the lifeblood of situational awareness.**
+
+### Matching & compliance
+
+| Project | Role |
+|---------|------|
+| **[OpenSanctions](https://www.opensanctions.org/)** & **[Yente](https://github.com/opensanctions/yente)** | Public CC-BY datasets and entity matching — transparency work we do not take for granted. |
+
+### Maps & tiles
+
+| Project | Role |
+|---------|------|
+| **[Protomaps](https://protomaps.com/)** / **PMTiles** | Offline regional and planet-scale basemaps. |
+
+If we missed a dependency you rely on, please open an issue — attribution should be complete and honest. See also [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for optional ML components and license nuance.
 
 ---
 
@@ -268,7 +307,7 @@ This repo vendors the Pi repo as a **git submodule** at `offgrid-raspi/` (script
 | PC pull payload (v2) | `GET /api/node/pull` with `X-Node-Token` when `NODE_INGEST_TOKEN` is set |
 | Deploy token + HTTP to Pi | `.\scripts\setup-node-security.ps1` then `.\scripts\sync-pi.ps1` |
 | Deploy hardened push/pull scripts | `.\scripts\deploy-pi-sync.ps1` |
-| Smoke test | `.\scripts\smoke-test.ps1` → expect **31/31 PASS** |
+| Smoke test | `.\scripts\smoke-test.ps1` → expect **32/32 PASS** |
 | Pi disk maintenance | `sudo bash pi-disk-maintenance.sh` (on Pi) |
 
 ---
