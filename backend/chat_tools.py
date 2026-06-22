@@ -166,10 +166,21 @@ async def execute_tool(name: str, arguments: dict) -> dict[str, Any]:
 
     if name == "search_memory":
         import rag_memory
+        from rag_spatial import operator_search_bbox, spatial_enabled
+
         query = str(args.get("query", "")).strip()
         k = int(args.get("k") or 6)
-        results = await rag_memory.search(query, k=k)
-        return {"tool": name, "result": {"query": query, "count": len(results), "results": results}}
+        bbox = operator_search_bbox() if spatial_enabled() else None
+        results = await rag_memory.search(query, k=k, bbox=bbox)
+        return {
+            "tool": name,
+            "result": {
+                "query": query,
+                "count": len(results),
+                "spatial": bool(bbox),
+                "results": results,
+            },
+        }
 
     return {"tool": name, "error": f"unknown tool: {name}"}
 

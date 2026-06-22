@@ -35,7 +35,7 @@ Unless the user says otherwise, prioritize:
 4. **Pi pull loop** — PC generates briefing → Pi `GET /api/node/pull` → portal `briefing_latest.json`
 5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing, DATA → INTEL (ingest, feed sync, Splink resolution, Cytoscape overview)
 
-**Track R (RAG / OSINT enhancement):** evolve hybrid RAG + FtM in place — reranker, ledger-as-RAG, spatial retrieval, CRAG-lite chat. **Do not** adopt RAGFlow or Microsoft GraphRAG as a parallel stack. Roadmap: [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md).
+**Track R (RAG / OSINT enhancement):** R0 + R1.1/R1.2 **shipped** — BGE reranker, ledger/NEWS ingest, spatial bbox, CRAG-lite chat CTX. Next: R1.3 adaptive chunking. Roadmap: [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md).
 
 **Out of scope by default:** HAK_GAL LLM firewall — optional spare-parts HTTP bridge (`FIREWALL_HOST`, `:8001`); baseline guard is `prompt_guard.py` (0 VRAM). Do not assume full HAK_GAL stack runs or fits 16 GB VRAM. Doc: [`docs/FIREWALL.md`](docs/FIREWALL.md).
 
@@ -83,7 +83,7 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_prediction_ground_truth test_corroboration_ground_truth test_subgraph_prompt_ground_truth test_newsdata_bridge test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots -v` in `backend/`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_prediction_ground_truth test_corroboration_ground_truth test_subgraph_prompt_ground_truth test_newsdata_bridge test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots test_rag_rerank test_rag_spatial test_rag_crag test_rag_memory -v` in `backend/`. Optional: `pip install sentence-transformers` when `RAG_RERANK=1`.
 
 Ground-truth pilots (offline): `python corroboration_ground_truth.py --fixtures`, `python prediction_ground_truth.py --fixtures`, `python subgraph_prompt_ground_truth.py --fixtures`; wrappers `.\scripts\corroboration-ground-truth-pilot.ps1`, `.\scripts\prediction-ground-truth-pilot.ps1`, `.\scripts\subgraph-prompt-ab-pilot.ps1`, `.\scripts\fusion-baseline-status.ps1`.
 
@@ -140,7 +140,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | STAC (imagery + feeds) | `backend/stac_bridge.py` — Element84 search + connector feed ItemCollection (bbox, geometry, registry links) |
 | Connector + feed status UI | `frontend/src/components/FeedsStatusPanel.tsx` — DATA → FEEDS: registry, STAC links, globe fly-to |
 | Fusion → briefing | `backend/fusion_heatmap.py` |
-| RAG | `backend/rag_memory.py`, `backend/rag_hybrid.py` — hybrid search; Track R: [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
+| RAG memory | `backend/rag_memory.py`, `rag_hybrid.py`, `rag_rerank.py`, `rag_spatial.py`, `rag_crag.py` — hybrid RRF + optional BGE rerank; `GET /api/memory/search?spatial=1`, `GET /api/memory/stats` |
 | FtM entity store | `backend/ftm_store.py` |
 | Document intel ingest (GLiNER; GLiREL opt-in) | `backend/intel_ingest.py`, [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md), [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) |
 | Entity resolution (exact + subset + optional Splink) | `backend/entity_resolution.py` — `POST /api/intel/resolution/run` |
@@ -186,6 +186,9 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | Symptom | Likely fix |
 |---------|------------|
 | UI unreachable / Vite `ECONNREFUSED :8002` | Use `.\start.ps1` (backend warm-up before Vite); browser on **localhost:5176**; hard refresh after backend reload |
+| Sporadic API 500 `No response returned` on HUD poll | Uvicorn `--reload` restarting on SQLite WAL writes — use `.\start.ps1` (excludes `worldbase.db*` / `data/*.duckdb`); transient during hot reload otherwise |
+| RAG rerank slow first search | BGE model cold load on CPU (~60–90 s first hit); `RAG_RERANK=1` + `pip install sentence-transformers` |
+| Chat 401 with `WORLDBASE_API_KEY` set | Pass header `X-API-Key` on `POST /api/chat` |
 | Briefing empty | `POST /api/briefing/generate`; check Ollama |
 | LOCAL block thin | GDELT rate limits; verify `/api/gdelt/pulse/local` (stale cache with `count>0` still counts for trust/quality); also `/api/cams/haze`, `/api/humanitarian`, `/api/airquality` in briefing snapshot |
 | Maritime layer shows demo fleet | Set `AISSTREAM_API_KEY` in `backend/.env` and restart; expect `stream_connected=true` and `count` growing after ~30 s. Default regions: Malacca, Laem Chabang, Bangkok Port, Phuket, Singapore (`WORLDBASE_MARITIME_REGIONS=all` for global ports). Disable background collector: `WORLDBASE_MARITIME_AISSTREAM=0` |

@@ -103,8 +103,20 @@ if (Test-Path -LiteralPath $envFile) {
 }
 
 $py = $venvPython.Replace("'", "''")
+# Exclude SQLite/DuckDB runtime files — RAG + briefing writes trigger reload storms otherwise.
+$uvicornArgs = @(
+    '-m', 'uvicorn', 'main:app',
+    '--host', $bindHost,
+    '--port', '8002',
+    '--reload',
+    '--reload-exclude', 'worldbase.db',
+    '--reload-exclude', 'worldbase.db-wal',
+    '--reload-exclude', 'worldbase.db-shm',
+    '--reload-exclude', 'data/*.duckdb',
+    '--reload-exclude', 'data/*.duckdb.wal'
+) -join ' '
 Start-LoggedPowerShell -Title 'Backend :8002' -WorkingDirectory $backendPath -Command (
-    "& '$py' -m uvicorn main:app --host $bindHost --port 8002 --reload"
+    "& '$py' $uvicornArgs"
 )
 
 $backendReady = Wait-BackendReady

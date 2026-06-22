@@ -553,6 +553,24 @@ def list_predictions(
     }
 
 
+def list_watches_for_rag(*, limit: int = 150) -> list[dict[str, Any]]:
+    """Pending + recently resolved watch items for RAG indexing (Track R0.3)."""
+    init_prediction_db()
+    cap = max(1, min(int(limit), 500))
+    with _conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM briefing_predictions
+            ORDER BY
+                CASE WHEN hit IS NULL THEN 0 ELSE 1 END,
+                issued_at DESC
+            LIMIT ?
+            """,
+            (cap,),
+        ).fetchall()
+    return [_serialize_row(r) for r in rows]
+
+
 def enrich_quality_meta(quality: dict[str, Any] | None) -> dict[str, Any] | None:
     """Merge live 30d ledger stats into stored briefing quality.meta."""
     if not quality:

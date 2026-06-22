@@ -23,7 +23,7 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | **MAP** | Offline Protomaps via PMTiles — regional (`thailand`) or full planet (`planet_full` ~130 GB) |
 | **Intelligence** | Situations, FtM entity graph (INTEL globe layer), OpenSanctions via Yente, RAG memory (sqlite-vec + FTS + RRF) |
 | **NEWS** | HUD **NEWS** tab — NewsData + GDELT local/global headline feed |
-| **Track R** | RAG/OSINT roadmap — local rerank, ledger-as-RAG, spatial retrieval — [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
+| **Track R** | R0 + R1.1/R1.2 shipped (rerank, spatial, CRAG-lite) — [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
 | **Connectors** | Manifest registry + cache overlay — `GET /api/connectors`, DATA → **FEEDS**, STAC feed items |
 | **AI** | Local chat via Ollama (`qwen3:8b` default) |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → hardened briefing pull back to Pi |

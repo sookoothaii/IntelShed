@@ -64,3 +64,8 @@ python-dotenv>=1.0.0
 # mail-parser>=4.0
 # glirel>=1.2.1          # optional — NOT default; see THIRD_PARTY_NOTICES.md
 # loguru>=0.7            # only if glirel installed
+#
+# Optional RAG reranker (Track R0.1 — CPU, 0 VRAM):
+#   set RAG_RERANK=1 in backend/.env
+#   pip install sentence-transformers
+# sentence-transformers>=3.0

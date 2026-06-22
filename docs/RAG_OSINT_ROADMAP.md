@@ -26,33 +26,32 @@ Public agent entry: [`AGENTS.md`](../AGENTS.md). Intel graph baseline: [`INTEL_I
 
 | Capability | Module / surface | Notes |
 |------------|------------------|-------|
-| Hybrid RAG | `rag_memory.py`, `rag_hybrid.py` | sqlite-vec + FTS5 + RRF merge |
+| Hybrid RAG | `rag_memory.py`, `rag_hybrid.py`, `rag_rerank.py` | sqlite-vec + FTS5 + RRF + optional BGE rerank (CPU) |
+| Spatial RAG | `rag_spatial.py` | geohash in chunk `meta`, operator bbox pre-filter (`RAG_SPATIAL=1`) |
+| CRAG-lite chat | `rag_crag.py`, `routes/chat.py` | low RAG score → situations + FtM subgraph in CTX mode |
+| NEWS + ledger RAG | `rag_memory.py` ingest paths | GDELT local/global, NewsData, `prediction_watch` chunks |
 | Entity graph | `ftm_store.py`, `intel_ingest.py`, `entity_resolution.py` | DuckDB FtM — this **is** your GraphRAG spine |
 | Subgraph + spatial | `intel_subgraph.py`, `intel_proximity.py` | 2-hop bbox, `nearby` edges |
 | Corroboration | `briefing_quality.py`, B-04 pilot | Multi-source digest scoring |
 | Prediction ledger | `prediction_ledger.py`, B-03 pilot | Watch items + horizons |
 | Feed drift (count) | `feed_drift.py` | Snapshots in `/api/trust` |
 | Agent tools | `mcp_server.py`, `chat_tools.py`, Agent Bus | Light agentic layer |
-| NEWS HUD | `NewsPanel.tsx` | NewsData + GDELT local/global (may be uncommitted) |
+| NEWS HUD | `NewsPanel.tsx` | NewsData + GDELT local/global |
 | GDELT global persist | `gdelt_bridge.py` | Disk key `gdelt_pulse_global`, `warmup_global_pulse()` |
 
 **Out of scope by default:** RAGFlow, full LangGraph fleet, HAK_GAL firewall R&D, Pi full vector RAG, DuckDB→Postgres migration.
 
 ---
 
-## Uncommitted work (2026-06-22 session)
+## Shipped (2026-06-22)
 
-Verify with `git status` before overlapping:
+| Track | Status | Notes |
+|-------|--------|-------|
+| **R0.1–R0.4** | **Done** | BGE reranker, chunk prefixes, ledger→RAG, NEWS ingest |
+| **R1.1–R1.2** | **Done** | Spatial bbox filter + CRAG-lite in chat CTX |
+| **Dev reload** | **Done** | `start.ps1` excludes SQLite/DuckDB from `--reload` watch |
 
-| File | Change |
-|------|--------|
-| `frontend/src/components/NewsPanel.tsx` | NEWS tab (replaces FIREWALL nav) |
-| `frontend/src/App.tsx` | Nav `news` |
-| `frontend/src/styles/hud.css` | `news-*` CSS |
-| `backend/gdelt_bridge.py` | Global disk persist + warmup + kick_refresh |
-| `backend/lifespan.py` | Global warmup after local (+6.5 s gap) |
-
-**Done criteria:** commit when operator asks; smoke test 31/31; NEWS tab shows items; `feed_registry.read('gdelt_pulse_global')` count > 0 after warmup.
+**Verify:** `GET /api/memory/stats` → `rerank_enabled`, `spatial_enabled`; smoke 32/32; `pip install sentence-transformers` when `RAG_RERANK=1`.
 
 ---
 
@@ -67,25 +66,23 @@ Verify with `git status` before overlapping:
 
 ## Track R phases
 
-### R0 — High impact, low effort (start here)
+### R0 — High impact, low effort ✅ shipped
 
 | ID | Deliverable | Files | Hardware | Tests |
 |----|-------------|-------|----------|-------|
-| **R0.1** | **BGE reranker** after RRF in `search()` | `rag_memory.py`, new `rag_rerank.py`, `.env.example` | **CPU** (`BAAI/bge-reranker-base`, env `RAG_RERANK=1`) | `test_rag_rerank.py` offline |
-| **R0.2** | **Contextual chunk prefixes** on upsert | `rag_memory.py` | CPU | extend existing RAG tests |
-| **R0.3** | **Prediction ledger → RAG** index pending/resolved watches | `rag_memory.py`, `prediction_ledger.py`, `lifespan.py` | CPU embed | `test_prediction_ledger` + ingest fixture |
-| **R0.4** | **Ingest NEWS paths** — NewsData + GDELT global/local headlines | `rag_memory.py` (`ingest_pulse` expand) | CPU | manual: `/api/memory/search?q=...` |
+| **R0.1** | **BGE reranker** after RRF in `search()` | `rag_rerank.py`, `rag_memory.py`, `.env.example` | **CPU** (`RAG_RERANK=1`) | `test_rag_rerank.py` |
+| **R0.2** | **Contextual chunk prefixes** on upsert | `rag_hybrid.py`, `rag_memory.py` | CPU | `test_rag_memory.py` |
+| **R0.3** | **Prediction ledger → RAG** | `prediction_ledger.py`, `rag_memory.py`, `lifespan.py` | CPU embed | `test_prediction_ledger.py` |
+| **R0.4** | **NEWS ingest** — GDELT local/global + NewsData | `rag_memory.py` (`ingest_news_sources`) | CPU | `/api/memory/search` |
 
-**R0 done when:** Chat/RAG returns reranked hits; ledger watches searchable; smoke + unit tests pass.
+### R1 — Spatial + adaptive (next: R1.3)
 
-### R1 — Spatial + adaptive (next)
-
-| ID | Deliverable | Files |
-|----|-------------|-------|
-| **R1.1** | **Spatial-RAG** — `geohash` in chunk `meta`, bbox pre-filter before vector search | `rag_memory.py`, optional `rag_spatial.py` |
-| **R1.2** | **CRAG-lite chat** — low RAG score → live feeds + FtM subgraph in context | `routes/chat.py`, `chat_tools.py` |
-| **R1.3** | **Adaptive chunking** per feed type in `ingest/mappings/*.yml` | `feed_ingest.py`, YAML mappings |
-| **R1.4** | **Briefing agentic loop** (max 3 rounds: coverage → retrieve → corroboration) | `operator_briefing.py` — state machine, not LangGraph first |
+| ID | Deliverable | Files | Status |
+|----|-------------|-------|--------|
+| **R1.1** | **Spatial-RAG** — geohash + bbox pre-filter | `rag_spatial.py`, `rag_memory.py` | ✅ |
+| **R1.2** | **CRAG-lite chat** — low score → situations + subgraph | `rag_crag.py`, `routes/chat.py` | ✅ |
+| **R1.3** | **Adaptive chunking** per feed type in `ingest/mappings/*.yml` | `feed_ingest.py`, YAML mappings | pending |
+| **R1.4** | **Briefing agentic loop** (max 3 rounds) | `operator_briefing.py` | pending |
 
 ### R2 — Optional (operator “go” only)
 
@@ -128,9 +125,11 @@ Verify with `git status` before overlapping:
 .\start.ps1
 GET http://127.0.0.1:8002/api/health/ping
 
-# RAG (after R0)
+# RAG (R0 + R1.1/1.2)
 cd backend
-python -m unittest test_rag_rerank test_prediction_ledger -v
+.\venv\Scripts\python.exe -m unittest test_rag_rerank test_rag_spatial test_rag_crag test_rag_memory test_prediction_ledger -v
+GET http://127.0.0.1:8002/api/memory/stats
+GET http://127.0.0.1:8002/api/memory/search?q=Thailand+flood&spatial=1
 
 # Pilots
 .\scripts\smoke-test.ps1
@@ -147,9 +146,9 @@ python -c "import feed_registry; print(feed_registry.read('gdelt_pulse_global'))
 
 ```text
 Read AGENTS.md + docs/RAG_OSINT_ROADMAP.md.
-ping → check uncommitted NEWS/GDELT work → if clean, start Track R0.1 (BGE reranker).
-Parallel: B-03 live pilot if horizons elapsed.
-Do not start RAGFlow, LangGraph, or ColQwen without explicit go.
+ping → GET /api/memory/stats (rerank + spatial flags).
+R0/R1.1/R1.2 shipped — next: R1.3 adaptive chunking or R1.4 briefing loop (operator go).
+Parallel: B-03/B-06 pilots. No RAGFlow/LangGraph without explicit go.
 ```
 
 ---
@@ -158,4 +157,5 @@ Do not start RAGFlow, LangGraph, or ColQwen without explicit go.
 
 | Date | Note |
 |------|------|
-| 2026-06-22 | Initial roadmap; NEWS tab + GDELT global warmup documented as uncommitted |
+| 2026-06-22 | Initial roadmap; NEWS tab + GDELT global warmup |
+| 2026-06-22 | R0.1–R0.4 + R1.1/R1.2 shipped; `start.ps1` reload excludes SQLite WAL |

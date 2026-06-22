@@ -41,12 +41,22 @@ async def _phase1_background_tasks() -> None:
             print(f"[PHASE1] River scan failed: {e}", flush=True)
         if rag_autopilot_on():
             try:
-                await rag_memory.ingest_pulse()
+                news = await rag_memory.ingest_news_sources()
+                print(
+                    f"[PHASE1] RAG news index: {news.get('indexed', 0)} chunks",
+                    flush=True,
+                )
                 await rag_memory.ingest_hazards()
                 await rag_memory.ingest_situations()
                 await rag_memory.ingest_volcanoes()
+                watches = await rag_memory.ingest_prediction_watches()
+                if watches.get("indexed"):
+                    print(
+                        f"[PHASE1] RAG prediction watches: {watches.get('indexed')} indexed",
+                        flush=True,
+                    )
             except Exception as e:
-                print(f"[PHASE1] RAG pulse index failed: {e}", flush=True)
+                print(f"[PHASE1] RAG index failed: {e}", flush=True)
         try:
             items = await stac_bridge.fetch_recent_thailand_items(limit=6)
             await rag_memory.ingest_stac_items(items)

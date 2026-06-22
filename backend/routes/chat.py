@@ -348,10 +348,21 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
     want_ctx = payload.get("context") and not force_fast
     ctx = await build_chat_context() if want_ctx else ""
 
-    if ctx or entity_context or search_results:
+    rag_block = ""
+    if want_ctx:
+        from firewall_bridge import _extract_user_text
+        from rag_crag import build_rag_crag_block
+
+        user_q = _extract_user_text(messages)
+        if len(user_q) >= 8:
+            rag_block = await build_rag_crag_block(user_q)
+
+    if ctx or entity_context or search_results or rag_block:
         parts = []
         if ctx:
             parts.append("=== INTERNAL TELEMETRY ===\n" + ctx)
+        if rag_block:
+            parts.append(rag_block)
         if entity_context:
             parts.append("=== SELECTED TARGET (Globe) ===\n" + entity_context)
         if search_results:
@@ -371,6 +382,8 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
                 "then you receive DuckDuckGo snippets below — not live browsing.\n"
                 "- Live feeds (aircraft, quakes, nodes, CVE, headlines): only when "
                 "INTERNAL TELEMETRY is attached (CTX/situation mode).\n"
+                "- RAG MEMORY block: citable indexed briefings/feeds; CRAG fallback "
+                "adds live situations + FtM subgraph when memory confidence is low.\n"
                 "- Tools may query WorldBase APIs (situations, OSINT lookups).\n\n"
                 "RULES:\n"
                 "1. Answer the user's actual question FIRST (1-3 sentences), same language.\n"

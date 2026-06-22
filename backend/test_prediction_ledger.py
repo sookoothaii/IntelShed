@@ -312,6 +312,23 @@ class PredictionLedgerTests(unittest.TestCase):
         self.assertEqual(len(out["pending"]), 1)
         self.assertFalse(out["pending"][0]["overdue"])
 
+    def test_list_watches_for_rag_orders_pending_first(self):
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        future = (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat()
+        self._insert_row(watch_id="resolved1", issued_at=old, prefix="gdelt")
+        self._insert_row(watch_id="pending1", issued_at=future, prefix="cams")
+        pl.resolve_pending(
+            {
+                "gdelt_pulse_local": {"articles": [{}, {}, {}, {}]},
+                "gdelt_geo_local": {"events": [{}, {}, {}]},
+            },
+            [],
+        )
+        rows = pl.list_watches_for_rag(limit=10)
+        self.assertGreaterEqual(len(rows), 2)
+        self.assertIsNone(rows[0]["hit"])
+        self.assertIsNotNone(rows[1]["hit"])
+
 
 if __name__ == "__main__":
     unittest.main()

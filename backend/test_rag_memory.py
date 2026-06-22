@@ -4,10 +4,32 @@ from __future__ import annotations
 
 import unittest
 
-from rag_hybrid import fts_query, rrf_merge
+from rag_hybrid import format_embed_text, format_prediction_watch_text, fts_query, rrf_merge
 
 
 class RagMemoryHybridTests(unittest.TestCase):
+    def test_chunk_prefix_includes_source_and_meta(self):
+        out = format_embed_text("briefing", "Local flood warning.", {"region": "thailand"})
+        self.assertIn("SOURCE: operator security briefing", out)
+        self.assertIn("region: thailand", out)
+        self.assertIn("Local flood warning", out)
+
+    def test_prediction_watch_text_pending(self):
+        text = format_prediction_watch_text(
+            {
+                "claim": "Elevated GDELT attention",
+                "prefix": "gdelt",
+                "bucket": "local",
+                "horizon_h": 24,
+                "issued_at": "2026-06-22T12:00:00+00:00",
+                "due_at": "2026-06-23T12:00:00+00:00",
+                "sources": ["gdelt_pulse_local"],
+                "hit": None,
+            }
+        )
+        self.assertIn("Status: pending", text)
+        self.assertIn("Elevated GDELT attention", text)
+
     def test_fts_query_tokenizes(self):
         q = fts_query("Bangkok flood warning")
         self.assertIsNotNone(q)
