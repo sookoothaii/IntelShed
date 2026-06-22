@@ -74,6 +74,25 @@ class MappingRunnerTest(unittest.TestCase):
         self.assertIn("Address", schemas)
         self.assertGreaterEqual(len(rows), 2)
 
+    def test_gdacs_rag_profile_present(self):
+        from ingest.mapping_runner import load_rag_profile
+
+        profile = load_rag_profile("gdacs_alerts")
+        self.assertIsNotNone(profile)
+        assert profile is not None
+        self.assertEqual(profile.strategy, "paragraph")
+
+    def test_iter_rag_chunk_entries_from_gdelt_record(self):
+        from ingest.mapping_runner import iter_rag_chunk_entries
+
+        record = feed_ingest.normalize_gdelt_geo(
+            {"name": "Flood near Bangkok", "url": "http://example.com/a", "lat": 13.7, "lon": 100.5},
+            0,
+        )
+        entries = iter_rag_chunk_entries([record], "gdelt_events", rag_source="gdelt_geo")
+        self.assertEqual(len(entries), 1)
+        self.assertIn("Bangkok", entries[0][2])
+
     def test_ais_vessel_mapping(self):
         record = feed_ingest.normalize_ais_vessel(
             {"mmsi": "123456789", "name": "Test Ship", "flag": "DE", "type": "Cargo", "lat": 53.5, "lon": 9.9}

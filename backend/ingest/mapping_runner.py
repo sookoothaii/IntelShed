@@ -10,8 +10,16 @@ from typing import Any
 import yaml
 
 import ftm_store
+from rag_chunking import (
+    ChunkProfile,
+    chunk_record,
+    iter_chunk_ids,
+    profile_from_yaml,
+    resolve_source_id,
+)
 
 _MAPPINGS_DIR = Path(__file__).resolve().parent / "mappings"
+_RAG_PROFILE_CACHE: dict[str, ChunkProfile | None] = {}
 
 
 def list_mappings() -> list[str]:
@@ -27,6 +35,46 @@ def load_mapping(name: str) -> dict[str, Any]:
     if not isinstance(data, dict) or len(data) != 1:
         raise ValueError(f"mapping {name} must have exactly one top-level key")
     return data
+
+
+def load_rag_profile(name: str) -> ChunkProfile | None:
+    """Load optional ``rag:`` block from a feed mapping YAML file."""
+    if name in _RAG_PROFILE_CACHE:
+        return _RAG_PROFILE_CACHE[name]
+    try:
+        root = load_mapping(name)
+        mapping_key = next(iter(root))
+        rag_raw = (root.get(mapping_key) or {}).get("rag")
+        profile = profile_from_yaml(rag_raw)
+    except Exception:
+        profile = None
+    _RAG_PROFILE_CACHE[name] = profile
+    return profile
+
+
+def iter_rag_chunk_entries(
+    records: list[dict],
+    mapping_name: str,
+    *,
+    rag_source: str,
+) -> list[tuple[str, str, str, dict]]:
+    """Build RAG chunk tuples ``(source, source_id, text, meta)`` from flat records."""
+    profile = load_rag_profile(mapping_name)
+    if profile is None:
+        return []
+    src = profile.effective_rag_source(rag_source)
+    out: list[tuple[str, str, str, dict]] = []
+    for idx, record in enumerate(records):
+        if not isinstance(record, dict):
+            continue
+        base_id = resolve_source_id(record, profile, str(idx))
+        parts = chunk_record(record, profile)
+        if not parts:
+            continue
+        meta = dict(record)
+        for sid, part in zip(iter_chunk_ids(base_id, len(parts)), parts):
+            out.append((src, sid, part, meta))
+    return out
 
 
 def _prop_values(spec: Any, record: dict) -> list[str]:

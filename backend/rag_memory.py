@@ -21,6 +21,12 @@ from rag_hybrid import (
     row_to_hit,
     rrf_merge,
 )
+from rag_chunking import (
+    chunk_record,
+    get_source_profile,
+    iter_chunk_ids,
+    resolve_source_id,
+)
 from rag_rerank import rerank_enabled, rerank_hits, search_mode_label
 from rag_spatial import (
     apply_spatial_postfilter,
@@ -189,6 +195,47 @@ async def index_text(source: str, source_id: str, text: str, meta: dict | None =
     return {"ok": True, "source": source, "source_id": source_id, "dims": len(emb)}
 
 
+async def index_chunk_entries(
+    entries: list[tuple[str, str, str, dict]],
+) -> dict:
+    """Index pre-chunked tuples ``(source, source_id, text, meta)``."""
+    n = 0
+    for source, source_id, text, meta in entries:
+        if not (text or "").strip():
+            continue
+        try:
+            await index_text(source, source_id, text, meta=meta)
+            n += 1
+        except Exception:
+            pass
+    return {"indexed": n}
+
+
+async def index_with_profile(
+    source: str,
+    record: dict,
+    *,
+    preformatted: str | None = None,
+    mapping_name: str | None = None,
+    meta: dict | None = None,
+) -> dict:
+    """Index one logical record using adaptive chunk profile (Track R1.3)."""
+    profile = get_source_profile(source, mapping_name)
+    base_id = resolve_source_id(record, profile, source)
+    parts = chunk_record(record, profile, preformatted=preformatted)
+    if not parts:
+        return {"indexed": 0, "reason": "empty"}
+    meta_base = enrich_meta_spatial(dict(meta or record))
+    entries = [
+        (source, sid, part, meta_base)
+        for sid, part in zip(iter_chunk_ids(base_id, len(parts)), parts)
+    ]
+    out = await index_chunk_entries(entries)
+    out["source"] = source
+    out["chunks"] = len(parts)
+    return out
+
+
 def _search_vector(
     conn: sqlite3.Connection,
     q_bin: bytes,
@@ -293,25 +340,28 @@ async def _ingest_gdelt_articles(
     region: str | None = None,
 ) -> int:
     n = 0
+    mapping_name = "gdelt_events"
     for i, art in enumerate(articles):
         title = art.get("title") or ""
         if not title:
             continue
-        sid = f"{source}:{art.get('url') or i}"
-        parts = [title]
-        domain = art.get("domain") or ""
-        country = art.get("sourcecountry") or art.get("country") or ""
-        if domain:
-            parts.append(str(domain))
-        if country:
-            parts.append(str(country))
-        text = "\n".join(parts)
+        record = {
+            "id": f"{source}:{art.get('url') or i}",
+            "title": title,
+            "snippet": title,
+            "url": art.get("url") or "",
+            "country": art.get("sourcecountry") or art.get("country") or "",
+            "place": "",
+            "themes": art.get("domain") or "",
+            "lat": art.get("lat"),
+            "lon": art.get("lon"),
+        }
         meta = dict(art)
         if region:
             meta["region"] = region
         try:
-            await index_text(source, sid, text, meta=meta)
-            n += 1
+            out = await index_with_profile(source, record, mapping_name=mapping_name, meta=meta)
+            n += int(out.get("indexed") or 0)
         except Exception:
             pass
     return n
@@ -363,14 +413,21 @@ async def ingest_newsdata_headlines(*, limit: int = 25) -> dict:
             continue
         sid = f"newsdata:{art.get('article_id') or art.get('link') or i}"
         desc = (art.get("description") or "").strip()
-        text = f"{title}\n{desc}" if desc else title
+        record = {
+            "article_id": sid,
+            "title": title,
+            "snippet": desc or title,
+            "country": art.get("country"),
+            "url": art.get("link") or "",
+        }
         meta = dict(art)
         country = art.get("country")
         if isinstance(country, list):
             meta["country"] = ",".join(str(c) for c in country[:4])
+            record["country"] = meta["country"]
         try:
-            await index_text("newsdata", sid, text, meta=meta)
-            n += 1
+            out = await index_with_profile("newsdata", record, meta=meta)
+            n += int(out.get("indexed") or 0)
         except Exception:
             pass
     return {"indexed": n, "source": "newsdata"}
@@ -412,14 +469,15 @@ async def ingest_prediction_watches(*, limit: int = 150) -> dict:
             "prefix": item.get("prefix") or "",
             "bucket": item.get("bucket") or "",
         }
+        record = {**item, "watch_id": sid, "status": status}
         try:
-            await index_text(
+            out = await index_with_profile(
                 "prediction_watch",
-                sid,
-                format_prediction_watch_text(item),
+                record,
+                preformatted=format_prediction_watch_text(item),
                 meta=meta,
             )
-            n += 1
+            n += int(out.get("indexed") or 0)
         except Exception:
             pass
     return {"indexed": n, "source": "prediction_watch", "pool": len(items)}
@@ -431,10 +489,17 @@ async def ingest_hazards() -> dict:
     n = 0
     for a in data.get("alerts") or []:
         sid = f"hazard:{a.get('id', '') or n}"
-        text = f"HAZARD: {a.get('event', '')} in {a.get('area_desc', '')}. {a.get('headline', '')} Severity: {a.get('severity', '')}"
+        record = {
+            "id": sid,
+            "title": a.get("headline") or a.get("event") or "Hazard alert",
+            "text": (
+                f"HAZARD: {a.get('event', '')} in {a.get('area_desc', '')}. "
+                f"{a.get('headline', '')} Severity: {a.get('severity', '')}"
+            ),
+        }
         try:
-            await index_text("hazards", sid, text, meta=a)
-            n += 1
+            out = await index_with_profile("hazards", record, preformatted=record["text"], meta=a)
+            n += int(out.get("indexed") or 0)
         except Exception:
             pass
     return {"indexed": n, "source": "hazards"}
@@ -446,10 +511,17 @@ async def ingest_volcanoes() -> dict:
     n = 0
     for v in data.get("volcanoes") or []:
         sid = f"volcano:{v.get('id', '') or v.get('name', '')}"
-        text = f"ACTIVE VOLCANO: {v.get('name', '')} in {v.get('country', '')}. Type: {v.get('type', '')}. Last eruption: {v.get('last_eruption', '')}"
+        record = {
+            "id": sid,
+            "title": v.get("name") or "Volcano",
+            "text": (
+                f"ACTIVE VOLCANO: {v.get('name', '')} in {v.get('country', '')}. "
+                f"Type: {v.get('type', '')}. Last eruption: {v.get('last_eruption', '')}"
+            ),
+        }
         try:
-            await index_text("volcanoes", sid, text, meta=v)
-            n += 1
+            out = await index_with_profile("volcanoes", record, preformatted=record["text"], meta=v)
+            n += int(out.get("indexed") or 0)
         except Exception:
             pass
     return {"indexed": n, "source": "volcanoes"}
@@ -461,15 +533,24 @@ async def ingest_situations() -> dict:
     n = 0
     for s in data.get("items") or []:
         sid = f"situation:{s.get('id', '') or n}"
-        text = f"SITUATION [{s.get('severity', '')}]: {s.get('title', '')} ({s.get('type', '')}). Details: {s.get('details', '')}"
+        record = {
+            "id": sid,
+            "title": s.get("title") or "Situation",
+            "text": (
+                f"SITUATION [{s.get('severity', '')}]: {s.get('title', '')} "
+                f"({s.get('type', '')}). Details: {s.get('details', '')}"
+            ),
+        }
         meta = dict(s)
         loc = s.get("location") or {}
         if loc.get("lat") is not None and loc.get("lon") is not None:
             meta["lat"] = loc["lat"]
             meta["lon"] = loc["lon"]
+            record["lat"] = loc["lat"]
+            record["lon"] = loc["lon"]
         try:
-            await index_text("situations", sid, text, meta=meta)
-            n += 1
+            out = await index_with_profile("situations", record, preformatted=record["text"], meta=meta)
+            n += int(out.get("indexed") or 0)
         except Exception:
             pass
     return {"indexed": n, "source": "situations"}
@@ -483,14 +564,18 @@ async def ingest_sanctions_hits(hits: list[dict]) -> dict:
         if not ent_id:
             continue
         sid = f"sanctions:{ent_id}"
-        text = (
-            f"SANCTIONED {h.get('schema', 'Entity')}: {h.get('caption', '')} — "
-            f"datasets: {', '.join(h.get('datasets', []) or [])}. "
-            f"Topics: {', '.join(h.get('topics', []) or [])}. Score: {h.get('score', 0):.2f}"
-        )
+        record = {
+            "entity_id": ent_id,
+            "title": h.get("caption") or ent_id,
+            "text": (
+                f"SANCTIONED {h.get('schema', 'Entity')}: {h.get('caption', '')} — "
+                f"datasets: {', '.join(h.get('datasets', []) or [])}. "
+                f"Topics: {', '.join(h.get('topics', []) or [])}. Score: {h.get('score', 0):.2f}"
+            ),
+        }
         try:
-            await index_text("sanctions", sid, text, meta=h)
-            n += 1
+            out = await index_with_profile("sanctions", record, preformatted=record["text"], meta=h)
+            n += int(out.get("indexed") or 0)
         except Exception:
             pass
     return {"indexed": n, "source": "sanctions"}
@@ -504,13 +589,22 @@ async def ingest_stac_items(items: list[dict]) -> dict:
         if not it.get("id"):
             continue
         bbox = it.get("bbox") or []
-        text = (
-            f"SAT IMAGE: {it.get('collection', '')} {it.get('id', '')} "
-            f"({it.get('datetime', '')}) bbox={bbox} cloud_cover={it.get('cloud_cover', '')}%"
-        )
+        record = {
+            "id": it.get("id"),
+            "title": f"{it.get('collection', '')} {it.get('id', '')}",
+            "text": (
+                f"SAT IMAGE: {it.get('collection', '')} {it.get('id', '')} "
+                f"({it.get('datetime', '')}) bbox={bbox} cloud_cover={it.get('cloud_cover', '')}%"
+            ),
+        }
         try:
-            await index_text("stac", sid, text, meta={k: it.get(k) for k in ("id", "collection", "datetime", "bbox", "cloud_cover", "thumbnail")})
-            n += 1
+            out = await index_with_profile(
+                "stac",
+                record,
+                preformatted=record["text"],
+                meta={k: it.get(k) for k in ("id", "collection", "datetime", "bbox", "cloud_cover", "thumbnail")},
+            )
+            n += int(out.get("indexed") or 0)
         except Exception:
             pass
     return {"indexed": n, "source": "stac"}
@@ -520,8 +614,16 @@ async def ingest_briefing(text: str, created_at: str) -> dict:
     if not text or len(text) < 40:
         return {"indexed": 0, "reason": "empty"}
     sid = created_at or str(time.time())
-    await index_text("briefing", sid, text[:8000], meta={"created_at": created_at})
-    return {"indexed": 1, "source": "briefing", "source_id": sid}
+    record = {"created_at": sid, "title": "Operator briefing", "text": text}
+    out = await index_with_profile(
+        "briefing",
+        record,
+        preformatted=text,
+        meta={"created_at": created_at},
+    )
+    out["source"] = "briefing"
+    out["source_id"] = sid
+    return out
 
 
 @router.get("/search")
@@ -574,4 +676,5 @@ async def memory_stats():
         "search_mode": search_mode_label(),
         "rerank_enabled": rerank_enabled(),
         "spatial_enabled": spatial_enabled(),
+        "adaptive_chunking": True,
     }

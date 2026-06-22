@@ -1,6 +1,13 @@
 # FollowTheMoney mapping: AIS contacts -> FtM Vessel entities.
 # Consumed by the ingest pipeline (T2). Field names match ais_bridge output.
 ais_vessels:
+  rag:
+    strategy: single
+    max_chars: 320
+    source_key: mmsi
+    rag_source: maritime
+    body:
+      - template: "VESSEL {name} MMSI {mmsi} IMO {imo} flag {flag} type {type} callsign {callsign}"
   queries:
     - entities:
         vessel:

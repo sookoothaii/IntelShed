@@ -35,7 +35,7 @@ Unless the user says otherwise, prioritize:
 4. **Pi pull loop** — PC generates briefing → Pi `GET /api/node/pull` → portal `briefing_latest.json`
 5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing, DATA → INTEL (ingest, feed sync, Splink resolution, Cytoscape overview)
 
-**Track R (RAG / OSINT enhancement):** R0 + R1.1/R1.2 **shipped** — BGE reranker, ledger/NEWS ingest, spatial bbox, CRAG-lite chat CTX. Next: R1.3 adaptive chunking. Roadmap: [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md).
+**Track R (RAG / OSINT enhancement):** R0 + R1.1–R1.3 **shipped** — BGE reranker, ledger/NEWS ingest, spatial bbox, CRAG-lite chat CTX, adaptive YAML chunking. Next: R1.4 briefing agentic loop. Roadmap: [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md).
 
 **Out of scope by default:** HAK_GAL LLM firewall — optional spare-parts HTTP bridge (`FIREWALL_HOST`, `:8001`); baseline guard is `prompt_guard.py` (0 VRAM). Do not assume full HAK_GAL stack runs or fits 16 GB VRAM. Doc: [`docs/FIREWALL.md`](docs/FIREWALL.md).
 

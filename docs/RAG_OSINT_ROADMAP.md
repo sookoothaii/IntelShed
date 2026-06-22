@@ -48,10 +48,10 @@ Public agent entry: [`AGENTS.md`](../AGENTS.md). Intel graph baseline: [`INTEL_I
 | Track | Status | Notes |
 |-------|--------|-------|
 | **R0.1–R0.4** | **Done** | BGE reranker, chunk prefixes, ledger→RAG, NEWS ingest |
-| **R1.1–R1.2** | **Done** | Spatial bbox filter + CRAG-lite in chat CTX |
+| **R1.1–R1.3** | **Done** | Spatial bbox filter + CRAG-lite in chat CTX + adaptive YAML chunking |
 | **Dev reload** | **Done** | `start.ps1` excludes SQLite/DuckDB from `--reload` watch |
 
-**Verify:** `GET /api/memory/stats` → `rerank_enabled`, `spatial_enabled`; smoke 32/32; `pip install sentence-transformers` when `RAG_RERANK=1`.
+**Verify:** `GET /api/memory/stats` → `rerank_enabled`, `spatial_enabled`, `adaptive_chunking`; `python -m unittest test_rag_chunking -v`.
 
 ---
 
@@ -75,13 +75,13 @@ Public agent entry: [`AGENTS.md`](../AGENTS.md). Intel graph baseline: [`INTEL_I
 | **R0.3** | **Prediction ledger → RAG** | `prediction_ledger.py`, `rag_memory.py`, `lifespan.py` | CPU embed | `test_prediction_ledger.py` |
 | **R0.4** | **NEWS ingest** — GDELT local/global + NewsData | `rag_memory.py` (`ingest_news_sources`) | CPU | `/api/memory/search` |
 
-### R1 — Spatial + adaptive (next: R1.3)
+### R1 — Spatial + adaptive (R1.3 shipped)
 
 | ID | Deliverable | Files | Status |
 |----|-------------|-------|--------|
 | **R1.1** | **Spatial-RAG** — geohash + bbox pre-filter | `rag_spatial.py`, `rag_memory.py` | ✅ |
 | **R1.2** | **CRAG-lite chat** — low score → situations + subgraph | `rag_crag.py`, `routes/chat.py` | ✅ |
-| **R1.3** | **Adaptive chunking** per feed type in `ingest/mappings/*.yml` | `feed_ingest.py`, YAML mappings | pending |
+| **R1.3** | **Adaptive chunking** per feed type in `ingest/mappings/*.yml` | `rag_chunking.py`, `feed_ingest.py`, YAML mappings | ✅ |
 | **R1.4** | **Briefing agentic loop** (max 3 rounds) | `operator_briefing.py` | pending |
 
 ### R2 — Optional (operator “go” only)

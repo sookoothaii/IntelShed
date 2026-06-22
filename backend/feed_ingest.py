@@ -14,7 +14,7 @@ import ftm_store
 import intel_graph_export
 import intel_proximity
 import intel_semantic_links
-from ingest.mapping_runner import apply_mapping, list_mappings
+from ingest.mapping_runner import apply_mapping, iter_rag_chunk_entries, list_mappings
 
 # ---------------------------------------------------------------------------
 # Config
@@ -37,6 +37,10 @@ def autopilot_on() -> bool:
 
 def resolve_after_feeds() -> bool:
     return _truthy_env("WORLDBASE_ENTITY_RESOLUTION_AFTER_FEEDS", "0")
+
+
+def rag_feed_ingest_on() -> bool:
+    return _truthy_env("RAG_FEED_INGEST", "1")
 
 
 def _now() -> str:
@@ -232,28 +236,48 @@ FEED_SOURCES: dict[str, dict[str, Any]] = {
         "mapping": "gdacs_alerts",
         "fetch": _fetch_gdacs_records,
         "dataset": "gdacs",
+        "rag_source": "gdacs",
     },
     "gdelt_geo": {
         "mapping": "gdelt_events",
         "fetch": _fetch_gdelt_geo_records,
         "dataset": "gdelt-geo",
+        "rag_source": "gdelt_geo",
     },
     "gdelt_pulse": {
         "mapping": "gdelt_events",
         "fetch": _fetch_gdelt_pulse_records,
         "dataset": "gdelt-pulse",
+        "rag_source": "gdelt_pulse_local",
     },
     "eonet": {
         "mapping": "eonet_events",
         "fetch": _fetch_eonet_records,
         "dataset": "eonet",
+        "rag_source": "eonet",
     },
     "maritime": {
         "mapping": "ais_vessels",
         "fetch": _fetch_maritime_records,
         "dataset": "ais",
+        "rag_source": "maritime",
     },
 }
+
+
+async def _index_mapping_records_to_rag(
+    records: list[dict],
+    mapping_name: str,
+    *,
+    rag_source: str,
+) -> dict:
+    """Index feed records into RAG using YAML ``rag:`` chunk profiles (Track R1.3)."""
+    import rag_memory
+
+    entries = iter_rag_chunk_entries(records, mapping_name, rag_source=rag_source)
+    if not entries:
+        return {"indexed": 0, "reason": "no_rag_profile_or_records"}
+    return await rag_memory.index_chunk_entries(entries)
 
 
 async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
@@ -279,6 +303,18 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
                     spec["mapping"],
                     dataset=spec.get("dataset") or name,
                 )
+                if rag_feed_ingest_on() and records:
+                    try:
+                        rag_src = spec.get("rag_source") or name
+                        rag_out = await _index_mapping_records_to_rag(
+                            records,
+                            spec["mapping"],
+                            rag_source=rag_src,
+                        )
+                        result["rag_indexed"] = rag_out.get("indexed", 0)
+                    except Exception as exc:
+                        if len(errors) < 8:
+                            errors.append(f"{name} rag: {exc}")
             per_source[name] = result
             totals["records"] += result.get("records", len(records))
             totals["entities"] += result.get("entities_written", 0)
@@ -386,6 +422,7 @@ def status() -> dict:
         "last_error": _LAST_ERROR,
         "ftm_stats": ftm_store.stats(),
         "resolve_after_feeds": resolve_after_feeds(),
+        "rag_feed_ingest": rag_feed_ingest_on(),
         "spatial_edges": intel_proximity.enabled(),
         "semantic_edges": intel_semantic_links.enabled(),
         "subgraph_export": intel_graph_export.enabled(),

@@ -1,6 +1,15 @@
 # FollowTheMoney mapping: GDELT pulse/geo records -> FtM Event entities.
 # Consumed by the ingest pipeline (T2). Field names match gdelt_bridge output.
 gdelt_events:
+  rag:
+    strategy: headline
+    max_chars: 480
+    source_key: id
+    body:
+      - column: title
+      - column: snippet
+      - columns: [country, place, themes]
+        join: " | "
   queries:
     - entities:
         event:

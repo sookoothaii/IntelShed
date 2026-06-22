@@ -1,6 +1,20 @@
 # FollowTheMoney mapping: GDACS disaster alerts -> FtM Event entities.
 # Consumed by the ingest pipeline (T2). Field names match cap_bridge / GDACS feed.
 gdacs_alerts:
+  rag:
+    strategy: paragraph
+    max_chars: 700
+    overlap: 80
+    source_key: eventid
+    rag_source: gdacs
+    body:
+      - column: title
+      - column: description
+        max_chars: 1800
+      - columns: [eventtype, alertlevel]
+        join: " — "
+      - columns: [country, iso3]
+        join: " "
   queries:
     - entities:
         event:
