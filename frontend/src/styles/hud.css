@@ -1999,6 +1999,25 @@ html, body, #root {
   box-shadow: 0 0 20px rgba(79, 195, 247, 0.4);
 }
 
+.mega-analysis-badge {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+  background: rgba(0, 229, 160, 0.2);
+  color: #00e5a0;
+  vertical-align: middle;
+}
+.mega-analysis-badge--warn {
+  background: rgba(255, 210, 63, 0.2);
+  color: #ffd23f;
+}
+.mega-analysis-badge--off {
+  background: rgba(111, 140, 132, 0.2);
+  color: #6f8c84;
+}
+
 .situation-overlay {
   position: fixed;
   inset: 0;
@@ -2528,6 +2547,41 @@ html, body, #root {
 .analysis-digest-chip.local { border-color: rgba(0,229,160,0.35); }
 .analysis-digest-chip.regional { border-color: rgba(255,210,63,0.35); }
 .analysis-digest-chip.global { border-color: rgba(111,140,132,0.35); }
+
+.analysis-agentic {
+  border-left: 4px solid rgba(126, 200, 255, 0.55);
+}
+.analysis-agentic-rounds {
+  font-size: 11px;
+  color: #7ec8ff;
+  letter-spacing: 1px;
+}
+.analysis-agentic-phase {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(26, 46, 51, 0.6);
+}
+.analysis-agentic-phase:last-of-type {
+  border-bottom: none;
+}
+.analysis-agentic-phase-label {
+  font-weight: 700;
+  min-width: 88px;
+  letter-spacing: 0.5px;
+  color: #7ec8ff;
+}
+.analysis-agentic-ok { color: #00e5a0; font-weight: 600; }
+.analysis-agentic-warn { color: #ffd23f; font-weight: 600; }
+.analysis-agentic-final {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #8fb7a9;
+  letter-spacing: 0.5px;
+}
 
 .analysis-fusion-row {
   display: flex;

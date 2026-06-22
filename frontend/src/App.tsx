@@ -92,6 +92,156 @@ function HudClock() {
   )
 }
 
+type AgenticTrace = {
+  enabled?: boolean
+  rounds?: number
+  max_rounds?: number
+  status?: string
+  phases?: Array<Record<string, unknown>>
+  final_counts?: Record<string, number>
+}
+
+function agenticBadgeMeta(agentic: AgenticTrace | null | undefined): {
+  label: string
+  tip: string
+  tone: 'ok' | 'warn' | 'off'
+} | null {
+  if (!agentic) return null
+  if (agentic.enabled === false) {
+    return { label: 'OFF', tip: 'Agentic loop disabled (BRIEFING_AGENTIC_LOOP=0)', tone: 'off' }
+  }
+  const rounds = agentic.rounds ?? 0
+  const maxR = agentic.max_rounds ?? 3
+  const phases = (agentic.phases || []).map((p) => String(p.phase || '')).filter(Boolean)
+  const coverage = agentic.phases?.find((p) => p.phase === 'coverage') as Record<string, unknown> | undefined
+  const gaps = Array.isArray(coverage?.gaps) ? coverage!.gaps.length : 0
+  const retrieve = phases.includes('retrieve')
+  const tip = [
+    `Agentic loop ${rounds}/${maxR} rounds`,
+    phases.length ? `phases: ${phases.join(' → ')}` : '',
+    gaps ? `${gaps} bucket gap(s) at start` : 'coverage OK',
+    retrieve ? 'RAG retrieve ran' : 'no retrieve (coverage sufficient)',
+    agentic.status ? `status: ${agentic.status}` : '',
+  ].filter(Boolean).join(' · ')
+  return {
+    label: `A${rounds}`,
+    tip,
+    tone: gaps && !retrieve ? 'warn' : 'ok',
+  }
+}
+
+function useBriefingAgenticBadge() {
+  const [agentic, setAgentic] = useState<AgenticTrace | null>(null)
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await fetchApi('/api/briefing')
+        if (r.ok) {
+          const d = await r.json()
+          setAgentic(d.agentic ?? null)
+        }
+      } catch {
+        // ignore
+      }
+    }
+    load()
+    const t = setInterval(load, 60000)
+    return () => clearInterval(t)
+  }, [])
+  return agenticBadgeMeta(agentic)
+}
+
+function AgenticLoopPanel({ agentic }: { agentic: AgenticTrace }) {
+  if (agentic.enabled === false) {
+    return (
+      <div className="analysis-section analysis-agentic">
+        <h3>⟳ AGENTIC LOOP</h3>
+        <div className="analysis-row" style={{ fontSize: 11, color: '#6f8c84' }}>
+          Disabled — set BRIEFING_AGENTIC_LOOP=1 to enable coverage → retrieve → corroboration.
+        </div>
+      </div>
+    )
+  }
+  const rounds = agentic.rounds ?? 0
+  const maxR = agentic.max_rounds ?? 3
+  const final = agentic.final_counts || {}
+  return (
+    <div className="analysis-section analysis-agentic">
+      <h3>
+        ⟳ AGENTIC LOOP{' '}
+        <span className="analysis-agentic-rounds">
+          {rounds}/{maxR}
+        </span>
+      </h3>
+      {(agentic.phases || []).map((phase, i) => {
+        const name = String(phase.phase || 'phase')
+        if (name === 'coverage') {
+          const counts = (phase.counts || {}) as Record<string, number>
+          const gaps = Array.isArray(phase.gaps) ? phase.gaps : []
+          return (
+            <div key={i} className="analysis-agentic-phase">
+              <span className="analysis-agentic-phase-label">COVERAGE</span>
+              <span>
+                L{counts.local ?? '—'} · R{counts.regional ?? '—'} · G{counts.global ?? '—'}
+              </span>
+              {gaps.length > 0 ? (
+                <span className="analysis-agentic-warn">gaps: {gaps.join(', ')}</span>
+              ) : (
+                <span className="analysis-agentic-ok">OK</span>
+              )}
+            </div>
+          )
+        }
+        if (name === 'retrieve') {
+          const perBucket = (phase.per_bucket || {}) as Record<string, number>
+          const retrieved = Number(phase.retrieved ?? 0)
+          const errors = Array.isArray(phase.errors) ? phase.errors : []
+          return (
+            <div key={i} className="analysis-agentic-phase">
+              <span className="analysis-agentic-phase-label">RETRIEVE</span>
+              <span>{retrieved} line(s)</span>
+              {Object.keys(perBucket).length > 0 && (
+                <span style={{ color: '#8fb7a9' }}>
+                  {Object.entries(perBucket).map(([b, n]) => `${b}:${n}`).join(' · ')}
+                </span>
+              )}
+              {errors.length > 0 && (
+                <span className="analysis-agentic-warn" title={errors.join('; ')}>
+                  {errors.length} error(s)
+                </span>
+              )}
+            </div>
+          )
+        }
+        if (name === 'corroboration') {
+          const summary = (phase.corroboration || {}) as Record<string, unknown>
+          const avg = summary.corroboration_avg_local
+          const weak = Number(phase.weak_local_lines ?? 0)
+          const ragN = Number(phase.rag_corroborated ?? 0)
+          return (
+            <div key={i} className="analysis-agentic-phase">
+              <span className="analysis-agentic-phase-label">CORROBORATE</span>
+              {avg != null && (
+                <span style={{ color: Number(avg) >= 0.75 ? '#00e5a0' : Number(avg) >= 0.5 ? '#ffd23f' : '#ff6b35' }}>
+                  LOCAL {Math.round(Number(avg) * 100)}%
+                </span>
+              )}
+              <span style={{ color: '#8fb7a9' }}>weak {weak} · RAG +{ragN}</span>
+            </div>
+          )
+        }
+        return null
+      })}
+      {Object.keys(final).length > 0 && (
+        <div className="analysis-agentic-final">
+          FINAL L{final.local ?? '—'} · R{final.regional ?? '—'} · G{final.global ?? '—'}
+          {agentic.status ? ` · ${String(agentic.status).toUpperCase()}` : ''}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SystemStatus() {
   const [backend, setBackend] = useState<'online' | 'offline' | 'check'>('check')
   const [ollama, setOllama] = useState<'online' | 'offline' | 'check'>('check')
@@ -142,6 +292,7 @@ export default function App() {
   const [windyMapCoords, setWindyMapCoords] = useState({ lat: 9.55, lon: 100.05 })
   const [windyMapKey, setWindyMapKey] = useState<string | null>(null)
   useAlertNotifications()
+  const agenticBadge = useBriefingAgenticBadge()
 
   useEffect(() => {
     fetchApi('/api/windy/config')
@@ -292,7 +443,18 @@ export default function App() {
 
         <div className="hud-meta">
           <button className="mega-analysis-btn" onClick={() => setSituationOpen(true)}>SITUATIONS</button>
-          <button className="mega-analysis-btn secondary" onClick={() => setAnalysisOpen(true)}>FULL SITUATION</button>
+          <button
+            className="mega-analysis-btn secondary"
+            onClick={() => setAnalysisOpen(true)}
+            title={agenticBadge?.tip || 'Open full situational overlay'}
+          >
+            FULL SITUATION
+            {agenticBadge && (
+              <span className={`mega-analysis-badge mega-analysis-badge--${agenticBadge.tone}`}>
+                {agenticBadge.label}
+              </span>
+            )}
+          </button>
           <SystemStatus />
           <HudClock />
         </div>
@@ -488,6 +650,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   const trust = results.trust
   const predictions = results.predictions
   const fusionHotspots = briefing?.fusion_hotspots || []
+  const agenticTrace = briefing?.agentic as AgenticTrace | undefined
   const cveFeed = results.cve
   const quakes = (results.earthquakes?.earthquakes || []).slice(0, 15)
   const wildfires = (results.events?.events || []).filter((e: any) => (e.category || '').toLowerCase().includes('fire') || (e.title || '').toLowerCase().includes('fire')).slice(0, 8)
@@ -870,6 +1033,8 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                   ))}
                 </div>
               )}
+
+              {agenticTrace && <AgenticLoopPanel agentic={agenticTrace} />}
 
               {briefing?.digest_line_meta?.length > 0 && (
                 <div className="analysis-section">
