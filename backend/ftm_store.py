@@ -58,6 +58,18 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _configure_connection(con: duckdb.DuckDBPyConnection) -> None:
+    """Tune the embedded store. Single-writer: one in-process connection + _LOCK.
+
+    DuckDB does not support SQLite ``PRAGMA journal_mode`` / ``locking_mode``.
+    Do not open ``entities.duckdb`` from a second process while the API runs.
+    """
+    try:
+        con.execute("SET checkpoint_threshold='16MB'")
+    except Exception:
+        pass
+
+
 def _conn() -> duckdb.DuckDBPyConnection:
     global _CONN, _INIT_ERROR
     if _CONN is not None:
@@ -67,6 +79,7 @@ def _conn() -> duckdb.DuckDBPyConnection:
     os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)  # type: ignore[arg-type]
     try:
         _CONN = duckdb.connect(_DB_PATH)  # type: ignore[arg-type]
+        _configure_connection(_CONN)
         _create_schema(_CONN)
         _INIT_ERROR = None
     except Exception as exc:

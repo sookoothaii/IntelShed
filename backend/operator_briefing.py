@@ -13,6 +13,7 @@ import os
 from typing import Any
 
 from stac_bridge import REGION_PRESETS
+from newsdata_bridge import is_sports_content
 
 OPERATOR_REGION = os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower()
 BRIEFING_LANG = os.getenv("WORLDBASE_BRIEFING_LANG", "en").strip().lower()
@@ -308,12 +309,20 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     local_pulse = snap.get("gdelt_pulse_local", {}) or {}
     for art in (local_pulse.get("articles") or [])[:10]:
         title = art.get("title") or art.get("url") or "Headline"
+        if is_sports_content(title=title, description=art.get("description") or ""):
+            continue
         items.append(_line("low", f"Local news: {title[:120]}", "local", sources=["gdelt_pulse_local"]))
 
     newsdata = snap.get("newsdata") or {}
     if newsdata.get("configured") is not False:
         for art in (newsdata.get("articles") or [])[:5]:
             title = art.get("title") or "Headline"
+            if is_sports_content(
+                title=title,
+                description=art.get("description") or "",
+                categories=art.get("category"),
+            ):
+                continue
             bucket = _text_bucket(title) or "regional"
             items.append(_line("low", f"News: {title[:120]}", bucket, sources=["newsdata"]))
 
@@ -923,7 +932,8 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
             "Bei WATCH ITEMS: in RECOMMENDATION erwähnen, wenn relevant — "
             "keine zusätzlichen Watch-Themen erfinden. "
             "Bei INTEL ENTITIES: nenne konkrete Akteure/Orte/Ereignisse aus dem FtM-Graph, "
-            "nicht generische Feed-Schlagzeilen wiederholen."
+            "nicht generische Feed-Schlagzeilen wiederholen. "
+            "Keine Sport-, Unterhaltungs- oder Promi-Themen."
         )
         digest_header = "--- DIGEST"
         protocol_label = "Protokoll:"
@@ -946,7 +956,8 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
             "(do not invent events). For WATCH ITEMS: reflect them in RECOMMENDATION "
             "when relevant — do not add watch topics not listed. "
             "For INTEL ENTITIES: name specific actors/places/events from the FtM graph; "
-            "do not repeat generic feed headlines."
+            "do not repeat generic feed headlines. "
+            "Omit sports, entertainment, and celebrity news."
         )
         digest_header = "--- DIGEST"
         protocol_label = "Protocol:"

@@ -166,7 +166,7 @@ Stack: `.\scripts\smoke-test.ps1` (25 checks).
 | `503 model load failed` | Install GLiNER stack; check `/api/intel/ingest/status` |
 | No semantic edges | Set `WORLDBASE_INTEL_GLIREL=1` locally + `pip install glirel loguru` |
 | RESOLVE button disabled | `pip install "splink>=4.0,<5"` (library needed for status UI) |
-| API startup / DuckDB lock | Only one process may hold `entities.duckdb`; kill stale Python; API starts fail-soft — `ftm.ready: false` until restart |
+| API startup / DuckDB lock | Only one process may hold `entities.duckdb`; kill stale Python; API starts fail-soft — `ftm.ready: false` until restart. DuckDB has no SQLite `journal_mode` PRAGMA — use one in-process connection (`ftm_store._LOCK`). |
 | Briefing has no FtM names | `POST /api/briefing/generate`; check `GET /api/briefing` → `intel.count` |
 | EONET errors in feed sync | Fail-soft; other sources still ingest |
 | Windows torch crash on GLiNER import | Fixed in code (pyarrow pre-import); torch ≥ 2.6 for GLiREL `.bin` |

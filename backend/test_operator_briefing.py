@@ -127,6 +127,29 @@ class OperatorBriefingTests(unittest.TestCase):
         combined = " ".join(digest["local"] + digest["regional"] + digest["global"])
         self.assertIn("News: ASEAN", combined)
 
+    def test_digest_skips_sports_headlines(self):
+        snap = {
+            "newsdata": {
+                "configured": True,
+                "articles": [
+                    {"title": "Liverpool win Premier League title on final day", "category": ["sports"]},
+                    {"title": "Thailand flood relief expands in central provinces"},
+                ],
+            },
+            "gdelt_pulse_local": {
+                "articles": [
+                    {"title": "NBA playoffs: Celtics advance to finals"},
+                    {"title": "Bangkok air quality improves after rain"},
+                ],
+            },
+        }
+        digest = format_digest_sections(snap, [], "none", [])
+        combined = " ".join(digest["local"] + digest["regional"] + digest["global"])
+        self.assertIn("News: Thailand flood", combined)
+        self.assertIn("Local news: Bangkok air", combined)
+        self.assertNotIn("Premier League", combined)
+        self.assertNotIn("NBA", combined)
+
     def test_local_gdelt_reserved_slots_survive_severity_cap(self):
         """GDELT local news keeps LOCAL slots even when AQ/CAMS outrank on severity."""
         snap = {

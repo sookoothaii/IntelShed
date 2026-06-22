@@ -166,5 +166,8 @@ $portalVerifyBlock
 "@
 
 $remote = ($remote -replace "`r`n", "`n") -replace "`r", ""
-$remote | & $ssh -i $key -o BatchMode=yes $pi bash -s
+$remoteSh = Join-Path $env:TEMP 'deploy-pi-sync-remote.sh'
+[System.IO.File]::WriteAllText($remoteSh, $remote, [Text.UTF8Encoding]::new($false))
+Get-Content -LiteralPath $remoteSh -Raw | & $ssh -i $key -o BatchMode=yes $pi bash -s
+Remove-Item -LiteralPath $remoteSh -Force -ErrorAction SilentlyContinue
 Write-Host 'Done.' -ForegroundColor Green

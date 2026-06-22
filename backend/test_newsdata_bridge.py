@@ -237,6 +237,17 @@ class NewsDataBridgeTests(unittest.IsolatedAsyncioTestCase):
                 }
             )
         )
+        self.assertFalse(
+            nd._is_briefing_article(
+                {
+                    "title": "Arsenal beat Chelsea 2-1 in Premier League clash",
+                    "description": "Football highlights from London.",
+                    "category": ["sports"],
+                    "link": "https://example.com/sports/x",
+                }
+            )
+        )
+        self.assertTrue(nd.is_sports_content(title="NBA Finals Game 7 tips off tonight"))
 
     async def test_fetch_filters_junk_from_batch(self):
         os.environ["NEWSDATA_API_KEY"] = "test-key"

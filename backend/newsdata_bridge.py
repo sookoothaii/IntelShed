@@ -55,6 +55,16 @@ _PAID_STUB = "ONLY AVAILABLE IN PAID PLANS"
 _JAIL_PATH = re.compile(r"jail[_/-]?bookings?", re.I)
 _JAIL_TITLE = re.compile(r"^\d{4,}\s+[A-Z][A-Z\s'.-]+$")
 _AP_SUMMARY = re.compile(r"^AP News Summary at\b", re.I)
+_SPORTS_CATEGORY = frozenset({"sports", "sport"})
+_SPORTS_TEXT = re.compile(
+    r"\b(?:"
+    r"sports?|football|soccer|basketball|tennis|cricket|rugby|"
+    r"golf|nfl|nba|mlb|nhl|mls|premier league|champions league|"
+    r"world cup|olympics?|bundesliga|la liga|serie a|uefa|fifa|"
+    r"grand prix|formula\s*1|\bf1\b|super\s+bowl|playoffs?"
+    r")\b",
+    re.I,
+)
 
 
 def api_key_configured() -> bool:
@@ -122,6 +132,28 @@ def _parse_article(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_categories(raw: Any) -> list[str]:
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(c).strip().lower() for c in raw if c]
+
+
+def is_sports_content(
+    *,
+    title: str = "",
+    description: str = "",
+    categories: list | str | None = None,
+) -> bool:
+    """True when headline looks like sports / entertainment athletics (briefing skip)."""
+    cats = _normalize_categories(categories)
+    if any(c in _SPORTS_CATEGORY or c.startswith("sport") for c in cats):
+        return True
+    text = f"{title} {description}".strip()
+    return bool(text and _SPORTS_TEXT.search(text))
+
+
 def _is_briefing_article(article: dict[str, Any]) -> bool:
     title = (article.get("title") or "").strip()
     if not title or len(title) < 12:
@@ -135,6 +167,12 @@ def _is_briefing_article(article: dict[str, Any]) -> bool:
         return False
     desc = (article.get("description") or "").strip()
     if desc.upper() == _PAID_STUB:
+        return False
+    if is_sports_content(
+        title=title,
+        description=desc,
+        categories=article.get("category"),
+    ):
         return False
     if not desc and _JAIL_TITLE.match(title):
         return False

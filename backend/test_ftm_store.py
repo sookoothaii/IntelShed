@@ -1,4 +1,9 @@
-"""Unit tests for the FollowTheMoney canonical entity store (no network)."""
+"""Unit tests for the FollowTheMoney canonical entity store (no network).
+
+Single-writer discipline: each test uses a temp ``.duckdb`` and closes it in
+``tearDown``. Never open ``entities.duckdb`` via CLI or a second Python process
+while the WorldBase API holds the file.
+"""
 
 import json
 import os
@@ -177,6 +182,17 @@ class FtmStoreTest(unittest.TestCase):
         gs = ftm_store.graph_stats()
         self.assertIn("graph_endpoints", gs)
         self.assertIn("resolution_edges", gs)
+
+    def test_reset_store_reopens_cleanly(self):
+        """B-02 light: reset after writes must reopen without losing readiness."""
+        ftm_store.upsert_legacy("aircraft:reset1", "aircraft", label="R1", source_feed="test")
+        self.assertTrue(ftm_store.store_status()["ready"])
+        self.assertTrue(ftm_store.reset_store())
+        st = ftm_store.store_status()
+        self.assertTrue(st["ready"])
+        self.assertGreaterEqual(st["entities"], 1)
+        ent = ftm_store.get_entity("aircraft:reset1")
+        self.assertIsNotNone(ent)
 
     def test_sanctions_adapter_maps_fields(self):
         row = {

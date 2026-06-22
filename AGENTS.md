@@ -64,6 +64,7 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | Autopilot | `WORLDBASE_BRIEFING_AUTOPILOT=1`, interval `WORLDBASE_BRIEFING_INTERVAL` (default 6 h) |
 | FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
 | NewsData digest slots | `WORLDBASE_BRIEFING_NEWSDATA_SLOTS=2` (default) — reserved `News:` lines survive severity cap |
+| NewsData / GDELT noise | Sports, entertainment, and celebrity headlines filtered before digest (`newsdata_bridge.is_sports_content`); tourism/local economy (e.g. Songkran) kept when situational |
 | German output | `WORLDBASE_BRIEFING_LANG=de` (UI strings stay English) |
 | Pi payload | `GET /api/node/pull` — v2: ETag/304, SHA-256, quality, `intel_subgraph` compact graph (+ `X-Node-Token` when set) |
 | **Trust probes** | `GET /api/trust` — field score 0–4 (briefing, GDELT, Ollama, Pi edge) + `feed_drift` freshness (connector provenance) |
@@ -132,7 +133,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | Pi edge dashboard (DATA → EDGE) | `frontend/src/components/EdgePanel.tsx` — primary node `offgrid-pi`, sparklines via `/api/node/{id}/sensors/history` |
 | Edge online/offline banner | `frontend/src/components/NodeHealthBanner.tsx` |
 | HAK_GAL firewall bridge (optional) | `backend/firewall_bridge.py`, `backend/prompt_guard.py`, `docs/FIREWALL.md` |
-| DB | `backend/worldbase.db`, `backend/data/entities.duckdb` |
+| DB | `backend/worldbase.db`, `backend/data/entities.duckdb` — FtM: single writer (one API process); `reset_store()` on DuckDB FATAL (B-02 light) |
 
 ---
 
@@ -186,4 +187,6 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | Splink resolution test fail | Optional — `pip install 'splink>=4.0,<5'` or ignore if not using Splink |
 | Trust 2/4 in FULL SITUATION | Check `GET /api/trust` probes — GDELT ok with stale cache if `count>0`; Pi edge online; Ollama: `OLLAMA_HOST=127.0.0.1:11434` or `http://127.0.0.1:11434` (probe normalizes both) |
 | Pi pull stale after PC upgrade | `.\scripts\deploy-pi-sync.ps1`; verify `payload_version: 2` in pull JSON |
+| Pi push timeout storm | Deploy latest `worldbase_push.py` — exponential backoff + 45 s POST timeout; log `Ingest FAILED (streak=N) — backoff …` |
+| Briefing generate timeout (PS) | Client `-TimeoutSec 600`; server may still finish — check `GET /api/briefing` → `created_at` |
 | Firewall chat block / unreachable | `GET /api/firewall/status`; HAK_GAL on `:8001`; chat needs `firewall: true` + `chat_session_id`; see [`docs/FIREWALL.md`](docs/FIREWALL.md) |
