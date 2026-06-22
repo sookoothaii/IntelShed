@@ -35,6 +35,8 @@ Unless the user says otherwise, prioritize:
 4. **Pi pull loop** — PC generates briefing → Pi `GET /api/node/pull` → portal `briefing_latest.json`
 5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing, DATA → INTEL (ingest, feed sync, Splink resolution, Cytoscape overview)
 
+**Track R (RAG / OSINT enhancement):** evolve hybrid RAG + FtM in place — reranker, ledger-as-RAG, spatial retrieval, CRAG-lite chat. **Do not** adopt RAGFlow or Microsoft GraphRAG as a parallel stack. Roadmap: [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md).
+
 **Out of scope by default:** HAK_GAL LLM firewall — optional spare-parts HTTP bridge (`FIREWALL_HOST`, `:8001`); baseline guard is `prompt_guard.py` (0 VRAM). Do not assume full HAK_GAL stack runs or fits 16 GB VRAM. Doc: [`docs/FIREWALL.md`](docs/FIREWALL.md).
 
 ---
@@ -102,7 +104,7 @@ Live contract (opt-in, gated in smoke test §1 when `:8002` is up): `python -m u
 
 Feed envelope contract: `backend/feeds/envelope.py` — shared validation for Phase 0/2; smoke test calls `test_health_contract_live`, not duplicated PowerShell logic.
 
-On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KEY` is set; `_stack_warmup()` (~6 s after boot) refreshes GDELT local pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
+On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KEY` is set; `_stack_warmup()` (~6 s after boot) refreshes GDELT **local + global** pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather. Global pulse persists to `feed_registry` key `gdelt_pulse_global`.
 
 ---
 
@@ -111,6 +113,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | Area | Path |
 |------|------|
 | App shell + FULL SITUATION | `frontend/src/App.tsx` |
+| **NEWS tab** | `frontend/src/components/NewsPanel.tsx` — nav **NEWS** (NewsData + GDELT); replaces top-level FIREWALL tab |
 | Globe + layers + click-to-detail | `frontend/src/components/Globe.tsx`, `GlobeDetailModal.tsx`, `frontend/src/hooks/layers/` |
 | FtM globe layer | `frontend/src/hooks/layers/useIntelLayer.ts` — toggle **INTEL** in telemetry |
 | Agent Bus HUD | `frontend/src/hooks/useAgentBus.ts`, `frontend/src/lib/agentBus.ts` |
@@ -127,7 +130,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | FtM subgraph (Track 3) | `backend/intel_subgraph.py` — `GET /api/intel/subgraph` |
 | Spatial proximity (Track 3+) | `backend/intel_proximity.py` — `POST /api/intel/spatial/run`; runs after feed ingest when `WORLDBASE_INTEL_SPATIAL_EDGES=1` |
 | Prediction ledger (Track 4) | `backend/prediction_ledger.py` |
-| GDELT | `backend/gdelt_bridge.py` — adaptive backoff, region-first priority, stale-while-revalidate; local pulse persisted to `feed_cache` (`gdelt_pulse_local:{region}`) |
+| GDELT | `backend/gdelt_bridge.py` — adaptive backoff, region-first priority, stale-while-revalidate; local pulse `gdelt_pulse_local:{region}`; **global** pulse disk key `gdelt_pulse_global` + `warmup_global_pulse()` |
 | CAMS haze | `backend/cams_bridge.py` — Open-Meteo/CAMS dust + AOD for Thailand/ASEAN cities |
 | Humanitarian (HDX) | `backend/humanitarian_bridge.py` — CKAN search for Southeast Asia crises |
 | NewsData headlines | `backend/newsdata_bridge.py` — optional API key; briefing + corroboration family |
@@ -137,7 +140,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | STAC (imagery + feeds) | `backend/stac_bridge.py` — Element84 search + connector feed ItemCollection (bbox, geometry, registry links) |
 | Connector + feed status UI | `frontend/src/components/FeedsStatusPanel.tsx` — DATA → FEEDS: registry, STAC links, globe fly-to |
 | Fusion → briefing | `backend/fusion_heatmap.py` |
-| RAG | `backend/rag_memory.py` |
+| RAG | `backend/rag_memory.py`, `backend/rag_hybrid.py` — hybrid search; Track R: [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
 | FtM entity store | `backend/ftm_store.py` |
 | Document intel ingest (GLiNER; GLiREL opt-in) | `backend/intel_ingest.py`, [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md), [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) |
 | Entity resolution (exact + subset + optional Splink) | `backend/entity_resolution.py` — `POST /api/intel/resolution/run` |

@@ -108,6 +108,10 @@ async def _stack_warmup() -> None:
         out = await gdelt_bridge.warmup_local_pulse()
         n = int((out or {}).get("count") or 0)
         print(f"[WARMUP] GDELT local pulse: {n} articles", flush=True)
+        await asyncio.sleep(gdelt_bridge._GDELT_MIN_INTERVAL + 1.0)
+        out = await gdelt_bridge.warmup_global_pulse()
+        n = int((out or {}).get("count") or 0)
+        print(f"[WARMUP] GDELT global pulse: {n} articles", flush=True)
     except Exception as e:
         print(f"[WARMUP] GDELT local failed: {e}", flush=True)
     try:

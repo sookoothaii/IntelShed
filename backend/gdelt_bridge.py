@@ -396,32 +396,26 @@ async def _fetch_geo_events(
     return [], last_err
 
 
-@router.get("/pulse")
-async def gdelt_pulse():
-    """
-    Recent global news themes with source countries (GDELT DOC 2.0).
-    Cached 15 minutes to stay under GDELT rate limits.
-    """
-    key = "pulse"
-    fresh = _cache_fresh(key, _GDELT_CACHE_GLOBAL_SEC)
-    if fresh:
-        return fresh
-
-    if _in_backoff():
-        stale = _stale_response(
-            key,
-            error=f"GDELT rate limit (backoff {_backoff_remaining_sec()}s)",
-        )
-        if stale:
-            return stale
-
+def _current_global_query() -> str:
     slot = int(time.time() // _GDELT_CACHE_GLOBAL_SEC) % len(_QUERIES)
-    query = _QUERIES[slot]
-    articles, err = await _fetch_doc_articles(query, maxrecords=40, priority="global")
+    return _QUERIES[slot]
+
+
+async def _refresh_pulse_global(*, priority: Priority = "global") -> dict:
+    query = _current_global_query()
+    key = "pulse"
+    articles, err = await _fetch_doc_articles(query, maxrecords=40, priority=priority)
     if err and not articles:
-        stale = _stale_response(key, error=err)
+        stale = _stale_response(key, error=err, extra={"query": query})
         if stale:
             return stale
+        disk = _load_pulse_global_registry()
+        if disk:
+            _CACHE[key] = (time.time(), disk)
+            out = disk.copy()
+            out["stale"] = True
+            out["error"] = err
+            return out
         return {"count": 0, "articles": [], "query": query, "error": err}
 
     out = {
@@ -435,6 +429,44 @@ async def gdelt_pulse():
         out["error"] = err
         out["stale"] = True
     _CACHE[key] = (time.time(), out)
+    try:
+        feed_registry.write_auto("gdelt_pulse_global", out)
+    except Exception:
+        pass
+    return out
+
+
+@router.get("/pulse")
+async def gdelt_pulse():
+    """
+    Recent global news themes with source countries (GDELT DOC 2.0).
+    Cached 15 minutes to stay under GDELT rate limits.
+    """
+    key = "pulse"
+    fresh = _cache_fresh(key, _GDELT_CACHE_GLOBAL_SEC)
+    if fresh:
+        return fresh
+
+    query = _current_global_query()
+
+    if _in_backoff():
+        backoff_err = f"GDELT rate limit (backoff {_backoff_remaining_sec()}s)"
+        stale = _stale_response(key, error=backoff_err, extra={"query": query})
+        if stale:
+            return stale
+        disk = _load_pulse_global_registry()
+        if disk:
+            _CACHE[key] = (time.time(), disk)
+            out = disk.copy()
+            out["stale"] = True
+            out["error"] = backoff_err
+            return out
+        _kick_refresh("pulse", lambda: _refresh_pulse_global(priority="local"))
+        return {"count": 0, "articles": [], "query": query, "error": backoff_err}
+
+    out = await _refresh_pulse_global(priority="global")
+    if int(out.get("count") or 0) == 0 and not _load_pulse_global_registry():
+        _kick_refresh("pulse", lambda: _refresh_pulse_global(priority="local"))
     return out
 
 
@@ -483,6 +515,16 @@ def _load_pulse_local_registry(reg: str) -> dict | None:
     return None
 
 
+def _load_pulse_global_registry() -> dict | None:
+    try:
+        data = feed_registry.read("gdelt_pulse_global")
+        if data and int(data.get("count") or 0) > 0:
+            return data
+    except Exception:
+        pass
+    return None
+
+
 async def warmup_local_pulse(region: str | None = None) -> dict | None:
     """Startup / manual warm — populate local DOC pulse cache."""
     reg = _resolve_region(region)
@@ -491,6 +533,26 @@ async def warmup_local_pulse(region: str | None = None) -> dict | None:
     except Exception:
         _LOG.debug("GDELT local warmup failed for %s", reg, exc_info=True)
         return _load_pulse_local_registry(reg)
+
+
+async def warmup_global_pulse() -> dict | None:
+    """Startup warm — populate global DOC pulse cache (waits through GDELT backoff)."""
+    last: dict | None = None
+    for attempt in range(3):
+        try:
+            last = await _refresh_pulse_global(priority="local")
+            if int((last or {}).get("count") or 0) > 0:
+                return last
+        except Exception:
+            _LOG.debug("GDELT global warmup attempt %s failed", attempt + 1, exc_info=True)
+        if attempt < 2:
+            await asyncio.sleep(_GDELT_MIN_INTERVAL + 1.0)
+    if last and int(last.get("count") or 0) > 0:
+        return last
+    disk = _load_pulse_global_registry()
+    if disk:
+        return disk
+    return last
 
 
 async def gdelt_pulse_local_data(

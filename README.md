@@ -21,7 +21,9 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 |---|---|
 | **Globe** | 30+ live layers — aircraft, quakes, disasters, energy, maritime, transit |
 | **MAP** | Offline Protomaps via PMTiles — regional (`thailand`) or full planet (`planet_full` ~130 GB) |
-| **Intelligence** | Situations, FtM entity graph (INTEL globe layer), OpenSanctions via Yente, RAG memory (sqlite-vec) |
+| **Intelligence** | Situations, FtM entity graph (INTEL globe layer), OpenSanctions via Yente, RAG memory (sqlite-vec + FTS + RRF) |
+| **NEWS** | HUD **NEWS** tab — NewsData + GDELT local/global headline feed |
+| **Track R** | RAG/OSINT roadmap — local rerank, ledger-as-RAG, spatial retrieval — [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
 | **Connectors** | Manifest registry + cache overlay — `GET /api/connectors`, DATA → **FEEDS**, STAC feed items |
 | **AI** | Local chat via Ollama (`qwen3:8b` default) |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → hardened briefing pull back to Pi |
@@ -82,7 +84,7 @@ ollama pull nomic-embed-text   # RAG embeddings
 
 **Verify stack:** `.\scripts\smoke-test.ps1` → expect **31/31 PASS** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, Vite proxy, Ollama chat, frontend build).
 
-`.\start.ps1` waits for `GET /api/health/ping` before starting Vite (avoids proxy `ECONNREFUSED`). ~**6 s** after backend boot, a feed warm-up refreshes GDELT local pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
+`.\start.ps1` waits for `GET /api/health/ping` before starting Vite (avoids proxy `ECONNREFUSED`). ~**6 s** after backend boot, a feed warm-up refreshes GDELT local + **global** pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
 
 ### Optional: slim prompt guard (no HAK_GAL required)
 
@@ -96,7 +98,7 @@ WORLDBASE_SLIM_GUARD=1
 WORLDBASE_SLIM_GUARD_MCP=1
 ```
 
-HUD: **FIREWALL** tab · API: `GET /api/firewall/status`, `GET /api/firewall/history`
+HUD: chat 🛡️ toggle (optional slim guard) · API: `GET /api/firewall/status`, `GET /api/firewall/history` · top-level nav: **NEWS** tab (headlines)
 
 ### Optional: live maritime AIS (Thailand corridor)
 
@@ -215,6 +217,7 @@ Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](do
 | Doc | Purpose |
 |-----|---------|
 | [`AGENTS.md`](AGENTS.md) | Runtime, endpoints, key files, troubleshooting |
+| [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) | Track R — hybrid RAG + FtM OSINT enhancement plan |
 | [`docs/MCP.md`](docs/MCP.md) | Cursor MCP tools, Agent Bus, Docker gateway |
 | [`docs/FIREWALL.md`](docs/FIREWALL.md) | Slim prompt guard (default) + optional HAK_GAL bridge (`:8001`) |
 | [`docs/GLOBE.md`](docs/GLOBE.md) | Click-to-detail, layers, INTEL FtM, traffic cams |

@@ -4,7 +4,7 @@ import MapPanel from './components/MapPanel'
 import ChatPanel from './components/ChatPanel'
 import OsintPanel from './components/OsintPanel'
 import DataPanel from './components/DataPanel'
-import FirewallPanel from './components/FirewallPanel'
+import NewsPanel from './components/NewsPanel'
 import SituationBoard from './components/SituationBoard'
 import { NodeHealthBanner } from './components/NodeHealthBanner'
 import type { FocusTarget } from './lib/focus'
@@ -17,14 +17,14 @@ import { fetchApi } from './lib/networkFetch'
 import { agentBusEnabled } from './lib/agentBus'
 import { useAgentBus } from './hooks/useAgentBus'
 
-type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'firewall' | 'osint'
+type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'news' | 'osint'
 
 const NAV_ITEMS: { id: ViewId; label: string; glyph: string }[] = [
   { id: 'globe', label: 'GLOBE', glyph: '◎' },
   { id: 'map', label: 'MAP', glyph: '▦' },
   { id: 'data', label: 'DATA', glyph: '▤' },
   { id: 'chat', label: 'AI', glyph: '✦' },
-  { id: 'firewall', label: 'FIREWALL', glyph: '🛡️' },
+  { id: 'news', label: 'NEWS', glyph: '📰' },
   { id: 'osint', label: 'OSINT', glyph: '⌖' },
 ]
 
@@ -275,7 +275,7 @@ export default function App() {
               key={n.id}
               className={view === n.id || (splitView && n.id === 'globe') ? 'active' : ''}
               onClick={() => {
-                if (n.id === 'data' || n.id === 'firewall' || n.id === 'osint' || n.id === 'chat') {
+                if (n.id === 'data' || n.id === 'news' || n.id === 'osint' || n.id === 'chat') {
                   setSplitView(false)
                 }
                 setView(n.id)
@@ -352,7 +352,7 @@ export default function App() {
                 }}
               />
             )}
-            {view === 'firewall' && <FirewallPanel />}
+            {view === 'news' && <NewsPanel />}
             {view === 'osint' && (
               <OsintPanel
                 onFocus={focusOnMap}

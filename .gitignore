@@ -64,6 +64,7 @@ docs/**
 !docs/MCP.md
 !docs/GLOBE.md
 !docs/FIREWALL.md
+!docs/RAG_OSINT_ROADMAP.md
 # Local-only operator / agent tooling (not part of the OSS repo)
 .cursor/
 briefs/
