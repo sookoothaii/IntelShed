@@ -75,7 +75,7 @@ Public agent entry: [`AGENTS.md`](../AGENTS.md). Intel graph baseline: [`INTEL_I
 | **R0.3** | **Prediction ledger → RAG** | `prediction_ledger.py`, `rag_memory.py`, `lifespan.py` | CPU embed | `test_prediction_ledger.py` |
 | **R0.4** | **NEWS ingest** — GDELT local/global + NewsData | `rag_memory.py` (`ingest_news_sources`) | CPU | `/api/memory/search` |
 
-### R1 — Spatial + adaptive (R1.3 shipped)
+### R1 — Spatial + adaptive ✅ shipped
 
 | ID | Deliverable | Files | Status |
 |----|-------------|-------|--------|
@@ -125,11 +125,11 @@ Public agent entry: [`AGENTS.md`](../AGENTS.md). Intel graph baseline: [`INTEL_I
 .\start.ps1
 GET http://127.0.0.1:8002/api/health/ping
 
-# RAG (R0 + R1.1/1.2)
+# RAG (R0 + R1)
 cd backend
-.\venv\Scripts\python.exe -m unittest test_rag_rerank test_rag_spatial test_rag_crag test_rag_memory test_prediction_ledger -v
+.\venv\Scripts\python.exe -m unittest test_rag_rerank test_rag_spatial test_rag_crag test_rag_memory test_rag_chunking test_briefing_agentic -v
 GET http://127.0.0.1:8002/api/memory/stats
-GET http://127.0.0.1:8002/api/memory/search?q=Thailand+flood&spatial=1
+GET http://127.0.0.1:8002/api/briefing
 
 # Pilots
 .\scripts\smoke-test.ps1
@@ -146,9 +146,9 @@ python -c "import feed_registry; print(feed_registry.read('gdelt_pulse_global'))
 
 ```text
 Read AGENTS.md + docs/RAG_OSINT_ROADMAP.md.
-ping → GET /api/memory/stats (rerank + spatial flags).
-R0/R1.1/R1.2 shipped — next: R1.3 adaptive chunking or R1.4 briefing loop (operator go).
-Parallel: B-03/B-06 pilots. No RAGFlow/LangGraph without explicit go.
+ping → B-03/B-06 pilots + GET /api/memory/stats + GET /api/briefing (agentic).
+Track R0–R1.4 shipped — next: R2.x only with operator go, or default briefing/GDELT/Pi UX.
+No RAGFlow/LangGraph without explicit go.
 ```
 
 ---
@@ -159,3 +159,4 @@ Parallel: B-03/B-06 pilots. No RAGFlow/LangGraph without explicit go.
 |------|------|
 | 2026-06-22 | Initial roadmap; NEWS tab + GDELT global warmup |
 | 2026-06-22 | R0.1–R0.4 + R1.1/R1.2 shipped; `start.ps1` reload excludes SQLite WAL |
+| 2026-06-22 | R1.3 adaptive YAML chunking + R1.4 briefing agentic loop shipped (`c398644`, `3fe1859`) |
