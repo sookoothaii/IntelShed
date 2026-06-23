@@ -100,11 +100,34 @@ class ChatRoutingTests(unittest.TestCase):
     def test_select_base_url_prefers_request(self):
         url = cr.select_base_url(
             "openai",
-            {"openai": "http://127.0.0.1:8080/v1"},
+            {"openai": "https://proxy.example.com/v1"},
             "https://api.openai.com/v1",
             cr.DEFAULT_BASE_URLS["openai"],
         )
-        self.assertEqual(url, "http://127.0.0.1:8080/v1")
+        self.assertEqual(url, "https://proxy.example.com/v1")
+
+    def test_select_base_url_rejects_loopback_override(self):
+        with self.assertRaises(ValueError):
+            cr.select_base_url(
+                "openai",
+                {"openai": "http://127.0.0.1:8080/v1"},
+                "https://api.openai.com/v1",
+                cr.DEFAULT_BASE_URLS["openai"],
+            )
+
+    def test_select_base_url_ignores_client_when_disabled(self):
+        url = cr.select_base_url(
+            "openai",
+            {"openai": "http://127.0.0.1:8080/v1"},
+            "https://api.openai.com/v1",
+            cr.DEFAULT_BASE_URLS["openai"],
+            client_override=False,
+        )
+        self.assertEqual(url, "https://api.openai.com/v1")
+
+    def test_validate_client_base_urls_reports_provider(self):
+        err = cr.validate_client_base_urls({"openai": "http://127.0.0.1:11434/v1"})
+        self.assertIn("openai:", err or "")
 
     def test_select_base_url_falls_back_to_env_then_default(self):
         self.assertEqual(

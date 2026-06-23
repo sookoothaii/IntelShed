@@ -23,7 +23,7 @@ import chat_tools
 import feed_registry
 import fusion_heatmap
 import node_sync
-from auth.security import verify_api_key
+from auth.security import verify_api_key, lan_exposed, API_KEY
 from middleware.rate_limit import rate_limit_general
 from runtime_cache import cache_get, cache_set
 
@@ -31,6 +31,11 @@ router = APIRouter(tags=["chat"])
 
 _models_cache: dict = {"ts": 0.0, "data": None}
 _MODELS_CACHE_TTL = 60.0
+
+
+def _client_base_url_override_allowed() -> bool:
+    """HUD ``api_base_urls`` only when loopback or WORLDBASE_API_KEY is configured."""
+    return bool(API_KEY) or not lan_exposed()
 
 
 def _ollama_hosts() -> list[str]:
@@ -580,6 +585,11 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
 
     api_keys = payload.get("api_keys") if isinstance(payload.get("api_keys"), dict) else None
     api_base_urls = payload.get("api_base_urls") if isinstance(payload.get("api_base_urls"), dict) else None
+    client_url_override = _client_base_url_override_allowed()
+    if client_url_override:
+        url_err = chat_routing.validate_client_base_urls(api_base_urls)
+        if url_err:
+            return {"error": url_err, "provider": provider}
 
     PROVIDER_CONFIG = {
         "openai": {
@@ -589,6 +599,7 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                     api_base_urls,
                     os.getenv("OPENAI_BASE_URL"),
                     chat_routing.DEFAULT_BASE_URLS["openai"],
+                    client_override=client_url_override,
                 )
             ),
             "key": chat_routing.select_api_key("openai", api_keys, os.getenv("OPENAI_API_KEY")),
@@ -602,6 +613,7 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                     api_base_urls,
                     os.getenv("GROQ_BASE_URL"),
                     chat_routing.DEFAULT_BASE_URLS["groq"],
+                    client_override=client_url_override,
                 )
             ),
             "key": chat_routing.select_api_key("groq", api_keys, os.getenv("GROQ_API_KEY")),
@@ -615,6 +627,7 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                     api_base_urls,
                     os.getenv("OPENROUTER_BASE_URL"),
                     chat_routing.DEFAULT_BASE_URLS["openrouter"],
+                    client_override=client_url_override,
                 )
             ),
             "key": chat_routing.select_api_key("openrouter", api_keys, os.getenv("OPENROUTER_API_KEY")),
@@ -757,6 +770,7 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                 api_base_urls,
                 os.getenv("ANTHROPIC_BASE_URL"),
                 chat_routing.DEFAULT_BASE_URLS["anthropic"],
+                client_override=client_url_override,
             )
         )
         headers = {
