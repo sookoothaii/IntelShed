@@ -146,6 +146,38 @@ def _last_snapshot_at(cell_deg: float) -> datetime | None:
     return _parse_ts(row["recorded_at"]) if row else None
 
 
+def _snapshots_stored_count(cell_deg: float) -> int:
+    init_fusion_snapshots_db()
+    with _conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM fusion_grid_snapshots WHERE cell_deg = ?",
+            (round(cell_deg, 4),),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def _latest_snapshot_cells(cell_deg: float) -> list[dict]:
+    """Most recent persisted grid — used when the 60s in-memory cache has expired."""
+    init_fusion_snapshots_db()
+    with _conn() as conn:
+        row = conn.execute(
+            """
+            SELECT payload FROM fusion_grid_snapshots
+            WHERE cell_deg = ?
+            ORDER BY recorded_at DESC
+            LIMIT 1
+            """,
+            (round(cell_deg, 4),),
+        ).fetchone()
+    if not row:
+        return []
+    try:
+        payload = json.loads(row["payload"])
+    except Exception:
+        return []
+    return list(payload.get("cells") or [])
+
+
 def record_snapshot_if_due(cell_deg: float, cells: list[dict], *, now: datetime | None = None) -> bool:
     """Persist fusion grid snapshot at most every 6h (configurable). Returns True if stored."""
     now = now or datetime.now(timezone.utc)
@@ -242,14 +274,7 @@ def apply_compare(cells: list[dict], cell_deg: float, compare_hours: float) -> d
                 "lon": c.get("lon"),
                 "score": c.get("score"),
             }
-    snapshots_stored = 0
-    init_fusion_snapshots_db()
-    with _conn() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) AS n FROM fusion_grid_snapshots WHERE cell_deg = ?",
-            (round(cell_deg, 4),),
-        ).fetchone()
-        snapshots_stored = int(row["n"]) if row else 0
+    snapshots_stored = _snapshots_stored_count(cell_deg)
     return {
         "hours": compare_hours,
         "available": baseline is not None,
@@ -276,7 +301,7 @@ def extract_delta_watch_cells(
 
 
 def fusion_compare_summary(cell_deg: float = 2.0, compare_hours: float = 24.0) -> dict:
-    """Lightweight compare meta for trust probes (uses last in-memory grid if fresh)."""
+    """Lightweight compare meta for trust probes (in-memory grid, else latest DB snapshot)."""
     now_ts = time.time()
     prefix = f"{cell_deg:.2f}|"
     cells: list[dict] = []
@@ -288,12 +313,15 @@ def fusion_compare_summary(cell_deg: float = 2.0, compare_hours: float = 24.0) -
         cells = list(payload.get("cells") or [])
         if cells:
             break
+    stored = _snapshots_stored_count(cell_deg)
+    if not cells:
+        cells = _latest_snapshot_cells(cell_deg)
     if not cells:
         return {
             "available": False,
             "hours": compare_hours,
-            "detail": "no recent grid cache",
-            "snapshots_stored": 0,
+            "detail": "no grid data",
+            "snapshots_stored": stored,
         }
     meta = apply_compare([dict(c) for c in cells], cell_deg, compare_hours)
     top = meta.get("top_delta")

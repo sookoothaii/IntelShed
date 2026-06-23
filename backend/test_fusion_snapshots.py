@@ -94,6 +94,27 @@ class FusionSnapshotTests(unittest.TestCase):
         self.assertAlmostEqual(top["delta_score"], 0.35, places=4)
         self.assertEqual(top["cell_id"], "13.00,100.50")
 
+    def test_fusion_compare_summary_uses_db_when_cache_cold(self):
+        now = datetime.now(timezone.utc)
+        cid = fh.fusion_cell_id(13.0, 100.5)
+        baseline_at = (now - timedelta(hours=24)).isoformat()
+        current_at = (now - timedelta(hours=1)).isoformat()
+        self._insert_snapshot(
+            2.0,
+            baseline_at,
+            [{"cell_id": cid, "lat": 13.0, "lon": 100.5, "score": 0.4, "intensity": 8.0, "sources": ["quake"]}],
+        )
+        self._insert_snapshot(
+            2.0,
+            current_at,
+            [{"cell_id": cid, "lat": 13.0, "lon": 100.5, "score": 0.85, "intensity": 17.0, "sources": ["quake"]}],
+        )
+        fh._CACHE.clear()
+        summary = fh.fusion_compare_summary(2.0, 24.0)
+        self.assertEqual(summary["snapshots_stored"], 2)
+        self.assertTrue(summary["available"])
+        self.assertAlmostEqual(summary["top_delta"]["delta_score"], 0.45, places=4)
+
 
 if __name__ == "__main__":
     unittest.main()
