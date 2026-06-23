@@ -5,6 +5,7 @@
 # Usage:
 #   .\scripts\deploy-pi-sync.ps1              # push + pull scripts
 #   .\scripts\deploy-pi-sync.ps1 -Portal      # offgrid-portal + portal_ui.html + watch_rank + 120s pull
+#   .\scripts\deploy-pi-sync.ps1 -Security   # portal + maps + mesh + lan_bind.py (2026-06-23 hardening)
 #   .\scripts\deploy-pi-sync.ps1 -Portal -Lcd # also system_tiles.py (GEOPOL LCD headline)
 #   .\scripts\deploy-pi-sync.ps1 -TrimArduino # remove /mnt/sdcard/.arduino15 (~7 GB)
 #   .\scripts\deploy-pi-sync.ps1 -NoClearBuffer
@@ -14,10 +15,13 @@
 
 param(
     [switch]$Portal,
+    [switch]$Security,
     [switch]$Lcd,
     [switch]$TrimArduino,
     [switch]$NoClearBuffer
 )
+
+if ($Security) { $Portal = $true }
 
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path $PSScriptRoot -Parent
@@ -46,6 +50,9 @@ function Write-LfCopy {
 $pushSrc = Join-Path $Root 'offgrid-raspi\scripts\worldbase_push.py'
 $pullSrc = Join-Path $Root 'offgrid-raspi\scripts\worldbase_pull.py'
 $portalSrc = Join-Path $Root 'offgrid-raspi\offgrid\bin\offgrid-portal'
+$mapsSrc = Join-Path $Root 'offgrid-raspi\offgrid\bin\offgrid-maps'
+$meshSrc = Join-Path $Root 'offgrid-raspi\offgrid\bin\offgrid-mesh'
+$lanBindSrc = Join-Path $Root 'offgrid-raspi\offgrid\lib\lan_bind.py'
 $portalUiSrc = Join-Path $Root 'offgrid-raspi\offgrid\content\portal_ui.html'
 $watchRankSrc = Join-Path $Root 'offgrid-raspi\offgrid\lib\watch_rank.py'
 $lcdSrc = Join-Path $Root 'offgrid-raspi\system_tiles.py'
@@ -67,6 +74,17 @@ if ($Portal) {
     & $scp -i $key $portalLf $portalUiLf $watchRankLf "${pi}:/tmp/"
     & $ssh -i $key -o BatchMode=yes $pi "mv /tmp/portal_ui.html /tmp/offgrid-portal-ui.html"
     Write-Host 'SCP: offgrid-portal, portal_ui.html, watch_rank.py' -ForegroundColor Green
+}
+
+if ($Security) {
+    foreach ($src in @($mapsSrc, $meshSrc, $lanBindSrc)) {
+        if (-not (Test-Path $src)) { throw "Missing source: $src" }
+    }
+    $mapsLf = Write-LfCopy $mapsSrc 'offgrid-maps'
+    $meshLf = Write-LfCopy $meshSrc 'offgrid-mesh'
+    $lanBindLf = Write-LfCopy $lanBindSrc 'lan_bind.py'
+    & $scp -i $key $mapsLf $meshLf $lanBindLf "${pi}:/tmp/"
+    Write-Host 'SCP: offgrid-maps, offgrid-mesh, lan_bind.py' -ForegroundColor Green
 }
 
 if ($Lcd) {
@@ -117,7 +135,19 @@ OPERATORDROP
 "@
 }
 
+$securityBlock = ''
+if ($Security) {
+    $securityBlock = @"
+cp /tmp/offgrid-maps $PiProject/offgrid/bin/offgrid-maps
+chmod +x $PiProject/offgrid/bin/offgrid-maps
+cp /tmp/offgrid-mesh $PiProject/offgrid/bin/offgrid-mesh
+chmod +x $PiProject/offgrid/bin/offgrid-mesh
+cp /tmp/lan_bind.py $PiProject/offgrid/lib/lan_bind.py
+"@
+}
+
 $restartPortal = if ($Portal) { 'sudo systemctl restart offgrid-portal' } else { '' }
+$restartSecurity = if ($Security) { 'sudo systemctl restart offgrid-maps offgrid-mesh' } else { '' }
 $restartLcd = if ($Lcd) { 'sudo systemctl restart system-tiles' } else { '' }
 
 $portalVerifyBlock = ''
@@ -126,6 +156,16 @@ if ($Portal) {
 echo "--- portal intel ---"
 curl -sf http://127.0.0.1:8093/api/status | python3 -c "import sys,json; b=json.load(sys.stdin).get('geo',{}).get('brief',{}); print('intel_node_count', b.get('intel_node_count')); print('intel_edge_count', b.get('intel_edge_count')); print('source', b.get('source'))"
 '@
+}
+
+$securityVerifyBlock = ''
+if ($Security) {
+    $securityVerifyBlock = @"
+echo "--- security markers ---"
+grep -c PORTAL_SAFE_ACTIONS $PiProject/offgrid/bin/offgrid-portal || true
+grep -c _resolve_maplibre_path $PiProject/offgrid/bin/offgrid-maps || true
+grep -c lan_bind $PiProject/offgrid/bin/offgrid-mesh || true
+"@
 }
 
 $lcdBlock = ''
@@ -148,6 +188,7 @@ sudo chmod +x /usr/local/bin/worldbase_push.py
 sudo cp /tmp/worldbase_pull.py /usr/local/bin/worldbase_pull.py
 sudo chmod +x /usr/local/bin/worldbase_pull.py
 $portalBlock
+$securityBlock
 $lcdBlock
 $cacheOwnershipBlock
 $clearBuffer
@@ -156,6 +197,7 @@ if [ -f /etc/systemd/system/worldbase_pull.service.d/operator-interval.conf ]; t
 fi
 sudo systemctl restart worldbase_push worldbase_pull
 $restartPortal
+$restartSecurity
 $restartLcd
 sleep 2
 echo "--- services ---"
@@ -166,6 +208,7 @@ $trimBlock
 echo "--- push log ---"
 journalctl -u worldbase_push --no-pager -n 3 || true
 $portalVerifyBlock
+$securityVerifyBlock
 "@
 
 $remote = ($remote -replace "`r`n", "`n") -replace "`r", ""
