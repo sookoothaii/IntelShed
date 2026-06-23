@@ -60,9 +60,14 @@ import { GlobeLayerManager } from '../hooks/layers/GlobeLayerManager';
 
 import { canFetch } from '../lib/networkFetch';
 import { createTerrainWithFallback, attachTerrainFailover } from '../lib/cesiumTerrain';
+import {
+  createBasemapOverlayProvider,
+  createBasemapProvider,
+  tuneImageryRequestScheduler,
+} from '../lib/cesiumBasemap'
 
 import type { MapViewMode } from '../lib/mapView'
-import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
+import { DEFAULT_MAP_VIEW, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
 import { fetchApi } from '../lib/networkFetch';
 import { buildEntityHoverTip } from '../lib/entityHoverTip';
 
@@ -102,14 +107,6 @@ function fmtTimelineLabel(ms: number): string {
   })
 }
 
-function esriImagery(url: string, credit: string) {
-  return new UrlTemplateImageryProvider({
-    url,
-    credit,
-    maximumLevel: 19,
-  })
-}
-
 async function applyGlobeMapMode(
   viewer: Viewer,
   mode: MapViewMode,
@@ -135,25 +132,17 @@ async function applyGlobeMapMode(
     if (layer !== gibsKeep) layers.remove(layer, false)
   }
 
-  if (mode.basemap === 'streets') {
-    layers.addImageryProvider(esriImagery(ESRI_STREET_TILES, 'Esri, OpenStreetMap contributors'))
-  } else if (mode.basemap === 'satellite') {
-    layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
-  } else if (mode.basemap === 'hybrid') {
-    layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
+  layers.addImageryProvider(await createBasemapProvider(mode.basemap))
+  const overlay = await createBasemapOverlayProvider(mode.basemap)
+  if (overlay) {
     if (refs.labelOverlay.current) {
       layers.remove(refs.labelOverlay.current, false)
       refs.labelOverlay.current = null
     }
-    refs.labelOverlay.current = layers.addImageryProvider(
-      esriImagery(ESRI_REFERENCE_LABELS, 'Esri, OpenStreetMap contributors'),
-    )
-    if (refs.labelOverlay.current) refs.labelOverlay.current.alpha = 0.85
-  } else {
-    layers.addImageryProvider(esriImagery(ESRI_HILLSHADE_TILES, 'Esri World Hillshade'))
-    layers.addImageryProvider(esriImagery(ESRI_STREET_TILES, 'Esri, OpenStreetMap contributors'))
-    const top = layers.get(layers.length - 1)
-    if (top) top.alpha = 0.55
+    refs.labelOverlay.current = layers.addImageryProvider(overlay)
+    if (refs.labelOverlay.current) {
+      refs.labelOverlay.current.alpha = mode.basemap === 'hybrid' ? 0.85 : 0.55
+    }
   }
 
   // --- 3D buildings ---
@@ -917,8 +906,11 @@ export default function Globe({
       const terrainProvider = await createTerrainWithFallback()
       if (cancelled || !containerRef.current) return
 
+      tuneImageryRequestScheduler()
+
       viewer = new Viewer(containerRef.current, {
         terrainProvider,
+        baseLayer: false,
         baseLayerPicker: false,
         sceneModePicker: false,
         navigationHelpButton: false,
@@ -937,6 +929,7 @@ export default function Globe({
 
       const scene = viewer.scene
       scene.globe.enableLighting = true
+      scene.globe.preloadAncestors = false
       scene.globe.depthTestAgainstTerrain = false
       scene.globe.maximumScreenSpaceError = 1.0
       scene.fog.enabled = true
