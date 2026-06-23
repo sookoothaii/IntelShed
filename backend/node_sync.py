@@ -683,7 +683,22 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
     from briefing_agentic import run_briefing_agentic_loop
 
     digest, agentic_meta = await run_briefing_agentic_loop(digest, snap=snap)
+
+    # Track A — ranked cross-source insights (deterministic here; UI narrates via /api/insights).
+    insight_list: list = []
+    try:
+        import insights as insights_mod
+
+        insight_payload = await insights_mod.build_insights(top=10, narrate=False)
+        insight_list = insight_payload.get("insights") or []
+    except Exception:
+        insights_mod = None
+
     prompt = build_security_advisor_prompt(digest, lang=lang)
+    if insights_mod and insight_list:
+        ins_block = insights_mod.format_insights_prompt_block(insight_list)
+        if ins_block:
+            prompt = f"{prompt}\n\n{ins_block}"
     text = await _ollama_briefing(prompt)
     if not text:
         text = format_fallback_protocol(digest, lang=lang)
@@ -725,6 +740,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         "watch_items": digest.get("watch_items") or [],
         "digest_line_meta": digest.get("digest_line_meta") or [],
         "agentic": agentic_meta,
+        "insights": insights_mod.slim_insights(insight_list) if insights_mod else [],
     }
     from briefing_quality import attach_quality_to_sources
 
@@ -768,6 +784,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         "watch_items": digest.get("watch_items") or [],
         "digest_line_meta": digest.get("digest_line_meta") or sources_payload.get("digest_line_meta") or [],
         "agentic": agentic_meta,
+        "insights": sources_payload.get("insights") or [],
     }
 
 
@@ -818,6 +835,7 @@ async def latest_briefing(_auth: str | None = Depends(verify_lan_auth)):
         "watch_items": watch_items,
         "digest_line_meta": sources.get("digest_line_meta") or [],
         "agentic": sources.get("agentic"),
+        "insights": sources.get("insights") or [],
     }
 
 
@@ -906,6 +924,7 @@ async def node_pull(request: Request, mesh: bool = False, x_node_token: str = He
         "quality": brief.get("quality"),
         "digest": brief.get("digest"),
         "watch_items": brief.get("watch_items") or [],
+        "insights": brief.get("insights") or [],
     }
     try:
         import intel_graph_export

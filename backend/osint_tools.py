@@ -22,6 +22,63 @@ import entity_store
 router = APIRouter(prefix="/api/osint", tags=["osint-tools"])
 
 _UA = {"User-Agent": "WorldBase-OSINT/1.0 (research only)"}
+_HIBP_API_KEY = os.getenv("HIBP_API_KEY", "").strip()
+
+
+def _parse_crt_sh_names(rows: list, domain: str, limit: int = 40) -> list[str]:
+    """Extract unique hostnames from crt.sh JSON response."""
+    names: set[str] = set()
+    domain = domain.lower().strip()
+    for row in rows[:300]:
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("name_value") or row.get("common_name") or ""
+        for part in str(raw).split("\n"):
+            host = part.strip().lower().lstrip("*.")
+            if not host:
+                continue
+            if host == domain or host.endswith(f".{domain}"):
+                names.add(host)
+    return sorted(names)[:limit]
+
+
+async def _fetch_crt_sh_subdomains(domain: str) -> tuple[list[str], str | None]:
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
+            r = await client.get(
+                "https://crt.sh/",
+                params={"q": f"%.{domain}", "output": "json"},
+            )
+            if r.status_code != 200:
+                return [], f"crt.sh HTTP {r.status_code}"
+            rows = r.json()
+            if not isinstance(rows, list):
+                return [], "crt.sh invalid response"
+            return _parse_crt_sh_names(rows, domain), None
+    except Exception as e:
+        return [], str(e)
+
+
+async def _hibp_breaches(email: str) -> tuple[list[dict] | None, str | None]:
+    if not _HIBP_API_KEY:
+        return None, "HIBP_API_KEY not set"
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            r = await client.get(
+                f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}",
+                headers={"hibp-api-key": _HIBP_API_KEY, "User-Agent": "WorldBase-OSINT/1.0"},
+                params={"truncateResponse": "true"},
+            )
+            if r.status_code == 404:
+                return [], None
+            if r.status_code == 401:
+                return None, "HIBP API key invalid"
+            if r.status_code != 200:
+                return None, f"HIBP HTTP {r.status_code}"
+            data = r.json()
+            return data if isinstance(data, list) else [], None
+    except Exception as e:
+        return None, str(e)
 
 # ---------------------------------------------------------------------------
 # IP geolocation + basic info (ip-api.com — free, no key, 45 req/min)
@@ -88,11 +145,17 @@ async def domain_lookup(request: Request, domain: str, api_key: str = Depends(ve
         host_ip = socket.gethostbyname(domain)
     except Exception:
         host_ip = None
+    cert_names, cert_error = await _fetch_crt_sh_subdomains(domain)
     return {
         "domain": domain,
         "resolved_ips": ips,
         "mx_records": mx,
         "host_ip": host_ip,
+        "cert_names": cert_names,
+        "cert_count": len(cert_names),
+        "cert_source": "crt.sh" if cert_names or not cert_error else None,
+        "cert_error": cert_error if not cert_names else None,
+        "crt_sh_url": f"https://crt.sh/?q={domain}",
     }
 
 
@@ -148,6 +211,8 @@ async def email_check(request: Request, email: str, api_key: str = Depends(verif
         has_mx = len(answers) > 0
     except Exception:
         pass
+    breaches, breach_error = await _hibp_breaches(email)
+    breach_names = [b.get("Name") for b in (breaches or []) if isinstance(b, dict) and b.get("Name")]
     return {
         "email": email,
         "domain": domain,
@@ -155,6 +220,11 @@ async def email_check(request: Request, email: str, api_key: str = Depends(verif
         "has_mx": has_mx,
         "disposable": is_disposable,
         "suspicious": is_disposable or not has_mx,
+        "breach_check_url": f"https://haveibeenpwned.com/account/{email}",
+        "breaches": breach_names if breaches is not None else None,
+        "breach_count": len(breach_names) if breaches is not None else None,
+        "breach_source": "hibp" if breaches is not None and not breach_error else None,
+        "breach_error": breach_error if breaches is None and _HIBP_API_KEY else None,
     }
 
 

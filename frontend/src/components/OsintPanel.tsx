@@ -2,6 +2,22 @@ import { useState, useEffect } from 'react';
 import { fetchApi } from '../lib/networkFetch';
 import type { OsintPin } from '../lib/osintPins';
 import type { FocusTarget } from '../lib/focus';
+import { useHudSessionState } from '../lib/hudSessionState';
+import OsintReferencePanel from './OsintReferencePanel';
+
+const OSINT_MODES = ['tools', 'reference', 'flowsint'] as const
+type OsintMode = typeof OSINT_MODES[number]
+
+const OSINT_TOOLS = ['ip', 'domain', 'username', 'email', 'reverse'] as const
+type OsintTool = typeof OSINT_TOOLS[number]
+
+function isOsintMode(v: unknown): v is OsintMode {
+  return typeof v === 'string' && (OSINT_MODES as readonly string[]).includes(v as OsintMode)
+}
+
+function isOsintTool(v: unknown): v is OsintTool {
+  return typeof v === 'string' && (OSINT_TOOLS as readonly string[]).includes(v as OsintTool)
+}
 
 const FLOWSINT_URL = (import.meta.env.VITE_FLOWSINT_URL as string | undefined)?.replace(/\/$/, '') || 'http://localhost:5173'
 
@@ -16,9 +32,9 @@ export default function OsintPanel({
   onImportPins: (pins: OsintPin[]) => void
   pinCount: number
 }) {
-  const [mode, setMode] = useState<'tools' | 'flowsint'>('tools')
+  const [mode, setMode] = useHudSessionState<OsintMode>('osintMode', 'tools', isOsintMode)
   const [flowsintOk, setFlowsintOk] = useState<boolean | null>(null)
-  const [tool, setTool] = useState<'ip' | 'domain' | 'username' | 'email' | 'reverse'>('ip')
+  const [tool, setTool] = useHudSessionState<OsintTool>('osintTool', 'ip', isOsintTool)
   const [query, setQuery] = useState('')
   const [latInput, setLatInput] = useState('')
   const [lonInput, setLonInput] = useState('')
@@ -154,7 +170,7 @@ export default function OsintPanel({
   ]
 
   return (
-    <div className="panel osint" style={{ padding: mode === 'flowsint' ? 0 : '0 18px', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div className="panel osint" style={{ padding: mode === 'flowsint' ? 0 : mode === 'reference' ? '0 0 12px' : '0 18px', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ padding: '0 18px', flexShrink: 0 }}>
         <h2>OSINT Reconnaissance {pinCount > 0 && <span style={{ fontSize: 11, color: '#00e5a0' }}>({pinCount} on globe)</span>}</h2>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -170,6 +186,19 @@ export default function OsintPanel({
             onClick={() => setMode('tools')}
           >
             QUICK TOOLS
+          </button>
+          <button
+            type="button"
+            className={mode === 'reference' ? 'active' : ''}
+            style={{
+              padding: '6px 14px', fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
+              background: mode === 'reference' ? 'rgba(255,210,63,0.15)' : 'rgba(255,210,63,0.05)',
+              border: mode === 'reference' ? '1px solid #ffd23f' : '1px solid rgba(255,210,63,0.25)',
+              color: mode === 'reference' ? '#ffd23f' : '#6f8c84',
+            }}
+            onClick={() => setMode('reference')}
+          >
+            REFERENCE
           </button>
           <button
             type="button"
@@ -193,6 +222,12 @@ export default function OsintPanel({
           )}
         </div>
       </div>
+
+      {mode === 'reference' && (
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '0 18px' }}>
+          <OsintReferencePanel />
+        </div>
+      )}
 
       {mode === 'flowsint' && (
         <div style={{ flex: 1, minHeight: 320, display: 'flex', flexDirection: 'column', padding: '0 12px 12px' }}>
@@ -302,6 +337,22 @@ export default function OsintPanel({
 
       {result && !result.error && (
         <div className="osint-result" style={{ marginTop: 10 }}>
+          {tool === 'domain' && result.crt_sh_url && (
+            <div style={{ fontSize: 11, color: '#8fb7a9', marginBottom: 8 }}>
+              crt.sh: {result.cert_count ?? 0} hostname(s)
+              {result.cert_names?.length > 0 && ` — e.g. ${result.cert_names.slice(0, 3).join(', ')}`}
+              {' · '}
+              <a href={result.crt_sh_url} target="_blank" rel="noreferrer">OPEN ↗</a>
+            </div>
+          )}
+          {tool === 'email' && result.breach_check_url && (
+            <div style={{ fontSize: 11, color: '#8fb7a9', marginBottom: 8 }}>
+              HIBP: {result.breach_count != null ? `${result.breach_count} breach(es)` : 'link-out only'}
+              {result.breaches?.length > 0 && ` — ${result.breaches.slice(0, 4).join(', ')}`}
+              {' · '}
+              <a href={result.breach_check_url} target="_blank" rel="noreferrer">OPEN ↗</a>
+            </div>
+          )}
           {tool === 'ip' && result.lat != null && result.lon != null && (
             <button
               className="locate-mini"

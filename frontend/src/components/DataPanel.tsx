@@ -32,14 +32,19 @@ import {
   LightningMapPanel,
 } from './DataFeedPanels';
 import WildfiresPanel from './WildfiresPanel';
+import { useHudSessionState } from '../lib/hudSessionState';
 
-const DATA_TABS = [
+export const DATA_TABS = [
   'edge', 'feeds', 'aircraft', 'satellites', 'seismic', 'events', 'spaceweather',
   'geopolitics', 'gdelt', 'gdacs', 'hazards', 'outages', 'military', 'maritime',
   'situations', 'airquality', 'pegel', 'weather', 'wildfires', 'lightning', 'volcanoes',
   'energy', 'eu-energy', 'stocks', 'traffic', 'webcams', 'cve', 'stac', 'sanctions', 'intel',
 ] as const
-type DataTab = typeof DATA_TABS[number]
+export type DataTab = typeof DATA_TABS[number]
+
+export function isDataTab(v: unknown): v is DataTab {
+  return typeof v === 'string' && (DATA_TABS as readonly string[]).includes(v)
+}
 
 export default function DataPanel({
   onFocus,
@@ -94,10 +99,10 @@ export default function DataPanel({
     if (n < 75) return '#7ed957'
     return '#00e5a0'
   }
-  const [tab, setTab] = useState<DataTab>('aircraft')
+  const [tab, setTab] = useHudSessionState<DataTab>('dataTab', 'aircraft', isDataTab)
   const [aircraft, setAircraft] = useState<(string | number | null)[][]>([])
   const [satellites, setSatellites] = useState<Sat[]>([])
-  const [satGroup, setSatGroup] = useState('starlink')
+  const [satGroup, setSatGroup] = useHudSessionState('dataSatGroup', 'starlink', (v): v is string => typeof v === 'string' && v.length > 0)
   const [quakes, setQuakes] = useState<Quake[]>([])
   const [events, setEvents] = useState<WEvent[]>([])
   const [iss, setIss] = useState<any>(null)
@@ -113,9 +118,9 @@ export default function DataPanel({
   const [stocks, setStocks] = useState<any>(null)
   const [maritime, setMaritime] = useState<{ count: number; vessels: any[]; stream_connected?: boolean; stream_buffer?: number; errors?: string[]; cached_at: string; error?: string } | null>(null)
   const [euEnergy, setEuEnergy] = useState<{ country: string; prices: any[]; generation_by_source?: Record<string, number>; total_mw?: number; demo_mode?: boolean; error?: string } | null>(null)
-  const [euCountry, setEuCountry] = useState('de')
+  const [euCountry, setEuCountry] = useHudSessionState('dataEuCountry', 'de', (v): v is string => typeof v === 'string' && v.length > 0)
   const [webcams, setWebcams] = useState<{ count: number; categories: string[]; webcams: any[]; cached_at: string } | null>(null)
-  const [webcamCategory, setWebcamCategory] = useState('')
+  const [webcamCategory, setWebcamCategory] = useHudSessionState('dataWebcamCategory', '', (v): v is string => typeof v === 'string')
   const [cve, setCve] = useState<{ count: number; vulnerabilities: any[]; date_released?: string; error?: string } | null>(null)
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)

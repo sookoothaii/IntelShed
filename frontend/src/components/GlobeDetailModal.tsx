@@ -1,5 +1,6 @@
 import TrafficCamPanel, { type TrafficCamRef } from './TrafficCamPanel'
 import WebcamStreamPanel, { type WebcamStreamRef } from './WebcamStreamPanel'
+import OsintExternalLinks from './OsintExternalLinks'
 import { fetchApi } from '../lib/networkFetch'
 import { useEffect, useState } from 'react'
 
@@ -7,6 +8,8 @@ export type GlobeDetailTarget = {
   kind: string
   title: string
   lines: string[]
+  lat?: number
+  lon?: number
   link?: string
   entityId?: string
   trafficCam?: TrafficCamRef
@@ -151,6 +154,14 @@ export default function GlobeDetailModal({
         )}
 
         {target.entityId && <EntityContextCard entityId={target.entityId} />}
+
+        <OsintExternalLinks
+          kind={target.kind}
+          title={target.title}
+          lines={target.lines}
+          lat={target.lat ?? target.weatherCell?.lat ?? target.trafficCam?.lat}
+          lon={target.lon ?? target.weatherCell?.lon ?? target.trafficCam?.lon}
+        />
 
         {onAskAI && (
           <button

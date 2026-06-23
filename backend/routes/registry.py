@@ -25,6 +25,7 @@ import gibs_bridge
 import globe_snapshot
 import gtfs_ingestor
 import humanitarian_bridge
+import insights
 import newsdata_bridge
 import intel_ingest
 import intel_graph_export
@@ -97,6 +98,7 @@ def register_routers(app) -> None:
     app.include_router(aircraft_trails.router)
     app.include_router(fusion_heatmap.router)
     app.include_router(situations.router)
+    app.include_router(insights.router)
     app.include_router(ftm_store.router)
     app.include_router(intel_ingest.router)
     app.include_router(intel_proximity.router)

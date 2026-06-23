@@ -16,8 +16,32 @@ import { DEFAULT_MAP_VIEW, type MapViewMode } from './lib/mapView'
 import { fetchApi } from './lib/networkFetch'
 import { agentBusEnabled } from './lib/agentBus'
 import { useAgentBus } from './hooks/useAgentBus'
+import { useHudSessionState } from './lib/hudSessionState'
 
 type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'news' | 'osint'
+
+const VIEW_IDS: ViewId[] = ['globe', 'map', 'data', 'chat', 'news', 'osint']
+
+function isViewId(v: unknown): v is ViewId {
+  return typeof v === 'string' && (VIEW_IDS as readonly string[]).includes(v as ViewId)
+}
+
+const BASEMAP_MODES = ['streets', 'satellite', 'hybrid', 'terrain'] as const
+
+function isMapViewMode(v: unknown): v is MapViewMode {
+  if (!v || typeof v !== 'object') return false
+  const m = v as Record<string, unknown>
+  return (
+    BASEMAP_MODES.includes(m.basemap as typeof BASEMAP_MODES[number]) &&
+    typeof m.render3d === 'boolean' &&
+    typeof m.buildings === 'boolean' &&
+    typeof m.photorealistic === 'boolean'
+  )
+}
+
+function isBool(v: unknown): v is boolean {
+  return typeof v === 'boolean'
+}
 
 const NAV_ITEMS: { id: ViewId; label: string; glyph: string }[] = [
   { id: 'globe', label: 'GLOBE', glyph: '◎' },
@@ -310,17 +334,17 @@ function SystemStatus() {
 }
 
 export default function App() {
-  const [view, setView] = useState<ViewId>('globe')
-  const [splitView, setSplitView] = useState(false)
+  const [view, setView] = useHudSessionState<ViewId>('view', 'globe', isViewId)
+  const [splitView, setSplitView] = useHudSessionState('splitView', false, isBool)
   const [booting, setBooting] = useState(true)
   const [focus, setFocus] = useState<FocusTarget | null>(null)
   const askAIIdRef = useRef(0)
   const [askAI, setAskAI] = useState<{ id: number; question: string; context: string } | null>(null)
-  const [analysisOpen, setAnalysisOpen] = useState(false)
-  const [situationOpen, setSituationOpen] = useState(false)
+  const [analysisOpen, setAnalysisOpen] = useHudSessionState('analysisOpen', false, isBool)
+  const [situationOpen, setSituationOpen] = useHudSessionState('situationOpen', false, isBool)
   const [osintPins, setOsintPins] = useState<OsintPin[]>(() => loadOsintPins())
   const [syncCamera, setSyncCamera] = useState<{ lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null>(null)
-  const [mapMode, setMapMode] = useState<MapViewMode>(DEFAULT_MAP_VIEW)
+  const [mapMode, setMapMode] = useHudSessionState<MapViewMode>('mapMode', DEFAULT_MAP_VIEW, isMapViewMode)
   const [windyMapOpen, setWindyMapOpen] = useState(false)
   const [windyMapCoords, setWindyMapCoords] = useState({ lat: 9.55, lon: 100.05 })
   const [windyMapKey, setWindyMapKey] = useState<string | null>(null)
@@ -614,6 +638,12 @@ function feedHealthStyle(v: { status?: string; fresh?: boolean; age_sec?: number
 type BriefLang = 'en' | 'de'
 type AnalysisTab = 'operator' | 'alerts' | 'feeds'
 
+const ANALYSIS_TABS: AnalysisTab[] = ['operator', 'alerts', 'feeds']
+
+function isAnalysisTab(v: unknown): v is AnalysisTab {
+  return typeof v === 'string' && (ANALYSIS_TABS as readonly string[]).includes(v as AnalysisTab)
+}
+
 function AnalysisCollapsible({
   title,
   count,
@@ -641,8 +671,8 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   const [loading, setLoading] = useState(true)
   const [results, setResults] = useState<any>({})
   const [autoRefresh, setAutoRefresh] = useState(false)
-  const [analysisTab, setAnalysisTab] = useState<AnalysisTab>('operator')
-  const [trustExpanded, setTrustExpanded] = useState(false)
+  const [analysisTab, setAnalysisTab] = useHudSessionState<AnalysisTab>('analysisTab', 'operator', isAnalysisTab)
+  const [trustExpanded, setTrustExpanded] = useHudSessionState('analysisTrustExpanded', false, isBool)
   const [briefLang, setBriefLang] = useState<BriefLang>(() => {
     const saved = (typeof window !== 'undefined' && window.localStorage?.getItem('worldbase_briefing_lang')) as BriefLang | null
     return saved === 'de' || saved === 'en' ? saved : 'en'
@@ -668,10 +698,6 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
     }
   }
 
-  useEffect(() => {
-    setAnalysisTab('operator')
-    setTrustExpanded(false)
-  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return

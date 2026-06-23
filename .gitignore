@@ -66,6 +66,7 @@ docs/**
 !docs/GLOBE.md
 !docs/FIREWALL.md
 !docs/RAG_OSINT_ROADMAP.md
+!docs/OSINT_TOOLKIT.md
 # Local-only operator / agent tooling (not part of the OSS repo)
 .cursor/
 briefs/

@@ -35,6 +35,7 @@ import {
   defined,
   MVTDataProvider,
   ImageryLayer,
+  JulianDate,
 } from 'cesium'
 
 import 'cesium/Build/Cesium/Widgets/widgets.css'
@@ -49,6 +50,7 @@ import {
 import { POIS } from '../lib/pois'
 import type { FocusTarget } from '../lib/focus'
 import { AGENT_BUS_LAYER_EVENT, type AgentLayerDetail } from '../lib/agentBus'
+import { readHudSessionStore, writeHudSessionField } from '../lib/hudSessionState'
 import type { OsintPin } from '../lib/osintPins'
 import type { TrafficCamRef } from './TrafficCamPanel'
 import type { WebcamStreamRef } from './WebcamStreamPanel'
@@ -499,6 +501,54 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
   },
 }
 
+const GLOBE_SESSION_KEY = 'globeTelemetry'
+
+type GlobeTelemetrySession = {
+  viewPreset: ViewPresetId
+  layers: GlobeLayers
+  telemetryCompact: boolean
+  telemetryCollapsed: Record<string, boolean>
+  trailsEnabled: boolean
+  heatmapOn: boolean
+  layersPanelOpen: boolean
+}
+
+const VIEW_PRESET_IDS: ViewPresetId[] = ['overview', 'de_infra', 'osint', 'full']
+
+function isViewPresetId(v: unknown): v is ViewPresetId {
+  return typeof v === 'string' && VIEW_PRESET_IDS.includes(v as ViewPresetId)
+}
+
+function isGlobeLayers(v: unknown): v is GlobeLayers {
+  if (!v || typeof v !== 'object') return false
+  const ref = VIEW_PRESETS.overview.layers
+  return (Object.keys(ref) as LayerKey[]).every((k) => typeof (v as GlobeLayers)[k] === 'boolean')
+}
+
+function isTelemetryCollapsed(v: unknown): v is Record<string, boolean> {
+  if (!v || typeof v !== 'object') return false
+  return Object.values(v).every((x) => typeof x === 'boolean')
+}
+
+function isGlobeTelemetrySession(v: unknown): v is GlobeTelemetrySession {
+  if (!v || typeof v !== 'object') return false
+  const s = v as GlobeTelemetrySession
+  return (
+    isViewPresetId(s.viewPreset) &&
+    isGlobeLayers(s.layers) &&
+    typeof s.telemetryCompact === 'boolean' &&
+    isTelemetryCollapsed(s.telemetryCollapsed) &&
+    typeof s.trailsEnabled === 'boolean' &&
+    typeof s.heatmapOn === 'boolean' &&
+    typeof s.layersPanelOpen === 'boolean'
+  )
+}
+
+function loadGlobeTelemetrySession(): GlobeTelemetrySession | null {
+  const raw = readHudSessionStore()[GLOBE_SESSION_KEY]
+  return isGlobeTelemetrySession(raw) ? raw : null
+}
+
 function fmtTelemetryAge(sec: number | null | undefined): string {
   if (sec == null || !Number.isFinite(sec)) return ''
   if (sec < 60) return `${Math.round(sec)}s`
@@ -547,6 +597,8 @@ type Target = {
   kind: string
   title: string
   lines: string[]
+  lat?: number
+  lon?: number
   link?: string
   nodeId?: string
   entityId?: string
@@ -563,6 +615,31 @@ type Target = {
 } | null
 
 type Cursor = { lon: string; lat: string; alt: string }
+
+function readEntityDegrees(ent: Entity): { lat: number; lon: number } | undefined {
+  try {
+    const pos = ent.position?.getValue(JulianDate.now())
+    if (!pos) return undefined
+    const c = Cartographic.fromCartesian(pos)
+    return {
+      lat: CMath.toDegrees(c.latitude),
+      lon: CMath.toDegrees(c.longitude),
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function enrichTargetCoords(t: NonNullable<Target>, ent?: Entity): NonNullable<Target> {
+  if (t.lat != null && t.lon != null) return t
+  if (t.weatherCell) return { ...t, lat: t.weatherCell.lat, lon: t.weatherCell.lon }
+  if (t.trafficCam) return { ...t, lat: t.trafficCam.lat, lon: t.trafficCam.lon }
+  if (ent) {
+    const c = readEntityDegrees(ent)
+    if (c) return { ...t, lat: c.lat, lon: c.lon }
+  }
+  return t
+}
 
 export default function Globe({
   focus,
@@ -609,8 +686,8 @@ export default function Globe({
   const [transitCity, setTransitCity] = useState('helsinki')
   const [target, setTarget] = useState<Target>(null)
   const [detailOpen, setDetailOpen] = useState(false)
-  const applyTarget = useCallback((t: NonNullable<Target>) => {
-    setTarget(t)
+  const applyTarget = useCallback((t: NonNullable<Target>, ent?: Entity) => {
+    setTarget(enrichTargetCoords(t, ent))
     setDetailOpen(true)
   }, [])
   const closeDetail = useCallback(() => {
@@ -632,6 +709,8 @@ export default function Globe({
       kind: 'traffic_cam',
       title: `🚦 ${next.name}`,
       link: next.image_url,
+      lat: next.lat,
+      lon: next.lon,
       lines: [
         `SOURCE: ${next.source ?? '—'}`,
         `COUNTRY: ${next.country ?? '—'}`,
@@ -656,14 +735,18 @@ export default function Globe({
   const [aircraftSource, setAircraftSource] = useState('')
   const [feedHud, setFeedHud] = useState<Record<string, string>>({})
   const [feedHealth, setFeedHealth] = useState<Record<string, FeedHealth>>({})
-  const [telemetryCompact, setTelemetryCompact] = useState(VIEW_PRESETS.overview.compact)
-  const [telemetryCollapsed, setTelemetryCollapsed] = useState<Record<string, boolean>>(
-    () => ({ ...VIEW_PRESETS.overview.collapsed }),
+  const savedGlobe = loadGlobeTelemetrySession()
+  const globeDefaults = VIEW_PRESETS.overview
+  const [telemetryCompact, setTelemetryCompact] = useState(
+    savedGlobe?.telemetryCompact ?? globeDefaults.compact,
   )
-  const [viewPreset, setViewPreset] = useState<ViewPresetId>('overview')
-  const [layersPanelOpen, setLayersPanelOpen] = useState(false)
-  const [trailsEnabled, setTrailsEnabled] = useState(VIEW_PRESETS.overview.trails)
-  const [heatmapOn, setHeatmapOn] = useState(VIEW_PRESETS.overview.heatmap)
+  const [telemetryCollapsed, setTelemetryCollapsed] = useState<Record<string, boolean>>(
+    () => savedGlobe?.telemetryCollapsed ?? { ...globeDefaults.collapsed },
+  )
+  const [viewPreset, setViewPreset] = useState<ViewPresetId>(savedGlobe?.viewPreset ?? 'overview')
+  const [layersPanelOpen, setLayersPanelOpen] = useState(savedGlobe?.layersPanelOpen ?? false)
+  const [trailsEnabled, setTrailsEnabled] = useState(savedGlobe?.trailsEnabled ?? globeDefaults.trails)
+  const [heatmapOn, setHeatmapOn] = useState(savedGlobe?.heatmapOn ?? globeDefaults.heatmap)
   const [heatmapMeta, setHeatmapMeta] = useState<{ cells: number; max: number; contrib: Record<string, number> } | null>(null)
   const [sanctionedMmsi, setSanctionedMmsi] = useState<Set<string>>(new Set())
   const sanctionedRef = useRef<Set<string>>(new Set())
@@ -671,7 +754,21 @@ export default function Globe({
   const trailsEnabledRef = useRef(true)
   useEffect(() => { trailsEnabledRef.current = trailsEnabled }, [trailsEnabled])
   const timelineRef = useRef({ scrubT: 1, hours: 24 })
-  const [layers, setLayers] = useState<GlobeLayers>(() => ({ ...VIEW_PRESETS.overview.layers }))
+  const [layers, setLayers] = useState<GlobeLayers>(
+    () => savedGlobe?.layers ?? { ...globeDefaults.layers },
+  )
+
+  useEffect(() => {
+    writeHudSessionField(GLOBE_SESSION_KEY, {
+      viewPreset,
+      layers,
+      telemetryCompact,
+      telemetryCollapsed,
+      trailsEnabled,
+      heatmapOn,
+      layersPanelOpen,
+    } satisfies GlobeTelemetrySession)
+  }, [viewPreset, layers, telemetryCompact, telemetryCollapsed, trailsEnabled, heatmapOn, layersPanelOpen])
 
   const trailsApi = useTrailsLayer({ viewer, active: trailsEnabled });
 
@@ -905,10 +1002,11 @@ export default function Globe({
           const p = props?.[k]
           return typeof p?.getValue === 'function' ? p.getValue() : p
         }
+        const pick = (payload: NonNullable<Target>) => applyTarget(payload, ent)
         const kind = prop('kind')
         if (kind === 'aircraft') {
           const icao = (props.icao?.getValue?.() || '').toLowerCase()
-          applyTarget({
+          pick({
             kind, title: `✈ ${props.callsign?.getValue?.()}`,
             entityId: icao ? `aircraft:${icao}` : undefined,
             lines: [
@@ -923,7 +1021,7 @@ export default function Globe({
           viewer!.trackedEntity = ent
           if (trailsEnabledRef.current && icao) trailsApi.fetchTrail(icao)
         } else if (kind === 'satellite') {
-          applyTarget({
+          pick({
             kind, title: `🛰 ${props.name?.getValue?.()}`,
             lines: [`ALTITUDE: ${Math.round(props.alt?.getValue?.() ?? 0)} m`, 'ORBIT: TRACKING'],
           })
@@ -931,7 +1029,7 @@ export default function Globe({
         } else if (kind === 'quake') {
           const place = props.place?.getValue?.() || 'Unknown location'
           const mag = props.mag?.getValue?.()
-          applyTarget({
+          pick({
             kind, title: `⊕ M${mag} SEISMIC — ${place}`,
             lines: [
               `DEPTH: ${props.depth?.getValue?.()} km`,
@@ -942,7 +1040,7 @@ export default function Globe({
         } else if (kind === 'event') {
           const evTitle = props.title?.getValue?.() || 'Event'
           const category = props.category?.getValue?.()
-          applyTarget({
+          pick({
             kind, title: `⚠ ${evTitle}`,
             lines: [
               ...(category ? [`CATEGORY: ${category}`] : []),
@@ -952,7 +1050,7 @@ export default function Globe({
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'military') {
           const sq = props.squawk?.getValue?.()
-          applyTarget({
+          pick({
             kind, title: `🎖 ${props.flight?.getValue?.() || props.hex?.getValue?.()}`,
             lines: [
               `HEX: ${props.hex?.getValue?.()}`,
@@ -964,7 +1062,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'transit') {
-          applyTarget({
+          pick({
             kind, title: `🚌 TRANSIT ${props.route_id?.getValue?.() || '—'}`,
             lines: [
               `ID: ${props.id?.getValue?.() ?? '—'}`,
@@ -978,7 +1076,7 @@ export default function Globe({
         } else if (kind === 'maritime') {
           const mmsi = String(props.mmsi?.getValue?.() ?? '')
           const flagged = sanctionedRef.current.has(mmsi)
-          applyTarget({
+          pick({
             kind, title: `🚢 ${flagged ? '⚠ ' : ''}${props.name?.getValue?.() || 'Vessel'}`,
             lines: [
               `MMSI: ${mmsi || '—'}`,
@@ -993,7 +1091,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'fusion_cell') {
-          applyTarget({
+          pick({
             kind, title: `⛶ FUSION CELL`,
             lines: [
               `INTENSITY: ${props.intensity?.getValue?.()}`,
@@ -1003,7 +1101,7 @@ export default function Globe({
             ],
           })
         } else if (kind === 'wildfire') {
-          applyTarget({
+          pick({
             kind, title: `🔥 WILDFIRE (${props.confidence_label?.getValue?.() || 'unknown'})`,
             lines: [
               `CONFIDENCE: ${props.confidence?.getValue?.() ?? '—'}%`,
@@ -1015,7 +1113,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'lightning') {
-          applyTarget({
+          pick({
             kind, title: `⚡ LIGHTNING STRIKE`,
             lines: [
               `TIME: ${props.time?.getValue?.() ?? '—'}`,
@@ -1026,7 +1124,7 @@ export default function Globe({
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'intel_ftm') {
           const datasets = props.datasets?.getValue?.() || []
-          applyTarget({
+          pick({
             kind,
             title: props.caption?.getValue?.() || 'Intel entity',
             lines: [
@@ -1043,7 +1141,7 @@ export default function Globe({
           const s = props.sensors?.getValue?.() || {}
           const sensorLines = Object.entries(s).map(([k, v]) => `  ${k}: ${v}`)
           const ph = props.pihole?.getValue?.() || {}
-          applyTarget({
+          pick({
             kind, title: `📡 ${props.name?.getValue?.()}`,
             nodeId: String(props.node_id?.getValue?.() || ''),
             lines: [
@@ -1058,7 +1156,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'mesh_node') {
-          applyTarget({
+          pick({
             kind, title: `📻 MESH ${props.name?.getValue?.() || 'Node'}`,
             lines: [
               `ID: ${props.id?.getValue?.() ?? '—'}`,
@@ -1069,7 +1167,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'gdacs') {
-          applyTarget({
+          pick({
             kind,
             title: props.title?.getValue?.() || 'GDACS Alert',
             lines: [
@@ -1080,7 +1178,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'outage') {
-          applyTarget({
+          pick({
             kind,
             title: `📡 ${props.title?.getValue?.() || 'Outage'}`,
             lines: [
@@ -1093,7 +1191,7 @@ export default function Globe({
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'volcano') {
           const name = props.name?.getValue?.() || ''
-          applyTarget({
+          pick({
             kind,
             title: `🌋 ${name || 'Volcano'}`,
             entityId: name ? `volcano:${name}` : undefined,
@@ -1107,7 +1205,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'hazard' || kind === 'gdelt_geo') {
-          applyTarget({
+          pick({
             kind,
             title: props.event?.getValue?.() || props.title?.getValue?.() || 'Hazard',
             lines: [
@@ -1120,7 +1218,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'airquality') {
-          applyTarget({
+          pick({
             kind,
             title: `💨 ${props.city?.getValue?.()}`,
             lines: [
@@ -1131,7 +1229,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'energy') {
-          applyTarget({
+          pick({
             kind,
             title: `⚡ ${props.label?.getValue?.()}`,
             lines: [
@@ -1144,7 +1242,7 @@ export default function Globe({
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'pegel') {
           const uuid = props.uuid?.getValue?.() || ''
-          applyTarget({
+          pick({
             kind,
             title: `🌊 ${props.name?.getValue?.()} (${props.water?.getValue?.()})`,
             entityId: uuid ? `pegel:${uuid}` : undefined,
@@ -1158,7 +1256,7 @@ export default function Globe({
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'geopolitics') {
-          applyTarget({
+          pick({
             kind,
             title: props.name?.getValue?.() || 'Crisis',
             lines: [`STATUS: ${props.status?.getValue?.() ?? '—'}`, `ID: ${props.id?.getValue?.() ?? '—'}`],
@@ -1167,7 +1265,7 @@ export default function Globe({
         } else if (kind === 'weather') {
           const lat = Number(prop('lat'))
           const lon = Number(prop('lon'))
-          applyTarget({
+          pick({
             kind,
             title: '🌡 WEATHER CELL',
             lines: [
@@ -1204,7 +1302,7 @@ export default function Globe({
             country: String(prop('country') ?? ''),
             refresh_ms: Number(prop('refresh_ms') ?? 120_000),
           }
-          applyTarget({
+          pick({
             kind,
             title: `🚦 ${cam.name}`,
             entityId: camId ? `traffic_cam:${camId}` : undefined,
@@ -1222,7 +1320,7 @@ export default function Globe({
             duration: 1.2,
           })
         } else if (kind === 'osint') {
-          applyTarget({
+          pick({
             kind,
             title: props.title?.getValue?.() || 'OSINT',
             lines: [
@@ -1315,6 +1413,8 @@ export default function Globe({
             lines: f.lines,
             link: f.link,
             webcam: f.webcam,
+            lat: f.lat,
+            lon: f.lon,
           })
           focusSrc.entities.removeAll()
           const t0 = Date.now()

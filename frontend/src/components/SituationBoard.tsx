@@ -37,9 +37,28 @@ type FusionHotspot = {
   score?: number
 }
 
+type InsightEntity = { id?: string; name?: string; schema?: string }
+
+type InsightCard = {
+  id: string
+  rank?: number
+  headline: string
+  so_what: string
+  center?: { lat?: number; lon?: number; place?: string }
+  score?: number
+  delta_score?: number
+  rising?: boolean
+  sources?: string[]
+  entities?: InsightEntity[]
+  confidence?: number
+  confidence_basis?: string
+  narrative_source?: string
+}
+
 export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, onAskAI }: Props) {
   const [items, setItems] = useState<SituationItem[]>([])
   const [fusionHotspots, setFusionHotspots] = useState<FusionHotspot[]>([])
+  const [insights, setInsights] = useState<InsightCard[]>([])
   const [loading, setLoading] = useState(true)
   const [entityCtx, setEntityCtx] = useState<Record<string, unknown> | null>(null)
   const [entityLoading, setEntityLoading] = useState(false)
@@ -49,9 +68,10 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
     const load = async () => {
       setLoading(true)
       try {
-        const [sitRes, briefRes] = await Promise.all([
+        const [sitRes, briefRes, insRes] = await Promise.all([
           fetchApi('/api/situations'),
           fetchApi('/api/briefing'),
+          fetchApi('/api/insights?top=10'),
         ])
         if (!cancelled) {
           if (sitRes.ok) {
@@ -66,11 +86,18 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
           } else {
             setFusionHotspots([])
           }
+          if (insRes.ok) {
+            const ins = await insRes.json()
+            setInsights(ins.insights || [])
+          } else {
+            setInsights([])
+          }
         }
       } catch {
         if (!cancelled) {
           setItems([])
           setFusionHotspots([])
+          setInsights([])
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -161,6 +188,80 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
         )}
 
         <div className="situation-body">
+          {insights.length > 0 && (
+            <div className="situation-insights-block">
+              <h3>INSIGHTS ({insights.length})</h3>
+              {insights.map((ins) => {
+                const conf = Math.round((ins.confidence ?? 0) * 100)
+                const topEntity = (ins.entities || []).find((e) => e.id)
+                return (
+                  <div key={ins.id} className="insight-card">
+                    <div className="insight-card-head">
+                      <span className="insight-rank">#{ins.rank}</span>
+                      {ins.rising && (
+                        <span className="insight-rising" title="Rising vs 24h">
+                          ▲ Δ{Number(ins.delta_score ?? 0).toFixed(2)}
+                        </span>
+                      )}
+                      <span className="insight-headline">{ins.headline}</span>
+                      {ins.narrative_source === 'ollama' && (
+                        <span className="insight-ai-badge" title="LLM narrative (qwen3)">AI</span>
+                      )}
+                    </div>
+                    <div className="insight-sowhat">{ins.so_what}</div>
+                    <div className="insight-confbar" title={ins.confidence_basis || ''}>
+                      <span className="insight-confbar-fill" style={{ width: `${conf}%` }} />
+                      <span className="insight-conf-label">{conf}%</span>
+                    </div>
+                    <div className="insight-chips">
+                      {(ins.sources || []).slice(0, 4).map((s) => (
+                        <span key={s} className="insight-chip">{s}</span>
+                      ))}
+                      {(ins.entities || []).slice(0, 2).map((e) => (
+                        <span key={e.id || e.name} className="insight-chip insight-chip-entity">
+                          {e.name}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="situation-actions">
+                      {ins.center?.lat != null && ins.center?.lon != null && (
+                        <button
+                          type="button"
+                          className="locate-mini"
+                          onClick={() => {
+                            onClose()
+                            onFocus({
+                              kind: 'fusion',
+                              lat: ins.center!.lat!,
+                              lon: ins.center!.lon!,
+                              height: 700000,
+                              title: ins.headline,
+                              lines: [ins.so_what, `Confidence: ${conf}%`],
+                            })
+                          }}
+                        >
+                          ◎ Globe
+                        </button>
+                      )}
+                      {topEntity?.id && (
+                        <button type="button" className="locate-mini" onClick={() => loadEntity(topEntity.id!)}>
+                          ⎔ Context
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="locate-mini"
+                        onClick={() => onAskAI(ins.headline, [ins.so_what, `Sources: ${(ins.sources || []).join(', ')}`])}
+                      >
+                        ✦ AI
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {fusionHotspots.length > 0 && (
             <div className="situation-fusion-block">
               <h3>FUSION HOTSPOTS ({fusionHotspots.length})</h3>

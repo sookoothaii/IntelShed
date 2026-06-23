@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchApi } from '../lib/networkFetch'
+import { useHudSessionState } from '../lib/hudSessionState'
 
 type NewsSource = 'newsdata' | 'gdelt-local' | 'gdelt-global'
 
@@ -30,6 +31,12 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'newsdata', label: 'NEWSDATA' },
   { id: 'gdelt', label: 'GDELT' },
 ]
+
+const FILTER_IDS = FILTERS.map((f) => f.id)
+
+function isNewsFilter(v: unknown): v is Filter {
+  return typeof v === 'string' && (FILTER_IDS as readonly string[]).includes(v)
+}
 
 const SOURCE_BADGE: Record<NewsSource, { label: string; cls: string }> = {
   newsdata: { label: 'NEWSDATA', cls: 'newsdata' },
@@ -129,7 +136,7 @@ export default function NewsPanel() {
     'gdelt-local': null,
     'gdelt-global': null,
   })
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useHudSessionState<Filter>('newsFilter', 'all', isNewsFilter)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
 
