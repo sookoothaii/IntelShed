@@ -68,6 +68,9 @@ import { buildEntityHoverTip } from '../lib/entityHoverTip';
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
+/** Opt-in explicit render mode — saves CPU; rAF pump keeps pulses smooth. Default OFF. */
+const GLOBE_EXPLICIT_RENDER = import.meta.env.VITE_WORLDBASE_GLOBE_EXPLICIT_RENDER === '1'
+
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
   const windowMs = hours * 3600 * 1000
@@ -857,7 +860,7 @@ export default function Globe({
   useEffect(() => {
     const v = viewerRef.current
     if (!v || (v as any).isDestroyed?.()) return
-    v.useDefaultRenderLoop = visible
+    v.useDefaultRenderLoop = visible && !GLOBE_EXPLICIT_RENDER
     if (visible) {
       try {
         v.resize()
@@ -867,6 +870,23 @@ export default function Globe({
         /* ignore during teardown */
       }
     }
+  }, [visible, layoutSplit])
+
+  useEffect(() => {
+    if (!GLOBE_EXPLICIT_RENDER || !visible) return
+    const v = viewerRef.current
+    if (!v || (v as any).isDestroyed?.()) return
+    let raf = 0
+    const pump = () => {
+      try {
+        if (!(v as any).isDestroyed?.()) v.scene.requestRender()
+      } catch {
+        /* ignore during teardown */
+      }
+      raf = requestAnimationFrame(pump)
+    }
+    raf = requestAnimationFrame(pump)
+    return () => cancelAnimationFrame(raf)
   }, [visible, layoutSplit])
 
   useEffect(() => {
@@ -908,6 +928,7 @@ export default function Globe({
         geocoder: true,
         infoBox: false,
         selectionIndicator: false,
+        requestRenderMode: GLOBE_EXPLICIT_RENDER,
       })
       viewerRef.current = viewer
       setViewer(viewer)

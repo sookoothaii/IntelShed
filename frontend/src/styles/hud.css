@@ -2214,6 +2214,122 @@ html, body, #root {
   border-radius: 4px;
 }
 
+.situation-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.situation-toolbar {
+  padding: 8px 12px;
+  border-bottom: 1px solid #1a2e33;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.situation-sev-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.situation-pill {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  border: 1px solid #2a4a55;
+  background: rgba(0, 0, 0, 0.2);
+  color: #8fb7a9;
+  cursor: pointer;
+}
+
+.situation-pill.on {
+  border-color: #00e5a0;
+  color: #00e5a0;
+}
+
+.situation-pill--critical.on,
+.situation-pill--high.on { border-color: #ff2d00; color: #ff6b6b; }
+.situation-pill--medium.on,
+.situation-pill--warn.on { border-color: #ffd23f; color: #ffd23f; }
+
+.situation-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.situation-search,
+.situation-select {
+  font-size: 11px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid #2a4a55;
+  background: rgba(0, 0, 0, 0.3);
+  color: #cde8df;
+}
+
+.situation-search {
+  flex: 1;
+  min-width: 160px;
+}
+
+.situation-refresh-hint,
+.situation-copy-msg {
+  font-size: 10px;
+  color: #6f8c84;
+  padding: 4px 14px;
+}
+
+.situation-copy-msg { color: #00e5a0; }
+
+.situation-fusion-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.situation-fusion-head h3 { margin: 0; }
+
+.situation-entity-structured {
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.situation-entity-row {
+  display: flex;
+  gap: 8px;
+}
+
+.situation-entity-row strong {
+  min-width: 72px;
+  color: #6f8c84;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.situation-entity-mono {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  word-break: break-all;
+}
+
+.situation-entity-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.situation-entity-error {
+  color: #ff6b35;
+  font-size: 11px;
+}
+
 .situation-body {
   display: flex;
   flex: 1;
