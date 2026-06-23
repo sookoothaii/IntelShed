@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FocusTarget } from '../lib/focus'
 import type { OsintPin } from '../lib/osintPins'
-import { fetchApi } from '../lib/networkFetch';
+import { fetchApi } from '../lib/networkFetch'
+import { writeHudSessionField } from '../lib/hudSessionState'
+import { useSituationsQuery, useBriefingQuery, useInsightsQuery } from '../hooks/useHudQueries'
 
 export type SituationItem = {
   id: string
@@ -18,15 +20,10 @@ export type SituationItem = {
 type Props = {
   onClose: () => void
   onFocus: (f: Omit<FocusTarget, 'ts'>) => void
+  onOpenIntel?: (entityId?: string) => void
   osintPins: OsintPin[]
   onAddPin: (pin: Omit<OsintPin, 'ts'>) => void
   onAskAI: (title: string, lines: string[]) => void
-}
-
-function sevClass(sev: string): string {
-  if (sev === 'critical' || sev === 'high') return 'sit-sev-high'
-  if (sev === 'medium' || sev === 'warn') return 'sit-sev-med'
-  return 'sit-sev-low'
 }
 
 type FusionHotspot = {
@@ -55,58 +52,114 @@ type InsightCard = {
   narrative_source?: string
 }
 
-export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, onAskAI }: Props) {
-  const [items, setItems] = useState<SituationItem[]>([])
-  const [fusionHotspots, setFusionHotspots] = useState<FusionHotspot[]>([])
-  const [insights, setInsights] = useState<InsightCard[]>([])
-  const [loading, setLoading] = useState(true)
-  const [entityCtx, setEntityCtx] = useState<Record<string, unknown> | null>(null)
-  const [entityLoading, setEntityLoading] = useState(false)
+type SortKey = 'severity' | 'title' | 'source'
 
+const SEV_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, warn: 3, low: 4 }
+
+function sevClass(sev: string): string {
+  if (sev === 'critical' || sev === 'high') return 'sit-sev-high'
+  if (sev === 'medium' || sev === 'warn') return 'sit-sev-med'
+  return 'sit-sev-low'
+}
+
+function useFocusTrap(active: boolean, containerRef: React.RefObject<HTMLElement | null>, onEscape: () => void) {
   useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      setLoading(true)
-      try {
-        const [sitRes, briefRes, insRes] = await Promise.all([
-          fetchApi('/api/situations'),
-          fetchApi('/api/briefing'),
-          fetchApi('/api/insights?top=10'),
-        ])
-        if (!cancelled) {
-          if (sitRes.ok) {
-            const d = await sitRes.json()
-            setItems(d.items || [])
-          } else {
-            setItems([])
-          }
-          if (briefRes.ok) {
-            const b = await briefRes.json()
-            setFusionHotspots(b.fusion_hotspots || [])
-          } else {
-            setFusionHotspots([])
-          }
-          if (insRes.ok) {
-            const ins = await insRes.json()
-            setInsights(ins.insights || [])
-          } else {
-            setInsights([])
-          }
+    if (!active || !containerRef.current) return
+    const root = containerRef.current
+    const focusables = () =>
+      Array.from(root.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )).filter((el) => !el.hasAttribute('disabled'))
+
+    const first = focusables()[0]
+    first?.focus()
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onEscape()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const list = focusables()
+      if (list.length === 0) return
+      const idx = list.indexOf(document.activeElement as HTMLElement)
+      if (e.shiftKey) {
+        if (idx <= 0) {
+          e.preventDefault()
+          list[list.length - 1]?.focus()
         }
-      } catch {
-        if (!cancelled) {
-          setItems([])
-          setFusionHotspots([])
-          setInsights([])
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
+      } else if (idx === list.length - 1) {
+        e.preventDefault()
+        list[0]?.focus()
       }
     }
-    load()
-    const t = setInterval(load, 60000)
-    return () => { cancelled = true; clearInterval(t) }
-  }, [])
+    root.addEventListener('keydown', onKey)
+    return () => root.removeEventListener('keydown', onKey)
+  }, [active, containerRef, onEscape])
+}
+
+function EntityContextView({ ctx }: { ctx: Record<string, unknown> }) {
+  if (ctx.error) return <div className="situation-entity-error">{String(ctx.error)}</div>
+  const entity = (ctx.entity || ctx) as Record<string, unknown>
+  const caption = String(entity.caption || entity.name || entity.id || '—')
+  const schema = String(entity.schema || '—')
+  const datasets = Array.isArray(entity.datasets) ? entity.datasets.join(', ') : ''
+  const props = entity.properties as Record<string, unknown> | undefined
+  return (
+    <div className="situation-entity-structured">
+      <div className="situation-entity-row"><strong>Caption</strong><span>{caption}</span></div>
+      <div className="situation-entity-row"><strong>Schema</strong><span>{schema}</span></div>
+      {entity.id != null && (
+        <div className="situation-entity-row"><strong>ID</strong><span className="situation-entity-mono">{String(entity.id)}</span></div>
+      )}
+      {datasets && <div className="situation-entity-row"><strong>Datasets</strong><span>{datasets}</span></div>}
+      {props && Object.keys(props).length > 0 && (
+        <div className="situation-entity-props">
+          {Object.entries(props).slice(0, 8).map(([k, v]) => (
+            <div key={k} className="situation-entity-row">
+              <strong>{k}</strong>
+              <span>{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default function SituationBoard({
+  onClose,
+  onFocus,
+  onOpenIntel,
+  osintPins,
+  onAddPin,
+  onAskAI,
+}: Props) {
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [paused, setPaused] = useState(false)
+  const [sevFilter, setSevFilter] = useState<string | null>(null)
+  const [catFilter, setCatFilter] = useState<string | null>(null)
+  const [srcFilter, setSrcFilter] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [sortKey, setSortKey] = useState<SortKey>('severity')
+  const [fusionShowAll, setFusionShowAll] = useState(false)
+  const [entityCtx, setEntityCtx] = useState<Record<string, unknown> | null>(null)
+  const [entityId, setEntityId] = useState<string | null>(null)
+  const [entityLoading, setEntityLoading] = useState(false)
+  const [copyMsg, setCopyMsg] = useState<string | null>(null)
+
+  const pollEnabled = !paused
+  const { data: sitData, isLoading: sitLoading, isFetching } = useSituationsQuery(pollEnabled)
+  const { data: briefData, isLoading: briefLoading } = useBriefingQuery(pollEnabled)
+  const { data: insData, isLoading: insLoading } = useInsightsQuery(10, pollEnabled)
+
+  useFocusTrap(true, panelRef, onClose)
+
+  const items: SituationItem[] = sitData?.items || []
+  const fusionHotspots: FusionHotspot[] = briefData?.fusion_hotspots || []
+  const insights: InsightCard[] = insData?.insights || []
+  const loading = sitLoading || briefLoading || insLoading
 
   const pinItems: SituationItem[] = osintPins.map((p) => ({
     id: `pin:${p.id}`,
@@ -120,10 +173,78 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
     details: { lines: p.lines, investigationId: p.investigationId },
   }))
 
-  const all = [...items, ...pinItems].sort((a, b) => {
-    const order: Record<string, number> = { critical: 0, high: 1, medium: 2, warn: 3, low: 4 }
-    return (order[a.severity] ?? 3) - (order[b.severity] ?? 3)
-  })
+  const allRaw = useMemo(() => [...items, ...pinItems], [items, pinItems])
+
+  const sevCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const it of allRaw) {
+      counts[it.severity] = (counts[it.severity] || 0) + 1
+    }
+    return counts
+  }, [allRaw])
+
+  const categories = useMemo(() => [...new Set(allRaw.map((i) => i.category))].sort(), [allRaw])
+  const sources = useMemo(() => [...new Set(allRaw.map((i) => i.source))].sort(), [allRaw])
+
+  const all = useMemo(() => {
+    let list = [...allRaw]
+    if (sevFilter) list = list.filter((i) => i.severity === sevFilter)
+    if (catFilter) list = list.filter((i) => i.category === catFilter)
+    if (srcFilter) list = list.filter((i) => i.source === srcFilter)
+    const q = search.trim().toLowerCase()
+    if (q) {
+      list = list.filter(
+        (i) =>
+          i.title.toLowerCase().includes(q)
+          || i.source.toLowerCase().includes(q)
+          || i.category.toLowerCase().includes(q)
+          || (i.entity_id || '').toLowerCase().includes(q),
+      )
+    }
+    list.sort((a, b) => {
+      if (sortKey === 'severity') return (SEV_ORDER[a.severity] ?? 3) - (SEV_ORDER[b.severity] ?? 3)
+      if (sortKey === 'title') return a.title.localeCompare(b.title)
+      return a.source.localeCompare(b.source)
+    })
+    return list
+  }, [allRaw, sevFilter, catFilter, srcFilter, search, sortKey])
+
+  const exportPayload = useMemo(
+    () => ({
+      exported_at: new Date().toISOString(),
+      count: all.length,
+      items: all,
+      insights,
+      fusion_hotspots: fusionHotspots,
+    }),
+    [all, insights, fusionHotspots],
+  )
+
+  const copyBoard = async (fmt: 'json' | 'md') => {
+    const text =
+      fmt === 'json'
+        ? JSON.stringify(exportPayload, null, 2)
+        : [
+            '# Situation Board',
+            '',
+            `Items: ${all.length}`,
+            '',
+            ...all.map(
+              (i) =>
+                `- **${i.severity.toUpperCase()}** [${i.category}] ${i.title} _(${i.source})_`,
+            ),
+            '',
+            insights.length > 0 ? `## Insights (${insights.length})` : '',
+            ...insights.map((ins) => `- ${ins.headline}: ${ins.so_what}`),
+          ].join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyMsg(fmt === 'json' ? 'JSON copied' : 'Markdown copied')
+      setTimeout(() => setCopyMsg(null), 2000)
+    } catch {
+      setCopyMsg('Copy failed')
+    }
+  }
 
   const focusItem = (it: SituationItem) => {
     const loc = it.location
@@ -160,10 +281,11 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
     })
   }
 
-  const loadEntity = async (entityId: string) => {
+  const loadEntity = async (id: string) => {
+    setEntityId(id)
     setEntityLoading(true)
     try {
-      const r = await fetchApi(`/api/entity/${encodeURIComponent(entityId)}/context`)
+      const r = await fetchApi(`/api/entity/${encodeURIComponent(id)}/context`)
       setEntityCtx(await r.json())
     } catch {
       setEntityCtx({ error: 'load failed' })
@@ -172,20 +294,122 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
     }
   }
 
+  const openIntel = (id?: string) => {
+    writeHudSessionField('dataTab', 'intel')
+    if (id) writeHudSessionField('intelEntityFocus', id)
+    onOpenIntel?.(id)
+    onClose()
+  }
+
+  const fusionVisible = fusionShowAll ? fusionHotspots : fusionHotspots.slice(0, 3)
+
   return (
-    <div className="situation-overlay" role="dialog" aria-label="Situation board">
-      <div className="situation-panel">
+    <div className="situation-overlay" role="presentation" onClick={onClose}>
+      <div
+        ref={panelRef}
+        className="situation-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Unified situation board"
+        onClick={(e) => e.stopPropagation()}
+      >
         <header className="situation-header">
           <h2>Unified Situation Board</h2>
-          <span className="situation-count">{all.length} items</span>
-          <button type="button" className="situation-close" onClick={onClose}>✕</button>
+          <span className="situation-count" aria-live="polite">{all.length} items</span>
+          <div className="situation-header-actions">
+            <button
+              type="button"
+              className="locate-mini"
+              onClick={() => setPaused((p) => !p)}
+              title={paused ? 'Resume polling' : 'Pause polling'}
+            >
+              {paused ? '▶' : '⏸'}
+            </button>
+            <button type="button" className="locate-mini" onClick={() => copyBoard('json')} title="Copy JSON">
+              JSON
+            </button>
+            <button type="button" className="locate-mini" onClick={() => copyBoard('md')} title="Copy Markdown">
+              MD
+            </button>
+            <button type="button" className="situation-close" onClick={onClose} aria-label="Close">✕</button>
+          </div>
         </header>
 
+        <div className="situation-toolbar" role="search">
+          <div className="situation-sev-pills" role="group" aria-label="Severity filters">
+            <button
+              type="button"
+              className={`situation-pill${sevFilter === null ? ' on' : ''}`}
+              onClick={() => setSevFilter(null)}
+            >
+              ALL {allRaw.length}
+            </button>
+            {['critical', 'high', 'medium', 'warn', 'low'].map((sev) =>
+              sevCounts[sev] ? (
+                <button
+                  key={sev}
+                  type="button"
+                  className={`situation-pill situation-pill--${sev}${sevFilter === sev ? ' on' : ''}`}
+                  onClick={() => setSevFilter(sevFilter === sev ? null : sev)}
+                >
+                  {sev.toUpperCase()} {sevCounts[sev]}
+                </button>
+              ) : null,
+            )}
+          </div>
+          <div className="situation-filters">
+            <input
+              type="search"
+              className="situation-search"
+              placeholder="Search title, source, entity…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search situations"
+            />
+            <select
+              className="situation-select"
+              value={catFilter || ''}
+              onChange={(e) => setCatFilter(e.target.value || null)}
+              aria-label="Filter by category"
+            >
+              <option value="">All categories</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <select
+              className="situation-select"
+              value={srcFilter || ''}
+              onChange={(e) => setSrcFilter(e.target.value || null)}
+              aria-label="Filter by source"
+            >
+              <option value="">All sources</option>
+              {sources.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            <select
+              className="situation-select"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              aria-label="Sort order"
+            >
+              <option value="severity">Sort: severity</option>
+              <option value="title">Sort: title</option>
+              <option value="source">Sort: source</option>
+            </select>
+          </div>
+        </div>
+
         {loading && (
-          <div className="situation-loading">
+          <div className="situation-loading" role="status" aria-live="polite">
             Loading feeds… (correlations, GDACS, pegel — ~5–15 s first load)
           </div>
         )}
+        {isFetching && !loading && (
+          <div className="situation-refresh-hint" aria-live="polite">Refreshing…</div>
+        )}
+        {copyMsg && <div className="situation-copy-msg" role="status" aria-live="polite">{copyMsg}</div>}
 
         <div className="situation-body">
           {insights.length > 0 && (
@@ -244,9 +468,14 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
                         </button>
                       )}
                       {topEntity?.id && (
-                        <button type="button" className="locate-mini" onClick={() => loadEntity(topEntity.id!)}>
-                          ⎔ Context
-                        </button>
+                        <>
+                          <button type="button" className="locate-mini" onClick={() => loadEntity(topEntity.id!)}>
+                            ⎔ Context
+                          </button>
+                          <button type="button" className="locate-mini" onClick={() => openIntel(topEntity.id)}>
+                            INTEL
+                          </button>
+                        </>
                       )}
                       <button
                         type="button"
@@ -264,8 +493,19 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
 
           {fusionHotspots.length > 0 && (
             <div className="situation-fusion-block">
-              <h3>FUSION HOTSPOTS ({fusionHotspots.length})</h3>
-              {fusionHotspots.slice(0, 3).map((h, i) => (
+              <div className="situation-fusion-head">
+                <h3>FUSION HOTSPOTS ({fusionHotspots.length})</h3>
+                {fusionHotspots.length > 3 && (
+                  <button
+                    type="button"
+                    className="locate-mini"
+                    onClick={() => setFusionShowAll((v) => !v)}
+                  >
+                    {fusionShowAll ? 'Show top 3' : 'Show all'}
+                  </button>
+                )}
+              </div>
+              {fusionVisible.map((h, i) => (
                 <div key={i} className="situation-fusion-row">
                   <span className="situation-fusion-rank">#{i + 1}</span>
                   <span className="situation-fusion-label">
@@ -315,7 +555,10 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
                     </>
                   )}
                   {it.entity_id && (
-                    <button type="button" className="locate-mini" onClick={() => loadEntity(it.entity_id!)}>⎔ Context</button>
+                    <>
+                      <button type="button" className="locate-mini" onClick={() => loadEntity(it.entity_id!)}>⎔ Context</button>
+                      <button type="button" className="locate-mini" onClick={() => openIntel(it.entity_id)}>INTEL</button>
+                    </>
                   )}
                   <button
                     type="button"
@@ -336,10 +579,17 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
             <aside className="situation-entity-panel">
               <h3>Entity context</h3>
               {entityLoading && <div className="situation-loading">Loading…</div>}
-              {!entityLoading && entityCtx && (
-                <pre className="situation-entity-json">{JSON.stringify(entityCtx, null, 2)}</pre>
-              )}
-              <button type="button" className="locate-mini" onClick={() => setEntityCtx(null)}>Close</button>
+              {!entityLoading && entityCtx && <EntityContextView ctx={entityCtx} />}
+              <div className="situation-entity-actions">
+                {entityId && (
+                  <button type="button" className="locate-mini" onClick={() => openIntel(entityId)}>
+                    Open in INTEL
+                  </button>
+                )}
+                <button type="button" className="locate-mini" onClick={() => { setEntityCtx(null); setEntityId(null) }}>
+                  Close
+                </button>
+              </div>
             </aside>
           )}
         </div>
