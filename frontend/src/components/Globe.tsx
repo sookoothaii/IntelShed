@@ -134,6 +134,9 @@ const GLOBE_TILE_CACHE_SIZE = (() => {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 100
 })()
 
+// Cesium default; restored when camera/interaction resumes after idle quiescence.
+const GLOBE_LOADING_DESCENDANT_LIMIT = 20
+
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
   const windowMs = hours * 3600 * 1000
@@ -380,6 +383,14 @@ function applyGlobePowerSettings(
   }
 
   scene.requestRender()
+}
+
+/** Stop off-screen tile preload and descendant loads when the visible scene is static. */
+function applyGlobeTileQuiescence(globe: Viewer['scene']['globe'], suppress: boolean) {
+  globe.preloadAncestors = false
+  globe.preloadSiblings = false
+  const limit = suppress ? 0 : GLOBE_LOADING_DESCENDANT_LIMIT
+  if (globe.loadingDescendantLimit !== limit) globe.loadingDescendantLimit = limit
 }
 
 type FeedHealth = {
@@ -1071,6 +1082,10 @@ export default function Globe({
       scene.globe.depthTestAgainstTerrain = false
       scene.globe.maximumScreenSpaceError = GLOBE_MAX_SSE
       scene.globe.tileCacheSize = GLOBE_TILE_CACHE_SIZE
+      // Dashboard globe: skip ancestor/sibling preload — off-screen tiles never settle
+      // (tilesLoaded stays false) and keep requestRenderMode repainting at idle.
+      scene.globe.preloadAncestors = false
+      scene.globe.preloadSiblings = false
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
@@ -1198,21 +1213,20 @@ export default function Globe({
       // progress. Silence for GLOBE_IDLE_TILE_SETTLE_MS means the visible scene is
       // settled (loaded or permanently stalled) and safe to idle.
       let lastTileProgressAt = Date.now()
+      let tileQuiescentApplied = false
       // Instant wake on pointer/wheel even before the camera starts moving, so the
       // quiescence controller never makes the first interaction feel sluggish.
       const onCanvasWake = () => bumpRender(800)
       const onTileProgress = () => { lastTileProgressAt = Date.now() }
-      if (GLOBE_IDLE_FPS > 0) {
-        scene.canvas.addEventListener('pointerdown', onCanvasWake)
-        scene.canvas.addEventListener('wheel', onCanvasWake, { passive: true })
-        try { scene.globe.tileLoadProgressEvent.addEventListener(onTileProgress) } catch { /* older Cesium */ }
-        detachIdleWake = () => {
-          try {
-            scene.canvas.removeEventListener('pointerdown', onCanvasWake)
-            scene.canvas.removeEventListener('wheel', onCanvasWake)
-            scene.globe.tileLoadProgressEvent.removeEventListener(onTileProgress)
-          } catch { /* canvas/globe already torn down */ }
-        }
+      scene.canvas.addEventListener('pointerdown', onCanvasWake)
+      scene.canvas.addEventListener('wheel', onCanvasWake, { passive: true })
+      try { scene.globe.tileLoadProgressEvent.addEventListener(onTileProgress) } catch { /* older Cesium */ }
+      detachIdleWake = () => {
+        try {
+          scene.canvas.removeEventListener('pointerdown', onCanvasWake)
+          scene.canvas.removeEventListener('wheel', onCanvasWake)
+          scene.globe.tileLoadProgressEvent.removeEventListener(onTileProgress)
+        } catch { /* canvas/globe already torn down */ }
       }
       const pump = () => {
         pumpRaf = requestAnimationFrame(pump)
@@ -1229,18 +1243,25 @@ export default function Globe({
           hasFocusRing ||
           !!v.trackedEntity
 
-        // Render-quiescence controller (env-gated): when the visible scene is provably
-        // static, throttle the render loop to GLOBE_IDLE_FPS; restore to normal
-        // otherwise. Quiescence = camera/interaction idle, no motion (aircraft/sat),
-        // no pulse tick (~15 fps rings), no tracked entity or focus ring, AND tile
-        // loading has gone quiet (tileLoadProgressEvent silent). Using load-progress
-        // silence rather than tilesLoaded/empty-queue is essential: the HUD's root
-        // imagery stays perpetually TRANSITIONING, so tilesLoaded never turns true
-        // and the visible queue can stay non-empty forever. Motion layers animate
-        // continuously and are never throttled (would look choppy = quality loss).
+        // Quiescence = camera/interaction idle, no motion (aircraft/sat), no pulse tick
+        // (~15 fps rings), no tracked entity or focus ring, AND tile loading has gone
+        // quiet (tileLoadProgressEvent silent). Using load-progress silence rather than
+        // tilesLoaded/empty-queue is essential: the HUD's root imagery stays perpetually
+        // TRANSITIONING, so tilesLoaded never turns true and the visible queue can stay
+        // non-empty forever.
+        const tilesSettled = Date.now() - lastTileProgressAt > GLOBE_IDLE_TILE_SETTLE_MS
+        const quiescent = !busy && !motionLayer && tilesSettled
+
+        // Tile-churn suppression: each tile load triggers requestRender() even in
+        // requestRenderMode, so stop descendant loads once the visible scene is static.
+        if (quiescent !== tileQuiescentApplied) {
+          tileQuiescentApplied = quiescent
+          try { applyGlobeTileQuiescence(v.scene.globe, quiescent) } catch { /* teardown */ }
+        }
+
+        // Render-quiescence fps throttle (env-gated). Motion layers animate continuously
+        // and are never throttled (would look choppy = quality loss).
         if (GLOBE_IDLE_FPS > 0) {
-          const tilesSettled = Date.now() - lastTileProgressAt > GLOBE_IDLE_TILE_SETTLE_MS
-          const quiescent = !busy && !motionLayer && tilesSettled
           const desired = quiescent ? GLOBE_IDLE_FPS : GLOBE_IDLE_RESTORE_FPS
           if (v.targetFrameRate !== desired) v.targetFrameRate = desired
         }
