@@ -787,6 +787,19 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
     + (cveFeed?.vulnerabilities?.length ?? 0)
     + (air?.cities?.length ?? 0)
 
+  const digestMeta = briefing?.digest_line_meta || []
+  const weakDigestCount = digestMeta.filter(
+    (row: any) =>
+      row.label === 'single-source'
+      || row.label === 'contradictory'
+      || Number(row.corroboration ?? 1) < 0.5,
+  ).length
+  const feedDegrade = trust?.feed_drift?.degradation
+  const showDegradeBanner =
+    analysisTab === 'operator'
+    && (trust?.degraded || trust?.field_warn || trust?.feed_warn)
+  const degradeCritical = (trust?.score ?? 4) < 2
+
   return (
     <div className="analysis-overlay" onClick={onClose}>
       <div className="analysis-panel" onClick={(e) => e.stopPropagation()}>
@@ -844,6 +857,41 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                 <span>LOCAL {digest?.local_count ?? '—'}</span>
                 <span>AGENTIC {agenticTrace?.rounds ?? '—'}/{agenticTrace?.max_rounds ?? 3}</span>
                 <span>FUSION {fusionHotspots.length}</span>
+                {weakDigestCount > 0 && (
+                  <span style={{ color: '#ffd23f' }} title="Digest lines with weak or single-source corroboration">
+                    VERIFY −{weakDigestCount}
+                  </span>
+                )}
+                {feedDegrade?.offline_pct != null && feedDegrade.offline_pct > 0 && (
+                  <span
+                    style={{ color: feedDegrade.warn ? '#ff6b35' : '#8fb7a9' }}
+                    title={(feedDegrade.offline_keys || []).join(', ')}
+                  >
+                    FEEDS OFFLINE {feedDegrade.offline_pct}%
+                  </span>
+                )}
+              </div>
+            )}
+            {showDegradeBanner && (
+              <div
+                className={`analysis-degrade-banner${degradeCritical ? ' analysis-degrade-banner--critical' : ''}`}
+                role="status"
+              >
+                <strong>{degradeCritical ? 'FIELD TRUST LOW' : 'DEGRADED MODE'}</strong>
+                {' — '}
+                {(trust?.failed_probes || []).length > 0 && (
+                  <span>probes down: {(trust.failed_probes as string[]).join(', ')}. </span>
+                )}
+                {feedDegrade?.warn && (
+                  <span>
+                    {feedDegrade.offline_pct}% watch feeds offline/stale
+                    {(feedDegrade.offline_keys?.length ?? 0) > 0
+                      ? ` (${(feedDegrade.offline_keys as string[]).slice(0, 4).join(', ')})`
+                      : ''}
+                    .{' '}
+                  </span>
+                )}
+                Briefing may be incomplete — expand TRUST DETAIL for provenance.
               </div>
             )}
             {analysisTab === 'feeds' && (
@@ -1199,7 +1247,11 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
               {analysisTab === 'operator' && agenticTrace && <AgenticLoopPanel agentic={agenticTrace} />}
 
               {analysisTab === 'operator' && briefing?.digest_line_meta?.length > 0 && (
-                <AnalysisCollapsible title="✓ DIGEST VERIFICATION" count={briefing.digest_line_meta.length} defaultOpen={false}>
+                <AnalysisCollapsible
+                  title="✓ DIGEST VERIFICATION"
+                  count={briefing.digest_line_meta.length}
+                  defaultOpen={weakDigestCount > 0}
+                >
                   {briefing.digest_line_meta.slice(0, 8).map((row: any, i: number) => (
                     <div
                       key={i}
@@ -1218,6 +1270,16 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                         {row.label || 'single-source'}
                       </span>
                       <span style={{ flex: 1 }}>{String(row.text || '').replace(/^-\s*/, '').slice(0, 120)}</span>
+                      {row.observed_at && (
+                        <span style={{ color: '#6a9a8c', fontSize: 10, minWidth: 72, textAlign: 'right' }}>
+                          {new Date(row.observed_at).toLocaleString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      )}
                       <span style={{ color: '#8fb7a9', fontSize: 10 }}>
                         {Math.round((row.corroboration ?? 0) * 100)}% · {(row.sources || []).slice(0, 3).join(', ')}
                       </span>

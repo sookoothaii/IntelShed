@@ -52,6 +52,39 @@ class OperatorBriefingTests(unittest.TestCase):
         self.assertIn("Local news", local_text)
         self.assertNotIn("No local signals", local_text)
 
+    def test_digest_skips_stale_gdelt_tourism_headlines(self):
+        snap = {
+            "gdelt_pulse_local": {
+                "articles": [
+                    {
+                        "title": "Agoda . com celebrates Thai New Year with super special Songkran rates",
+                        "seendate": "20260430T204500Z",
+                    },
+                    {
+                        "title": "Bangkok flood warning for Chao Phraya districts",
+                        "seendate": "20260622T120000Z",
+                    },
+                ],
+            },
+        }
+        digest = format_digest_sections(snap, [], "none", [])
+        local_text = " ".join(digest["local"])
+        self.assertNotIn("Songkran", local_text)
+        self.assertNotIn("Agoda", local_text)
+        self.assertIn("flood warning", local_text)
+        self.assertIn("[22 Jun", local_text)
+
+    def test_digest_lines_include_observed_at_meta(self):
+        snap = {
+            "airquality": {
+                "updated": "2026-06-22T12:00:00+00:00",
+                "cities": [{"city": "Bangkok", "lat": 13.75, "lon": 100.5, "pm25": 42.0}],
+            },
+        }
+        digest = format_digest_sections(snap, [], "none", [])
+        self.assertTrue(any("[22 Jun" in line for line in digest["local"]))
+        self.assertTrue(any(row.get("observed_at") for row in digest.get("digest_line_meta") or []))
+
     def test_digest_includes_cams_haze_and_humanitarian(self):
         snap = {
             "cams_haze": {

@@ -276,6 +276,32 @@ def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: i
     return rows[:limit]
 
 
+def summarize_degradation(freshness: list[dict[str, Any]]) -> dict[str, Any]:
+    """Offline degradation summary for trust UX (stale/error/missing watch feeds)."""
+    counts = {"fresh": 0, "aging": 0, "stale": 0, "error": 0, "missing": 0}
+    offline_keys: list[str] = []
+    for row in freshness:
+        status = str(row.get("status") or "missing")
+        counts[status] = counts.get(status, 0) + 1
+        if status in ("stale", "error", "missing"):
+            offline_keys.append(str(row.get("cache_key") or "?"))
+    total = max(len(freshness), 1)
+    offline = counts["stale"] + counts["error"] + counts["missing"]
+    offline_pct = round(100.0 * offline / total, 1)
+    warn = offline_pct >= 50.0 or counts["error"] >= 2 or counts["missing"] >= 2
+    return {
+        "watch_total": len(freshness),
+        "fresh": counts["fresh"],
+        "aging": counts["aging"],
+        "stale": counts["stale"],
+        "error": counts["error"],
+        "missing": counts["missing"],
+        "offline_pct": offline_pct,
+        "offline_keys": offline_keys[:8],
+        "warn": warn,
+    }
+
+
 def check_feed_drift() -> dict[str, Any]:
     """Snapshot counts, detect >90% drops vs 6–48h baseline, summarize freshness."""
     now = datetime.now(timezone.utc)
@@ -293,6 +319,7 @@ def check_feed_drift() -> dict[str, Any]:
         "detail": detail,
         "drifting": drifting,
         "freshness": freshness,
+        "degradation": summarize_degradation(freshness),
         "snapshots_recorded": recorded,
         "watch_keys": list(_watch_keys()),
         "threshold_ratio": _DRIFT_RATIO,

@@ -160,14 +160,20 @@ def entities_to_digest_items(
             continue
 
         line_text = format_entity_line(entity)
+        from digest_timestamps import apply_observed_at
+
+        primary = _primary_dataset(entity.get("datasets") or [])
+        body, iso = apply_observed_at(line_text, entity.get("last_seen"))
         items.append({
             "severity": _entity_severity(entity),
-            "text": line_text,
+            "text": body,
             "bucket": bucket,
             "source": "ftm",
+            "sources": ["ftm", primary],
             "entity_id": entity.get("id"),
             "schema": entity.get("schema"),
             "datasets": entity.get("datasets") or [],
+            "observed_at": iso,
         })
         bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
         if caption_key:

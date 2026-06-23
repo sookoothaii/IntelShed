@@ -7,6 +7,7 @@ import logging
 import os
 import random
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 
 import httpx
@@ -33,6 +34,8 @@ _GDELT_CACHE_GLOBAL_SEC = int(os.getenv("WORLDBASE_GDELT_CACHE_GLOBAL_SEC", "900
 _GDELT_HTTP_LOCAL_SEC = float(os.getenv("WORLDBASE_GDELT_HTTP_LOCAL_SEC", "20"))
 _GDELT_HTTP_GLOBAL_SEC = float(os.getenv("WORLDBASE_GDELT_HTTP_GLOBAL_SEC", "30"))
 _GDELT_COLD_START_SEC = float(os.getenv("WORLDBASE_GDELT_COLD_START_SEC", "18"))
+_LOCAL_DOC_TIMESPAN = (os.getenv("WORLDBASE_GDELT_LOCAL_TIMESPAN", "24h") or "24h").strip()
+_LOCAL_DOC_MAX_AGE_H = float(os.getenv("WORLDBASE_GDELT_LOCAL_MAX_AGE_H", "24"))
 
 Priority = Literal["local", "global"]
 
@@ -79,6 +82,55 @@ def _resolve_region(region: str | None) -> str:
     if not region:
         return _operator_region()
     return region.strip().lower()
+
+
+def parse_gdelt_seendate(raw: str | None) -> datetime | None:
+    """Parse GDELT DOC seendate (``20260430T204500Z``)."""
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(str(raw).strip(), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def is_gdelt_article_fresh(article: dict, *, max_age_hours: float | None = None) -> bool:
+    """True when article seendate is within the briefing window."""
+    max_h = _LOCAL_DOC_MAX_AGE_H if max_age_hours is None else max_age_hours
+    seen = parse_gdelt_seendate(article.get("seendate"))
+    if seen is None:
+        return True
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_h)
+    return seen >= cutoff
+
+
+def filter_local_pulse_articles(articles: list[dict] | None) -> list[dict]:
+    """Drop stale, sports, and tourism-promo headlines from local GDELT DOC pulse."""
+    from newsdata_bridge import is_sports_content, is_tourism_promo_content
+
+    kept: list[dict] = []
+    for art in articles or []:
+        title = art.get("title") or ""
+        desc = art.get("description") or ""
+        if is_sports_content(title=title, description=desc):
+            continue
+        if is_tourism_promo_content(title=title, description=desc):
+            continue
+        if not is_gdelt_article_fresh(art):
+            continue
+        kept.append(art)
+    return kept
+
+
+def finalize_local_pulse(out: dict | None) -> dict:
+    """Apply briefing filters and refresh count on a local pulse payload."""
+    if not out:
+        return {"count": 0, "articles": []}
+    articles = filter_local_pulse_articles(out.get("articles"))
+    result = dict(out)
+    result["articles"] = articles
+    result["count"] = len(articles)
+    return result
 
 
 def _region_bbox(region: str) -> list[float] | None:
@@ -259,6 +311,7 @@ async def _fetch_doc_articles(
     maxrecords: int = 40,
     *,
     priority: Priority = "global",
+    timespan: str | None = None,
 ) -> tuple[list[dict], str | None]:
     max_retries = _GDELT_LOCAL_MAX_RETRIES if priority == "local" else 1
     last_err: str | None = None
@@ -285,6 +338,7 @@ async def _fetch_doc_articles(
                         "mode": "ArtList",
                         "maxrecords": maxrecords,
                         "format": "json",
+                        **({"timespan": timespan} if timespan else {}),
                     },
                 )
                 if r.status_code == 429:
@@ -473,11 +527,17 @@ async def gdelt_pulse():
 async def _refresh_pulse_local(reg: str) -> dict:
     query = _REGION_DOC_QUERIES.get(reg) or f"({reg.replace('_', ' ')})"
     key = f"pulse:local:{reg}"
-    articles, err = await _fetch_doc_articles(query, maxrecords=25, priority="local")
+    articles, err = await _fetch_doc_articles(
+        query,
+        maxrecords=25,
+        priority="local",
+        timespan=_LOCAL_DOC_TIMESPAN,
+    )
+    articles = filter_local_pulse_articles(articles)
     if err and not articles:
         stale = _stale_response(key, error=err, extra={"region": reg, "query": query})
         if stale:
-            return stale
+            return finalize_local_pulse(stale)
         return {
             "count": 0,
             "articles": [],
@@ -502,14 +562,14 @@ async def _refresh_pulse_local(reg: str) -> dict:
         feed_registry.write_auto(f"gdelt_pulse_local:{reg}", out)
     except Exception:
         pass
-    return out
+    return finalize_local_pulse(out)
 
 
 def _load_pulse_local_registry(reg: str) -> dict | None:
     try:
         data = feed_registry.read(f"gdelt_pulse_local:{reg}")
         if data and int(data.get("count") or 0) > 0:
-            return data
+            return finalize_local_pulse(data)
     except Exception:
         pass
     return None
@@ -568,19 +628,19 @@ async def gdelt_pulse_local_data(
     key = f"pulse:local:{reg}"
     fresh = _cache_fresh(key, _GDELT_CACHE_LOCAL_SEC)
     if fresh:
-        return fresh
+        return finalize_local_pulse(fresh)
 
     backoff_err = f"GDELT rate limit (backoff {_backoff_remaining_sec()}s)"
     if _in_backoff():
         stale = _stale_response(key, error=backoff_err, extra={"region": reg, "query": query})
         if stale:
-            return stale
+            return finalize_local_pulse(stale)
         cached = _cache_any(key)
         if cached:
             out = cached.copy()
             out["stale"] = True
             out["error"] = backoff_err
-            return out
+            return finalize_local_pulse(out)
         return {
             "count": 0,
             "articles": [],
@@ -602,18 +662,18 @@ async def gdelt_pulse_local_data(
         if cached and int(cached.get("count") or 0) > 0:
             out = cached.copy()
             out["stale"] = True
-            return out
+            return finalize_local_pulse(out)
         disk = _load_pulse_local_registry(reg)
         if disk:
             _CACHE[key] = (time.time(), disk)
             out = disk.copy()
             out["stale"] = True
             _kick_refresh(key, lambda: _refresh_pulse_local(reg))
-            return out
+            return finalize_local_pulse(out)
         _kick_refresh(key, lambda: _refresh_pulse_local(reg))
         return empty
 
-    return await _cold_start_or_swr(
+    out = await _cold_start_or_swr(
         key,
         reg=reg,
         query=query,
@@ -621,6 +681,7 @@ async def gdelt_pulse_local_data(
         refresh_factory=lambda: _refresh_pulse_local(reg),
         empty=empty,
     )
+    return finalize_local_pulse(out)
 
 
 @router.get("/pulse/local")

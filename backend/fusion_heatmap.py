@@ -645,6 +645,31 @@ def format_hotspots_for_llm(cells: list[dict], top: int = 3) -> str:
     return "\n".join(lines) or "- No ranked fusion hotspots."
 
 
+def rank_cells_for_operator(cells: list[dict], *, top: int = 3) -> list[dict]:
+    """Re-rank fusion cells: operator home region first, then ASEAN, then global."""
+    from operator_briefing import OPERATOR_REGION, _ASEAN_BBOX, _region_bbox, classify_item
+
+    local_bbox = _region_bbox(OPERATOR_REGION)
+    regional_bbox = _ASEAN_BBOX if OPERATOR_REGION == "thailand" else local_bbox
+
+    def _tier(cell: dict) -> int:
+        lat, lon = cell.get("lat"), cell.get("lon")
+        if lat is None or lon is None:
+            return 3
+        bucket = classify_item(float(lat), float(lon), "", local_bbox, regional_bbox)
+        return {"local": 0, "regional": 1, "global": 2}.get(bucket, 2)
+
+    ranked = sorted(
+        cells,
+        key=lambda c: (
+            _tier(c),
+            -float(c.get("score") or 0),
+            -float(c.get("intensity") or 0),
+        ),
+    )
+    return ranked[:top]
+
+
 def slim_hotspot_cells(cells: list[dict], top: int = 3) -> list[dict]:
     """Compact fusion cells for JSON (briefing sources, Pi pull)."""
     out: list[dict] = []
@@ -683,9 +708,10 @@ async def top_hotspots_for_llm(
         compare=compare_arg,
     )
     cells = (data.get("cells") or [])[: max(top, 10)]
+    operator_cells = rank_cells_for_operator(cells, top=top)
     deltas = extract_delta_watch_cells(cells, top=top)
     return (
-        slim_hotspot_cells(cells, top=top),
-        format_hotspots_for_llm(cells, top=top),
+        slim_hotspot_cells(operator_cells, top=top),
+        format_hotspots_for_llm(operator_cells, top=top),
         deltas,
     )

@@ -249,6 +249,19 @@ class NewsDataBridgeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(nd.is_sports_content(title="NBA Finals Game 7 tips off tonight"))
 
+    def test_is_tourism_promo_content(self):
+        self.assertTrue(
+            nd.is_tourism_promo_content(
+                title="Agoda . com celebrates Thai New Year with super special Songkran rates"
+            )
+        )
+        self.assertTrue(
+            nd.is_tourism_promo_content(title="Top 8 Must - See Destinations When Exploring Thailand")
+        )
+        self.assertFalse(
+            nd.is_tourism_promo_content(title="Bangkok issues flood warning for low-lying districts")
+        )
+
     async def test_fetch_filters_junk_from_batch(self):
         os.environ["NEWSDATA_API_KEY"] = "test-key"
         payload = {

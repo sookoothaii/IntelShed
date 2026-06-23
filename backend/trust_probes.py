@@ -116,8 +116,15 @@ async def run_trust_probes() -> dict[str, Any]:
     probes = [briefing, gdelt, ollama, pi]
     score = sum(1 for p in probes if p.get("ok"))
     status = "ok" if score >= 3 else ("warn" if score >= 2 else "critical")
+    failed_probes = [p["name"] for p in probes if not p.get("ok")]
 
-    feed_drift: dict[str, Any] = {"ok": True, "detail": "skipped", "drifting": [], "freshness": []}
+    feed_drift: dict[str, Any] = {
+        "ok": True,
+        "detail": "skipped",
+        "drifting": [],
+        "freshness": [],
+        "degradation": {},
+    }
     try:
         import feed_drift as _feed_drift
 
@@ -156,12 +163,19 @@ async def run_trust_probes() -> dict[str, Any]:
     except Exception as exc:
         fusion_compare = {"available": False, "detail": str(exc)[:120]}
 
+    degradation = feed_drift.get("degradation") or {}
+    field_warn = score < 2
+    feed_warn = bool(degradation.get("warn"))
     return {
         "time": datetime.now(timezone.utc).isoformat(),
         "score": score,
         "max_score": 4,
         "status": status,
         "probes": probes,
+        "failed_probes": failed_probes,
+        "field_warn": field_warn,
+        "feed_warn": feed_warn,
+        "degraded": field_warn or feed_warn,
         "feed_drift": feed_drift,
         "fusion_compare": fusion_compare,
         "briefing_pipeline": briefing_pipeline,

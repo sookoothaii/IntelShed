@@ -65,6 +65,16 @@ _SPORTS_TEXT = re.compile(
     r")\b",
     re.I,
 )
+_TOURISM_PROMO_TEXT = re.compile(
+    r"\b(?:"
+    r"songkran|agoda|"
+    r"must[\s-]*see\s+destinations?|best\s+places?\s+to\s+(?:visit|celebrate|see|explore)|"
+    r"land\s+of\s+smiles|exploring\s+thailand|travel\s+guide|"
+    r"water\s+festival|new\s+year\s+festival|thai\s+new\s+year|"
+    r"special\s+(?:rates?|offers?)|hotel\s+bookings?\s+drop"
+    r")\b",
+    re.I,
+)
 
 
 def api_key_configured() -> bool:
@@ -154,6 +164,12 @@ def is_sports_content(
     return bool(text and _SPORTS_TEXT.search(text))
 
 
+def is_tourism_promo_content(*, title: str = "", description: str = "") -> bool:
+    """True when headline looks like travel promos / stale festival tourism (briefing skip)."""
+    text = f"{title} {description}".strip()
+    return bool(text and _TOURISM_PROMO_TEXT.search(text))
+
+
 def _is_briefing_article(article: dict[str, Any]) -> bool:
     title = (article.get("title") or "").strip()
     if not title or len(title) < 12:
@@ -173,6 +189,8 @@ def _is_briefing_article(article: dict[str, Any]) -> bool:
         description=desc,
         categories=article.get("category"),
     ):
+        return False
+    if is_tourism_promo_content(title=title, description=desc):
         return False
     if not desc and _JAIL_TITLE.match(title):
         return False

@@ -18,6 +18,7 @@ import httpx
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
+import chat_routing
 import chat_tools
 import feed_registry
 import fusion_heatmap
@@ -577,22 +578,46 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
             )
         return block_msg
 
+    api_keys = payload.get("api_keys") if isinstance(payload.get("api_keys"), dict) else None
+    api_base_urls = payload.get("api_base_urls") if isinstance(payload.get("api_base_urls"), dict) else None
+
     PROVIDER_CONFIG = {
         "openai": {
-            "url": "https://api.openai.com/v1/chat/completions",
-            "key": os.getenv("OPENAI_API_KEY"),
+            "url": chat_routing.openai_chat_completions_url(
+                chat_routing.select_base_url(
+                    "openai",
+                    api_base_urls,
+                    os.getenv("OPENAI_BASE_URL"),
+                    chat_routing.DEFAULT_BASE_URLS["openai"],
+                )
+            ),
+            "key": chat_routing.select_api_key("openai", api_keys, os.getenv("OPENAI_API_KEY")),
             "header": "Authorization",
             "prefix": "Bearer ",
         },
         "groq": {
-            "url": "https://api.groq.com/openai/v1/chat/completions",
-            "key": os.getenv("GROQ_API_KEY"),
+            "url": chat_routing.openai_chat_completions_url(
+                chat_routing.select_base_url(
+                    "groq",
+                    api_base_urls,
+                    os.getenv("GROQ_BASE_URL"),
+                    chat_routing.DEFAULT_BASE_URLS["groq"],
+                )
+            ),
+            "key": chat_routing.select_api_key("groq", api_keys, os.getenv("GROQ_API_KEY")),
             "header": "Authorization",
             "prefix": "Bearer ",
         },
         "openrouter": {
-            "url": "https://openrouter.ai/api/v1/chat/completions",
-            "key": os.getenv("OPENROUTER_API_KEY"),
+            "url": chat_routing.openai_chat_completions_url(
+                chat_routing.select_base_url(
+                    "openrouter",
+                    api_base_urls,
+                    os.getenv("OPENROUTER_BASE_URL"),
+                    chat_routing.DEFAULT_BASE_URLS["openrouter"],
+                )
+            ),
+            "key": chat_routing.select_api_key("openrouter", api_keys, os.getenv("OPENROUTER_API_KEY")),
             "header": "Authorization",
             "prefix": "Bearer ",
         },
@@ -603,7 +628,10 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
         api_key = cfg["key"]
         if not api_key:
             return {
-                "error": f"No API key for {provider}. Set {provider.upper()}_API_KEY in .env",
+                "error": (
+                    f"No API key for {provider}. Add it in the HUD settings "
+                    f"or set {provider.upper()}_API_KEY in .env"
+                ),
                 "provider": provider,
             }
 
@@ -621,6 +649,40 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
             "stream": use_stream,
             "temperature": 0.7,
         }
+
+        # ----- Tool-calling loop (full WorldBase access for cloud models) -----
+        if use_tools:
+            if use_stream:
+                async def openai_tools_stream():
+                    try:
+                        async for event in chat_tools.stream_openai_with_tools(
+                            cfg["url"], headers, model, messages, max_rounds=4
+                        ):
+                            yield f"data: {json.dumps(event)}\n\n"
+                    except Exception as e:
+                        yield f"data: {json.dumps({'error': f'{provider} tool stream error: {e}'})}\n\n"
+
+                return StreamingResponse(openai_tools_stream(), media_type="text/event-stream")
+
+            try:
+                final_msgs, actions = await chat_tools.run_openai_with_tools(
+                    cfg["url"], headers, model, messages, max_rounds=4
+                )
+                text = (final_msgs[-1].get("content") or "") if final_msgs else ""
+                return {
+                    "message": {"role": "assistant", "content": text},
+                    "client_actions": actions,
+                    "done": True,
+                    "provider": provider,
+                }
+            except httpx.HTTPStatusError as e:
+                return {
+                    "error": f"{provider} HTTP {e.response.status_code}",
+                    "detail": e.response.text[:300],
+                    "provider": provider,
+                }
+            except Exception as e:
+                return {"error": f"{provider} tool request failed: {e}", "provider": provider}
 
         if use_stream:
             async def openai_stream():
@@ -679,14 +741,24 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
     # ANTHROPIC (Messages API, non-OpenAI format)
     # ------------------------------------------------------------------
     if provider == "anthropic":
-        api_key = os.getenv("ANTHROPIC_API_KEY")
+        api_key = chat_routing.select_api_key("anthropic", api_keys, os.getenv("ANTHROPIC_API_KEY"))
         if not api_key:
             return {
-                "error": "No API key for anthropic. Set ANTHROPIC_API_KEY in .env",
+                "error": (
+                    "No API key for anthropic. Add it in the HUD settings "
+                    "or set ANTHROPIC_API_KEY in .env"
+                ),
                 "provider": provider,
             }
 
-        url = "https://api.anthropic.com/v1/messages"
+        url = chat_routing.anthropic_messages_url(
+            chat_routing.select_base_url(
+                "anthropic",
+                api_base_urls,
+                os.getenv("ANTHROPIC_BASE_URL"),
+                chat_routing.DEFAULT_BASE_URLS["anthropic"],
+            )
+        )
         headers = {
             "Content-Type": "application/json",
             "x-api-key": api_key,
@@ -771,14 +843,27 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
 
 @router.get("/api/providers")
 def list_providers():
-    """Return available LLM providers based on configured API keys."""
-    providers = [{"id": "ollama", "name": "Ollama (Local)", "models": [], "requires_key": False}]
-    if os.getenv("OPENAI_API_KEY"):
-        providers.append({"id": "openai", "name": "OpenAI", "models": ["gpt-4o", "gpt-4o-mini", "o3-mini"], "requires_key": True})
-    if os.getenv("ANTHROPIC_API_KEY"):
-        providers.append({"id": "anthropic", "name": "Anthropic", "models": ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-haiku-20240307"], "requires_key": True})
-    if os.getenv("GROQ_API_KEY"):
-        providers.append({"id": "groq", "name": "Groq", "models": ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"], "requires_key": True})
-    if os.getenv("OPENROUTER_API_KEY"):
-        providers.append({"id": "openrouter", "name": "OpenRouter", "models": ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.3-70b-instruct"], "requires_key": True})
+    """Catalog of LLM providers.
+
+    All providers are listed so the operator can configure a key in the HUD even
+    when ``.env`` has none. ``key_set`` reports whether an ``.env`` key exists;
+    ``supports_tools`` flags providers wired to the WorldBase tool loop.
+    """
+    catalog = [
+        {"id": "ollama", "name": "Ollama (Local)", "models": [], "requires_key": False, "env_key": None, "env_base": None, "default_base_url": None},
+        {"id": "openai", "name": "OpenAI", "models": ["gpt-4o", "gpt-4o-mini", "o3-mini"], "requires_key": True, "env_key": "OPENAI_API_KEY", "env_base": "OPENAI_BASE_URL", "default_base_url": chat_routing.DEFAULT_BASE_URLS["openai"]},
+        {"id": "anthropic", "name": "Anthropic", "models": ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-haiku-20240307"], "requires_key": True, "env_key": "ANTHROPIC_API_KEY", "env_base": "ANTHROPIC_BASE_URL", "default_base_url": chat_routing.DEFAULT_BASE_URLS["anthropic"]},
+        {"id": "groq", "name": "Groq", "models": ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"], "requires_key": True, "env_key": "GROQ_API_KEY", "env_base": "GROQ_BASE_URL", "default_base_url": chat_routing.DEFAULT_BASE_URLS["groq"]},
+        {"id": "openrouter", "name": "OpenRouter", "models": ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.3-70b-instruct"], "requires_key": True, "env_key": "OPENROUTER_API_KEY", "env_base": "OPENROUTER_BASE_URL", "default_base_url": chat_routing.DEFAULT_BASE_URLS["openrouter"]},
+    ]
+    providers = []
+    for p in catalog:
+        env_key_name = p.pop("env_key")
+        env_base_name = p.pop("env_base")
+        providers.append({
+            **p,
+            "key_set": bool(os.getenv(env_key_name)) if env_key_name else False,
+            "base_url_set": bool(os.getenv(env_base_name)) if env_base_name else False,
+            "supports_tools": chat_routing.provider_supports_tools(p["id"]),
+        })
     return {"providers": providers}

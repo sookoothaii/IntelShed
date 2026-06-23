@@ -318,3 +318,173 @@ async def run_ollama_with_tools(
                 })
 
     return ([{"role": "assistant", "content": "Tool loop limit reached."}], client_actions)
+
+
+# ----------------------------------------------------------------------
+# OpenAI-compatible providers (OpenAI / Groq / OpenRouter, any /v1/chat/completions)
+# Reuses OLLAMA_TOOLS (already OpenAI function-calling schema) + execute_tool.
+# ----------------------------------------------------------------------
+
+def _openai_chat_body(model: str, messages: list, *, stream: bool, with_tools: bool) -> dict:
+    body: dict = {
+        "model": model,
+        "messages": messages,
+        "stream": stream,
+        "temperature": 0.7,
+    }
+    if with_tools:
+        body["tools"] = OLLAMA_TOOLS
+        body["tool_choice"] = "auto"
+    return body
+
+
+def _accumulate_tool_call_deltas(acc: dict, deltas: list) -> None:
+    """Merge streamed OpenAI tool_call deltas (keyed by index) in place."""
+    for tc in deltas or []:
+        idx = tc.get("index", 0)
+        slot = acc.setdefault(idx, {"id": None, "name": "", "args": ""})
+        if tc.get("id"):
+            slot["id"] = tc["id"]
+        fn = tc.get("function") or {}
+        if fn.get("name"):
+            slot["name"] = fn["name"]
+        if fn.get("arguments"):
+            slot["args"] += fn["arguments"]
+
+
+def _ordered_tool_calls(acc: dict) -> list[dict]:
+    out: list[dict] = []
+    for i, key in enumerate(sorted(acc)):
+        slot = acc[key]
+        out.append({
+            "id": slot["id"] or f"call_{i}",
+            "name": slot["name"],
+            "args": slot["args"] or "{}",
+        })
+    return out
+
+
+async def stream_openai_with_tools(
+    url: str,
+    headers: dict,
+    model: str,
+    messages: list,
+    *,
+    max_rounds: int = 4,
+    timeout: float = 120.0,
+):
+    """Stream an OpenAI-compatible chat with WorldBase tools.
+
+    Yields the same event shapes as ``stream_ollama_with_tools``:
+    ``{"token"}`` / ``{"status"}`` / ``{"client_action"}`` / ``{"done"}``.
+    """
+    working = list(messages)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for _ in range(max_rounds):
+            yield {"status": "generating"}
+            acc: dict = {}
+            content_final = ""
+
+            async with client.stream(
+                "POST",
+                url,
+                headers=headers,
+                json=_openai_chat_body(model, working, stream=True, with_tools=True),
+            ) as r:
+                r.raise_for_status()
+                async for line in r.aiter_lines():
+                    if not line.strip() or not line.startswith("data: "):
+                        continue
+                    payload_text = line[6:]
+                    if payload_text.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(payload_text)
+                    except json.JSONDecodeError:
+                        continue
+                    choice = (chunk.get("choices") or [{}])[0]
+                    delta = choice.get("delta") or {}
+                    content = delta.get("content")
+                    if content:
+                        content_final += content
+                        yield {"token": content}
+                    if delta.get("tool_calls"):
+                        _accumulate_tool_call_deltas(acc, delta["tool_calls"])
+
+            if acc:
+                ordered = _ordered_tool_calls(acc)
+                working.append({
+                    "role": "assistant",
+                    "content": content_final or None,
+                    "tool_calls": [
+                        {
+                            "id": c["id"],
+                            "type": "function",
+                            "function": {"name": c["name"], "arguments": c["args"]},
+                        }
+                        for c in ordered
+                    ],
+                })
+                for c in ordered:
+                    targs = parse_tool_arguments(c["args"])
+                    yield {"status": "tool", "tool": c["name"]}
+                    out = await execute_tool(c["name"], targs)
+                    if out.get("client_action"):
+                        yield {"client_action": out["client_action"]}
+                    working.append({
+                        "role": "tool",
+                        "tool_call_id": c["id"],
+                        "content": json.dumps(out.get("result", out), default=str)[:8000],
+                    })
+                continue
+
+            yield {"done": True}
+            return
+
+    yield {"token": "\nTool loop limit reached."}
+    yield {"done": True}
+
+
+async def run_openai_with_tools(
+    url: str,
+    headers: dict,
+    model: str,
+    messages: list,
+    *,
+    max_rounds: int = 4,
+    timeout: float = 120.0,
+) -> tuple[list[dict], list[dict]]:
+    """Non-streaming OpenAI-compatible tool loop; returns (final_msgs, client_actions)."""
+    client_actions: list[dict] = []
+    working = list(messages)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for _ in range(max_rounds):
+            r = await client.post(
+                url,
+                headers=headers,
+                json=_openai_chat_body(model, working, stream=False, with_tools=True),
+            )
+            r.raise_for_status()
+            data = r.json()
+            choice = (data.get("choices") or [{}])[0]
+            msg = choice.get("message") or {}
+            tool_calls = msg.get("tool_calls") or []
+
+            if not tool_calls:
+                return ([{"role": "assistant", "content": msg.get("content") or ""}], client_actions)
+
+            working.append(msg)
+            for tc in tool_calls:
+                fn = tc.get("function") or {}
+                out = await execute_tool(fn.get("name", ""), parse_tool_arguments(fn.get("arguments")))
+                if out.get("client_action"):
+                    client_actions.append(out["client_action"])
+                working.append({
+                    "role": "tool",
+                    "tool_call_id": tc.get("id"),
+                    "content": json.dumps(out.get("result", out), default=str)[:8000],
+                })
+
+    return ([{"role": "assistant", "content": "Tool loop limit reached."}], client_actions)

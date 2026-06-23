@@ -8,6 +8,9 @@
 #   .\scripts\deploy-pi-sync.ps1 -Portal -Lcd # also system_tiles.py (GEOPOL LCD headline)
 #   .\scripts\deploy-pi-sync.ps1 -TrimArduino # remove /mnt/sdcard/.arduino15 (~7 GB)
 #   .\scripts\deploy-pi-sync.ps1 -NoClearBuffer
+#
+# If remote sudo fails (password required): scripts land in /tmp/ on the Pi —
+# complete install with the one-liner in offgrid-raspi/docs/WORLDBASE_PI_SYNC.md
 
 param(
     [switch]$Portal,

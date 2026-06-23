@@ -205,7 +205,9 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | INTEL layer count `—` | Toggle **INTEL** under telemetry (OSINT/FULL preset enables `intelFt`); wait ~2 s for FtM fetch |
 | Splink resolution test fail | Optional — `pip install 'splink>=4.0,<5'` or ignore if not using Splink |
 | Trust 2/4 in FULL SITUATION | Check `GET /api/trust` probes — GDELT ok with stale cache if `count>0`; Pi edge online; Ollama: `OLLAMA_HOST=127.0.0.1:11434` or `http://127.0.0.1:11434` (probe normalizes both) |
-| Pi pull stale after PC upgrade | `.\scripts\deploy-pi-sync.ps1`; verify `payload_version: 2` in pull JSON |
+| Pi pull stale after PC upgrade | `.\scripts\deploy-pi-sync.ps1`; verify `payload_version: 2` in pull JSON; if deploy stops at sudo, run Pi one-liner in [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) |
+| Portal shows local `world_brief` not PC briefing | Check `/var/lib/offgrid/briefing_latest.json`; pull log for `304 but cache missing/empty` (fixed `51f3e8c` — redeploy pull script); `grep _cache_has_briefing /usr/local/bin/worldbase_pull.py` → expect `2` |
+| PC node_state stale after Pi reboot | Stale push buffer replay (fixed `51f3e8c` — push deletes buffer after `Ingest OK`); `sudo rm -f /var/lib/offgrid/worldbase_push_buffer.jsonl` + restart push |
 | Pi push timeout storm | Deploy latest `worldbase_push.py` — exponential backoff + 45 s POST timeout; log `Ingest FAILED (streak=N) — backoff …` |
 | Briefing generate timeout (PS) | Client `-TimeoutSec 600`; server may still finish — check `GET /api/briefing` → `created_at` |
 | Firewall chat block / unreachable | `GET /api/firewall/status`; HAK_GAL on `:8001`; chat needs `firewall: true` + `chat_session_id`; see [`docs/FIREWALL.md`](docs/FIREWALL.md) |

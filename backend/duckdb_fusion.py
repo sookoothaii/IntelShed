@@ -1,11 +1,13 @@
-"""DuckDB spatial fusion — GeoParquet / local staging (Phase 1 stub)."""
+"""DuckDB spatial fusion — GeoParquet staging + sample queries."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+
+import fusion_spatial_stage as fss
 
 router = APIRouter(prefix="/api/fusion", tags=["fusion"])
 
@@ -80,3 +82,40 @@ def fusion_sample(limit: int = 20):
         return {"mode": "empty", "count": 0, "hint": "Set FUSION_GEOPARQUET or populate entities"}
     finally:
         conn.close()
+
+
+@router.get("/stage/status")
+def fusion_stage_status():
+    """GeoParquet staging file metadata (H3-indexed feed points)."""
+    try:
+        return fss.stage_status()
+    except Exception as exc:
+        raise HTTPException(503, str(exc)[:200]) from exc
+
+
+@router.post("/stage")
+def fusion_stage_run():
+    """Extract geolocated rows from feed_cache → GeoParquet on disk."""
+    try:
+        return fss.stage_to_parquet()
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)[:200]) from exc
+    except Exception as exc:
+        raise HTTPException(500, str(exc)[:200]) from exc
+
+
+@router.get("/stage/query")
+def fusion_stage_query(
+    min_lat: float = Query(..., ge=-90, le=90),
+    min_lon: float = Query(..., ge=-180, le=180),
+    max_lat: float = Query(..., ge=-90, le=90),
+    max_lon: float = Query(..., ge=-180, le=180),
+    limit: int = Query(50, ge=1, le=500),
+):
+    """BBox filter on staged GeoParquet (Thailand operator region, etc.)."""
+    if min_lat > max_lat or min_lon > max_lon:
+        raise HTTPException(400, "invalid bbox")
+    try:
+        return fss.query_bbox(min_lat, min_lon, max_lat, max_lon, limit=limit)
+    except Exception as exc:
+        raise HTTPException(503, str(exc)[:200]) from exc

@@ -13,12 +13,30 @@ PROVIDER_ENV_KEYS = {
     "openrouter": "OPENROUTER_API_KEY",
 }
 
+PROVIDER_ENV_BASE_URLS = {
+    "openai": "OPENAI_BASE_URL",
+    "anthropic": "ANTHROPIC_BASE_URL",
+    "groq": "GROQ_BASE_URL",
+    "openrouter": "OPENROUTER_BASE_URL",
+}
+
+DEFAULT_BASE_URLS = {
+    "openai": "https://api.openai.com/v1",
+    "anthropic": "https://api.anthropic.com/v1",
+    "groq": "https://api.groq.com/openai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
+
+
+_OPENAI_COMPATIBLE = frozenset({"openai", "groq", "openrouter"})
+
 
 def resolve_chat_options(payload: dict[str, Any], *, default_model: str) -> dict[str, Any]:
     """Mirror /api/chat provider + tool flags (no I/O)."""
     provider = payload.get("provider", "ollama")
     model = payload.get("model", default_model)
     use_stream = bool(payload.get("stream", False))
+    # Tools default ON for Ollama; for other providers the UI sends an explicit flag.
     use_tools = payload.get("use_tools", provider == "ollama")
     force_fast = bool(payload.get("force_fast") or payload.get("entity_context"))
     if force_fast:
@@ -34,6 +52,60 @@ def resolve_chat_options(payload: dict[str, Any], *, default_model: str) -> dict
 
 def provider_requires_api_key(provider: str) -> bool:
     return provider in PROVIDER_ENV_KEYS
+
+
+def provider_supports_tools(provider: str) -> bool:
+    """Providers with a WorldBase tool-calling loop (Ollama + OpenAI-compatible)."""
+    return provider == "ollama" or provider in _OPENAI_COMPATIBLE
+
+
+def select_api_key(provider: str, api_keys: dict[str, Any] | None, env_key: str | None) -> str | None:
+    """Prefer a UI-supplied key for this provider, else the .env key.
+
+    ``api_keys`` is an optional ``{provider: key}`` map from the request body so
+    the operator can configure keys in the HUD without editing ``.env``.
+    """
+    if api_keys:
+        candidate = api_keys.get(provider)
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return env_key
+
+
+def select_base_url(
+    provider: str,
+    base_urls: dict[str, Any] | None,
+    env_base: str | None,
+    default_base: str,
+) -> str:
+    """Resolve provider base URL: HUD override → .env → catalog default."""
+    if base_urls:
+        candidate = base_urls.get(provider)
+        if isinstance(candidate, str) and candidate.strip():
+            return normalize_base_url(candidate)
+    if env_base and env_base.strip():
+        return normalize_base_url(env_base)
+    return normalize_base_url(default_base)
+
+
+def normalize_base_url(raw: str) -> str:
+    return raw.strip().rstrip("/")
+
+
+def openai_chat_completions_url(base_or_full: str) -> str:
+    """Accept ``https://host/v1`` or a full ``.../chat/completions`` endpoint."""
+    u = normalize_base_url(base_or_full)
+    if u.endswith("/chat/completions"):
+        return u
+    return f"{u}/chat/completions"
+
+
+def anthropic_messages_url(base_or_full: str) -> str:
+    """Accept ``https://host/v1`` or a full ``.../messages`` endpoint."""
+    u = normalize_base_url(base_or_full)
+    if u.endswith("/messages"):
+        return u
+    return f"{u}/messages"
 
 
 def build_ollama_chat_body(

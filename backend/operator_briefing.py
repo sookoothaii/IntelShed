@@ -13,7 +13,8 @@ import os
 from typing import Any
 
 from stac_bridge import REGION_PRESETS
-from newsdata_bridge import is_sports_content
+from gdelt_bridge import filter_local_pulse_articles
+from newsdata_bridge import is_sports_content, is_tourism_promo_content
 
 OPERATOR_REGION = os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower()
 BRIEFING_LANG = os.getenv("WORLDBASE_BRIEFING_LANG", "en").strip().lower()
@@ -209,14 +210,19 @@ def _line(
     sources: list[str] | None = None,
     lat: float | None = None,
     lon: float | None = None,
+    observed_at: str | float | int | None = None,
 ) -> dict:
+    from digest_timestamps import apply_observed_at
+
+    body, iso = apply_observed_at(text, observed_at)
     return {
         "severity": severity,
-        "text": text.strip(),
+        "text": body,
         "bucket": bucket,
         "sources": list(sources or []),
         "lat": lat,
         "lon": lon,
+        "observed_at": iso,
     }
 
 
@@ -237,6 +243,11 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         regional_bbox = [w - 8, s - 6, e + 8, n + 4]
 
     items: list[dict] = []
+    from digest_timestamps import feed_block_updated_at
+
+    aq_updated = feed_block_updated_at(snap.get("airquality"))
+    cams_updated = feed_block_updated_at(snap.get("cams_haze"))
+    humanitarian_updated = feed_block_updated_at(snap.get("humanitarian"))
 
     for city in (snap.get("airquality", {}) or {}).get("cities") or []:
         pm25 = city.get("pm25")
@@ -252,6 +263,7 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
             sources=["airquality"],
             lat=lat,
             lon=lon,
+            observed_at=aq_updated,
         ))
 
     for row in (snap.get("cams_haze", {}) or {}).get("cities") or []:
@@ -278,6 +290,7 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
             sources=["cams_haze"],
             lat=lat,
             lon=lon,
+            observed_at=cams_updated,
         ))
 
     for ds in (snap.get("humanitarian", {}) or {}).get("datasets") or []:
@@ -287,7 +300,13 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         if org:
             text += f" ({org})"
         bucket = _text_bucket(title) or "regional"
-        items.append(_line("medium", text, bucket, sources=["humanitarian"]))
+        items.append(_line(
+            "medium",
+            text,
+            bucket,
+            sources=["humanitarian"],
+            observed_at=ds.get("modified") or humanitarian_updated,
+        ))
 
     thai_vessels = [
         v for v in (snap.get("maritime", {}) or {}).get("vessels") or []
@@ -307,11 +326,13 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         ))
 
     local_pulse = snap.get("gdelt_pulse_local", {}) or {}
-    for art in (local_pulse.get("articles") or [])[:10]:
+    for art in filter_local_pulse_articles(local_pulse.get("articles"))[:10]:
         title = art.get("title") or art.get("url") or "Headline"
         if is_sports_content(title=title, description=art.get("description") or ""):
             continue
-        items.append(_line("low", f"Local news: {title[:120]}", "local", sources=["gdelt_pulse_local"]))
+        if is_tourism_promo_content(title=title, description=art.get("description") or ""):
+            continue
+        items.append(_line("low", f"Local news: {title[:120]}", "local", sources=["gdelt_pulse_local"], observed_at=art.get("seendate")))
 
     newsdata = snap.get("newsdata") or {}
     if newsdata.get("configured") is not False:
@@ -323,9 +344,14 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
                 categories=art.get("category"),
             ):
                 continue
+            if is_tourism_promo_content(
+                title=title,
+                description=art.get("description") or "",
+            ):
+                continue
             desc = art.get("description") or ""
             bucket = _text_bucket(f"{title} {desc}") or "global"
-            items.append(_line("low", f"News: {title[:120]}", bucket, sources=["newsdata"]))
+            items.append(_line("low", f"News: {title[:120]}", bucket, sources=["newsdata"], observed_at=art.get("pubDate")))
 
     for row in (snap.get("gdelt_geo_local", {}) or {}).get("events", [])[:12]:
         name = row.get("name") or "GDELT signal"
@@ -347,7 +373,15 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         text = f"M{mag} — {place}"
         bucket = classify_item(lat, lon, text, local_bbox, regional_bbox)
         sev = "high" if (mag or 0) >= 6 else "medium" if (mag or 0) >= 5 else "low"
-        items.append(_line(sev, text, bucket, sources=["earthquakes"], lat=lat, lon=lon))
+        items.append(_line(
+            sev,
+            text,
+            bucket,
+            sources=["earthquakes"],
+            lat=lat,
+            lon=lon,
+            observed_at=q.get("time") or q.get("updated"),
+        ))
 
     for ev in (snap.get("events", {}) or {}).get("events", [])[:25]:
         title = ev.get("title") or ev.get("category") or "Event"
@@ -366,7 +400,7 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         title = a.get("title") or "GDACS alert"
         lat, lon = a.get("lat"), a.get("lon")
         bucket = classify_item(lat, lon, title, local_bbox, regional_bbox)
-        items.append(_line("medium", title, bucket, sources=["gdacs"], lat=lat, lon=lon))
+        items.append(_line("medium", title, bucket, sources=["gdacs"], lat=lat, lon=lon, observed_at=a.get("published")))
 
     for h in (snap.get("hazards", {}) or {}).get("alerts", [])[:20]:
         label = h.get("event") or h.get("headline") or "Hazard"
@@ -408,7 +442,7 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         if key in seen_titles:
             continue
         bucket = _text_bucket(title) or "global"
-        items.append(_line("low", f"News: {title[:120]}", bucket, sources=["gdelt_pulse"]))
+        items.append(_line("low", f"News: {title[:120]}", bucket, sources=["gdelt_pulse"], observed_at=art.get("seendate")))
 
     for v in (snap.get("volcanoes", {}) or {}).get("volcanoes", [])[:10]:
         name = v.get("name") or "Volcano"
@@ -934,7 +968,9 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
             "keine zusätzlichen Watch-Themen erfinden. "
             "Bei INTEL ENTITIES: nenne konkrete Akteure/Orte/Ereignisse aus dem FtM-Graph, "
             "nicht generische Feed-Schlagzeilen wiederholen. "
-            "Keine Sport-, Unterhaltungs- oder Promi-Themen."
+            "Keine Sport-, Unterhaltungs- oder Promi-Themen. "
+            "Digest-Zeilen mit [Datum]-Präfix: Zeitpunkt im Protokoll wiedergeben; "
+            "Zeilen ohne Datum sind Feed-Snapshots (Sensor/Catalog), keine Breaking-News-Schlagzeilen."
         )
         digest_header = "--- DIGEST"
         protocol_label = "Protokoll:"
@@ -958,7 +994,9 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
             "when relevant — do not add watch topics not listed. "
             "For INTEL ENTITIES: name specific actors/places/events from the FtM graph; "
             "do not repeat generic feed headlines. "
-            "Omit sports, entertainment, and celebrity news."
+            "Omit sports, entertainment, and celebrity news. "
+            "When digest lines include a [date] prefix, reflect that timing in the protocol; "
+            "lines without a date are feed snapshots (sensors/catalog), not breaking headlines."
         )
         digest_header = "--- DIGEST"
         protocol_label = "Protocol:"

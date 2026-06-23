@@ -4,6 +4,31 @@ import { fetchApi } from '../lib/networkFetch';
 import FirewallMonitor from './FirewallMonitor';
 
 const CHAT_SESSION_KEY = 'worldbase_chat_session_id'
+const CUSTOM_MODELS_KEY = 'worldbase_custom_models'
+const SELECTED_MODELS_KEY = 'worldbase_selected_models'
+
+function loadJsonRecord(key: string): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(key) || '{}') || {}
+  } catch {
+    return {}
+  }
+}
+
+function loadCustomModels(): Record<string, string[]> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CUSTOM_MODELS_KEY) || '{}') || {}
+    const out: Record<string, string[]> = {}
+    for (const [pid, list] of Object.entries(raw)) {
+      if (Array.isArray(list)) {
+        out[pid] = list.filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
 
 function getChatSessionId(): string {
   try {
@@ -35,7 +60,7 @@ export default function ChatPanel({
   const [history, setHistory] = useState<{ role: string; content: string }[]>([
     { role: 'system', content: 'Select a model and start chatting.' },
   ])
-  const [providers, setProviders] = useState<{ id: string; name: string; models: string[]; requires_key: boolean }[]>([])
+  const [providers, setProviders] = useState<{ id: string; name: string; models: string[]; requires_key: boolean; key_set?: boolean; base_url_set?: boolean; default_base_url?: string | null; supports_tools?: boolean }[]>([])
   const [provider, setProvider] = useState('ollama')
   const [models, setModels] = useState<{ name: string; parameter_size?: string }[]>([])
   const [model, setModel] = useState('')
@@ -50,7 +75,131 @@ export default function ChatPanel({
   const [firewall, setFirewall] = useState(false)
   const [firewallMeta, setFirewallMeta] = useState<any>(null)
   const [genWaitSec, setGenWaitSec] = useState(0)
+  const [showSettings, setShowSettings] = useState(false)
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('worldbase_api_keys') || '{}') || {}
+    } catch {
+      return {}
+    }
+  })
+  const [apiBaseUrls, setApiBaseUrls] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('worldbase_api_base_urls') || '{}') || {}
+    } catch {
+      return {}
+    }
+  })
+  const [customModels, setCustomModels] = useState<Record<string, string[]>>(() => loadCustomModels())
+  const [selectedModels, setSelectedModels] = useState<Record<string, string>>(() => loadJsonRecord(SELECTED_MODELS_KEY))
+  const [showAddModel, setShowAddModel] = useState(false)
+  const [newModelDraft, setNewModelDraft] = useState('')
+  const [customModelDrafts, setCustomModelDrafts] = useState<Record<string, string>>({})
   const processedAskIdRef = useRef(0)
+
+  const saveApiKeys = (next: Record<string, string>) => {
+    setApiKeys(next)
+    try {
+      localStorage.setItem('worldbase_api_keys', JSON.stringify(next))
+    } catch {
+      // ignore storage quota / privacy mode
+    }
+  }
+
+  const saveApiBaseUrls = (next: Record<string, string>) => {
+    setApiBaseUrls(next)
+    try {
+      localStorage.setItem('worldbase_api_base_urls', JSON.stringify(next))
+    } catch {
+      // ignore storage quota / privacy mode
+    }
+  }
+
+  const saveCustomModels = (next: Record<string, string[]>) => {
+    setCustomModels(next)
+    try {
+      localStorage.setItem(CUSTOM_MODELS_KEY, JSON.stringify(next))
+    } catch {
+      // ignore storage quota / privacy mode
+    }
+  }
+
+  const rememberSelectedModel = (pid: string, modelName: string) => {
+    if (!modelName.trim()) return
+    const next = { ...selectedModels, [pid]: modelName.trim() }
+    setSelectedModels(next)
+    try {
+      localStorage.setItem(SELECTED_MODELS_KEY, JSON.stringify(next))
+    } catch {
+      // ignore storage quota / privacy mode
+    }
+  }
+
+  const mergedModelsForProvider = (pid: string, suggested: string[] = []) => {
+    const custom = customModels[pid] || []
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const name of [...suggested, ...custom]) {
+      const trimmed = name.trim()
+      if (!trimmed || seen.has(trimmed)) continue
+      seen.add(trimmed)
+      out.push(trimmed)
+    }
+    return out
+  }
+
+  const pickModelForProvider = (pid: string, suggested: string[] = []) => {
+    const merged = mergedModelsForProvider(pid, suggested)
+    if (merged.length === 0) return ''
+    const remembered = selectedModels[pid]
+    if (remembered && merged.includes(remembered)) return remembered
+    return merged[0]
+  }
+
+  const addCustomModel = (pid: string, rawName: string) => {
+    const name = rawName.trim()
+    if (!name) return false
+    const suggested = providers.find((p) => p.id === pid)?.models || []
+    const merged = mergedModelsForProvider(pid, suggested)
+    if (merged.includes(name)) {
+      setModel(name)
+      rememberSelectedModel(pid, name)
+      if (provider !== pid) setProvider(pid)
+      return true
+    }
+    const next = { ...customModels, [pid]: [...(customModels[pid] || []), name] }
+    saveCustomModels(next)
+    setModel(name)
+    rememberSelectedModel(pid, name)
+    if (provider !== pid) setProvider(pid)
+    return true
+  }
+
+  const addCustomModelsFromDraft = (pid: string, raw: string) => {
+    const names = raw.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean)
+    if (names.length === 0) return false
+    names.forEach((name) => addCustomModel(pid, name))
+    setCustomModelDrafts((prev) => ({ ...prev, [pid]: '' }))
+    return true
+  }
+
+  const customModelPlaceholder = (pid: string) => {
+    if (pid === 'openrouter') return 'anthropic/claude-sonnet-4, google/gemini-2.5-pro-preview'
+    if (pid === 'openai') return 'gpt-4o or custom deployment name'
+    return 'model slug (comma-separated ok)'
+  }
+
+  const removeCustomModel = (pid: string, name: string) => {
+    const nextList = (customModels[pid] || []).filter((m) => m !== name)
+    const next = { ...customModels }
+    if (nextList.length > 0) next[pid] = nextList
+    else delete next[pid]
+    saveCustomModels(next)
+    if (model === name) {
+      const suggested = providers.find((p) => p.id === pid)?.models || []
+      setModel(pickModelForProvider(pid, suggested))
+    }
+  }
 
   const loadModels = () => {
     setModelErr(null)
@@ -103,6 +252,20 @@ export default function ChatPanel({
   }, [])
 
   useEffect(() => {
+    if (provider === 'ollama' || providers.length === 0) return
+    const p = providers.find((x) => x.id === provider)
+    const merged = mergedModelsForProvider(provider, p?.models || [])
+    if (merged.length === 0) {
+      if (model) setModel('')
+      return
+    }
+    if (!model || !merged.includes(model)) {
+      setModel(pickModelForProvider(provider, p?.models || []))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providers, customModels, provider])
+
+  useEffect(() => {
     if (!busy) {
       setGenWaitSec(0)
       return
@@ -151,7 +314,7 @@ export default function ChatPanel({
     const forceFast = opts?.forceFast ?? isEntityAsk
     const useCtx = !forceFast && feedContext
     const useWebSearch = !forceFast && webSearch
-    const useToolCalls = !forceFast && useTools && provider === 'ollama'
+    const useToolCalls = !forceFast && useTools
 
     setMsg('')
     setFirewallMeta(null)
@@ -181,9 +344,9 @@ export default function ChatPanel({
     }
 
     if (useCtx) setGenStatus('Loading situation picture (CTX)…')
-    else if (useToolCalls) setGenStatus('Ollama + tools — may take 30–90s…')
-    else if (forceFast) setGenStatus('Ollama analyzing target…')
-    else setGenStatus('Contacting Ollama…')
+    else if (useToolCalls) setGenStatus(`${provider} + tools — may take 30–90s…`)
+    else if (forceFast) setGenStatus(`${provider} analyzing target…`)
+    else setGenStatus(`Contacting ${provider}…`)
 
     try {
       const r = await fetchApi('/api/chat', {
@@ -201,6 +364,8 @@ export default function ChatPanel({
           chat_session_id: getChatSessionId(),
           use_tools: useToolCalls,
           force_fast: forceFast,
+          api_keys: apiKeys,
+          api_base_urls: apiBaseUrls,
         }),
       })
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
@@ -307,11 +472,19 @@ export default function ChatPanel({
   }
 
   const isOllama = provider === 'ollama'
-  const providerModels = providers.find((p) => p.id === provider)?.models || []
+  const ollamaCustomModels = customModels.ollama || []
+  const activeProvider = providers.find((p) => p.id === provider)
+  const providerModels = activeProvider?.models || []
+  const customForProvider = customModels[provider] || []
+  const cloudModelOptions = mergedModelsForProvider(provider, providerModels)
+  const keyProviders = providers.filter((p) => p.requires_key)
+  const keyMissing = Boolean(
+    activeProvider?.requires_key && !activeProvider?.key_set && !(apiKeys[provider] || '').trim(),
+  )
 
   return (
     <div className="panel chat">
-      <h2>WorldBase AI <span style={{ color: '#ff2d00', fontSize: 10 }}>[FIREWALL UI v1.0]</span></h2>
+      <h2>WorldBase AI</h2>
 
       {modelErr && (
         <div className="data-error">
@@ -337,11 +510,16 @@ export default function ChatPanel({
           onChange={(e) => {
             const pid = e.target.value
             setProvider(pid)
+            setShowAddModel(false)
+            setNewModelDraft('')
             const p = providers.find((x) => x.id === pid)
-            if (p && p.models.length > 0) {
-              setModel(p.models[0])
-            } else if (pid === 'ollama' && models.length > 0) {
-              setModel(models[0].name)
+            if (pid === 'ollama') {
+              if (models.length > 0) {
+                const pick = pickModelForProvider('ollama', models.map((m) => m.name))
+                setModel(pick || models[0].name)
+              }
+            } else {
+              setModel(pickModelForProvider(pid, p?.models || []))
             }
           }}
           style={{ marginRight: 6 }}
@@ -352,36 +530,81 @@ export default function ChatPanel({
         </select>
 
         {isOllama ? (
-          <select value={model} onChange={(e) => setModel(e.target.value)} disabled={models.length === 0}>
-            {models.length === 0 && modelsLoading && <option value="">Loading models…</option>}
-            {models.length === 0 && !modelsLoading && <option value="">No models found</option>}
+          <select
+            value={model}
+            onChange={(e) => {
+              setModel(e.target.value)
+              rememberSelectedModel('ollama', e.target.value)
+            }}
+            disabled={models.length === 0 && ollamaCustomModels.length === 0}
+          >
+            {models.length === 0 && ollamaCustomModels.length === 0 && modelsLoading && (
+              <option value="">Loading models…</option>
+            )}
+            {models.length === 0 && ollamaCustomModels.length === 0 && !modelsLoading && (
+              <option value="">No models found</option>
+            )}
             {models.map((m) => (
               <option key={m.name} value={m.name}>
                 {m.name} {m.parameter_size ? `(${m.parameter_size})` : ''}
               </option>
             ))}
+            {ollamaCustomModels.length > 0 && (
+              <optgroup label="Custom">
+                {ollamaCustomModels.map((m) => (
+                  <option key={`c-${m}`} value={m}>{m}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         ) : (
           <>
-            <input
-              list={`models-${provider}`}
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="model name"
-              style={{ width: 180, fontSize: 12 }}
-            />
-            <datalist id={`models-${provider}`}>
-              {providerModels.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
+            <select
+              value={model || ''}
+              onChange={(e) => {
+                setModel(e.target.value)
+                rememberSelectedModel(provider, e.target.value)
+              }}
+              disabled={cloudModelOptions.length === 0 && !model}
+              style={{ maxWidth: 220, fontSize: 12 }}
+            >
+              {cloudModelOptions.length === 0 && !model && (
+                <option value="">Add a custom model…</option>
+              )}
+              {model && !cloudModelOptions.includes(model) && (
+                <option value={model}>{model}</option>
+              )}
+              {providerModels.length > 0 && (
+                <optgroup label="Suggested">
+                  {providerModels.map((m) => (
+                    <option key={`s-${m}`} value={m}>{m}</option>
+                  ))}
+                </optgroup>
+              )}
+              {customForProvider.length > 0 && (
+                <optgroup label="Custom">
+                  {customForProvider.map((m) => (
+                    <option key={`c-${m}`} value={m}>{m}</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
           </>
         )}
 
         <button
+          type="button"
+          className={showAddModel ? 'web-search on' : 'web-search'}
+          onClick={() => setShowAddModel((v) => !v)}
+          title="Add custom model for active provider (or use CUSTOM MODELS in SETUP)"
+        >
+          + MODEL
+        </button>
+
+        <button
           className={useTools ? 'web-search on' : 'web-search'}
           onClick={() => setUseTools((v) => !v)}
-          title="Ollama tool rounds (situations, OSINT) — slower but smarter"
+          title="WorldBase tool rounds (situations, OSINT, globe, memory) — local + cloud models; slower but smarter"
         >
           {useTools ? 'TOOLS ON' : 'TOOLS OFF'}
         </button>
@@ -407,7 +630,232 @@ export default function ChatPanel({
         >
           {firewall ? '🛡️ ON' : '🛡️ OFF'}
         </button>
+        <button
+          className={showSettings ? 'web-search on' : 'web-search'}
+          onClick={() => setShowSettings((v) => !v)}
+          title="Configure provider API keys and base URLs (stored in this browser only)"
+          style={{ marginLeft: 6 }}
+        >
+          ⚙ SETUP
+        </button>
       </div>
+
+      {showAddModel && (
+        <div className="chat-add-model">
+          <input
+            value={newModelDraft}
+            onChange={(e) => setNewModelDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newModelDraft.trim()) {
+                if (addCustomModelsFromDraft(provider, newModelDraft)) {
+                  setNewModelDraft('')
+                  setShowAddModel(false)
+                }
+              }
+            }}
+            placeholder={customModelPlaceholder(provider)}
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            disabled={!newModelDraft.trim()}
+            onClick={() => {
+              if (addCustomModelsFromDraft(provider, newModelDraft)) {
+                setNewModelDraft('')
+                setShowAddModel(false)
+              }
+            }}
+          >
+            ADD
+          </button>
+          <button type="button" className="web-search" onClick={() => { setShowAddModel(false); setNewModelDraft('') }}>
+            CANCEL
+          </button>
+        </div>
+      )}
+
+      {keyMissing && !showSettings && (
+        <div className="data-error" style={{ borderColor: '#ffd23f', color: '#ffd23f' }}>
+          No API key for {activeProvider?.name || provider}.{' '}
+          <button
+            type="button"
+            className="web-search"
+            style={{ fontSize: 10, marginLeft: 6 }}
+            onClick={() => setShowSettings(true)}
+          >
+            ⚙ ADD KEY
+          </button>
+        </div>
+      )}
+
+      {showSettings && (
+        <div className="chat-settings">
+          <div className="chat-settings-head">PROVIDER CREDENTIALS</div>
+          <div className="chat-settings-note">
+            Stored in this browser (localStorage) and sent only to the local WorldBase backend.
+            Leave blank to use the server <code>.env</code> value or the provider default base URL.
+          </div>
+          {keyProviders.map((p) => (
+            <div key={p.id} className="chat-settings-provider">
+              <div className="chat-settings-row">
+                <label htmlFor={`key-${p.id}`}>
+                  {p.name}
+                  {p.key_set && <span className="chat-key-env" title="A key is set in server .env"> · key .env</span>}
+                  {p.base_url_set && <span className="chat-key-env" title="A base URL is set in server .env"> · url .env</span>}
+                </label>
+                <input
+                  id={`key-${p.id}`}
+                  type="password"
+                  autoComplete="off"
+                  placeholder={p.key_set ? 'using .env key — override here' : `${p.id} API key`}
+                  value={apiKeys[p.id] || ''}
+                  onChange={(e) => saveApiKeys({ ...apiKeys, [p.id]: e.target.value })}
+                />
+                {(apiKeys[p.id] || '').trim() && (
+                  <button
+                    type="button"
+                    className="web-search"
+                    style={{ fontSize: 10 }}
+                    title="Clear this key from the browser"
+                    onClick={() => {
+                      const next = { ...apiKeys }
+                      delete next[p.id]
+                      saveApiKeys(next)
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              {p.default_base_url && (
+                <div className="chat-settings-row chat-settings-row-url">
+                  <label htmlFor={`base-${p.id}`}>Base URL</label>
+                  <input
+                    id={`base-${p.id}`}
+                    type="url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={
+                      p.base_url_set
+                        ? 'using .env base URL — override here'
+                        : p.default_base_url
+                    }
+                    value={apiBaseUrls[p.id] || ''}
+                    onChange={(e) => saveApiBaseUrls({ ...apiBaseUrls, [p.id]: e.target.value })}
+                  />
+                  {(apiBaseUrls[p.id] || '').trim() && (
+                    <button
+                      type="button"
+                      className="web-search"
+                      style={{ fontSize: 10 }}
+                      title="Clear this base URL from the browser (use default)"
+                      onClick={() => {
+                        const next = { ...apiBaseUrls }
+                        delete next[p.id]
+                        saveApiBaseUrls(next)
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+          <div className="chat-settings-head" style={{ marginTop: 12 }}>CUSTOM MODELS</div>
+          <div className="chat-settings-note">
+            Saved per provider in this browser. Enter one slug or comma-separated list, then ADD
+            (OpenRouter: <code>anthropic/claude-sonnet-4</code>).
+          </div>
+          {keyProviders.map((p) => {
+            const list = customModels[p.id] || []
+            const draft = customModelDrafts[p.id] || ''
+            return (
+              <div key={`custom-${p.id}`} className="chat-settings-provider">
+                <div className="chat-settings-subhead">{p.name}</div>
+                <div className="chat-settings-row chat-settings-row-model">
+                  <input
+                    id={`custom-model-${p.id}`}
+                    type="text"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder={customModelPlaceholder(p.id)}
+                    value={draft}
+                    onChange={(e) => setCustomModelDrafts({ ...customModelDrafts, [p.id]: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && draft.trim()) {
+                        addCustomModelsFromDraft(p.id, draft)
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={!draft.trim()}
+                    onClick={() => addCustomModelsFromDraft(p.id, draft)}
+                  >
+                    ADD
+                  </button>
+                </div>
+                {list.length > 0 && (
+                  <div className="chat-settings-chips">
+                    {list.map((m) => (
+                      <span key={m} className="chat-settings-chip">
+                        <span>{m}</span>
+                        <button
+                          type="button"
+                          title="Remove custom model"
+                          onClick={() => removeCustomModel(p.id, m)}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          <div className="chat-settings-provider">
+            <div className="chat-settings-subhead">Ollama (local)</div>
+            <div className="chat-settings-row chat-settings-row-model">
+              <input
+                id="custom-model-ollama"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="qwen3:8b or my-local-model"
+                value={customModelDrafts.ollama || ''}
+                onChange={(e) => setCustomModelDrafts({ ...customModelDrafts, ollama: e.target.value })}
+                onKeyDown={(e) => {
+                  const draft = customModelDrafts.ollama || ''
+                  if (e.key === 'Enter' && draft.trim()) {
+                    addCustomModelsFromDraft('ollama', draft)
+                  }
+                }}
+              />
+              <button
+                type="button"
+                disabled={!(customModelDrafts.ollama || '').trim()}
+                onClick={() => addCustomModelsFromDraft('ollama', customModelDrafts.ollama || '')}
+              >
+                ADD
+              </button>
+            </div>
+            {(customModels.ollama || []).length > 0 && (
+              <div className="chat-settings-chips">
+                {(customModels.ollama || []).map((m) => (
+                  <span key={m} className="chat-settings-chip">
+                    <span>{m}</span>
+                    <button type="button" title="Remove custom model" onClick={() => removeCustomModel('ollama', m)}>
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {firewall && (
         <div style={{ background: '#ff2d00', color: '#fff', padding: '6px 10px', fontSize: 11, borderRadius: 4, marginBottom: 8, fontFamily: 'monospace', fontWeight: 'bold' }}>

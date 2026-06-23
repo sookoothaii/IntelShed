@@ -260,6 +260,26 @@ class CorroborationTests(unittest.TestCase):
         self.assertIn("newsdata", row["source_families"])
         self.assertIn("gdelt", row["source_families"])
 
+    def test_ftm_gdacs_source_inference(self):
+        from briefing_quality import _infer_feed_sources, corroborate_digest_item
+
+        ftm = {
+            "severity": "medium",
+            "text": "[22 Jun 12:00 UTC] [FtM Event/gdacs] Flood in Malaysia, Thailand",
+            "bucket": "local",
+        }
+        gdacs = {
+            "severity": "medium",
+            "text": "[22 Jun 11:00 UTC] Flood in Malaysia, Thailand",
+            "bucket": "local",
+            "sources": ["gdacs"],
+        }
+        self.assertEqual(_infer_feed_sources(ftm), ["ftm", "gdacs"])
+        row = corroborate_digest_item(ftm, [ftm, gdacs])
+        self.assertIn("gdacs", row["source_families"])
+        self.assertIn("ftm", row["source_families"])
+        self.assertNotIn("unknown", row["source_families"])
+
 
 if __name__ == "__main__":
     unittest.main()

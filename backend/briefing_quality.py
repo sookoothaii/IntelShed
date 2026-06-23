@@ -157,16 +157,33 @@ _STOP_WORDS = frozenset({
 def _source_family(feed: str) -> str:
     if feed in _GDELT_FEED_FAMILY:
         return "gdelt"
+    if feed in ("gdelt-geo", "gdelt-pulse", "gdelt_pulse_local", "gdelt_geo_local"):
+        return "gdelt"
     if feed == "newsdata":
         return "newsdata"
+    if feed == "ftm":
+        return "ftm"
     return feed
 
 
+def _strip_digest_date_tag(text: str) -> str:
+    return re.sub(r"^\[\d{1,2} \w{3} \d{2}:\d{2} utc\]\s*", "", str(text or ""), flags=re.I)
+
+
 def _infer_feed_sources(item: dict[str, Any]) -> list[str]:
-    explicit = [s for s in (item.get("sources") or []) if s]
+    explicit = [str(s) for s in (item.get("sources") or []) if s]
+    if not explicit:
+        single = item.get("source")
+        if single:
+            explicit = [str(single)]
     if explicit:
         return explicit
-    text = str(item.get("text") or "").lower()
+    text = _strip_digest_date_tag(str(item.get("text") or "")).lower()
+    ftm = re.search(r"\[ftm [^/]+/([^\]]+)\]", text, re.I)
+    if ftm:
+        return ["ftm", ftm.group(1).strip().lower()]
+    if re.search(r"\[ftm ", text, re.I):
+        return ["ftm"]
     if text.startswith("local news:"):
         return ["gdelt_pulse_local"]
     if text.startswith("news:"):
@@ -187,7 +204,9 @@ def _infer_feed_sources(item: dict[str, Any]) -> list[str]:
 
 
 def _text_fingerprint(text: str) -> set[str]:
-    cleaned = re.sub(r"[^a-z0-9\s]", " ", str(text or "").lower())
+    cleaned = _strip_digest_date_tag(str(text or ""))
+    cleaned = re.sub(r"\[ftm [^\]]+\]", " ", cleaned, flags=re.I)
+    cleaned = re.sub(r"[^a-z0-9\s]", " ", cleaned.lower())
     return {w for w in cleaned.split() if len(w) > 3 and w not in _STOP_WORDS}
 
 
@@ -269,6 +288,7 @@ def corroborate_digest_item(item: dict[str, Any], pool: list[dict[str, Any]]) ->
         "source_families": sorted(matched_families),
         "conflict": conflict,
         "label": label,
+        "observed_at": item.get("observed_at"),
     }
 
 

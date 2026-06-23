@@ -33,6 +33,47 @@ class TestGdeltBackoff(unittest.TestCase):
         self.assertEqual(gb._resolve_region(" Thailand "), "thailand")
 
 
+class TestGdeltLocalPulseFilter(unittest.TestCase):
+    def test_parse_gdelt_seendate(self):
+        dt = gb.parse_gdelt_seendate("20260430T204500Z")
+        self.assertIsNotNone(dt)
+        assert dt is not None
+        self.assertEqual(dt.year, 2026)
+        self.assertEqual(dt.month, 4)
+
+    def test_filter_drops_stale_songkran_and_tourism(self):
+        articles = [
+            {
+                "title": "Agoda . com celebrates Thai New Year with super special Songkran rates",
+                "seendate": "20260430T204500Z",
+            },
+            {
+                "title": "Top 8 Must - See Destinations When Exploring Thailand",
+                "seendate": "20260420T053000Z",
+            },
+            {
+                "title": "Bangkok authorities issue flood warning for Chao Phraya",
+                "seendate": "20260622T120000Z",
+            },
+        ]
+        kept = gb.filter_local_pulse_articles(articles)
+        self.assertEqual(len(kept), 1)
+        self.assertIn("flood warning", kept[0]["title"].lower())
+
+    def test_finalize_local_pulse_updates_count(self):
+        out = gb.finalize_local_pulse(
+            {
+                "count": 2,
+                "articles": [
+                    {"title": "Songkran festival deals", "seendate": "20260414T230000Z"},
+                    {"title": "M5.2 earthquake near Chiang Rai", "seendate": "20260622T080000Z"},
+                ],
+            }
+        )
+        self.assertEqual(out["count"], 1)
+        self.assertNotIn("Songkran", out["articles"][0]["title"])
+
+
 class TestGdeltCache(unittest.TestCase):
     def test_stale_response_preserves_counts(self):
         key = "pulse:local:test"
