@@ -39,3 +39,26 @@ export async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Pr
   const updatedInit = { ...init, headers }
   return fetch(input, updatedInit)
 }
+
+/** fetchApi with per-request AbortController timeout (default 15s). */
+export async function fetchApiWithTimeout(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs = 15_000,
+): Promise<Response> {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), timeoutMs)
+  const callerSignal = init?.signal
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      clearTimeout(timer)
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+    callerSignal.addEventListener('abort', () => ac.abort(), { once: true })
+  }
+  try {
+    return await fetchApi(input, { ...init, signal: ac.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}

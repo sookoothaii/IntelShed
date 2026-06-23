@@ -13,7 +13,7 @@ import { loadOsintPins, saveOsintPins, mergeImportedPins } from './lib/osintPins
 import WindyMapOverlay from './components/WindyMapOverlay'
 import MapModeBar from './components/MapModeBar'
 import { DEFAULT_MAP_VIEW, type MapViewMode } from './lib/mapView'
-import { fetchApi } from './lib/networkFetch'
+import { fetchApi, fetchApiWithTimeout } from './lib/networkFetch'
 import { agentBusEnabled } from './lib/agentBus'
 import { useAgentBus } from './hooks/useAgentBus'
 import { useHudSessionState } from './lib/hudSessionState'
@@ -667,6 +667,8 @@ function AnalysisCollapsible({
   )
 }
 
+const FULL_SITUATION_FETCH_MS = 15_000
+
 function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
   const [loading, setLoading] = useState(true)
   const [results, setResults] = useState<any>({})
@@ -705,7 +707,10 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   }, [briefLang])
 
   useEffect(() => {
-    let interval: any
+    let cancelled = false
+    let interval: ReturnType<typeof setInterval> | undefined
+    let partialTimer: ReturnType<typeof setTimeout> | undefined
+
     const fetchAll = async () => {
       setLoading(true)
       const endpoints = [
@@ -727,21 +732,36 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
         { key: 'cve', url: '/api/cve?limit=15' },
         { key: 'pegel', url: '/api/pegel' },
       ]
-      const out: any = {}
+
+      partialTimer = setTimeout(() => {
+        if (!cancelled) setLoading(false)
+      }, FULL_SITUATION_FETCH_MS)
+
       await Promise.all(endpoints.map(async (ep) => {
         try {
-          const r = await fetchApi(ep.url)
-          if (r.ok) out[ep.key] = await r.json()
-        } catch (e) {
-          out[ep.key] = { error: 'unavailable' }
+          const r = await fetchApiWithTimeout(ep.url, undefined, FULL_SITUATION_FETCH_MS)
+          const data = r.ok ? await r.json() : { error: 'unavailable' }
+          if (!cancelled) {
+            setResults((prev: Record<string, unknown>) => ({ ...prev, [ep.key]: data }))
+          }
+        } catch {
+          if (!cancelled) {
+            setResults((prev: Record<string, unknown>) => ({ ...prev, [ep.key]: { error: 'unavailable' } }))
+          }
         }
       }))
-      setResults(out)
-      setLoading(false)
+
+      if (partialTimer) clearTimeout(partialTimer)
+      if (!cancelled) setLoading(false)
     }
+
     fetchAll()
     if (autoRefresh) interval = setInterval(fetchAll, 30000)
-    return () => { if (interval) clearInterval(interval) }
+    return () => {
+      cancelled = true
+      if (interval) clearInterval(interval)
+      if (partialTimer) clearTimeout(partialTimer)
+    }
   }, [autoRefresh, reloadTick])
 
   const health = results.health
@@ -825,6 +845,9 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
     analysisTab === 'operator'
     && (trust?.degraded || trust?.field_warn || trust?.feed_warn)
   const degradeCritical = (trust?.score ?? 4) < 2
+  const unavailableFeeds = Object.entries(results)
+    .filter(([, v]) => (v as { error?: string })?.error === 'unavailable')
+    .map(([k]) => k)
 
   return (
     <div className="analysis-overlay" onClick={onClose}>
@@ -876,6 +899,14 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
                 FEEDS{feedCount > 0 ? ` · ${feedCount}` : ''}
               </button>
             </div>
+            {unavailableFeeds.length > 0 && (
+              <div className="analysis-degrade-banner" role="status">
+                <strong>PARTIAL LOAD</strong>
+                {' — '}
+                {unavailableFeeds.length} feed(s) timed out ({unavailableFeeds.join(', ')}).
+                Data shown from available endpoints; enable AUTO-REFRESH to retry.
+              </div>
+            )}
             {analysisTab === 'operator' && (trust || briefingQuality) && (
               <div className="analysis-summary-strip">
                 <span>FIELD {trust?.score ?? '—'}/{trust?.max_score ?? 4}</span>
