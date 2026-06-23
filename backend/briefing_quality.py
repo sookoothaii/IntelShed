@@ -58,12 +58,21 @@ def count_gdelt_digest_items(items: list[dict[str, Any]] | None) -> int:
 
 
 def _gdelt_block_volume(block: dict[str, Any] | None, *, list_key: str = "articles") -> int:
-    """Digestible rows in a feed block — prefer list length over stale count metadata."""
+    """Raw rows in a feed block — prefer list length over stale count metadata."""
     if not block:
         return 0
     if list_key in block:
         return len(block.get(list_key) or [])
     return int(block.get("count") or 0)
+
+
+def _gdelt_local_digestible_count(block: dict[str, Any] | None) -> int:
+    """Local pulse articles after briefing freshness and noise filters."""
+    from gdelt_bridge import filter_local_pulse_articles
+
+    if not block:
+        return 0
+    return len(filter_local_pulse_articles(block.get("articles")))
 
 
 def gdelt_digest_pipeline_meta(snap: dict[str, Any], digest: dict[str, Any]) -> dict[str, Any]:
@@ -73,7 +82,8 @@ def gdelt_digest_pipeline_meta(snap: dict[str, Any], digest: dict[str, Any]) -> 
     pulse = snap.get("gdelt_pulse") or {}
     geo = snap.get("gdelt_geo") or {}
 
-    feed_local = _gdelt_block_volume(local_pulse, list_key="articles")
+    feed_local_raw = _gdelt_block_volume(local_pulse, list_key="articles")
+    feed_local = _gdelt_local_digestible_count(local_pulse)
     feed_geo_local = _gdelt_block_volume(geo_local, list_key="events")
     feed_global = _gdelt_block_volume(pulse, list_key="articles") + _gdelt_block_volume(
         geo, list_key="events"
@@ -100,6 +110,9 @@ def gdelt_digest_pipeline_meta(snap: dict[str, Any], digest: dict[str, Any]) -> 
     if feed_operator >= 1:
         pipeline_ok = collected >= 1
         pipeline_yield = round(min(1.0, collected / max(feed_operator, 1)), 3)
+    elif feed_local_raw > 0 and feed_local == 0:
+        pipeline_ok = False
+        pipeline_yield = 0.0
     elif (reported_local + reported_geo_local) > 0:
         pipeline_ok = False
         pipeline_yield = 0.0
@@ -115,7 +128,9 @@ def gdelt_digest_pipeline_meta(snap: dict[str, Any], digest: dict[str, Any]) -> 
         pipeline_placed_ok = True
 
     blocker = None
-    if (reported_local + reported_geo_local) > 0 and feed_operator == 0:
+    if feed_local_raw > 0 and feed_local == 0 and collected == 0:
+        blocker = "freshness_guard"
+    elif (reported_local + reported_geo_local) > 0 and feed_operator == 0:
         blocker = "empty_feed_body"
     elif feed_operator >= 1 and collected == 0:
         # Raw feed rows existed but none survived collection filters
@@ -131,6 +146,8 @@ def gdelt_digest_pipeline_meta(snap: dict[str, Any], digest: dict[str, Any]) -> 
         "digest_gdelt_lines": placed_total,
         "gdelt_collected": collected,
         "feed_operator_available": feed_operator,
+        "feed_local_raw": feed_local_raw,
+        "feed_local_digestible": feed_local,
         "feed_global_available": feed_global,
         "feed_total": feed_total,
         "feed_reported_local": reported_local,

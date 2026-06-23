@@ -387,15 +387,16 @@ def _gdelt_snapshot_meta(snap: dict) -> dict:
     geo_local = snap.get("gdelt_geo_local") or {}
     pulse = snap.get("gdelt_pulse") or {}
     geo = snap.get("gdelt_geo") or {}
-    from briefing_quality import _gdelt_block_volume
+    from briefing_quality import _gdelt_block_volume, _gdelt_local_digestible_count
 
+    local_digestible = _gdelt_local_digestible_count(local)
+    geo_local_n = _gdelt_block_volume(geo_local, list_key="events")
     return {
-        "local_pulse_count": _gdelt_block_volume(local, list_key="articles"),
-        "geo_local_count": _gdelt_block_volume(geo_local, list_key="events"),
+        "local_pulse_count": local_digestible,
+        "geo_local_count": geo_local_n,
         "pulse_count": _gdelt_block_volume(pulse, list_key="articles"),
         "geo_count": _gdelt_block_volume(geo, list_key="events"),
-        "feed_operator_available": _gdelt_block_volume(local, list_key="articles")
-        + _gdelt_block_volume(geo_local, list_key="events"),
+        "feed_operator_available": local_digestible + geo_local_n,
         "stale": bool(local.get("stale") or geo_local.get("stale")),
         "error": local.get("error") or geo_local.get("error"),
     }

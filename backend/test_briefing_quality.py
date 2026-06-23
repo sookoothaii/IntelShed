@@ -136,6 +136,30 @@ class GdeltPipelineMetaTests(unittest.TestCase):
         self.assertEqual(meta["pipeline_blocker"], "empty_feed_body")
         self.assertFalse(meta["pipeline_ok"])
 
+    def test_freshness_guard_blocker_when_stale_articles_filtered(self):
+        snap = {
+            "gdelt_pulse_local": {
+                "count": 25,
+                "stale": True,
+                "articles": [
+                    {
+                        "title": "Bangkok flood watch continues",
+                        "seendate": "20260414T120000Z",
+                    }
+                    for _ in range(25)
+                ],
+            },
+        }
+        digest = {"local": ["- Air quality Bangkok"], "_gdelt_collected": 0}
+        from briefing_quality import gdelt_digest_pipeline_meta
+
+        meta = gdelt_digest_pipeline_meta(snap, digest)
+        self.assertEqual(meta["feed_local_raw"], 25)
+        self.assertEqual(meta["feed_local_digestible"], 0)
+        self.assertEqual(meta["feed_operator_available"], 0)
+        self.assertEqual(meta["pipeline_blocker"], "freshness_guard")
+        self.assertFalse(meta["pipeline_ok"])
+
     def test_bucket_cap_blocker(self):
         snap = {"gdelt_pulse_local": {"articles": [{}] * 5}}
         digest = {
