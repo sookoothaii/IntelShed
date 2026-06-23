@@ -72,7 +72,7 @@ async def build_chat_context() -> str:
 
     # Briefing
     try:
-        brief = node_sync.latest_briefing()
+        brief = await node_sync.latest_briefing()
         if brief and brief.get("text"):
             parts.append(f"SITUATION BRIEFING ({brief.get('created_at', 'unknown')}):")
             parts.append(brief["text"][:500])
