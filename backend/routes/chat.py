@@ -581,6 +581,17 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
     api_keys = payload.get("api_keys") if isinstance(payload.get("api_keys"), dict) else None
     api_base_urls = payload.get("api_base_urls") if isinstance(payload.get("api_base_urls"), dict) else None
 
+    if api_base_urls:
+        for prov, raw in api_base_urls.items():
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            env_name = chat_routing.PROVIDER_ENV_BASE_URLS.get(prov)
+            env_base = os.getenv(env_name) if env_name else None
+            try:
+                chat_routing.assert_safe_provider_base_url(prov, raw, env_base=env_base)
+            except ValueError as exc:
+                return {"error": str(exc), "provider": prov}
+
     PROVIDER_CONFIG = {
         "openai": {
             "url": chat_routing.openai_chat_completions_url(

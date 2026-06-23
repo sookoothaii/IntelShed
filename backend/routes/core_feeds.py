@@ -8,14 +8,24 @@ runtime_cache so chat context and globe snapshots keep seeing the same data.
 from __future__ import annotations
 
 import os
+import re
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 import feed_registry
 from runtime_cache import cache_get, cache_get_stale, cache_set
 
 router = APIRouter(tags=["core-feeds"])
+
+_TLE_GROUP_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+
+def _sanitize_tle_group(group: str) -> str:
+    g = (group or "active").strip()
+    if not _TLE_GROUP_RE.match(g):
+        raise HTTPException(status_code=400, detail="Invalid TLE group name")
+    return g
 
 
 @router.get("/api/satellites")
@@ -24,6 +34,7 @@ async def get_satellites(limit: int = 400, group: str = "active"):
 
     Useful groups: active, stations, starlink, gps-ops, weather, science, geo.
     """
+    group = _sanitize_tle_group(group)
     cache_key = f"sat:{group}"
     tle_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "tle")
     os.makedirs(tle_dir, exist_ok=True)

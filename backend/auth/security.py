@@ -60,7 +60,7 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
     """Verify API key if WORLDBASE_API_KEY is set."""
     if not API_KEY:
         return None  # Auth disabled
-    if api_key != API_KEY:
+    if not api_key or not hmac.compare_digest(API_KEY, api_key):
         raise HTTPException(
             status_code=HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key",

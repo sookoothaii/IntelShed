@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from urllib.parse import urlparse
+
 SUPPORTED_PROVIDERS = frozenset({"ollama", "openai", "anthropic", "groq", "openrouter"})
 
 PROVIDER_ENV_KEYS = {
@@ -29,6 +31,8 @@ DEFAULT_BASE_URLS = {
 
 
 _OPENAI_COMPATIBLE = frozenset({"openai", "groq", "openrouter"})
+
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 def resolve_chat_options(payload: dict[str, Any], *, default_model: str) -> dict[str, Any]:
@@ -82,7 +86,7 @@ def select_base_url(
     if base_urls:
         candidate = base_urls.get(provider)
         if isinstance(candidate, str) and candidate.strip():
-            return normalize_base_url(candidate)
+            return assert_safe_provider_base_url(provider, candidate, env_base=env_base)
     if env_base and env_base.strip():
         return normalize_base_url(env_base)
     return normalize_base_url(default_base)
@@ -90,6 +94,44 @@ def select_base_url(
 
 def normalize_base_url(raw: str) -> str:
     return raw.strip().rstrip("/")
+
+
+def _hostname_from_url(url: str) -> str | None:
+    host = urlparse(normalize_base_url(url)).hostname
+    return host.lower() if host else None
+
+
+def allowed_hosts_for_provider(provider: str, env_base: str | None) -> set[str]:
+    hosts: set[str] = set()
+    default = DEFAULT_BASE_URLS.get(provider)
+    if default:
+        h = _hostname_from_url(default)
+        if h:
+            hosts.add(h)
+    if env_base and env_base.strip():
+        h = _hostname_from_url(env_base)
+        if h:
+            hosts.add(h)
+    return hosts
+
+
+def assert_safe_provider_base_url(provider: str, url: str, *, env_base: str | None = None) -> str:
+    """Reject HUD-supplied base URLs that would SSRF or exfiltrate server keys."""
+    u = normalize_base_url(url)
+    parsed = urlparse(u)
+    scheme = (parsed.scheme or "").lower()
+    host = (parsed.hostname or "").lower()
+    if not scheme or not host:
+        raise ValueError("Invalid provider base URL")
+    if host in _LOOPBACK_HOSTS:
+        if scheme not in ("http", "https"):
+            raise ValueError("Loopback provider base URL must use http or https")
+        return u
+    if scheme != "https":
+        raise ValueError("Provider base URL must use HTTPS")
+    if host not in allowed_hosts_for_provider(provider, env_base):
+        raise ValueError(f"Base URL host not allowed for provider {provider}")
+    return u
 
 
 def openai_chat_completions_url(base_or_full: str) -> str:

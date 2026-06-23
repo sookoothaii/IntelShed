@@ -318,7 +318,7 @@ async def node_ingest(
 
 
 @router.get("/nodes")
-async def list_nodes():
+async def list_nodes(_auth: str | None = Depends(verify_lan_auth)):
     """All known nodes with their last state — for globe entities + UI."""
     with _db() as conn:
         rows = conn.execute(

@@ -7,6 +7,7 @@ Write tools (briefing generate) gated by WORLDBASE_MCP_WRITE=1 (default on).
 
 from __future__ import annotations
 
+import hmac
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -467,7 +468,8 @@ class _MCPAuthMiddleware:
             await self.app(scope, receive, send)
             return
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
-        if headers.get("x-api-key") != API_KEY:
+        provided = headers.get("x-api-key") or ""
+        if not provided or not API_KEY or not hmac.compare_digest(API_KEY, provided):
             response = JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing X-API-Key for WorldBase MCP"},

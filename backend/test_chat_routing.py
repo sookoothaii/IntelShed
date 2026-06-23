@@ -116,6 +116,19 @@ class ChatRoutingTests(unittest.TestCase):
             cr.DEFAULT_BASE_URLS["openai"],
         )
 
+    def test_select_base_url_rejects_ssrf_host(self):
+        with self.assertRaises(ValueError):
+            cr.select_base_url(
+                "openai",
+                {"openai": "https://evil.example/v1"},
+                None,
+                cr.DEFAULT_BASE_URLS["openai"],
+            )
+
+    def test_assert_safe_allows_loopback(self):
+        url = cr.assert_safe_provider_base_url("openai", "http://127.0.0.1:11434/v1")
+        self.assertEqual(url, "http://127.0.0.1:11434/v1")
+
     def test_openai_chat_completions_url_from_base(self):
         self.assertEqual(
             cr.openai_chat_completions_url("https://api.openai.com/v1"),
