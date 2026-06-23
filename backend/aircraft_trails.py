@@ -24,7 +24,9 @@ import sqlite3
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+
+from auth.security import verify_lan_auth
 
 import aircraft_provider
 
@@ -227,6 +229,6 @@ def trail_stats():
 
 
 @router.post("/trails/snapshot")
-async def trail_snapshot_now():
+async def trail_snapshot_now(_auth: str | None = Depends(verify_lan_auth)):
     """Manual trigger (rate-limited by AIRCRAFT_TRAIL_MIN_INTERVAL)."""
     return await snapshot_now(force=False)

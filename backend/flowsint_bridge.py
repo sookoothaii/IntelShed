@@ -4,7 +4,9 @@ import os
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from auth.security import verify_lan_auth
 
 router = APIRouter(prefix="/api", tags=["flowsint"])
 
@@ -40,7 +42,7 @@ async def flowsint_health():
 
 
 @router.post("/flowsint/export-investigation")
-async def export_investigation(body: dict):
+async def export_investigation(body: dict, _auth: str | None = Depends(verify_lan_auth)):
     """
     Format globe/entity pins for Flowsint paste import (JSON nodes).
     Body: { "title": "...", "pins": [{ "label", "lat", "lon", "tool?", "query?" }] }
