@@ -15,7 +15,7 @@ from typing import Any
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from auth.security import API_KEY, lan_auth_required
+from auth.security import API_KEY, INGEST_TOKEN, lan_auth_required, lan_exposed, mcp_request_authorized
 from mcp.server.fastmcp import FastMCP
 
 # Feeds allowed for worldbase_feed_sample (cache key or live bridge id).
@@ -467,11 +467,14 @@ class _MCPAuthMiddleware:
             await self.app(scope, receive, send)
             return
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
-        if headers.get("x-api-key") != API_KEY:
-            response = JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid or missing X-API-Key for WorldBase MCP"},
-            )
+        if not mcp_request_authorized(headers):
+            if lan_exposed() and not API_KEY and not INGEST_TOKEN:
+                status_code = 503
+                detail = "LAN MCP requires WORLDBASE_API_KEY or NODE_INGEST_TOKEN"
+            else:
+                status_code = 401
+                detail = "Invalid or missing X-API-Key for WorldBase MCP"
+            response = JSONResponse(status_code=status_code, content={"detail": detail})
             await response(scope, receive, send)
             return
         await self.app(scope, receive, send)

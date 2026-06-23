@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Any
+from urllib.parse import urlparse
 
 SUPPORTED_PROVIDERS = frozenset({"ollama", "openai", "anthropic", "groq", "openrouter"})
 
@@ -72,17 +74,53 @@ def select_api_key(provider: str, api_keys: dict[str, Any] | None, env_key: str 
     return env_key
 
 
+def validate_client_base_url(raw: str) -> str:
+    """Reject SSRF-prone client-supplied provider base URLs (HTTPS public hosts only)."""
+    u = normalize_base_url(raw)
+    parsed = urlparse(u if "://" in u else f"https://{u}")
+    if parsed.scheme != "https":
+        raise ValueError("Provider base URL must use HTTPS")
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise ValueError("Invalid provider base URL host")
+    if host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or host.endswith(".local"):
+        raise ValueError("Loopback/local hosts not allowed for provider base URL")
+    try:
+        addr = ipaddress.ip_address(host)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise ValueError("Private/reserved hosts not allowed for provider base URL")
+    except ValueError as exc:
+        if "not allowed" in str(exc):
+            raise
+    return u
+
+
+def validate_client_base_urls(base_urls: dict[str, Any] | None) -> str | None:
+    """Return first validation error message, or None if all overrides are safe."""
+    if not base_urls:
+        return None
+    for provider, candidate in base_urls.items():
+        if isinstance(candidate, str) and candidate.strip():
+            try:
+                validate_client_base_url(candidate)
+            except ValueError as exc:
+                return f"{provider}: {exc}"
+    return None
+
+
 def select_base_url(
     provider: str,
     base_urls: dict[str, Any] | None,
     env_base: str | None,
     default_base: str,
+    *,
+    client_override: bool = True,
 ) -> str:
     """Resolve provider base URL: HUD override → .env → catalog default."""
-    if base_urls:
+    if client_override and base_urls:
         candidate = base_urls.get(provider)
         if isinstance(candidate, str) and candidate.strip():
-            return normalize_base_url(candidate)
+            return validate_client_base_url(candidate)
     if env_base and env_base.strip():
         return normalize_base_url(env_base)
     return normalize_base_url(default_base)

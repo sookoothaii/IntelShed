@@ -56,6 +56,19 @@ def lan_auth_required() -> bool:
     return lan_exposed()
 
 
+def mcp_request_authorized(headers: dict[str, str]) -> bool:
+    """MCP mount auth: non-empty X-API-Key or X-Node-Token when LAN/key policy requires it."""
+    if not lan_auth_required():
+        return True
+    api_key = headers.get("x-api-key", "")
+    if API_KEY and api_key and hmac.compare_digest(API_KEY, api_key):
+        return True
+    node_token = headers.get("x-node-token", "")
+    if INGEST_TOKEN and node_token and hmac.compare_digest(INGEST_TOKEN, node_token):
+        return True
+    return False
+
+
 async def verify_api_key(api_key: str = Security(api_key_header)):
     """Verify API key if WORLDBASE_API_KEY is set."""
     if not API_KEY:
@@ -716,4 +729,5 @@ __all__ = [
     "lan_exposed",
     "verify_lan_auth",
     "verify_api_key",
+    "mcp_request_authorized",
 ]

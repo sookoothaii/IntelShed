@@ -8,14 +8,57 @@ runtime_cache so chat context and globe snapshots keep seeing the same data.
 from __future__ import annotations
 
 import os
+import re
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 import feed_registry
 from runtime_cache import cache_get, cache_get_stale, cache_set
 
 router = APIRouter(tags=["core-feeds"])
+
+# CelesTrak GROUP names only — blocks path traversal via ``group`` (e.g. ../../../tmp).
+SATELLITE_GROUPS = frozenset({
+    "active",
+    "stations",
+    "starlink",
+    "gps-ops",
+    "weather",
+    "science",
+    "geo",
+    "iridium",
+    "iridium-next",
+    "oneweb",
+    "galileo",
+    "gnss",
+    "noaa",
+    "resource",
+    "sarsat",
+    "tdrss",
+    "argos",
+    "planet",
+    "spire",
+})
+
+
+def _validate_satellite_group(group: str) -> str:
+    g = (group or "").strip().lower()
+    if not g or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,31}", g):
+        raise HTTPException(status_code=400, detail="Invalid satellite group")
+    if g not in SATELLITE_GROUPS:
+        raise HTTPException(status_code=400, detail=f"Unknown satellite group: {g}")
+    return g
+
+
+def _safe_tle_disk_path(tle_dir: str, group: str) -> str:
+    """Resolve TLE cache path under ``tle_dir`` (defense-in-depth after allowlist)."""
+    disk_path = os.path.join(tle_dir, f"{group}.tle")
+    real_dir = os.path.realpath(tle_dir)
+    real_path = os.path.realpath(disk_path)
+    if real_path != real_dir and not real_path.startswith(real_dir + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid satellite group path")
+    return real_path
 
 
 @router.get("/api/satellites")
@@ -24,10 +67,11 @@ async def get_satellites(limit: int = 400, group: str = "active"):
 
     Useful groups: active, stations, starlink, gps-ops, weather, science, geo.
     """
+    group = _validate_satellite_group(group)
     cache_key = f"sat:{group}"
     tle_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "tle")
     os.makedirs(tle_dir, exist_ok=True)
-    disk_path = os.path.join(tle_dir, f"{group}.tle")
+    disk_path = _safe_tle_disk_path(tle_dir, group)
 
     tle_text = cache_get(cache_key, ttl=6 * 3600.0)
     if tle_text is None:

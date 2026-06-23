@@ -5,7 +5,11 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from auth.security import lan_auth_required, lan_exposed
+from auth.security import (
+    lan_auth_required,
+    lan_exposed,
+    mcp_request_authorized,
+)
 
 
 class LanExposureTests(unittest.TestCase):
@@ -34,6 +38,25 @@ class LanExposureTests(unittest.TestCase):
         ):
             with patch("auth.security.API_KEY", "secret"):
                 self.assertFalse(lan_exposed())
+
+
+class MCPAuthHeaderTests(unittest.TestCase):
+    def test_empty_api_key_rejected_on_lan(self):
+        with patch("auth.security.API_KEY", ""):
+            with patch("auth.security.INGEST_TOKEN", ""):
+                with patch("auth.security.lan_auth_required", return_value=True):
+                    self.assertFalse(mcp_request_authorized({"x-api-key": ""}))
+
+    def test_valid_api_key_accepted(self):
+        with patch("auth.security.API_KEY", "secret"):
+            with patch("auth.security.lan_auth_required", return_value=True):
+                self.assertTrue(mcp_request_authorized({"x-api-key": "secret"}))
+
+    def test_valid_node_token_accepted(self):
+        with patch("auth.security.API_KEY", ""):
+            with patch("auth.security.INGEST_TOKEN", "node-secret"):
+                with patch("auth.security.lan_auth_required", return_value=True):
+                    self.assertTrue(mcp_request_authorized({"x-node-token": "node-secret"}))
 
 
 if __name__ == "__main__":
