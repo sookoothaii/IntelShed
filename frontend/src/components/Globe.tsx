@@ -276,6 +276,93 @@ type GlobeLayers = {
   intelFt: boolean
 }
 
+// Power levers #2–#5 + 3D-tile idle gate (roadmap item after measured finding #4).
+const GLOBE_POWER_ATMOSPHERE_ALTITUDE_M = 2_000_000
+const GLOBE_POWER_TILES_ALTITUDE_M = 12_000
+const GLOBE_POWER_FXAA_IDLE_MS = 3000
+const GLOBE_POWER_CAMERA_IDLE_MS = 2500
+const GLOBE_POWER_TILE_SSE_ACTIVE = 16
+const GLOBE_POWER_TILE_SSE_IDLE = 256
+const GLOBE_POWER_GLOBE_SSE_ACTIVE = 1.0
+const GLOBE_POWER_GLOBE_SSE_IDLE = 6.0
+
+type GlobePowerTileRefs = {
+  osmBuildings: MutableRefObject<any>
+  photoreal: MutableRefObject<any>
+}
+
+type GlobePowerState = {
+  visible: boolean
+  occluded: boolean
+  docHidden: boolean
+  cameraIdle: boolean
+  mapMode: MapViewMode
+  layers: GlobeLayers
+  fxaaIdle: boolean
+}
+
+function applyTilesetPower(tileset: any, show: boolean, idleFreeze: boolean) {
+  tileset.show = show
+  if (!show) return
+  tileset.maximumScreenSpaceError = idleFreeze ? GLOBE_POWER_TILE_SSE_IDLE : GLOBE_POWER_TILE_SSE_ACTIVE
+  tileset.loadSiblings = !idleFreeze
+  tileset.preloadWhenHidden = false
+}
+
+/** Centralized Cesium GPU/thermal settings (visibility, occlusion, pulse, 3D tiles). */
+function applyGlobePowerSettings(
+  viewer: Viewer,
+  state: GlobePowerState,
+  tileRefs: GlobePowerTileRefs,
+) {
+  if ((viewer as any).isDestroyed?.()) return
+  const scene = viewer.scene
+  const hidden = !state.visible || state.occluded || state.docHidden
+  const pulseActive = !!(state.layers.quakes || state.layers.nodes || state.layers.military)
+  const explicitRender = GLOBE_EXPLICIT_RENDER && !pulseActive && !hidden
+  const idleFreeze = explicitRender && state.cameraIdle
+
+  if (GLOBE_TARGET_FPS > 0) {
+    viewer.targetFrameRate = hidden ? 1 : GLOBE_TARGET_FPS
+  }
+
+  scene.requestRenderMode = explicitRender
+  scene.maximumRenderTimeChange = explicitRender ? Infinity : 0
+
+  if ('msaaSamples' in scene) {
+    scene.msaaSamples = viewer.resolutionScale > 1.01 ? 1 : 4
+  }
+
+  if (scene.postProcessStages?.fxaa) {
+    scene.postProcessStages.fxaa.enabled = !state.fxaaIdle
+  }
+
+  const camHeight = Cartographic.fromCartesian(viewer.camera.position).height
+  if (scene.skyAtmosphere) {
+    scene.skyAtmosphere.show = camHeight < GLOBE_POWER_ATMOSPHERE_ALTITUDE_M
+  }
+
+  scene.globe.maximumScreenSpaceError = idleFreeze
+    ? GLOBE_POWER_GLOBE_SSE_IDLE
+    : GLOBE_POWER_GLOBE_SSE_ACTIVE
+
+  const tilesInRange = state.mapMode.render3d && camHeight < GLOBE_POWER_TILES_ALTITUDE_M
+  const osm = tileRefs.osmBuildings.current
+  if (osm) {
+    const show = tilesInRange && state.mapMode.buildings && !state.mapMode.photorealistic
+    applyTilesetPower(osm, show, idleFreeze)
+  }
+  const photo = tileRefs.photoreal.current
+  if (photo) {
+    const show = tilesInRange && state.mapMode.photorealistic
+    applyTilesetPower(photo, show, idleFreeze)
+  }
+
+  if (!idleFreeze) {
+    try { scene.requestRender() } catch { /* teardown */ }
+  }
+}
+
 type LayerKey = keyof GlobeLayers
 
 type FeedHealth = {
@@ -796,6 +883,65 @@ export default function Globe({
   const layersRef = useRef(layers)
   useEffect(() => { layersRef.current = layers }, [layers])
 
+  const powerStateRef = useRef({
+    occluded: false,
+    docHidden: typeof document !== 'undefined' ? document.hidden : false,
+    cameraIdle: false,
+    lastCamMove: Date.now(),
+    lastFxaaBump: Date.now(),
+  })
+  const mapModePowerRef = useRef(mapMode)
+  useEffect(() => { mapModePowerRef.current = mapMode }, [mapMode])
+
+  const runPowerSettings = useCallback(() => {
+    const v = viewerRef.current
+    if (!v || (v as any).isDestroyed?.()) return
+    const ps = powerStateRef.current
+    const now = Date.now()
+    ps.cameraIdle = now - ps.lastCamMove >= GLOBE_POWER_CAMERA_IDLE_MS
+    ps.docHidden = typeof document !== 'undefined' ? document.hidden : false
+    const fxaaIdle = now - ps.lastFxaaBump >= GLOBE_POWER_FXAA_IDLE_MS
+    applyGlobePowerSettings(
+      v,
+      {
+        visible: visibleRef.current,
+        occluded: ps.occluded,
+        docHidden: ps.docHidden,
+        cameraIdle: ps.cameraIdle,
+        mapMode: mapModePowerRef.current,
+        layers: layersRef.current,
+        fxaaIdle,
+      },
+      { osmBuildings: osmBuildingsRef, photoreal: photorealRef },
+    )
+  }, [])
+  const runPowerSettingsRef = useRef(runPowerSettings)
+  useEffect(() => { runPowerSettingsRef.current = runPowerSettings }, [runPowerSettings])
+
+  useEffect(() => {
+    runPowerSettings()
+  }, [layers, mapMode, visible, runPowerSettings])
+
+  useEffect(() => {
+    const onVis = () => runPowerSettings()
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [runPowerSettings])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const obs = new IntersectionObserver(
+      (entries) => {
+        powerStateRef.current.occluded = !entries.some((e) => e.isIntersecting)
+        runPowerSettings()
+      },
+      { threshold: 0.05 },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [runPowerSettings])
+
   useEffect(() => {
     const onAgentLayer = (ev: Event) => {
       const detail = (ev as CustomEvent<AgentLayerDetail>).detail
@@ -928,8 +1074,7 @@ export default function Globe({
         geocoder: true,
         infoBox: false,
         selectionIndicator: false,
-        requestRenderMode: GLOBE_EXPLICIT_RENDER,
-        maximumRenderTimeChange: GLOBE_EXPLICIT_RENDER ? Infinity : undefined,
+        requestRenderMode: false,
       })
       viewerRef.current = viewer
       setViewer(viewer)
@@ -938,13 +1083,24 @@ export default function Globe({
       const scene = viewer.scene
       scene.globe.enableLighting = true
       scene.globe.depthTestAgainstTerrain = false
-      scene.globe.maximumScreenSpaceError = 1.0
+      scene.globe.maximumScreenSpaceError = GLOBE_POWER_GLOBE_SSE_ACTIVE
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
       viewer.resolutionScale = Math.min(window.devicePixelRatio, 1.5)
       if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
-      if (GLOBE_TARGET_FPS > 0) viewer.targetFrameRate = GLOBE_TARGET_FPS
+
+      const bumpCamPower = () => {
+        const ps = powerStateRef.current
+        ps.lastCamMove = Date.now()
+        ps.lastFxaaBump = Date.now()
+        ps.cameraIdle = false
+        runPowerSettingsRef.current()
+      }
+      viewer.camera.changed.addEventListener(bumpCamPower)
+      viewer.camera.moveStart.addEventListener(bumpCamPower)
+      viewer.camera.moveEnd.addEventListener(bumpCamPower)
+      timers.push(setInterval(() => runPowerSettingsRef.current(), 500))
 
       // OSM 3D buildings — free via Cesium Ion (same token as terrain)
       viewer.camera.moveEnd.addEventListener(() => {
@@ -1520,13 +1676,16 @@ export default function Globe({
           photoreal: photorealRef,
           gibsOverlay: gibsImageryRef,
         })
-        apiRef.current.applyMapMode = () =>
+        apiRef.current.applyMapMode = () => {
           applyGlobeMapMode(viewer!, mapModeRef.current, {
             labelOverlay: labelOverlayRef,
             osmBuildings: osmBuildingsRef,
             photoreal: photorealRef,
             gibsOverlay: gibsImageryRef,
           })
+          runPowerSettingsRef.current()
+        }
+        runPowerSettingsRef.current()
       }
 
       ;(async () => {
@@ -1535,8 +1694,8 @@ export default function Globe({
             const buildings = await createOsmBuildingsAsync()
             if (!cancelled && viewerRef.current === viewer) {
               osmBuildingsRef.current = buildings
-              buildings.show = mapModeRef.current.buildings && !mapModeRef.current.photorealistic
               scene.primitives.add(buildings)
+              runPowerSettingsRef.current()
             }
           } catch (e) {
             console.warn('[Globe] OSM Buildings unavailable:', e)
