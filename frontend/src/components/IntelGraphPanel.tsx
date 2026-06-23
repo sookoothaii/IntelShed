@@ -46,6 +46,8 @@ type GraphData = { root?: string | null; found: boolean; nodes: GraphNode[]; edg
 
 interface Props {
   onFocus?: (f: Omit<FocusTarget, 'ts'>) => void
+  /** When set (e.g. drill-down from SITUATIONS), auto-load this entity's graph. */
+  initialEntityId?: string | null
 }
 
 const SCHEMA_COLOR: Record<string, string> = {
@@ -90,7 +92,7 @@ const fmtConfidence = (v?: number | null) =>
 
 const schemaColor = (s: string) => SCHEMA_COLOR[s] || '#9aa3b2'
 
-export default function IntelGraphPanel({ onFocus }: Props) {
+export default function IntelGraphPanel({ onFocus, initialEntityId }: Props) {
   const [status, setStatus] = useState<IngestStatus | null>(null)
   const [text, setText] = useState('')
   const [dataset, setDataset] = useState('intel-ingest')
@@ -317,6 +319,13 @@ export default function IntelGraphPanel({ onFocus }: Props) {
       renderGraph(g, id)
     } catch (e: any) { setError(`graph: ${e.message || e}`) }
   }, [renderGraph])
+
+  // Drill-down from SITUATIONS / FULL SITUATION: load the requested entity graph.
+  useEffect(() => {
+    if (!initialEntityId) return
+    setRootId(initialEntityId)
+    loadGraph(initialEntityId)
+  }, [initialEntityId, loadGraph])
 
   const runFeeds = async () => {
     setBusy(true); setError(null); setInfo('Syncing live feeds into FtM graph…')

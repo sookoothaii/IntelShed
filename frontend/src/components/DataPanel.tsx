@@ -49,9 +49,11 @@ export function isDataTab(v: unknown): v is DataTab {
 export default function DataPanel({
   onFocus,
   onOpenWindyMap,
+  intelEntityId,
 }: {
   onFocus: (f: Omit<FocusTarget, 'ts'>) => void
   onOpenWindyMap?: (lat: number, lon: number) => void
+  intelEntityId?: string | null
 }) {
   const fmtNum = (n: any, digits = 0): string => {
     const v = Number(n)
@@ -100,6 +102,10 @@ export default function DataPanel({
     return '#00e5a0'
   }
   const [tab, setTab] = useHudSessionState<DataTab>('dataTab', 'aircraft', isDataTab)
+
+  useEffect(() => {
+    if (intelEntityId) setTab('intel')
+  }, [intelEntityId, setTab])
   const [aircraft, setAircraft] = useState<(string | number | null)[][]>([])
   const [satellites, setSatellites] = useState<Sat[]>([])
   const [satGroup, setSatGroup] = useHudSessionState('dataSatGroup', 'starlink', (v): v is string => typeof v === 'string' && v.length > 0)
@@ -901,7 +907,7 @@ export default function DataPanel({
       )}
 
       {tab === 'intel' && (
-        <IntelGraphPanel onFocus={onFocus} />
+        <IntelGraphPanel onFocus={onFocus} initialEntityId={intelEntityId} />
       )}
 
     </div>

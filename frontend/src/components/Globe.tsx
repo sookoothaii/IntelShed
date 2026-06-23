@@ -68,6 +68,12 @@ import { buildEntityHoverTip } from '../lib/entityHoverTip';
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
+// Cesium explicit rendering (requestRenderMode): only paint frames when the scene
+// changes, cutting idle CPU/GPU (Cesium docs: ~25% -> ~3% idle). Opt-in via env so
+// the operator can A/B it on the live tool; an rAF activity pump (below) keeps
+// camera moves, tracked entities, focus ring, and pulse layers animating smoothly.
+const GLOBE_EXPLICIT_RENDER = import.meta.env.VITE_WORLDBASE_GLOBE_EXPLICIT_RENDER === '1'
+
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
   const windowMs = hours * 3600 * 1000
@@ -892,6 +898,7 @@ export default function Globe({
     const feedActive = () => !cancelled && visibleRef.current
 
     let detachTerrainFailover: (() => void) | undefined
+    let pumpRaf = 0
 
     ;(async () => {
       const terrainProvider = await createTerrainWithFallback()
@@ -908,6 +915,8 @@ export default function Globe({
         geocoder: true,
         infoBox: false,
         selectionIndicator: false,
+        requestRenderMode: GLOBE_EXPLICIT_RENDER,
+        maximumRenderTimeChange: GLOBE_EXPLICIT_RENDER ? Infinity : undefined,
       })
       viewerRef.current = viewer
       setViewer(viewer)
@@ -957,6 +966,38 @@ export default function Globe({
       const osintSrc = new CustomDataSource('osint')
       osintSrcRef.current = osintSrc
       ;[focusSrc, osintSrc].forEach((s) => viewer!.dataSources.add(s))
+
+      // ---------- Explicit-render activity pump ----------
+      // With requestRenderMode on, Cesium only paints when something requests a
+      // render. Camera interaction and entity property changes (aircraft/sat
+      // setValue, layer rebuilds) already request renders; this pump additionally
+      // keeps time-driven CallbackProperty pulses (quakes M>=5, nodes, military,
+      // focus ring) and tracked entities animating, and paints briefly after
+      // camera moves. When the globe is hidden, idle, and no pulse layer is on, it
+      // stops requesting frames — that is where the idle CPU win comes from.
+      if (GLOBE_EXPLICIT_RENDER) {
+        let renderHotUntil = 0
+        const bumpRender = (ms = 1200) => {
+          renderHotUntil = Math.max(renderHotUntil, Date.now() + ms)
+        }
+        const onCamChange = () => bumpRender(800)
+        viewer.camera.changed.addEventListener(onCamChange)
+        viewer.camera.moveStart.addEventListener(onCamChange)
+        viewer.camera.moveEnd.addEventListener(() => bumpRender(400))
+        const pump = () => {
+          pumpRaf = requestAnimationFrame(pump)
+          const v = viewerRef.current
+          if (!v || (v as any).isDestroyed?.() || !visibleRef.current) return
+          const L = layersRef.current
+          const animatedLayer = !!(L.quakes || L.nodes || L.military)
+          const hasFocusRing = focusSrc.entities.values.length > 0
+          if (Date.now() < renderHotUntil || animatedLayer || hasFocusRing || !!v.trackedEntity) {
+            try { v.scene.requestRender() } catch { /* teardown */ }
+          }
+        }
+        pumpRaf = requestAnimationFrame(pump)
+        bumpRender(2000)
+      }
 
       // ---------- Interaction ----------
 
@@ -1492,6 +1533,7 @@ export default function Globe({
 
     return () => {
       cancelled = true
+      if (pumpRaf) cancelAnimationFrame(pumpRaf)
       detachTerrainFailover?.()
       if (recoverAfterOnline) window.removeEventListener('online', recoverAfterOnline)
       resizeObserver?.disconnect()
