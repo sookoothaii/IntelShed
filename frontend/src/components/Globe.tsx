@@ -60,6 +60,7 @@ import { GlobeLayerManager } from '../hooks/layers/GlobeLayerManager';
 
 import { canFetch } from '../lib/networkFetch';
 import { createTerrainWithFallback, attachTerrainFailover } from '../lib/cesiumTerrain';
+import { attachRenderQuiescence } from '../lib/cesiumRenderQuiescence';
 
 import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
@@ -85,6 +86,18 @@ const GLOBE_TARGET_FPS = (() => {
   if (raw == null || raw === '') return 30
   const n = Number(raw)
   return Number.isFinite(n) && n > 0 ? n : 0
+})()
+
+// Render quiescence: when the visible globe is fully loaded and nothing animates,
+// drop targetFrameRate to ~1–2 fps to cut idle GPU heat. Stuck off-screen preload
+// tiles keep tilesLoaded=false even though the on-screen view is complete; this
+// lever throttles only that provably-static case. Opt-in (default off).
+const GLOBE_RENDER_QUIESCENCE = import.meta.env.VITE_WORLDBASE_GLOBE_RENDER_QUIESCENCE === '1'
+const GLOBE_QUIESCENCE_FPS = (() => {
+  const raw = import.meta.env.VITE_WORLDBASE_GLOBE_QUIESCENCE_FPS
+  if (raw == null || raw === '') return 2
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : 2
 })()
 
 function timelineCutoffMs(scrubT: number, hours: number): number {
@@ -911,7 +924,9 @@ export default function Globe({
     const feedActive = () => !cancelled && visibleRef.current
 
     let detachTerrainFailover: (() => void) | undefined
+    let detachRenderQuiescence: (() => void) | undefined
     let pumpRaf = 0
+    const focusRingActiveRef = { current: false }
 
     ;(async () => {
       const terrainProvider = await createTerrainWithFallback()
@@ -945,6 +960,36 @@ export default function Globe({
       viewer.resolutionScale = Math.min(window.devicePixelRatio, 1.5)
       if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
       if (GLOBE_TARGET_FPS > 0) viewer.targetFrameRate = GLOBE_TARGET_FPS
+
+      if (GLOBE_RENDER_QUIESCENCE) {
+        const normalFps = GLOBE_TARGET_FPS > 0 ? GLOBE_TARGET_FPS : 30
+        detachRenderQuiescence = attachRenderQuiescence(viewer, {
+          normalFps,
+          idleFps: GLOBE_QUIESCENCE_FPS,
+          getState: () => {
+            const L = layersRef.current
+            const tl = timelineRef.current
+            const v = viewerRef.current
+            return {
+              visible: visibleRef.current,
+              timelineLive: tl.scrubT >= 0.995,
+              hasFocusRing: focusRingActiveRef.current,
+              hasTrackedEntity: !!v?.trackedEntity,
+              cameraMoving: false,
+              layers: {
+                quakes: L.quakes,
+                nodes: L.nodes,
+                military: L.military,
+                aircraft: L.aircraft,
+                satellites: L.satellites,
+                transit: L.transit,
+                maritime: L.maritime,
+                lightning: L.lightning,
+              },
+            }
+          },
+        })
+      }
 
       // OSM 3D buildings — free via Cesium Ion (same token as terrain)
       viewer.camera.moveEnd.addEventListener(() => {
@@ -1446,7 +1491,13 @@ export default function Globe({
             duration: 2.5,
           })
         },
-        unlock: () => { if (viewer) viewer.trackedEntity = undefined; focusSrc.entities.removeAll(); setDetailOpen(false); setTarget(null) },
+        unlock: () => {
+          if (viewer) viewer.trackedEntity = undefined
+          focusSrc.entities.removeAll()
+          focusRingActiveRef.current = false
+          setDetailOpen(false)
+          setTarget(null)
+        },
         focusOn: (f: FocusTarget) => {
           if (!viewer) return
           viewer.trackedEntity = undefined
@@ -1472,6 +1523,7 @@ export default function Globe({
             lon: f.lon,
           })
           focusSrc.entities.removeAll()
+          focusRingActiveRef.current = true
           const t0 = Date.now()
           const ring = () => ((Date.now() - t0) % 1600) / 1600
           focusSrc.entities.add({
@@ -1549,6 +1601,7 @@ export default function Globe({
       cancelled = true
       if (pumpRaf) cancelAnimationFrame(pumpRaf)
       detachTerrainFailover?.()
+      detachRenderQuiescence?.()
       if (recoverAfterOnline) window.removeEventListener('online', recoverAfterOnline)
       resizeObserver?.disconnect()
       timers.forEach((id) => {
