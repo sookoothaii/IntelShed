@@ -21,6 +21,11 @@ from slowapi.wrappers import LimitGroup
 
 REDIS_URL = os.getenv("RATE_LIMIT_REDIS_URL", None)
 RATE_LIMIT_STORAGE = os.getenv("RATE_LIMIT_STORAGE", "memory")  # "memory" or "redis"
+# Consistent key namespace (worldbase:ratelimit:…) — avoids collisions if Redis is shared.
+RATE_LIMIT_KEY_PREFIX = os.getenv("RATE_LIMIT_KEY_PREFIX", "worldbase:ratelimit")
+RATE_LIMIT_REDIS_CONNECT_TIMEOUT = float(os.getenv("RATE_LIMIT_REDIS_CONNECT_TIMEOUT", "2"))
+RATE_LIMIT_REDIS_SOCKET_TIMEOUT = float(os.getenv("RATE_LIMIT_REDIS_SOCKET_TIMEOUT", "2"))
+RATE_LIMIT_REDIS_MAX_CONNECTIONS = int(os.getenv("RATE_LIMIT_REDIS_MAX_CONNECTIONS", "10"))
 
 # Rate limit strings (format: "count/per unit")
 RATE_LIMIT_NODE_INGEST = os.getenv("RATE_LIMIT_NODE_INGEST", "100/minute")
@@ -126,6 +131,29 @@ def get_combined_key(request: Request) -> str:
 # Limiter Setup
 # =============================================================================
 
+def _redis_storage_options() -> dict:
+    """Redis client options: short timeouts + pooled connections (fail fast, no blocking)."""
+    return {
+        "socket_connect_timeout": RATE_LIMIT_REDIS_CONNECT_TIMEOUT,
+        "socket_timeout": RATE_LIMIT_REDIS_SOCKET_TIMEOUT,
+        "max_connections": RATE_LIMIT_REDIS_MAX_CONNECTIONS,
+    }
+
+
+def _limiter_common_kwargs() -> dict:
+    """Shared limiter settings for memory and Redis backends."""
+    prefix = RATE_LIMIT_KEY_PREFIX.rstrip(":")
+    return {
+        "key_func": get_ip_with_forwarding,
+        "default_limits": [RATE_LIMIT_GENERAL],
+        "strategy": "fixed-window",
+        "key_prefix": f"{prefix}:",
+        # Keep Pi/chat limits active when Redis blips (in-memory fallback inherits limits).
+        "in_memory_fallback": [RATE_LIMIT_GENERAL],
+        "in_memory_fallback_enabled": True,
+    }
+
+
 def create_limiter() -> Limiter:
     """
     Create and configure the slowapi limiter instance.
@@ -134,22 +162,18 @@ def create_limiter() -> Limiter:
     otherwise falls back to in-memory storage.
     """
     if RATE_LIMIT_STORAGE == "redis" and REDIS_URL:
-        # Redis storage backend
-        from slowapi.extension import RedisStorage
-        storage = RedisStorage(REDIS_URL)
-        return Limiter(
-            key_func=get_ip_with_forwarding,
-            storage_uri=REDIS_URL,
-            storage_options={"socket_connect_timeout": 30},
-            strategy="fixed-window",  # or "moving-window" for more accuracy
-        )
-    else:
-        # In-memory storage (default)
-        return Limiter(
-            key_func=get_ip_with_forwarding,
-            default_limits=[RATE_LIMIT_GENERAL],
-            strategy="fixed-window",
-        )
+        try:
+            return Limiter(
+                **_limiter_common_kwargs(),
+                storage_uri=REDIS_URL,
+                storage_options=_redis_storage_options(),
+            )
+        except Exception as exc:
+            print(
+                f"[RATE_LIMIT] Redis backend unavailable ({exc!s:.200}) — using in-memory fallback.",
+                flush=True,
+            )
+    return Limiter(**_limiter_common_kwargs())
 
 
 # Global limiter instance
@@ -344,6 +368,31 @@ def get_limiter_instance() -> Limiter:
         The configured Limiter instance
     """
     return limiter
+
+
+def get_rate_limit_backend_status() -> dict:
+    """
+    Report active rate-limit storage backend (memory vs Redis) for health/trust probes.
+    """
+    backend = "redis" if RATE_LIMIT_STORAGE == "redis" and REDIS_URL else "memory"
+    status = {
+        "backend": backend,
+        "key_prefix": f"{RATE_LIMIT_KEY_PREFIX.rstrip(':')}:",
+        "redis_configured": bool(REDIS_URL),
+        "redis_reachable": None,
+    }
+    if backend != "redis" or not REDIS_URL:
+        return status
+    try:
+        from limits.storage import storage_from_string
+
+        storage = storage_from_string(REDIS_URL, **_redis_storage_options())
+        storage.storage.ping()
+        status["redis_reachable"] = True
+    except Exception as exc:
+        status["redis_reachable"] = False
+        status["redis_error"] = str(exc)[:200]
+    return status
 
 
 def reset_rate_limit(key: str) -> bool:

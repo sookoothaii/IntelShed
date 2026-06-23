@@ -12,10 +12,27 @@
 name: worldbase
 
 services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6380:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - worldbase
+
   backend:
     build:
       context: ./backend
     image: worldbase-backend:local
+    depends_on:
+      redis:
+        condition: service_healthy
     env_file:
       - path: ./backend/.env
         required: false
@@ -24,6 +41,12 @@ services:
       WORLDBASE_SELF: http://localhost:8002
       # Reach the host's Ollama from inside the container
       OLLAMA_HOST: ${OLLAMA_HOST:-host.docker.internal:11434}
+      # Rate limits — local Redis on the compose network (overrides backend/.env host URL)
+      RATE_LIMIT_STORAGE: redis
+      RATE_LIMIT_REDIS_URL: redis://redis:6379/0
+      RATE_LIMIT_REDIS_CONNECT_TIMEOUT: "2"
+      RATE_LIMIT_REDIS_SOCKET_TIMEOUT: "2"
+      RATE_LIMIT_REDIS_MAX_CONNECTIONS: "10"
       # Secure-by-default: refuse to start LAN-exposed without a node token
       WORLDBASE_REQUIRE_NODE_TOKEN: ${WORLDBASE_REQUIRE_NODE_TOKEN:-1}
       # Browser origin served by Caddy (extend with your LAN https origin if needed)
