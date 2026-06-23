@@ -134,6 +134,11 @@ const GLOBE_TILE_CACHE_SIZE = (() => {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 100
 })()
 
+/** Retina GPU lever: skip browser-recommended supersampling; cap internal render scale. */
+function globeResolutionScale(): number {
+  return window.devicePixelRatio > 1 ? 0.5 : 1.0
+}
+
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
   const windowMs = hours * 3600 * 1000
@@ -1019,7 +1024,7 @@ export default function Globe({
     const v = viewerRef.current
     if (!v || (v as any).isDestroyed?.()) return
     try {
-      v.resolutionScale = Math.min(window.devicePixelRatio, layoutSplit ? 1.0 : 1.5)
+      v.resolutionScale = globeResolutionScale()
       applyPowerRef.current?.()
       v.resize()
       v.scene.requestRender()
@@ -1061,8 +1066,16 @@ export default function Globe({
         selectionIndicator: false,
         requestRenderMode: !GLOBE_CONTINUOUS_RENDER,
         maximumRenderTimeChange: !GLOBE_CONTINUOUS_RENDER ? Infinity : undefined,
+        contextOptions: {
+          webgl: {
+            antialias: false,
+            alpha: false,
+          },
+        },
       })
       viewerRef.current = viewer
+      viewer.useBrowserRecommendedResolution = false
+      viewer.resolutionScale = globeResolutionScale()
       setViewer(viewer)
       detachTerrainFailover = attachTerrainFailover(viewer, terrainProvider)
 
@@ -1074,7 +1087,6 @@ export default function Globe({
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
-      viewer.resolutionScale = Math.min(window.devicePixelRatio, 1.5)
       if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
       if (GLOBE_TARGET_FPS > 0) viewer.targetFrameRate = GLOBE_TARGET_FPS
 
