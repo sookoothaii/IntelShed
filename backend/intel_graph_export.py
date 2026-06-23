@@ -110,7 +110,9 @@ def compact_for_pull(
     }
 
 
-from fastapi import APIRouter, HTTPException, Query  # noqa: E402
+from fastapi import APIRouter, Depends, HTTPException, Query  # noqa: E402
+
+from auth.security import verify_lan_auth
 
 router = APIRouter(prefix="/api/intel/subgraph", tags=["intel"])
 
@@ -119,6 +121,7 @@ router = APIRouter(prefix="/api/intel/subgraph", tags=["intel"])
 async def subgraph_export(
     hops: int | None = Query(None, ge=1, le=3),
     window_hours: int = Query(24, ge=1, le=168),
+    _auth: str | None = Depends(verify_lan_auth),
 ):
     if not enabled():
         raise HTTPException(status_code=503, detail="subgraph export disabled")

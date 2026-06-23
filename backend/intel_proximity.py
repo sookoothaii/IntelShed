@@ -162,7 +162,9 @@ def link_proximity_edges(
     }
 
 
-from fastapi import APIRouter, HTTPException, Query  # noqa: E402
+from fastapi import APIRouter, Depends, HTTPException, Query  # noqa: E402
+
+from auth.security import verify_lan_auth
 
 router = APIRouter(prefix="/api/intel/spatial", tags=["intel"])
 
@@ -182,6 +184,7 @@ async def spatial_status():
 async def spatial_run(
     window_hours: int = Query(24, ge=1, le=168),
     max_km: float | None = Query(None, ge=5, le=500),
+    _auth: str | None = Depends(verify_lan_auth),
 ):
     if not enabled():
         raise HTTPException(status_code=503, detail="spatial proximity edges disabled")

@@ -17,7 +17,9 @@ from collections import deque
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from auth.security import verify_lan_auth
 
 router = APIRouter(prefix="/api/firewall", tags=["firewall"])
 
@@ -421,7 +423,7 @@ async def firewall_history(limit: int = 20):
 
 
 @router.post("/test")
-async def firewall_test(payload: dict):
+async def firewall_test(payload: dict, _auth: str | None = Depends(verify_lan_auth)):
     """Test a query — slim guard first, then optional HAK_GAL."""
     query = payload.get("query", "").strip()
     if not query:

@@ -5,7 +5,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from auth.security import verify_lan_auth
 
 import fusion_spatial_stage as fss
 
@@ -94,7 +96,7 @@ def fusion_stage_status():
 
 
 @router.post("/stage")
-def fusion_stage_run():
+def fusion_stage_run(_auth: str | None = Depends(verify_lan_auth)):
     """Extract geolocated rows from feed_cache → GeoParquet on disk."""
     try:
         return fss.stage_to_parquet()
