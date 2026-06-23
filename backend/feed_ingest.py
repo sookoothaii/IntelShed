@@ -433,7 +433,9 @@ def status() -> dict:
 # FastAPI routes
 # ---------------------------------------------------------------------------
 
-from fastapi import APIRouter, HTTPException, Query  # noqa: E402
+from fastapi import APIRouter, Depends, HTTPException, Query  # noqa: E402
+
+from auth.security import verify_lan_auth
 
 router = APIRouter(prefix="/api/intel/feeds", tags=["intel"])
 
@@ -444,7 +446,10 @@ async def feeds_status():
 
 
 @router.post("/run")
-async def feeds_run(sources: str | None = Query(None, description="Comma-separated source ids")):
+async def feeds_run(
+    sources: str | None = Query(None, description="Comma-separated source ids"),
+    _auth: str | None = Depends(verify_lan_auth),
+):
     src_list = [s.strip() for s in sources.split(",") if s.strip()] if sources else None
     try:
         return await run_feed_ingest(sources=src_list)

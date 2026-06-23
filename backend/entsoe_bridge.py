@@ -65,6 +65,13 @@ def _period_start_end() -> tuple[str, str]:
     return start, end
 
 
+def _period_start_end_realised() -> tuple[str, str]:
+    """UTC window for realised generation (last 24 h ending at current hour)."""
+    end_dt = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    start_dt = end_dt - timedelta(hours=24)
+    return start_dt.strftime("%Y%m%d%H%M"), end_dt.strftime("%Y%m%d%H%M")
+
+
 def _scrub_token(text: str) -> str:
     tok = _token()
     return text.replace(tok, "REDACTED") if tok else text
@@ -121,14 +128,21 @@ def _parse_generation_xml(xml_text: str) -> list[dict]:
         psr_type_el = ts.find(f"{_q('MktPSRType')}/{_q('psrType')}")
         psr_type = psr_type_el.text if psr_type_el is not None else "unknown"
         for period in ts.findall(_q("Period")):
+            resolution = period.find(_q("resolution"))
+            res_text = resolution.text if resolution is not None else "PT60M"
+            if res_text not in ("PT60M", "PT15M"):
+                continue
             for pt in period.findall(_q("Point")):
                 pos_el = pt.find(_q("position"))
                 qty_el = pt.find(_q("quantity"))
                 if pos_el is not None and qty_el is not None:
+                    position = int(pos_el.text)
+                    if res_text == "PT15M" and (position - 1) % 4 != 0:
+                        continue
                     points.append({
-                        "position": int(pos_el.text),
+                        "position": (position - 1) // 4 + 1 if res_text == "PT15M" else position,
                         "source": psr_type,
-                        "mw": int(qty_el.text),
+                        "mw": int(float(qty_el.text)),
                     })
     return points
 
@@ -252,7 +266,7 @@ async def get_generation(country: str):
         return cached[1]
 
     area = AREA_CODES[country]
-    start, end = _period_start_end()
+    start, end = _period_start_end_realised()
 
     if not _token():
         points = _demo_generation(country)
@@ -272,6 +286,7 @@ async def get_generation(country: str):
         "documentType": DOC_GEN,
         "processType": PROCESS_REALISED,
         "in_Domain": area,
+        "out_Domain": area,
         "periodStart": start,
         "periodEnd": end,
     }
@@ -286,10 +301,15 @@ async def get_generation(country: str):
 
     points = _parse_generation_xml(xml)
     if not points:
-        points = _demo_generation(country)
-        demo = True
-    else:
-        demo = False
+        stale = _CACHE.get(cache_key)
+        if stale and not stale[1].get("demo_mode"):
+            stale[1]["stale"] = True
+            return stale[1]
+        return {
+            "error": "ENTSO-E returned no generation points for the requested window",
+            "country": country,
+            "demo_mode": False,
+        }
 
     # Aggregate latest hour by source
     latest_pos = max((p["position"] for p in points), default=0)
@@ -302,7 +322,7 @@ async def get_generation(country: str):
     result = {
         "country": country,
         "area_code": area,
-        "demo_mode": demo,
+        "demo_mode": False,
         "generation_by_source": by_source,
         "total_mw": sum(by_source.values()),
         "hourly_points": points,
