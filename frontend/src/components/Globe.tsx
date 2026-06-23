@@ -74,6 +74,19 @@ const TIMELINE_WINDOWS = [6, 12, 24] as const
 // camera moves, tracked entities, focus ring, and pulse layers animating smoothly.
 const GLOBE_EXPLICIT_RENDER = import.meta.env.VITE_WORLDBASE_GLOBE_EXPLICIT_RENDER === '1'
 
+// Default frame-rate cap: pulse layers use non-constant CallbackProperty ellipses,
+// which force a full scene render every frame (~60 fps idle). Capping targetFrameRate
+// cuts draw-call volume without disabling pulses. <=0 in env uncaps (native refresh).
+function readGlobeTargetFps(): number | undefined {
+  const raw = import.meta.env.VITE_WORLDBASE_GLOBE_TARGET_FPS
+  if (raw === undefined || raw === '') return 30
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n <= 0) return undefined
+  return n
+}
+
+const GLOBE_TARGET_FPS = readGlobeTargetFps()
+
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
   const windowMs = hours * 3600 * 1000
@@ -918,6 +931,9 @@ export default function Globe({
         requestRenderMode: GLOBE_EXPLICIT_RENDER,
         maximumRenderTimeChange: GLOBE_EXPLICIT_RENDER ? Infinity : undefined,
       })
+      if (GLOBE_TARGET_FPS !== undefined) {
+        viewer.targetFrameRate = GLOBE_TARGET_FPS
+      }
       viewerRef.current = viewer
       setViewer(viewer)
       detachTerrainFailover = attachTerrainFailover(viewer, terrainProvider)
