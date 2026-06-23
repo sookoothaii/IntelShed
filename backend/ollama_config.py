@@ -3,8 +3,17 @@ import os
 
 
 def keep_alive() -> str:
-    """Ollama keep_alive per request. Use '0' to free VRAM immediately."""
+    """Ollama keep_alive for interactive /api/chat (operator-tunable warm cache)."""
     return os.getenv("OLLAMA_KEEP_ALIVE", "1m")
+
+
+def background_keep_alive() -> str:
+    """Ollama keep_alive for autopilot paths (RAG embed, briefing, insight narration).
+
+  Default ``0`` so models unload between background batches and the dGPU can
+  deep-idle when the HUD globe is the only GPU consumer.
+    """
+    return os.getenv("OLLAMA_BACKGROUND_KEEP_ALIVE", "0")
 
 
 def chat_timeout() -> float:

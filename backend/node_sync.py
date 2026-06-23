@@ -616,7 +616,7 @@ async def _ollama_briefing(prompt: str) -> str:
         "model": OLLAMA_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
-        "keep_alive": __import__("ollama_config").keep_alive(),
+        "keep_alive": __import__("ollama_config").background_keep_alive(),
         "options": {"num_predict": 420, "temperature": 0.35},
     }
     if "qwen3" in OLLAMA_MODEL.lower():

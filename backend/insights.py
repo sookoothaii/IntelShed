@@ -279,10 +279,13 @@ def _narration_prompt(items: list[dict[str, Any]]) -> str:
 
 async def _ollama_complete(prompt: str) -> str:
     """Single-shot local LLM completion — bounded tokens, no Qwen3 thinking."""
+    from ollama_config import background_keep_alive
+
     body: dict[str, Any] = {
         "model": _OLLAMA_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
+        "keep_alive": background_keep_alive(),
         "options": {"num_predict": 600, "temperature": 0.3},
     }
     if "qwen3" in _OLLAMA_MODEL.lower():
