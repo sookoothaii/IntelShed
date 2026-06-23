@@ -5,6 +5,7 @@
 # Usage:
 #   .\scripts\deploy-pi-sync.ps1              # push + pull scripts
 #   .\scripts\deploy-pi-sync.ps1 -Portal      # offgrid-portal + portal_ui.html + watch_rank + 120s pull
+#   .\scripts\deploy-pi-sync.ps1 -Security    # portal + mesh + maps + lan_bind (LAN hardening)
 #   .\scripts\deploy-pi-sync.ps1 -Portal -Lcd # also system_tiles.py (GEOPOL LCD headline)
 #   .\scripts\deploy-pi-sync.ps1 -TrimArduino # remove /mnt/sdcard/.arduino15 (~7 GB)
 #   .\scripts\deploy-pi-sync.ps1 -NoClearBuffer
@@ -14,6 +15,7 @@
 
 param(
     [switch]$Portal,
+    [switch]$Security,
     [switch]$Lcd,
     [switch]$TrimArduino,
     [switch]$NoClearBuffer
@@ -48,6 +50,9 @@ $pullSrc = Join-Path $Root 'offgrid-raspi\scripts\worldbase_pull.py'
 $portalSrc = Join-Path $Root 'offgrid-raspi\offgrid\bin\offgrid-portal'
 $portalUiSrc = Join-Path $Root 'offgrid-raspi\offgrid\content\portal_ui.html'
 $watchRankSrc = Join-Path $Root 'offgrid-raspi\offgrid\lib\watch_rank.py'
+$meshSrc = Join-Path $Root 'offgrid-raspi\offgrid\bin\offgrid-mesh'
+$mapsSrc = Join-Path $Root 'offgrid-raspi\offgrid\bin\offgrid-maps'
+$lanBindSrc = Join-Path $Root 'offgrid-raspi\offgrid\lib\lan_bind.py'
 $lcdSrc = Join-Path $Root 'offgrid-raspi\system_tiles.py'
 
 Write-Host "=== deploy-pi-sync -> $pi ===" -ForegroundColor Cyan
@@ -57,16 +62,37 @@ $pullLf = Write-LfCopy $pullSrc 'worldbase_pull.py'
 & $scp -i $key $pushLf $pullLf "${pi}:/tmp/"
 Write-Host 'SCP: worldbase_push.py, worldbase_pull.py' -ForegroundColor Green
 
-if ($Portal) {
+if ($Portal -or $Security) {
     if (-not (Test-Path $watchRankSrc)) {
         throw "Missing source: $watchRankSrc"
     }
+    if (-not (Test-Path $portalSrc)) {
+        throw "Missing source: $portalSrc"
+    }
     $portalLf = Write-LfCopy $portalSrc 'offgrid-portal'
+    & $scp -i $key $portalLf "${pi}:/tmp/"
+    Write-Host 'SCP: offgrid-portal' -ForegroundColor Green
+}
+
+if ($Portal) {
     $portalUiLf = Write-LfCopy $portalUiSrc 'portal_ui.html'
     $watchRankLf = Write-LfCopy $watchRankSrc 'watch_rank.py'
-    & $scp -i $key $portalLf $portalUiLf $watchRankLf "${pi}:/tmp/"
+    & $scp -i $key $portalUiLf $watchRankLf "${pi}:/tmp/"
     & $ssh -i $key -o BatchMode=yes $pi "mv /tmp/portal_ui.html /tmp/offgrid-portal-ui.html"
-    Write-Host 'SCP: offgrid-portal, portal_ui.html, watch_rank.py' -ForegroundColor Green
+    Write-Host 'SCP: portal_ui.html, watch_rank.py' -ForegroundColor Green
+}
+
+if ($Security) {
+    foreach ($src in @($meshSrc, $mapsSrc, $lanBindSrc)) {
+        if (-not (Test-Path $src)) {
+            throw "Missing source: $src"
+        }
+    }
+    $meshLf = Write-LfCopy $meshSrc 'offgrid-mesh'
+    $mapsLf = Write-LfCopy $mapsSrc 'offgrid-maps'
+    $lanBindLf = Write-LfCopy $lanBindSrc 'lan_bind.py'
+    & $scp -i $key $meshLf $mapsLf $lanBindLf "${pi}:/tmp/"
+    Write-Host 'SCP: offgrid-mesh, offgrid-maps, lan_bind.py' -ForegroundColor Green
 }
 
 if ($Lcd) {
@@ -115,9 +141,26 @@ cat <<'OPERATORDROP' | sudo tee /etc/systemd/system/worldbase_pull.service.d/ope
 Environment=WORLDBASE_PULL_INTERVAL=120
 OPERATORDROP
 "@
+} elseif ($Security) {
+    $portalBlock = @"
+cp /tmp/offgrid-portal $PiProject/offgrid/bin/offgrid-portal
+chmod +x $PiProject/offgrid/bin/offgrid-portal
+"@
 }
 
-$restartPortal = if ($Portal) { 'sudo systemctl restart offgrid-portal' } else { '' }
+$securityBlock = ''
+if ($Security) {
+    $securityBlock = @"
+cp /tmp/offgrid-mesh $PiProject/offgrid/bin/offgrid-mesh
+chmod +x $PiProject/offgrid/bin/offgrid-mesh
+cp /tmp/offgrid-maps $PiProject/offgrid/bin/offgrid-maps
+chmod +x $PiProject/offgrid/bin/offgrid-maps
+cp /tmp/lan_bind.py $PiProject/offgrid/lib/lan_bind.py
+"@
+}
+
+$restartPortal = if ($Portal -or $Security) { 'sudo systemctl restart offgrid-portal' } else { '' }
+$restartSecurity = if ($Security) { 'sudo systemctl restart offgrid-mesh offgrid-maps' } else { '' }
 $restartLcd = if ($Lcd) { 'sudo systemctl restart system-tiles' } else { '' }
 
 $portalVerifyBlock = ''
@@ -125,6 +168,16 @@ if ($Portal) {
     $portalVerifyBlock = @'
 echo "--- portal intel ---"
 curl -sf http://127.0.0.1:8093/api/status | python3 -c "import sys,json; b=json.load(sys.stdin).get('geo',{}).get('brief',{}); print('intel_node_count', b.get('intel_node_count')); print('intel_edge_count', b.get('intel_edge_count')); print('source', b.get('source'))"
+'@
+}
+
+$securityVerifyBlock = ''
+if ($Security) {
+    $securityVerifyBlock = @'
+echo "--- security markers ---"
+grep -c PORTAL_SAFE_ACTIONS ~/CascadeProjects/windsurf-project/offgrid/bin/offgrid-portal || true
+grep -c _resolve_maplibre_path ~/CascadeProjects/windsurf-project/offgrid/bin/offgrid-maps || true
+grep -c lan_bind ~/CascadeProjects/windsurf-project/offgrid/bin/offgrid-mesh || true
 '@
 }
 
@@ -148,6 +201,7 @@ sudo chmod +x /usr/local/bin/worldbase_push.py
 sudo cp /tmp/worldbase_pull.py /usr/local/bin/worldbase_pull.py
 sudo chmod +x /usr/local/bin/worldbase_pull.py
 $portalBlock
+$securityBlock
 $lcdBlock
 $cacheOwnershipBlock
 $clearBuffer
@@ -156,16 +210,18 @@ if [ -f /etc/systemd/system/worldbase_pull.service.d/operator-interval.conf ]; t
 fi
 sudo systemctl restart worldbase_push worldbase_pull
 $restartPortal
+$restartSecurity
 $restartLcd
 sleep 2
 echo "--- services ---"
-systemctl is-active worldbase_push worldbase_pull offgrid-portal system-tiles
+systemctl is-active worldbase_push worldbase_pull offgrid-portal offgrid-mesh offgrid-maps system-tiles
 echo "--- pull interval ---"
 systemctl show worldbase_pull -p Environment --no-pager | tr ' ' '\n' | grep PULL_INTERVAL || true
 $trimBlock
 echo "--- push log ---"
 journalctl -u worldbase_push --no-pager -n 3 || true
 $portalVerifyBlock
+$securityVerifyBlock
 "@
 
 $remote = ($remote -replace "`r`n", "`n") -replace "`r", ""
