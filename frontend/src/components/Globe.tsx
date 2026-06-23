@@ -36,6 +36,7 @@ import {
   MVTDataProvider,
   ImageryLayer,
   JulianDate,
+  RequestScheduler,
 } from 'cesium'
 
 import 'cesium/Build/Cesium/Widgets/widgets.css'
@@ -86,6 +87,22 @@ const GLOBE_TARGET_FPS = (() => {
   const n = Number(raw)
   return Number.isFinite(n) && n > 0 ? n : 0
 })()
+
+// Globe terrain/imagery LOD (maximumScreenSpaceError). Cesium default is 2.0; 1.0
+// loads ~4× more tiles with marginal benefit at dashboard zoom — and keeps the
+// tile load queues busy, so globe.tilesLoaded stays false and Cesium force-renders
+// every frame (bypassing requestRenderMode). Tunable via env for A/B.
+const GLOBE_MAX_SSE = (() => {
+  const raw = import.meta.env.VITE_WORLDBASE_GLOBE_SSE
+  if (raw == null || raw === '') return 2.0
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : 2.0
+})()
+
+// ArcGIS + Ion share RequestScheduler slots (default 18/server). When the globe
+// tile queues stall, tilesLoaded never clears and Scene forces continuous renders.
+RequestScheduler.requestsByServer['server.arcgisonline.com:443'] = 24
+RequestScheduler.requestsByServer['assets.ion.cesium.com:443'] = 24
 
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
@@ -938,7 +955,10 @@ export default function Globe({
       const scene = viewer.scene
       scene.globe.enableLighting = true
       scene.globe.depthTestAgainstTerrain = false
-      scene.globe.maximumScreenSpaceError = 1.0
+      scene.globe.maximumScreenSpaceError = GLOBE_MAX_SSE
+      // Ancestor preload fills medium/low tile queues without settling tilesLoaded;
+      // disable so the globe can idle once visible tiles finish loading.
+      scene.globe.preloadAncestors = false
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
