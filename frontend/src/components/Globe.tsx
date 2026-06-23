@@ -87,6 +87,17 @@ const GLOBE_TARGET_FPS = (() => {
   return Number.isFinite(n) && n > 0 ? n : 0
 })()
 
+// Idle frame-rate drop when the globe is truly quiescent (camera still, no motion or
+// pulse layers, no focus/tracked entity, tiles settled). Opt-in via env; default off
+// so the live HUD is unchanged until the operator sets VITE_WORLDBASE_GLOBE_IDLE_FPS.
+const GLOBE_IDLE_FPS = (() => {
+  const raw = import.meta.env.VITE_WORLDBASE_GLOBE_IDLE_FPS
+  if (raw == null || raw === '') return 0
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : 0
+})()
+const GLOBE_TILE_SETTLE_MS = 1500
+
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
   const windowMs = hours * 3600 * 1000
@@ -912,6 +923,8 @@ export default function Globe({
 
     let detachTerrainFailover: (() => void) | undefined
     let pumpRaf = 0
+    let idleRaf = 0
+    let idleTeardown: (() => void) | undefined
 
     ;(async () => {
       const terrainProvider = await createTerrainWithFallback()
@@ -1011,6 +1024,88 @@ export default function Globe({
         }
         pumpRaf = requestAnimationFrame(pump)
         bumpRender(2000)
+      }
+
+      // ---------- Idle fps quiescence (thermal; opt-in) ----------
+      // Drop targetFrameRate when camera/interaction is idle, no aircraft/sat or pulse
+      // layers, no tracked entity/focus ring, and globe.tileLoadProgressEvent has been
+      // silent for GLOBE_TILE_SETTLE_MS. Root level-0 tiles can sit in the visible queue
+      // forever, so we gate on progress-event silence, not tilesLoaded/empty queue.
+      if (GLOBE_IDLE_FPS > 0) {
+        const activeFps = GLOBE_TARGET_FPS > 0 ? GLOBE_TARGET_FPS : 60
+        let interactionHotUntil = Date.now() + 2000
+        let lastTileProgressAt = Date.now()
+        let isIdled = false
+
+        const applyActiveFps = () => {
+          if (!viewer || (viewer as any).isDestroyed?.()) return
+          viewer.targetFrameRate = activeFps
+        }
+
+        const restoreFps = () => {
+          if (!isIdled) return
+          isIdled = false
+          applyActiveFps()
+          try { viewer!.scene.requestRender() } catch { /* teardown */ }
+        }
+
+        const bumpHot = (ms = 1200) => {
+          interactionHotUntil = Math.max(interactionHotUntil, Date.now() + ms)
+          if (isIdled) restoreFps()
+        }
+
+        const onTileProgress = () => { lastTileProgressAt = Date.now() }
+        scene.globe.tileLoadProgressEvent.addEventListener(onTileProgress)
+
+        const onCamChange = () => bumpHot(800)
+        const onCamMoveEnd = () => bumpHot(400)
+        viewer.camera.changed.addEventListener(onCamChange)
+        viewer.camera.moveStart.addEventListener(onCamChange)
+        viewer.camera.moveEnd.addEventListener(onCamMoveEnd)
+
+        const canvas = scene.canvas
+        const onPointerDown = () => bumpHot(1200)
+        const onWheel = () => bumpHot(800)
+        canvas.addEventListener('pointerdown', onPointerDown, { passive: true })
+        canvas.addEventListener('wheel', onWheel, { passive: true })
+
+        const isQuiescent = () => {
+          const v = viewerRef.current
+          if (!v || (v as any).isDestroyed?.() || !visibleRef.current) return false
+          const L = layersRef.current
+          if (L.aircraft || L.satellites) return false
+          if (L.quakes || L.nodes || L.military) return false
+          if (v.trackedEntity) return false
+          if (focusSrc.entities.values.length > 0) return false
+          if (Date.now() < interactionHotUntil) return false
+          if (Date.now() - lastTileProgressAt < GLOBE_TILE_SETTLE_MS) return false
+          return true
+        }
+
+        const idleLoop = () => {
+          idleRaf = requestAnimationFrame(idleLoop)
+          const v = viewerRef.current
+          if (!v || (v as any).isDestroyed?.() || !visibleRef.current) return
+          if (isQuiescent()) {
+            if (!isIdled) {
+              isIdled = true
+              v.targetFrameRate = GLOBE_IDLE_FPS
+            }
+          } else if (isIdled) {
+            restoreFps()
+          }
+        }
+        idleRaf = requestAnimationFrame(idleLoop)
+
+        idleTeardown = () => {
+          cancelAnimationFrame(idleRaf)
+          scene.globe.tileLoadProgressEvent.removeEventListener(onTileProgress)
+          viewer!.camera.changed.removeEventListener(onCamChange)
+          viewer!.camera.moveStart.removeEventListener(onCamChange)
+          viewer!.camera.moveEnd.removeEventListener(onCamMoveEnd)
+          canvas.removeEventListener('pointerdown', onPointerDown)
+          canvas.removeEventListener('wheel', onWheel)
+        }
       }
 
       // ---------- Interaction ----------
@@ -1548,6 +1643,8 @@ export default function Globe({
     return () => {
       cancelled = true
       if (pumpRaf) cancelAnimationFrame(pumpRaf)
+      if (idleRaf) cancelAnimationFrame(idleRaf)
+      idleTeardown?.()
       detachTerrainFailover?.()
       if (recoverAfterOnline) window.removeEventListener('online', recoverAfterOnline)
       resizeObserver?.disconnect()
