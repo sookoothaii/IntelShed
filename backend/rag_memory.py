@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 import sqlite_vec
 
 from rag_hybrid import (
@@ -28,6 +28,7 @@ from rag_chunking import (
     resolve_source_id,
 )
 from rag_rerank import rerank_enabled, rerank_hits, search_mode_label
+from auth.security import verify_lan_auth
 from rag_spatial import (
     apply_spatial_postfilter,
     enrich_meta_spatial,
@@ -649,7 +650,7 @@ async def memory_search(q: str, k: int = 6, spatial: bool | None = None):
 
 
 @router.post("/index/pulse")
-async def index_gdelt_pulse():
+async def index_gdelt_pulse(_auth: str | None = Depends(verify_lan_auth)):
     try:
         return await ingest_pulse()
     except Exception as e:

@@ -161,6 +161,28 @@ class GdeltPipelineMetaTests(unittest.TestCase):
         self.assertEqual(meta["pipeline_blocker"], "stale_filtered")
         self.assertFalse(meta["pipeline_ok"])
 
+    def test_count_gdelt_with_date_tag_prefix(self):
+        from briefing_quality import count_gdelt_digest_items, item_is_gdelt
+
+        item = {
+            "text": "[23 Jun 01:45 UTC] Local news: Bangkok flood warning",
+            "sources": ["gdelt_pulse_local"],
+            "bucket": "local",
+        }
+        self.assertTrue(item_is_gdelt(item))
+        self.assertEqual(count_gdelt_digest_items([item]), 1)
+
+    def test_pipeline_counts_date_tagged_digest_lines(self):
+        snap = {"gdelt_pulse_local": {"articles": [{"title": "x"}]}}
+        digest = {
+            "local": ["- [23 Jun 01:45 UTC] Local news: Bangkok flood"],
+            "_gdelt_collected": 1,
+        }
+        from briefing_quality import gdelt_digest_pipeline_meta
+
+        meta = gdelt_digest_pipeline_meta(snap, digest)
+        self.assertEqual(meta["digest_gdelt_lines"], 1)
+
 
 class CorroborationTests(unittest.TestCase):
     def test_quake_gdacs_dual_source(self):

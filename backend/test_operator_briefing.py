@@ -53,16 +53,20 @@ class OperatorBriefingTests(unittest.TestCase):
         self.assertNotIn("No local signals", local_text)
 
     def test_digest_skips_stale_gdelt_tourism_headlines(self):
+        from datetime import datetime, timedelta, timezone
+
+        recent = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y%m%dT%H%M%SZ")
+        stale_tourism = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y%m%dT%H%M%SZ")
         snap = {
             "gdelt_pulse_local": {
                 "articles": [
                     {
                         "title": "Agoda . com celebrates Thai New Year with super special Songkran rates",
-                        "seendate": "20260430T204500Z",
+                        "seendate": stale_tourism,
                     },
                     {
                         "title": "Bangkok flood warning for Chao Phraya districts",
-                        "seendate": "20260622T120000Z",
+                        "seendate": recent,
                     },
                 ],
             },
@@ -72,7 +76,7 @@ class OperatorBriefingTests(unittest.TestCase):
         self.assertNotIn("Songkran", local_text)
         self.assertNotIn("Agoda", local_text)
         self.assertIn("flood warning", local_text)
-        self.assertIn("[22 Jun", local_text)
+        self.assertIn("UTC]", local_text)
 
     def test_digest_lines_include_observed_at_meta(self):
         snap = {

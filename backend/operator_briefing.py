@@ -742,7 +742,7 @@ def _sort_bucket(
     newsdata_reserve: int = 0,
 ) -> tuple[list[str], list[dict]]:
     """Rank by severity; reserve slots for GDELT / NewsData so media headlines survive cap."""
-    from briefing_quality import is_gdelt_digest_text
+    from briefing_quality import item_is_gdelt
 
     out: list[str] = []
     picked: list[dict] = []
@@ -774,7 +774,7 @@ def _sort_bucket(
                 return
 
     if gdelt_reserve > 0:
-        _reserve_from(lines, cap=gdelt_reserve, predicate=lambda x: is_gdelt_digest_text(x.get("text", "")))
+        _reserve_from(lines, cap=gdelt_reserve, predicate=item_is_gdelt)
         if len(out) >= limit:
             return out, picked
 

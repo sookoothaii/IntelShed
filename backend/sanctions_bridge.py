@@ -37,7 +37,9 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
+
+from auth.security import verify_lan_auth
 
 router = APIRouter(prefix="/api/sanctions", tags=["sanctions"])
 
@@ -302,7 +304,10 @@ async def sanctions_status():
 
 
 @router.post("/refresh")
-async def sanctions_refresh(background_tasks: BackgroundTasks):
+async def sanctions_refresh(
+    background_tasks: BackgroundTasks,
+    _auth: str | None = Depends(verify_lan_auth),
+):
     """Trigger a (background) re-download of the default CSV."""
     async def _do():
         await _ensure_index(refresh=True)

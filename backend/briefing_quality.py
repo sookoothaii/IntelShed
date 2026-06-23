@@ -20,12 +20,32 @@ _GDELT_DIGEST_PREFIXES = (
     "media heat:",
     "news:",
 )
+_GDELT_SOURCE_KEYS = frozenset({
+    "gdelt_pulse_local",
+    "gdelt_geo_local",
+    "gdelt_pulse",
+    "gdelt_geo",
+})
+_DIGEST_DATE_TAG = re.compile(r"^\[\d{1,2} \w{3} \d{2}:\d{2} UTC\]\s*")
+
+
+def _strip_digest_date_tag(text: str) -> str:
+    """Remove ``[22 Jun 14:30 UTC]`` prefix added by digest_timestamps."""
+    return _DIGEST_DATE_TAG.sub("", str(text or "").strip(), count=1)
 
 
 def is_gdelt_digest_text(text: str) -> bool:
     """True when digest line text came from a GDELT feed (local pulse, geo, global)."""
-    low = str(text or "").lower().strip()
+    low = _strip_digest_date_tag(text).lower().strip()
     return any(low.startswith(prefix) for prefix in _GDELT_DIGEST_PREFIXES)
+
+
+def item_is_gdelt(item: dict[str, Any]) -> bool:
+    """Match GDELT digest rows by provenance or headline prefix (after date tag)."""
+    sources = item.get("sources") or []
+    if any(s in _GDELT_SOURCE_KEYS for s in sources):
+        return True
+    return is_gdelt_digest_text(item.get("text", ""))
 
 
 def _gdelt_item_text(text: str) -> bool:
@@ -34,7 +54,7 @@ def _gdelt_item_text(text: str) -> bool:
 
 def count_gdelt_digest_items(items: list[dict[str, Any]] | None) -> int:
     """GDELT lines collected before per-bucket severity cap."""
-    return sum(1 for item in items or [] if _gdelt_item_text(item.get("text", "")))
+    return sum(1 for item in items or [] if item_is_gdelt(item))
 
 
 def _gdelt_block_volume(block: dict[str, Any] | None, *, list_key: str = "articles") -> int:
@@ -64,7 +84,7 @@ def gdelt_digest_pipeline_meta(snap: dict[str, Any], digest: dict[str, Any]) -> 
     def _count_gdelt_lines(bucket_lines: list[str] | None) -> int:
         total = 0
         for line in bucket_lines or []:
-            low = str(line).lower().lstrip("- ").strip()
+            low = _strip_digest_date_tag(str(line).lstrip("- ").strip()).lower()
             if any(low.startswith(prefix) for prefix in _GDELT_DIGEST_PREFIXES):
                 total += 1
         return total

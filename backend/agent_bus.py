@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from auth.security import API_KEY, verify_api_key
+from auth.security import API_KEY, verify_api_key, verify_lan_auth
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -167,12 +167,16 @@ async def agent_status():
 async def agent_publish(
     body: AgentPublishBody,
     _api_key: str | None = Depends(verify_api_key),
+    _lan: str | None = Depends(verify_lan_auth),
 ):
     return await publish_action(body)
 
 
 @router.post("/camera")
-async def agent_camera(body: CameraState):
+async def agent_camera(
+    body: CameraState,
+    _lan: str | None = Depends(verify_lan_auth),
+):
     _require_enabled()
     global _last_camera
     _last_camera = {

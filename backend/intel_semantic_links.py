@@ -336,7 +336,9 @@ def link_semantic_edges(
     }
 
 
-from fastapi import APIRouter, HTTPException, Query  # noqa: E402
+from fastapi import APIRouter, Depends, HTTPException, Query  # noqa: E402
+
+from auth.security import verify_lan_auth
 
 router = APIRouter(prefix="/api/intel/semantic", tags=["intel"])
 
@@ -366,6 +368,7 @@ async def semantic_status():
 async def semantic_run(
     window_hours: int = Query(24, ge=1, le=168),
     include_sanctions: bool = Query(True),
+    _auth: str | None = Depends(verify_lan_auth),
 ):
     if not enabled():
         raise HTTPException(status_code=503, detail="semantic intel edges disabled")
