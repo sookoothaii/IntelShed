@@ -19,7 +19,6 @@ router = APIRouter(prefix="/api/eu-energy", tags=["eu-energy"])
 
 TOKEN = os.getenv("ENTSOE_SECURITY_TOKEN", "")
 BASE_URL = "https://web-api.tp.entsoe.eu/api"
-NS = {"": "urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3"}
 
 # EIC area codes for bidding zones
 AREA_CODES: dict[str, str] = {
@@ -39,9 +38,18 @@ AREA_CODES: dict[str, str] = {
     "fi": "10YFI-1--------U",
 }
 
-# DocumentType codes
+# DocumentType / process codes (ENTSO-E Transparency API)
 DOC_PRICE = "A44"    # Price document
-DOC_GEN = "A75"      # Generation document (per type)
+DOC_GEN = "A75"      # Actual generation per production type
+PROC_REALISED = "A16"  # Realised (actual) values for generation
+CONTRACT_DAY_AHEAD = "A01"  # Day-ahead market agreement for prices
+
+NS_URI = "urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3"
+_RESOLUTION_MINUTES = {"PT15M": 15, "PT30M": 30, "PT60M": 60}
+
+
+def _ns(tag: str) -> str:
+    return f"{{{NS_URI}}}{tag}"
 
 _CACHE: dict[str, tuple[float, dict]] = {}
 TTL = 300  # 5 min
@@ -55,32 +63,85 @@ def _period_start_end() -> tuple[str, str]:
     return start, end
 
 
+def _parse_iso_utc(ts: str | None) -> datetime | None:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _point_start_time(period_start: datetime | None, position: int, resolution: str) -> str | None:
+    minutes = _RESOLUTION_MINUTES.get(resolution or "")
+    if period_start is None or minutes is None or position < 1:
+        return period_start.isoformat() if period_start else None
+    return (period_start + timedelta(minutes=minutes * (position - 1))).isoformat()
+
+
+def _normalize_prices_to_hourly(points: list[dict]) -> list[dict]:
+    """Average sub-hourly ENTSO-E price slots into hourly buckets for the HUD."""
+    if not points:
+        return points
+    if all(p.get("resolution") in (None, "PT60M") for p in points):
+        return [
+            {
+                "position": idx + 1,
+                "price_eur_mwh": p["price_eur_mwh"],
+                "start_time": p.get("start_time"),
+            }
+            for idx, p in enumerate(sorted(points, key=lambda x: x.get("position", 0)))
+        ]
+
+    buckets: dict[str, list[float]] = {}
+    for p in points:
+        start = p.get("start_time")
+        if not start:
+            continue
+        hour_key = start[:13]  # YYYY-MM-DDTHH
+        buckets.setdefault(hour_key, []).append(p["price_eur_mwh"])
+
+    hourly: list[dict] = []
+    for idx, hour_key in enumerate(sorted(buckets)):
+        vals = buckets[hour_key]
+        hourly.append({
+            "position": idx + 1,
+            "price_eur_mwh": round(sum(vals) / len(vals), 2),
+            "start_time": f"{hour_key}:00:00+00:00",
+        })
+    return hourly
+
+
 def _parse_price_xml(xml_text: str) -> list[dict]:
-    """Parse ENTSO-E price XML into hourly points."""
+    """Parse ENTSO-E price XML (PT15M/PT30M/PT60M) into hourly points."""
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
         return []
 
     points: list[dict] = []
-    # ENTSO-E uses default namespace; find with wildcard
-    for ts in root.findall(".//{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}TimeSeries", NS):
-        for period in ts.findall("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}Period", NS):
-            resolution = period.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}resolution", NS)
-            if resolution is not None and resolution.text != "PT60M":
-                continue  # Only hourly for now
-            time_interval = period.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}timeInterval", NS)
-            start_time = time_interval.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}start", NS).text if time_interval is not None else None
-            for pt in period.findall("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}Point", NS):
-                pos_el = pt.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}position", NS)
-                price_el = pt.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}price.amount", NS)
-                if pos_el is not None and price_el is not None:
-                    points.append({
-                        "position": int(pos_el.text),
-                        "price_eur_mwh": round(float(price_el.text), 2),
-                        "start_time": start_time,
-                    })
-    return points
+    for ts in root.findall(f".//{_ns('TimeSeries')}"):
+        for period in ts.findall(_ns("Period")):
+            resolution_el = period.find(_ns("resolution"))
+            resolution = resolution_el.text if resolution_el is not None else "PT60M"
+            if resolution not in _RESOLUTION_MINUTES:
+                continue
+            time_interval = period.find(_ns("timeInterval"))
+            start_el = time_interval.find(_ns("start")) if time_interval is not None else None
+            period_start = _parse_iso_utc(start_el.text if start_el is not None else None)
+            for pt in period.findall(_ns("Point")):
+                pos_el = pt.find(_ns("position"))
+                price_el = pt.find(_ns("price.amount"))
+                if pos_el is None or price_el is None:
+                    continue
+                position = int(pos_el.text)
+                points.append({
+                    "position": position,
+                    "price_eur_mwh": round(float(price_el.text), 2),
+                    "start_time": _point_start_time(period_start, position, resolution),
+                    "resolution": resolution,
+                })
+    return _normalize_prices_to_hourly(points)
 
 
 def _parse_generation_xml(xml_text: str) -> list[dict]:
@@ -91,18 +152,18 @@ def _parse_generation_xml(xml_text: str) -> list[dict]:
         return []
 
     points: list[dict] = []
-    for ts in root.findall(".//{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}TimeSeries", NS):
-        psr_type_el = ts.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}MktPSRType/{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}psrType", NS)
+    for ts in root.findall(f".//{_ns('TimeSeries')}"):
+        psr_type_el = ts.find(f"{_ns('MktPSRType')}/{_ns('psrType')}")
         psr_type = psr_type_el.text if psr_type_el is not None else "unknown"
-        for period in ts.findall("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}Period", NS):
-            for pt in period.findall("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}Point", NS):
-                pos_el = pt.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}position", NS)
-                qty_el = pt.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}quantity", NS)
+        for period in ts.findall(_ns("Period")):
+            for pt in period.findall(_ns("Point")):
+                pos_el = pt.find(_ns("position"))
+                qty_el = pt.find(_ns("quantity"))
                 if pos_el is not None and qty_el is not None:
                     points.append({
                         "position": int(pos_el.text),
                         "source": psr_type,
-                        "mw": int(qty_el.text),
+                        "mw": int(float(qty_el.text)),
                     })
     return points
 
@@ -178,6 +239,7 @@ async def get_day_ahead_price(country: str):
 
     url = (
         f"{BASE_URL}?securityToken={TOKEN}&documentType={DOC_PRICE}"
+        f"&contract_MarketAgreement.type={CONTRACT_DAY_AHEAD}"
         f"&in_Domain={area}&out_Domain={area}"
         f"&periodStart={start}&periodEnd={end}"
     )
@@ -242,6 +304,7 @@ async def get_generation(country: str):
 
     url = (
         f"{BASE_URL}?securityToken={TOKEN}&documentType={DOC_GEN}"
+        f"&processType={PROC_REALISED}"
         f"&in_Domain={area}&periodStart={start}&periodEnd={end}"
     )
     try:
