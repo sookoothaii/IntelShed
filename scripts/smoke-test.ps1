@@ -192,6 +192,26 @@ Test-Endpoint "traffic cams regional" "$Backend/api/traffic/cams?scope=regional"
     param($d); if ($d.count -lt 1) { throw "no cameras" }
 } -TimeoutSec 45 -Optional
 
+Test-Endpoint "intel ingest status" "$Backend/api/intel/ingest/status" {
+    param($d); if (-not $d.gliner_model) { throw 'missing gliner_model' }
+} -TimeoutSec 30 -Optional
+
+try {
+    $ingestBody = '{"text":"smoke auth probe"}'
+    Invoke-WebRequest -Uri "$Backend/api/intel/ingest/text" -Method Post -Body $ingestBody -ContentType 'application/json' -TimeoutSec 15 -UseBasicParsing | Out-Null
+    Write-Host '  WARN  intel ingest auth gate - POST without key succeeded (localhost-only bind?)' -ForegroundColor Yellow
+    $warn++
+} catch {
+    $code = $_.Exception.Response.StatusCode.value__
+    if ($code -eq 401) {
+        Write-Host '  PASS  intel ingest auth gate (401 without key)' -ForegroundColor Green
+        $passed++
+    } else {
+        Write-Host "  WARN  intel ingest auth gate - HTTP $code" -ForegroundColor Yellow
+        $warn++
+    }
+}
+
 Write-Host ""
 Write-Host "[5] Vite dev proxy" -ForegroundColor Cyan
 Test-Endpoint "proxy /api/health" "$Frontend/api/health" {
@@ -236,7 +256,7 @@ Test-Endpoint "briefing latest" "$Backend/api/briefing" {
 } -TimeoutSec 15 -Optional -Headers $briefHeaders
 
 Write-Host ""
-Write-Host '[7b] Pi node pull (cached alerts — no live snapshot)' -ForegroundColor Cyan
+Write-Host '[7b] Pi node pull (cached alerts - no live snapshot)' -ForegroundColor Cyan
 if ($NodeIngestToken) {
     $pullHeaders = @{ 'X-Node-Token' = $NodeIngestToken }
     Test-Endpoint "node pull v2" "$Backend/api/node/pull" {
@@ -249,7 +269,7 @@ if ($NodeIngestToken) {
         if (($sg.node_count | ForEach-Object { $_ }) -lt 1) { throw "node_count=$($sg.node_count)" }
     } -TimeoutSec 10 -Optional -Headers $pullHeaders
 } else {
-    Write-Host '  WARN  node pull — NODE_INGEST_TOKEN not set in backend/.env' -ForegroundColor Yellow
+    Write-Host '  WARN  node pull - NODE_INGEST_TOKEN not set in backend/.env' -ForegroundColor Yellow
     $warn++
 }
 
