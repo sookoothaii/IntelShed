@@ -202,19 +202,27 @@ async def node_ingest(
     # degree symbols, …) would flip the signature and cause spurious 403s.
     raw_bytes = await request.body()
 
-    # HMAC over the original body bytes — legacy-compatible with existing Pi clients
-    if INGEST_TOKEN:
+    # LAN-exposed API must not accept unsigned ingest (even when token env is unset).
+    if lan_exposed():
+        if not INGEST_TOKEN:
+            raise HTTPException(
+                status_code=503,
+                detail="LAN exposure requires NODE_INGEST_TOKEN for /api/node/ingest",
+            )
+        if not verify_legacy_hmac_bytes(raw_bytes, x_node_token, INGEST_TOKEN):
+            raise HTTPException(status_code=403, detail="Invalid node token")
+    elif INGEST_TOKEN:
         if not verify_legacy_hmac_bytes(raw_bytes, x_node_token, INGEST_TOKEN):
             raise HTTPException(status_code=403, detail="Invalid node token")
 
-        # Optional replay protection if Pi sends nonce/timestamp headers
-        if x_node_nonce and x_node_timestamp:
-            try:
-                ts = int(x_node_timestamp)
-                if check_replay_attack(x_node_nonce, ts):
-                    raise HTTPException(status_code=403, detail="Request replay detected")
-            except ValueError:
-                pass  # Invalid timestamp format, but HMAC already verified
+    # Optional replay protection if Pi sends nonce/timestamp headers
+    if INGEST_TOKEN and x_node_nonce and x_node_timestamp:
+        try:
+            ts = int(x_node_timestamp)
+            if check_replay_attack(x_node_nonce, ts):
+                raise HTTPException(status_code=403, detail="Request replay detected")
+        except ValueError:
+            pass  # Invalid timestamp format, but HMAC already verified
 
     # Parse the (already-authenticated) body. Pydantic model_dump() would add
     # default fields, so we keep the raw dict for storage compatibility.
@@ -318,7 +326,7 @@ async def node_ingest(
 
 
 @router.get("/nodes")
-async def list_nodes():
+async def list_nodes(_auth: str | None = Depends(verify_lan_auth)):
     """All known nodes with their last state — for globe entities + UI."""
     with _db() as conn:
         rows = conn.execute(

@@ -730,7 +730,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
       const out: any = {}
       await Promise.all(endpoints.map(async (ep) => {
         try {
-          const r = await fetchApi(ep.url)
+          const r = await fetchApi(ep.url, { timeoutMs: 15_000 })
           if (r.ok) out[ep.key] = await r.json()
         } catch (e) {
           out[ep.key] = { error: 'unavailable' }

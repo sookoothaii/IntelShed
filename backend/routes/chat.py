@@ -581,47 +581,50 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
     api_keys = payload.get("api_keys") if isinstance(payload.get("api_keys"), dict) else None
     api_base_urls = payload.get("api_base_urls") if isinstance(payload.get("api_base_urls"), dict) else None
 
-    PROVIDER_CONFIG = {
-        "openai": {
-            "url": chat_routing.openai_chat_completions_url(
-                chat_routing.select_base_url(
-                    "openai",
-                    api_base_urls,
-                    os.getenv("OPENAI_BASE_URL"),
-                    chat_routing.DEFAULT_BASE_URLS["openai"],
-                )
-            ),
-            "key": chat_routing.select_api_key("openai", api_keys, os.getenv("OPENAI_API_KEY")),
-            "header": "Authorization",
-            "prefix": "Bearer ",
-        },
-        "groq": {
-            "url": chat_routing.openai_chat_completions_url(
-                chat_routing.select_base_url(
-                    "groq",
-                    api_base_urls,
-                    os.getenv("GROQ_BASE_URL"),
-                    chat_routing.DEFAULT_BASE_URLS["groq"],
-                )
-            ),
-            "key": chat_routing.select_api_key("groq", api_keys, os.getenv("GROQ_API_KEY")),
-            "header": "Authorization",
-            "prefix": "Bearer ",
-        },
-        "openrouter": {
-            "url": chat_routing.openai_chat_completions_url(
-                chat_routing.select_base_url(
-                    "openrouter",
-                    api_base_urls,
-                    os.getenv("OPENROUTER_BASE_URL"),
-                    chat_routing.DEFAULT_BASE_URLS["openrouter"],
-                )
-            ),
-            "key": chat_routing.select_api_key("openrouter", api_keys, os.getenv("OPENROUTER_API_KEY")),
-            "header": "Authorization",
-            "prefix": "Bearer ",
-        },
-    }
+    try:
+        PROVIDER_CONFIG = {
+            "openai": {
+                "url": chat_routing.openai_chat_completions_url(
+                    chat_routing.select_base_url(
+                        "openai",
+                        api_base_urls,
+                        os.getenv("OPENAI_BASE_URL"),
+                        chat_routing.DEFAULT_BASE_URLS["openai"],
+                    )
+                ),
+                "key": chat_routing.select_api_key("openai", api_keys, os.getenv("OPENAI_API_KEY")),
+                "header": "Authorization",
+                "prefix": "Bearer ",
+            },
+            "groq": {
+                "url": chat_routing.openai_chat_completions_url(
+                    chat_routing.select_base_url(
+                        "groq",
+                        api_base_urls,
+                        os.getenv("GROQ_BASE_URL"),
+                        chat_routing.DEFAULT_BASE_URLS["groq"],
+                    )
+                ),
+                "key": chat_routing.select_api_key("groq", api_keys, os.getenv("GROQ_API_KEY")),
+                "header": "Authorization",
+                "prefix": "Bearer ",
+            },
+            "openrouter": {
+                "url": chat_routing.openai_chat_completions_url(
+                    chat_routing.select_base_url(
+                        "openrouter",
+                        api_base_urls,
+                        os.getenv("OPENROUTER_BASE_URL"),
+                        chat_routing.DEFAULT_BASE_URLS["openrouter"],
+                    )
+                ),
+                "key": chat_routing.select_api_key("openrouter", api_keys, os.getenv("OPENROUTER_API_KEY")),
+                "header": "Authorization",
+                "prefix": "Bearer ",
+            },
+        }
+    except chat_routing.UnsafeProviderUrl as e:
+        return {"error": str(e), "provider": provider}
 
     if provider in PROVIDER_CONFIG:
         cfg = PROVIDER_CONFIG[provider]
@@ -751,14 +754,17 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                 "provider": provider,
             }
 
-        url = chat_routing.anthropic_messages_url(
-            chat_routing.select_base_url(
+        try:
+            anthropic_base = chat_routing.select_base_url(
                 "anthropic",
                 api_base_urls,
                 os.getenv("ANTHROPIC_BASE_URL"),
                 chat_routing.DEFAULT_BASE_URLS["anthropic"],
             )
-        )
+        except chat_routing.UnsafeProviderUrl as e:
+            return {"error": str(e), "provider": provider}
+
+        url = chat_routing.anthropic_messages_url(anthropic_base)
         headers = {
             "Content-Type": "application/json",
             "x-api-key": api_key,
