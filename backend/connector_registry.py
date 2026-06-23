@@ -17,6 +17,8 @@ from typing import Any
 # Per-feed max age (seconds) before marked stale in /api/health — single source of truth.
 FEED_TTL_SEC: dict[str, float] = {
     "airquality": 3600,
+    "maritime": 45,
+    "newsdata_sources": 86400,
     "gdacs": 900,
     "gdacs_v2": 900,
     "gdacs_v3": 900,
@@ -265,6 +267,20 @@ CONNECTOR_CATALOG: dict[str, ConnectorManifest] = {
         license="NewsData.io API terms",
         tier="optional",
         notes="GDELT complement; separate corroboration family. Free tier ~12h delay. Default filters: al,de,us,ir,th + de,en.",
+    ),
+    "newsdata_sources": _c(
+        "newsdata_sources",
+        "NewsData.io source catalog",
+        "intel",
+        ("/api/newsdata/sources",),
+        ttl_sec=86400,
+        region=("local", "regional", "global"),
+        bridge="newsdata_bridge.py",
+        cache_key="newsdata_sources",
+        credential_ids=("newsdata",),
+        license="NewsData.io API terms",
+        tier="optional",
+        notes="Source catalog; refreshed on boot when NEWSDATA_API_KEY set.",
     ),
     "hazards": _c(
         "hazards",

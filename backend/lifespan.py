@@ -109,6 +109,42 @@ async def _situations_prewarm() -> None:
         pass
 
 
+async def _feed_cache_autopilot() -> None:
+    """Keep health-critical feed_cache rows fresh between HUD polls."""
+    await asyncio.sleep(30)
+    air_interval = float(os.getenv("WORLDBASE_AIRQUALITY_REFRESH_SEC", "2700"))
+    sources_interval = float(os.getenv("WORLDBASE_NEWSDATA_SOURCES_REFRESH_SEC", "21600"))
+    touch_interval = float(os.getenv("WORLDBASE_MARITIME_CACHE_TOUCH_SEC", "30"))
+    air_next = 0.0
+    sources_next = 0.0
+    while True:
+        now = time.monotonic()
+        try:
+            import ais_bridge
+
+            ais_bridge.touch_maritime_cache()
+        except Exception as e:
+            print(f"[FEED-CACHE] Maritime touch failed: {e}", flush=True)
+        if now >= air_next:
+            try:
+                from feeds_extra import air_quality
+
+                await air_quality()
+            except Exception as e:
+                print(f"[FEED-CACHE] Air quality failed: {e}", flush=True)
+            air_next = now + air_interval
+        if now >= sources_next:
+            try:
+                import newsdata_bridge
+
+                if newsdata_bridge.api_key_configured():
+                    await newsdata_bridge.get_newsdata_sources(limit=50)
+            except Exception as e:
+                print(f"[FEED-CACHE] NewsData sources failed: {e}", flush=True)
+            sources_next = now + sources_interval
+        await asyncio.sleep(touch_interval)
+
+
 async def _stack_warmup() -> None:
     """Warm operator-critical feeds after boot (GDELT local, maritime, traffic, haze)."""
     await asyncio.sleep(6)
@@ -153,6 +189,14 @@ async def _stack_warmup() -> None:
         print("[WARMUP] Air quality refreshed", flush=True)
     except Exception as e:
         print(f"[WARMUP] Air quality failed: {e}", flush=True)
+    try:
+        import newsdata_bridge
+
+        if newsdata_bridge.api_key_configured():
+            src = await newsdata_bridge.get_newsdata_sources(limit=50)
+            print(f"[WARMUP] NewsData sources: {src.get('count')} sources", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] NewsData sources failed: {e}", flush=True)
     try:
         import feed_registry
         from windy_bridge import fetch_point_weather
@@ -284,6 +328,7 @@ def register_lifecycle(app) -> None:
         asyncio.create_task(_aircraft_trail_loop())
         asyncio.create_task(_situations_prewarm())
         asyncio.create_task(_stack_warmup())
+        asyncio.create_task(_feed_cache_autopilot())
         import ais_bridge
 
         ais_bridge.start_aisstream_collector()
