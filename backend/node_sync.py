@@ -383,7 +383,9 @@ async def list_sensor_alerts(node_id: str = "", limit: int = 50):
 
 def _gdelt_snapshot_meta(snap: dict) -> dict:
     """Compact GDELT feed counts for briefing quality scoring."""
-    local = snap.get("gdelt_pulse_local") or {}
+    import gdelt_bridge
+
+    local = gdelt_bridge.finalize_local_pulse(snap.get("gdelt_pulse_local") or {})
     geo_local = snap.get("gdelt_geo_local") or {}
     pulse = snap.get("gdelt_pulse") or {}
     geo = snap.get("gdelt_geo") or {}

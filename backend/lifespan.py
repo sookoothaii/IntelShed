@@ -27,6 +27,8 @@ from routes import aircraft as aircraft_routes
 
 _BRIEFING_AUTOPILOT_TASK: asyncio.Task | None = None
 _BRIEFING_INTERVAL = int(os.getenv("WORLDBASE_BRIEFING_INTERVAL", "21600"))
+_STACK_WARMUP_DONE = asyncio.Event()
+_BRIEFING_WARMUP_WAIT_SEC = float(os.getenv("WORLDBASE_BRIEFING_WARMUP_WAIT_SEC", "120"))
 
 
 async def _phase1_background_tasks() -> None:
@@ -169,6 +171,8 @@ async def _stack_warmup() -> None:
         print(f"[WARMUP] Briefing snapshot cache: {n} feeds", flush=True)
     except Exception as e:
         print(f"[WARMUP] Snapshot cache failed: {e}", flush=True)
+    finally:
+        _STACK_WARMUP_DONE.set()
 
 
 async def _entity_resolution_autopilot() -> None:
@@ -220,7 +224,15 @@ async def _prediction_ledger_autopilot() -> None:
 
 
 async def _briefing_autopilot() -> None:
-    await asyncio.sleep(30)
+    try:
+        await asyncio.wait_for(_STACK_WARMUP_DONE.wait(), timeout=_BRIEFING_WARMUP_WAIT_SEC)
+        print("[AUTOPILOT] Briefing autopilot starting after stack warmup", flush=True)
+    except asyncio.TimeoutError:
+        print(
+            f"[AUTOPILOT] Stack warmup not finished within {_BRIEFING_WARMUP_WAIT_SEC:.0f}s "
+            "— generating briefing anyway",
+            flush=True,
+        )
     while True:
         try:
             await node_sync.generate_briefing_internal()
