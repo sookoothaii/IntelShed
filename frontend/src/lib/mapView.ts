@@ -35,7 +35,7 @@ export const ESRI_SATELLITE_TILES =
 export const ESRI_HILLSHADE_TILES =
   'https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}'
 
-/** ESRI streets — CORS-safe in Vite dev (OSM tile server blocks browser XHR). */
+/** ESRI streets — fallback when no Ion token; Cesium globe prefers Ion ROAD (see cesiumBasemap.ts). */
 export const ESRI_STREET_TILES =
   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
 

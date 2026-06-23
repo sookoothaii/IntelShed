@@ -16,6 +16,7 @@ import {
   Cesium3DTileset,
   SceneMode,
   UrlTemplateImageryProvider,
+  RequestScheduler,
   GeographicTilingScheme,
   CustomDataSource,
   Entity,
@@ -60,9 +61,10 @@ import { GlobeLayerManager } from '../hooks/layers/GlobeLayerManager';
 
 import { canFetch } from '../lib/networkFetch';
 import { createTerrainWithFallback, attachTerrainFailover } from '../lib/cesiumTerrain';
+import { createStreetsImageryProvider } from '../lib/cesiumBasemap';
 
 import type { MapViewMode } from '../lib/mapView'
-import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
+import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
 import { fetchApi } from '../lib/networkFetch';
 import { buildEntityHoverTip } from '../lib/entityHoverTip';
 
@@ -136,7 +138,7 @@ async function applyGlobeMapMode(
   }
 
   if (mode.basemap === 'streets') {
-    layers.addImageryProvider(esriImagery(ESRI_STREET_TILES, 'Esri, OpenStreetMap contributors'))
+    layers.addImageryProvider(await createStreetsImageryProvider())
   } else if (mode.basemap === 'satellite') {
     layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
   } else if (mode.basemap === 'hybrid') {
@@ -151,7 +153,7 @@ async function applyGlobeMapMode(
     if (refs.labelOverlay.current) refs.labelOverlay.current.alpha = 0.85
   } else {
     layers.addImageryProvider(esriImagery(ESRI_HILLSHADE_TILES, 'Esri World Hillshade'))
-    layers.addImageryProvider(esriImagery(ESRI_STREET_TILES, 'Esri, OpenStreetMap contributors'))
+    layers.addImageryProvider(await createStreetsImageryProvider())
     const top = layers.get(layers.length - 1)
     if (top) top.alpha = 0.55
   }
@@ -919,6 +921,7 @@ export default function Globe({
 
       viewer = new Viewer(containerRef.current, {
         terrainProvider,
+        baseLayer: false,
         baseLayerPicker: false,
         sceneModePicker: false,
         navigationHelpButton: false,
@@ -938,7 +941,14 @@ export default function Globe({
       const scene = viewer.scene
       scene.globe.enableLighting = true
       scene.globe.depthTestAgainstTerrain = false
+      scene.globe.preloadAncestors = false
       scene.globe.maximumScreenSpaceError = 1.0
+      RequestScheduler.requestsByServer = {
+        ...RequestScheduler.requestsByServer,
+        'server.arcgisonline.com:443': 24,
+        'assets.cesium.com:443': 24,
+        'api.cesium.com:443': 24,
+      }
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
