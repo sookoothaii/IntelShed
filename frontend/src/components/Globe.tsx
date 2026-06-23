@@ -32,7 +32,6 @@ import {
   CallbackProperty,
   ColorMaterialProperty,
   
-  defined,
   MVTDataProvider,
   ImageryLayer,
   JulianDate,
@@ -65,6 +64,7 @@ import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
 import { fetchApi } from '../lib/networkFetch';
 import { buildEntityHoverTip } from '../lib/entityHoverTip';
+import { resolveGlobePick } from '../lib/globePick';
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
@@ -1235,14 +1235,9 @@ export default function Globe({
           }
         }
 
-        const picked = scene.pick(m.endPosition)
-        if (defined(picked) && picked.id && picked.id.properties) {
-          const props = picked.id.properties as any
-          const prop = (k: string) => {
-            const p = props?.[k]
-            return typeof p?.getValue === 'function' ? p.getValue() : p
-          }
-          const tip = buildEntityHoverTip(String(prop('kind') || ''), prop)
+        const gp = resolveGlobePick(scene.pick(m.endPosition))
+        if (gp) {
+          const tip = buildEntityHoverTip(String(gp.prop('kind') || ''), gp.prop)
           if (tip) {
             if (!cancelled) {
               setHoverTip({ ...tip, x: m.endPosition.x, y: m.endPosition.y })
@@ -1596,9 +1591,32 @@ export default function Globe({
       }
 
       handler.setInputAction((click: any) => {
-        const picked = scene.pick(click.position)
-        if (defined(picked) && picked.id && picked.id.properties) {
-          selectEntity(picked.id)
+        const gp = resolveGlobePick(scene.pick(click.position))
+        if (gp?.entity) {
+          selectEntity(gp.entity)
+        } else if (gp && gp.prop('kind') === 'wildfire') {
+          const prop = gp.prop
+          const lon = Number(prop('lon'))
+          const lat = Number(prop('lat'))
+          applyTarget({
+            kind: 'wildfire',
+            title: `🔥 WILDFIRE (${prop('confidence_label') || 'unknown'})`,
+            lat: Number.isFinite(lat) ? lat : undefined,
+            lon: Number.isFinite(lon) ? lon : undefined,
+            lines: [
+              `CONFIDENCE: ${prop('confidence') ?? '—'}%`,
+              `BRIGHTNESS: ${prop('brightness') ?? '—'}K`,
+              `FRP: ${prop('frp') ?? '—'} MW`,
+              `SATELLITE: ${prop('satellite') ?? '—'}`,
+              `DATE: ${prop('acq_date') ?? '—'}`,
+            ],
+          })
+          if (Number.isFinite(lon) && Number.isFinite(lat)) {
+            viewer!.camera.flyTo({
+              destination: Cartesian3.fromDegrees(lon, lat, 400000),
+              duration: 1.5,
+            })
+          }
         } else {
           setDetailOpen(false)
           setTarget(null)
