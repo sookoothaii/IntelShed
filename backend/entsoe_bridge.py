@@ -17,17 +17,20 @@ from fastapi import APIRouter
 
 router = APIRouter(prefix="/api/eu-energy", tags=["eu-energy"])
 
-TOKEN = os.getenv("ENTSOE_SECURITY_TOKEN", "")
 BASE_URL = "https://web-api.tp.entsoe.eu/api"
-NS = {"": "urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3"}
+NS_URI = "urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3"
 
-# EIC area codes for bidding zones
+
+def _q(name: str) -> str:
+    return f"{{{NS_URI}}}{name}"
+
+# EIC bidding-zone codes (ENTSO-E EIC list — DE-LU merged zone)
 AREA_CODES: dict[str, str] = {
-    "de": "10Y1001A1001A83F",
+    "de": "10Y1001A1001A82H",
     "fr": "10YFR-RTE------C",
     "nl": "10YNL----------L",
     "at": "10YAT-APG------L",
-    "pl": "10YPL-EGH------M",
+    "pl": "10YPL-AREA-----S",
     "es": "10YES-REE------0",
     "it": "10YIT-GRTN-----B",
     "se": "10YSE-1--------K",
@@ -39,20 +42,39 @@ AREA_CODES: dict[str, str] = {
     "fi": "10YFI-1--------U",
 }
 
-# DocumentType codes
+# DocumentType / ProcessType codes
 DOC_PRICE = "A44"    # Price document
-DOC_GEN = "A75"      # Generation document (per type)
+DOC_GEN = "A75"      # Generation per type
+PROCESS_DAY_AHEAD = "A01"
+PROCESS_REALISED = "A16"
 
 _CACHE: dict[str, tuple[float, dict]] = {}
 TTL = 300  # 5 min
+HTTP_TIMEOUT = 45.0
+
+
+def _token() -> str:
+    return os.getenv("ENTSOE_SECURITY_TOKEN", "").strip()
 
 
 def _period_start_end() -> tuple[str, str]:
-    """Return ENTSO-E periodStart/periodEnd strings (UTC, YYYYMMDDHHMM)."""
-    now = datetime.now(timezone.utc)
+    """UTC window for day-ahead queries (YYYYMMDDHHMM, minutes=00)."""
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     start = now.strftime("%Y%m%d%H%M")
-    end = (now + timedelta(hours=24)).strftime("%Y%m%d%H%M")
+    end = (now + timedelta(days=1)).strftime("%Y%m%d%H%M")
     return start, end
+
+
+def _scrub_token(text: str) -> str:
+    tok = _token()
+    return text.replace(tok, "REDACTED") if tok else text
+
+
+async def _fetch_entsoe(params: dict[str, str]) -> str:
+    async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+        r = await client.get(BASE_URL, params=params)
+        r.raise_for_status()
+        return r.text
 
 
 def _parse_price_xml(xml_text: str) -> list[dict]:
@@ -63,20 +85,24 @@ def _parse_price_xml(xml_text: str) -> list[dict]:
         return []
 
     points: list[dict] = []
-    # ENTSO-E uses default namespace; find with wildcard
-    for ts in root.findall(".//{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}TimeSeries", NS):
-        for period in ts.findall("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}Period", NS):
-            resolution = period.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}resolution", NS)
-            if resolution is not None and resolution.text != "PT60M":
-                continue  # Only hourly for now
-            time_interval = period.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}timeInterval", NS)
-            start_time = time_interval.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}start", NS).text if time_interval is not None else None
-            for pt in period.findall("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}Point", NS):
-                pos_el = pt.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}position", NS)
-                price_el = pt.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}price.amount", NS)
+    for ts in root.findall(f".//{_q('TimeSeries')}"):
+        for period in ts.findall(_q("Period")):
+            resolution = period.find(_q("resolution"))
+            res_text = resolution.text if resolution is not None else "PT60M"
+            if res_text not in ("PT60M", "PT15M"):
+                continue
+            time_interval = period.find(_q("timeInterval"))
+            start_el = time_interval.find(_q("start")) if time_interval is not None else None
+            start_time = start_el.text if start_el is not None else None
+            for pt in period.findall(_q("Point")):
+                pos_el = pt.find(_q("position"))
+                price_el = pt.find(_q("price.amount"))
                 if pos_el is not None and price_el is not None:
+                    position = int(pos_el.text)
+                    if res_text == "PT15M" and (position - 1) % 4 != 0:
+                        continue  # hourly sample from 15-min resolution
                     points.append({
-                        "position": int(pos_el.text),
+                        "position": (position - 1) // 4 + 1 if res_text == "PT15M" else position,
                         "price_eur_mwh": round(float(price_el.text), 2),
                         "start_time": start_time,
                     })
@@ -91,13 +117,13 @@ def _parse_generation_xml(xml_text: str) -> list[dict]:
         return []
 
     points: list[dict] = []
-    for ts in root.findall(".//{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}TimeSeries", NS):
-        psr_type_el = ts.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}MktPSRType/{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}psrType", NS)
+    for ts in root.findall(f".//{_q('TimeSeries')}"):
+        psr_type_el = ts.find(f"{_q('MktPSRType')}/{_q('psrType')}")
         psr_type = psr_type_el.text if psr_type_el is not None else "unknown"
-        for period in ts.findall("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}Period", NS):
-            for pt in period.findall("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}Point", NS):
-                pos_el = pt.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}position", NS)
-                qty_el = pt.find("{urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3}quantity", NS)
+        for period in ts.findall(_q("Period")):
+            for pt in period.findall(_q("Point")):
+                pos_el = pt.find(_q("position"))
+                qty_el = pt.find(_q("quantity"))
                 if pos_el is not None and qty_el is not None:
                     points.append({
                         "position": int(pos_el.text),
@@ -162,9 +188,8 @@ async def get_day_ahead_price(country: str):
         return cached[1]
 
     area = AREA_CODES[country]
-    start, end = _period_start_end()
 
-    if not TOKEN:
+    if not _token():
         result = {
             "country": country,
             "area_code": area,
@@ -176,22 +201,24 @@ async def get_day_ahead_price(country: str):
         _CACHE[cache_key] = (time.time(), result)
         return result
 
-    url = (
-        f"{BASE_URL}?securityToken={TOKEN}&documentType={DOC_PRICE}"
-        f"&in_Domain={area}&out_Domain={area}"
-        f"&periodStart={start}&periodEnd={end}"
-    )
+    start, end = _period_start_end()
+    params = {
+        "securityToken": _token(),
+        "documentType": DOC_PRICE,
+        "processType": PROCESS_DAY_AHEAD,
+        "in_Domain": area,
+        "out_Domain": area,
+        "periodStart": start,
+        "periodEnd": end,
+    }
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            xml = r.text
+        xml = await _fetch_entsoe(params)
     except Exception as exc:
         stale = _CACHE.get(cache_key)
         if stale:
             stale[1]["stale"] = True
             return stale[1]
-        return {"error": f"ENTSO-E fetch failed: {exc}", "country": country}
+        return {"error": f"ENTSO-E fetch failed: {_scrub_token(str(exc))}", "country": country}
 
     prices = _parse_price_xml(xml)
     if not prices:
@@ -227,7 +254,7 @@ async def get_generation(country: str):
     area = AREA_CODES[country]
     start, end = _period_start_end()
 
-    if not TOKEN:
+    if not _token():
         points = _demo_generation(country)
         result = {
             "country": country,
@@ -240,21 +267,22 @@ async def get_generation(country: str):
         _CACHE[cache_key] = (time.time(), result)
         return result
 
-    url = (
-        f"{BASE_URL}?securityToken={TOKEN}&documentType={DOC_GEN}"
-        f"&in_Domain={area}&periodStart={start}&periodEnd={end}"
-    )
+    params = {
+        "securityToken": _token(),
+        "documentType": DOC_GEN,
+        "processType": PROCESS_REALISED,
+        "in_Domain": area,
+        "periodStart": start,
+        "periodEnd": end,
+    }
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            xml = r.text
+        xml = await _fetch_entsoe(params)
     except Exception as exc:
         stale = _CACHE.get(cache_key)
         if stale:
             stale[1]["stale"] = True
             return stale[1]
-        return {"error": f"ENTSO-E fetch failed: {exc}", "country": country}
+        return {"error": f"ENTSO-E fetch failed: {_scrub_token(str(exc))}", "country": country}
 
     points = _parse_generation_xml(xml)
     if not points:
