@@ -4,7 +4,6 @@ Sources (graceful degradation):
 1. AISstream.io WebSocket background collector (AISSTREAM_API_KEY)
 2. MyShipTracking JSON (bounding-box, no key)
 3. AISHub (AISHUB_API_KEY)
-4. Static demo fleet (offline dev)
 
 Endpoints:
   GET /api/maritime          — live vessel positions
@@ -177,30 +176,70 @@ def _vessel_type_label(type_code: int | None) -> str:
     return "Unknown"
 
 
-def _vessel_from_aisstream(msg: dict, regions: dict[str, dict]) -> dict | None:
-    meta = msg.get("MetaData") or {}
-    mmsi = str(meta.get("MMSI") or "")
-    lat, lon = meta.get("latitude"), meta.get("longitude")
-    if not mmsi or lat is None or lon is None:
+def _ais_meta(msg: dict) -> dict:
+    meta = msg.get("MetaData") or msg.get("Metadata")
+    return meta if isinstance(meta, dict) else {}
+
+
+def _position_body(msg: dict) -> dict:
+    body = msg.get("Message") or {}
+    if not isinstance(body, dict):
+        return {}
+    for key in (
+        "PositionReport",
+        "StandardClassBPositionReport",
+        "ExtendedClassBPositionReport",
+    ):
+        pr = body.get(key)
+        if isinstance(pr, dict):
+            return pr
+    return {}
+
+
+def _coerce_float(val: Any) -> float | None:
+    if val is None:
         return None
     try:
-        lat_f = float(lat)
-        lon_f = float(lon)
+        return float(val)
     except (TypeError, ValueError):
         return None
-    pr = (msg.get("Message") or {}).get("PositionReport") or {}
+
+
+def _vessel_from_aisstream(msg: dict, regions: dict[str, dict]) -> dict | None:
+    if msg.get("error"):
+        return None
+
+    meta = _ais_meta(msg)
+    pr = _position_body(msg)
+    mmsi = str(meta.get("MMSI") or pr.get("UserID") or "").strip()
+    lat = _coerce_float(
+        meta.get("latitude")
+        if meta.get("latitude") is not None
+        else meta.get("Latitude")
+    )
+    lon = _coerce_float(
+        meta.get("longitude")
+        if meta.get("longitude") is not None
+        else meta.get("Longitude")
+    )
+    if lat is None:
+        lat = _coerce_float(pr.get("Latitude"))
+    if lon is None:
+        lon = _coerce_float(pr.get("Longitude"))
+    if not mmsi or lat is None or lon is None:
+        return None
     return {
         "mmsi": mmsi,
         "name": meta.get("ShipName") or "Unknown",
         "type": _vessel_type_label(meta.get("ShipType")),
-        "lat": round(lat_f, 5),
-        "lon": round(lon_f, 5),
+        "lat": round(lat, 5),
+        "lon": round(lon, 5),
         "course": pr.get("Cog"),
         "speed": pr.get("Sog"),
         "destination": meta.get("destination"),
         "flag": meta.get("Flag") or meta.get("CountryCode"),
         "length": meta.get("Dimension", {}).get("A") if isinstance(meta.get("Dimension"), dict) else None,
-        "region": _region_for_point(lat_f, lon_f, regions),
+        "region": _region_for_point(lat, lon, regions),
         "source": "aisstream",
     }
 
@@ -212,6 +251,13 @@ def _prune_stream_vessels() -> None:
     drop = [mmsi for mmsi, row in vessels.items() if now - float(row.get("_seen_at") or 0) > stale_after]
     for mmsi in drop:
         vessels.pop(mmsi, None)
+
+
+def _handle_stream_payload(msg: dict, regions: dict[str, dict]) -> None:
+    if isinstance(msg, dict) and msg.get("error"):
+        _STREAM["errors"] = [str(msg["error"])[:200]]
+        return
+    _ingest_stream_message(msg, regions)
 
 
 def _ingest_stream_message(msg: dict, regions: dict[str, dict]) -> None:
@@ -333,6 +379,8 @@ async def _fetch_aisstream_snapshot(regions: dict[str, dict]) -> list[dict]:
                 except asyncio.TimeoutError:
                     continue
                 msg = json.loads(raw)
+                if isinstance(msg, dict) and msg.get("error"):
+                    continue
                 vessel = _vessel_from_aisstream(msg, regions)
                 if not vessel or vessel["mmsi"] in seen:
                     continue
@@ -413,7 +461,6 @@ async def _aisstream_collector_loop() -> None:
                 close_timeout=2,
             ) as ws:
                 await ws.send(json.dumps(subscription))
-                _STREAM["connected"] = True
                 _STREAM["errors"] = []
                 while _aisstream_background_on():
                     regions = _active_regions()
@@ -422,7 +469,8 @@ async def _aisstream_collector_loop() -> None:
                     except asyncio.TimeoutError:
                         continue
                     msg = json.loads(raw)
-                    _ingest_stream_message(msg, regions)
+                    _handle_stream_payload(msg, regions)
+                    _STREAM["connected"] = bool(_STREAM["vessels"])
         except asyncio.CancelledError:
             _STREAM["connected"] = False
             raise
@@ -449,15 +497,6 @@ def stop_aisstream_collector() -> None:
     _STREAM["connected"] = False
 
 
-def _demo_fleet() -> list[dict]:
-    return [
-        {"mmsi": "123456789", "name": "Demo Tug Alpha", "type": "Tug", "lat": 53.55, "lon": 9.95, "course": 45, "speed": 5.2, "destination": "Hamburg", "flag": "DE", "length": 32, "region": "hamburg"},
-        {"mmsi": "987654321", "name": "Demo Cargo Beta", "type": "Cargo", "lat": 53.52, "lon": 9.92, "course": 120, "speed": 12.5, "destination": "Rotterdam", "flag": "NL", "length": 180, "region": "hamburg"},
-        {"mmsi": "111222333", "name": "Demo Tanker Gamma", "type": "Tanker", "lat": 51.92, "lon": 4.05, "course": 270, "speed": 8.0, "destination": "Antwerp", "flag": "BE", "length": 220, "region": "rotterdam"},
-        {"mmsi": "444555666", "name": "Demo Passenger Delta", "type": "Passenger", "lat": 1.25, "lon": 103.85, "course": 180, "speed": 15.0, "destination": "Singapore", "flag": "SG", "length": 340, "region": "singapore"},
-    ]
-
-
 def _dedupe_vessels(all_vessels: list[dict]) -> list[dict]:
     seen: set[str] = set()
     deduped: list[dict] = []
@@ -481,13 +520,16 @@ def _build_result(
 ) -> dict:
     deduped = _dedupe_vessels(all_vessels)
     active = regions or _active_regions()
+    err_list = errors if errors else None
     result: dict[str, Any] = {
         "count": len(deduped),
         "vessels": deduped,
         "regions_tracked": list(active.keys()),
         "regions_all": list(PORT_REGIONS.keys()),
         "demo_mode": demo_mode,
-        "errors": errors if errors else None,
+        "errors": err_list,
+        "error": "; ".join(err_list) if err_list else None,
+        "upstream": ["aisstream", "myshiptracking", "aishub"],
         "cached_at": datetime.now(timezone.utc).isoformat(),
     }
     if stale:
@@ -528,9 +570,14 @@ async def _build_maritime_result() -> dict:
     stream_meta: dict[str, Any] | None = None
     if _aisstream_background_on():
         stream_meta = {
-            "stream_connected": bool(_STREAM.get("connected")),
+            "stream_connected": bool(_STREAM.get("vessels")),
             "stream_buffer": len(_STREAM.get("vessels") or {}),
         }
+        if not _STREAM.get("vessels") and not errors:
+            if _STREAM.get("last_msg_at"):
+                errors.append("aisstream: connected previously but buffer empty (stale)")
+            else:
+                errors.append("aisstream: websocket open but no vessel messages yet (upstream may be silent)")
 
     if len(all_vessels) < 5:
         all_vessels = await _supplement_myshiptracking(all_vessels, regions, errors)
@@ -558,9 +605,7 @@ async def _build_maritime_result() -> dict:
 
     demo_mode = False
     if not all_vessels:
-        all_vessels = _demo_fleet()
-        demo_mode = True
-        errors.append("All live sources failed — returning demo fleet")
+        errors.append("all live AIS sources returned no vessels")
 
     return _build_result(
         all_vessels,
@@ -611,8 +656,8 @@ async def get_maritime():
                 out["errors"] = (stale_payload.get("errors") or []) + ["build timeout — serving stale cache"]
                 return out
             result = _build_result(
-                _demo_fleet(),
-                demo_mode=True,
+                [],
+                demo_mode=False,
                 errors=["build timeout"],
                 regions=_active_regions(),
             )

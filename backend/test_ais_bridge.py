@@ -66,6 +66,56 @@ class AisBridgeTests(unittest.TestCase):
         with patch.dict(os.environ, {"AISSTREAM_API_KEY": "abc", "WORLDBASE_MARITIME_AISSTREAM": "0"}, clear=False):
             self.assertFalse(ais._aisstream_background_on())
 
+    def test_vessel_from_aisstream_metadata_lowercase(self):
+        msg = {
+            "MessageType": "PositionReport",
+            "MetaData": {
+                "MMSI": 259000420,
+                "ShipName": "AUGUSTSON",
+                "latitude": 66.02695,
+                "longitude": 12.25382,
+            },
+            "Message": {"PositionReport": {"Cog": 308, "Sog": 0}},
+        }
+        with patch.dict(os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False):
+            vessel = ais._vessel_from_aisstream(msg, ais._active_regions())
+        self.assertIsNotNone(vessel)
+        assert vessel is not None
+        self.assertEqual(vessel["mmsi"], "259000420")
+        self.assertEqual(vessel["name"], "AUGUSTSON")
+
+    def test_vessel_from_aisstream_position_report_only(self):
+        msg = {
+            "MessageType": "PositionReport",
+            "Message": {
+                "PositionReport": {
+                    "UserID": 367719770,
+                    "Latitude": 7.9,
+                    "Longitude": 98.4,
+                    "Cog": 180,
+                    "Sog": 12.5,
+                }
+            },
+        }
+        with patch.dict(os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False):
+            vessel = ais._vessel_from_aisstream(msg, ais._active_regions())
+        self.assertIsNotNone(vessel)
+        assert vessel is not None
+        self.assertEqual(vessel["mmsi"], "367719770")
+        self.assertEqual(vessel["region"], "phuket")
+
+    def test_handle_stream_payload_records_upstream_error(self):
+        ais._STREAM["errors"] = []
+        ais._handle_stream_payload({"error": "Api Key Is Not Valid"}, ais.PORT_REGIONS)
+        self.assertEqual(ais._STREAM["errors"], ["Api Key Is Not Valid"])
+
+    def test_build_result_no_demo_fleet_on_empty(self):
+        result = ais._build_result([], demo_mode=False, errors=["all live AIS sources returned no vessels"])
+        self.assertEqual(result["count"], 0)
+        self.assertFalse(result["demo_mode"])
+        self.assertEqual(result["vessels"], [])
+        self.assertIn("all live AIS sources", result["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

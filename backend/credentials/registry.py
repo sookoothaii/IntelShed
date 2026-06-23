@@ -36,10 +36,13 @@ class Provider:
     usage_policy: str
     geo_coverage: tuple[str, ...]
     notes: str = ""
+    env_match: str = "all"  # all = every var required; any = at least one
 
     def configured(self) -> bool:
         if not self.env_vars:
             return True
+        if self.env_match == "any":
+            return any(_env_ready(v) for v in self.env_vars)
         if len(self.env_vars) == 1:
             return _env_ready(self.env_vars[0])
         return all(_env_ready(v) for v in self.env_vars)
@@ -75,6 +78,8 @@ def provider_status(provider_id: str) -> dict[str, Any] | None:
     if not p:
         return None
     missing = [v for v in p.env_vars if not _env_ready(v)]
+    if p.env_match == "any" and p.configured():
+        missing = []
     return {
         "id": p.id,
         "name": p.name,
@@ -250,16 +255,17 @@ PROVIDERS: dict[str, Provider] = {
     ),
     "ais_maritime": Provider(
         id="ais_maritime",
-        name="AIS Hub / MyShipTracking",
+        name="AISstream / AIS Hub / MyShipTracking",
         category="maritime",
         tier="optional",
         env_vars=("AISHUB_API_KEY", "AISSTREAM_API_KEY", "MYSHIPTRACKING_API_KEY"),
+        env_match="any",
         feeds=("maritime",),
-        docs_url="https://www.aishub.net",
+        docs_url="https://aisstream.io/documentation",
         license_note="Provider terms.",
         usage_policy="private_research",
         geo_coverage=("global",),
-        notes="Also MYSHIPTRACKING_API_KEY.",
+        notes="Any one AISSTREAM_API_KEY, AISHUB_API_KEY, or MYSHIPTRACKING_API_KEY.",
     ),
     "newsdata": Provider(
         id="newsdata",
