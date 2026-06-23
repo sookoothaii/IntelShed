@@ -27,6 +27,8 @@ from routes import aircraft as aircraft_routes
 
 _BRIEFING_AUTOPILOT_TASK: asyncio.Task | None = None
 _BRIEFING_INTERVAL = int(os.getenv("WORLDBASE_BRIEFING_INTERVAL", "21600"))
+_STACK_WARMUP_DONE = asyncio.Event()
+_WARMUP_WAIT_SEC = float(os.getenv("WORLDBASE_WARMUP_WAIT_SEC", "180"))
 
 
 async def _phase1_background_tasks() -> None:
@@ -111,6 +113,7 @@ async def _situations_prewarm() -> None:
 
 async def _stack_warmup() -> None:
     """Warm operator-critical feeds after boot (GDELT local, maritime, traffic, haze)."""
+    _STACK_WARMUP_DONE.clear()
     await asyncio.sleep(6)
     try:
         import gdelt_bridge
@@ -169,6 +172,14 @@ async def _stack_warmup() -> None:
         print(f"[WARMUP] Briefing snapshot cache: {n} feeds", flush=True)
     except Exception as e:
         print(f"[WARMUP] Snapshot cache failed: {e}", flush=True)
+    try:
+        grid = await fusion_heatmap.fusion_heatmap(cell_deg=2.0, top=60, include_geojson=0)
+        n = len(grid.get("cells") or [])
+        print(f"[WARMUP] Fusion heatmap: {n} cells", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] Fusion heatmap failed: {e}", flush=True)
+    finally:
+        _STACK_WARMUP_DONE.set()
 
 
 async def _entity_resolution_autopilot() -> None:
@@ -220,13 +231,21 @@ async def _prediction_ledger_autopilot() -> None:
 
 
 async def _briefing_autopilot() -> None:
-    await asyncio.sleep(30)
+    try:
+        await asyncio.wait_for(_STACK_WARMUP_DONE.wait(), timeout=_WARMUP_WAIT_SEC)
+    except asyncio.TimeoutError:
+        print(
+            f"[AUTOPILOT] Stack warmup not finished after {_WARMUP_WAIT_SEC:.0f}s — generating anyway",
+            flush=True,
+        )
+    first_run = True
     while True:
         try:
-            await node_sync.generate_briefing_internal()
+            await node_sync.generate_briefing_internal(force_snapshot=first_run)
             print(f"[AUTOPILOT] Briefing generated at {datetime.now(timezone.utc).isoformat()}")
         except Exception as e:
             print(f"[AUTOPILOT] Briefing generation failed: {e}")
+        first_run = False
         await asyncio.sleep(_BRIEFING_INTERVAL)
 
 
