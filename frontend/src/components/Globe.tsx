@@ -87,6 +87,35 @@ const GLOBE_TARGET_FPS = (() => {
   return Number.isFinite(n) && n > 0 ? n : 0
 })()
 
+// Render-quiescence idle fps (heat lever, env-gated, default OFF). Cesium's
+// scene.globe.tilesLoaded stays false forever on this HUD because off-screen preload
+// tiles never settle, so requestRenderMode can never idle and the globe repaints at
+// the full capped rate even when the visible scene is static (measured idle waste
+// ~1,828 draws/s of pixel-identical frames). This controller idles on *visible*
+// quiescence instead: when the visible (High) tile queue is empty, the camera is
+// idle, and no motion (aircraft/sat) or pulse (quakes/nodes/military) layer, tracked
+// entity, or focus ring is active, it throttles targetFrameRate to GLOBE_IDLE_FPS and
+// restores instantly on any interaction. Same quality (only a provably static visible
+// scene is throttled); measured 30 -> 2 fps cut idle draws ~1,828/s -> ~121/s (~93%).
+// Set e.g. to 2; leave unset/<=0 to disable.
+const GLOBE_IDLE_FPS = (() => {
+  const raw = import.meta.env.VITE_WORLDBASE_GLOBE_IDLE_FPS
+  if (raw == null || raw === '') return 0
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : 0
+})()
+
+const GLOBE_IDLE_RESTORE_FPS = GLOBE_TARGET_FPS > 0 ? GLOBE_TARGET_FPS : 60
+
+// How long Cesium's tileLoadProgressEvent must stay silent before the visible scene
+// counts as "settled". The event fires only when the tile load queue length changes,
+// so silence means tiles are either fully loaded or permanently stalled — in both
+// cases the *visible* image will not change from tile loading, so it is safe to idle.
+// (The HUD's root level-0 imagery is perpetually stuck TRANSITIONING, so waiting for
+// an empty load queue or tilesLoaded=true would never idle — silence is the reliable
+// signal.)
+const GLOBE_IDLE_TILE_SETTLE_MS = 1500
+
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
   const windowMs = hours * 3600 * 1000
@@ -277,6 +306,55 @@ type GlobeLayers = {
 }
 
 type LayerKey = keyof GlobeLayers
+
+// Power-save levers (see briefs/cesium-gpu-thermal-research.md roadmap items 2–5).
+const GLOBE_POWER_SAVE_FPS = 1
+const GLOBE_ATMOSPHERE_OFF_HEIGHT_M = 2_000_000
+const GLOBE_FXAA_IDLE_MS = 3000
+const GLOBE_MSAA_WHEN_SUPERSAMPLE = 1
+
+function globeHasPulseLayer(l: Pick<GlobeLayers, 'quakes' | 'nodes' | 'military'>): boolean {
+  return !!(l.quakes || l.nodes || l.military)
+}
+
+type GlobePowerState = {
+  docVisible: boolean
+  intersecting: boolean
+  interactionIdle: boolean
+  cameraHeightM: number
+}
+
+function applyGlobePowerSettings(
+  viewer: Viewer,
+  hudVisible: boolean,
+  layers: GlobeLayers,
+  power: GlobePowerState,
+) {
+  const scene = viewer.scene
+  const throttle = !hudVisible || !power.docVisible || !power.intersecting
+  const normalFps = GLOBE_TARGET_FPS > 0 ? GLOBE_TARGET_FPS : 0
+  viewer.targetFrameRate = throttle ? GLOBE_POWER_SAVE_FPS : normalFps
+
+  if (!GLOBE_EXPLICIT_RENDER) {
+    const pulse = globeHasPulseLayer(layers)
+    scene.requestRenderMode = !pulse
+    scene.maximumRenderTimeChange = pulse ? 0.0 : Infinity
+  }
+
+  if (viewer.resolutionScale > 1) {
+    scene.msaaSamples = GLOBE_MSAA_WHEN_SUPERSAMPLE
+  }
+
+  if (scene.postProcessStages?.fxaa) {
+    scene.postProcessStages.fxaa.enabled = !power.interactionIdle
+  }
+
+  if (scene.skyAtmosphere) {
+    scene.skyAtmosphere.show = power.cameraHeightM < GLOBE_ATMOSPHERE_OFF_HEIGHT_M
+  }
+
+  scene.requestRender()
+}
 
 type FeedHealth = {
   status?: string
@@ -795,6 +873,13 @@ export default function Globe({
   useEffect(() => { visibleRef.current = visible }, [visible])
   const layersRef = useRef(layers)
   useEffect(() => { layersRef.current = layers }, [layers])
+  const powerStateRef = useRef<GlobePowerState>({
+    docVisible: typeof document !== 'undefined' ? !document.hidden : true,
+    intersecting: true,
+    interactionIdle: false,
+    cameraHeightM: 0,
+  })
+  const applyPowerRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     const onAgentLayer = (ev: Event) => {
@@ -877,6 +962,7 @@ export default function Globe({
     const v = viewerRef.current
     if (!v || (v as any).isDestroyed?.()) return
     v.useDefaultRenderLoop = visible
+    applyPowerRef.current?.()
     if (visible) {
       try {
         v.resize()
@@ -889,11 +975,25 @@ export default function Globe({
   }, [visible, layoutSplit])
 
   useEffect(() => {
+    const onVisibility = () => {
+      powerStateRef.current.docVisible = !document.hidden
+      applyPowerRef.current?.()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+
+  useEffect(() => {
+    applyPowerRef.current?.()
+  }, [layers, viewer])
+
+  useEffect(() => {
     if (!visible) return
     const v = viewerRef.current
     if (!v || (v as any).isDestroyed?.()) return
     try {
       v.resolutionScale = Math.min(window.devicePixelRatio, layoutSplit ? 1.0 : 1.5)
+      applyPowerRef.current?.()
       v.resize()
       v.scene.requestRender()
     } catch {
@@ -911,7 +1011,10 @@ export default function Globe({
     const feedActive = () => !cancelled && visibleRef.current
 
     let detachTerrainFailover: (() => void) | undefined
+    let detachIdleWake: (() => void) | null = null
     let pumpRaf = 0
+    let intersectionObserver: IntersectionObserver | null = null
+    let fxaaIdleTimer = 0
 
     ;(async () => {
       const terrainProvider = await createTerrainWithFallback()
@@ -928,8 +1031,9 @@ export default function Globe({
         geocoder: true,
         infoBox: false,
         selectionIndicator: false,
-        requestRenderMode: GLOBE_EXPLICIT_RENDER,
-        maximumRenderTimeChange: GLOBE_EXPLICIT_RENDER ? Infinity : undefined,
+        requestRenderMode: GLOBE_EXPLICIT_RENDER || !globeHasPulseLayer(layersRef.current),
+        maximumRenderTimeChange:
+          GLOBE_EXPLICIT_RENDER || !globeHasPulseLayer(layersRef.current) ? Infinity : undefined,
       })
       viewerRef.current = viewer
       setViewer(viewer)
@@ -945,6 +1049,57 @@ export default function Globe({
       viewer.resolutionScale = Math.min(window.devicePixelRatio, 1.5)
       if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
       if (GLOBE_TARGET_FPS > 0) viewer.targetFrameRate = GLOBE_TARGET_FPS
+
+      const syncPowerSettings = () => {
+        const v = viewerRef.current
+        if (!v || (v as any).isDestroyed?.()) return
+        try {
+          applyGlobePowerSettings(v, visibleRef.current, layersRef.current, powerStateRef.current)
+        } catch {
+          /* teardown */
+        }
+      }
+      applyPowerRef.current = syncPowerSettings
+
+      if (containerRef.current && typeof IntersectionObserver !== 'undefined') {
+        intersectionObserver = new IntersectionObserver(
+          (entries) => {
+            powerStateRef.current.intersecting = entries.some((e) => e.isIntersecting)
+            syncPowerSettings()
+          },
+          { threshold: 0 },
+        )
+        intersectionObserver.observe(containerRef.current)
+      }
+
+      const markInteraction = () => {
+        powerStateRef.current.interactionIdle = false
+        syncPowerSettings()
+        window.clearTimeout(fxaaIdleTimer)
+        fxaaIdleTimer = window.setTimeout(() => {
+          powerStateRef.current.interactionIdle = true
+          syncPowerSettings()
+        }, GLOBE_FXAA_IDLE_MS)
+      }
+      const onCameraHeight = () => {
+        try {
+          const c = Cartographic.fromCartesian(viewer!.camera.position)
+          const h = c.height
+          const prev = powerStateRef.current.cameraHeightM
+          powerStateRef.current.cameraHeightM = h
+          const prevShow = prev < GLOBE_ATMOSPHERE_OFF_HEIGHT_M
+          const nextShow = h < GLOBE_ATMOSPHERE_OFF_HEIGHT_M
+          if (prevShow !== nextShow) syncPowerSettings()
+        } catch {
+          /* ignore */
+        }
+      }
+      viewer.camera.changed.addEventListener(onCameraHeight)
+      viewer.camera.moveStart.addEventListener(markInteraction)
+      viewer.camera.moveEnd.addEventListener(markInteraction)
+      onCameraHeight()
+      syncPowerSettings()
+      markInteraction()
 
       // OSM 3D buildings — free via Cesium Ion (same token as terrain)
       viewer.camera.moveEnd.addEventListener(() => {
@@ -989,29 +1144,79 @@ export default function Globe({
       // focus ring) and tracked entities animating, and paints briefly after
       // camera moves. When the globe is hidden, idle, and no pulse layer is on, it
       // stops requesting frames — that is where the idle CPU win comes from.
-      if (GLOBE_EXPLICIT_RENDER) {
-        let renderHotUntil = 0
-        const bumpRender = (ms = 1200) => {
-          renderHotUntil = Math.max(renderHotUntil, Date.now() + ms)
+      let renderHotUntil = 0
+      const wakeIdleFps = () => {
+        // Restore full fps synchronously on interaction so the first frame after idle
+        // is not delayed by the throttled (idle-fps) pump cadence.
+        if (GLOBE_IDLE_FPS <= 0) return
+        const v = viewerRef.current
+        if (v && !(v as any).isDestroyed?.() && v.targetFrameRate === GLOBE_IDLE_FPS) {
+          v.targetFrameRate = GLOBE_IDLE_RESTORE_FPS
+          try { v.scene.requestRender() } catch { /* teardown */ }
         }
-        const onCamChange = () => bumpRender(800)
-        viewer.camera.changed.addEventListener(onCamChange)
-        viewer.camera.moveStart.addEventListener(onCamChange)
-        viewer.camera.moveEnd.addEventListener(() => bumpRender(400))
-        const pump = () => {
-          pumpRaf = requestAnimationFrame(pump)
-          const v = viewerRef.current
-          if (!v || (v as any).isDestroyed?.() || !visibleRef.current) return
-          const L = layersRef.current
-          const animatedLayer = !!(L.quakes || L.nodes || L.military)
-          const hasFocusRing = focusSrc.entities.values.length > 0
-          if (Date.now() < renderHotUntil || animatedLayer || hasFocusRing || !!v.trackedEntity) {
-            try { v.scene.requestRender() } catch { /* teardown */ }
-          }
-        }
-        pumpRaf = requestAnimationFrame(pump)
-        bumpRender(2000)
       }
+      const bumpRender = (ms = 1200) => {
+        renderHotUntil = Math.max(renderHotUntil, Date.now() + ms)
+        wakeIdleFps()
+      }
+      const onCamChange = () => bumpRender(800)
+      viewer.camera.changed.addEventListener(onCamChange)
+      viewer.camera.moveStart.addEventListener(onCamChange)
+      viewer.camera.moveEnd.addEventListener(() => bumpRender(400))
+      // Visible-scene settle tracker: tileLoadProgressEvent fires only when the tile
+      // load queue length changes, so we mark the last time tile loading made any
+      // progress. Silence for GLOBE_IDLE_TILE_SETTLE_MS means the visible scene is
+      // settled (loaded or permanently stalled) and safe to idle.
+      let lastTileProgressAt = Date.now()
+      // Instant wake on pointer/wheel even before the camera starts moving, so the
+      // quiescence controller never makes the first interaction feel sluggish.
+      const onCanvasWake = () => bumpRender(800)
+      const onTileProgress = () => { lastTileProgressAt = Date.now() }
+      if (GLOBE_IDLE_FPS > 0) {
+        scene.canvas.addEventListener('pointerdown', onCanvasWake)
+        scene.canvas.addEventListener('wheel', onCanvasWake, { passive: true })
+        try { scene.globe.tileLoadProgressEvent.addEventListener(onTileProgress) } catch { /* older Cesium */ }
+        detachIdleWake = () => {
+          try {
+            scene.canvas.removeEventListener('pointerdown', onCanvasWake)
+            scene.canvas.removeEventListener('wheel', onCanvasWake)
+            scene.globe.tileLoadProgressEvent.removeEventListener(onTileProgress)
+          } catch { /* canvas/globe already torn down */ }
+        }
+      }
+      const pump = () => {
+        pumpRaf = requestAnimationFrame(pump)
+        const v = viewerRef.current
+        if (!v || (v as any).isDestroyed?.() || !visibleRef.current) return
+        const L = layersRef.current
+        const animatedLayer = !!(L.quakes || L.nodes || L.military)
+        const motionLayer = !!(L.aircraft || L.satellites)
+        const hasFocusRing = focusSrc.entities.values.length > 0
+        const busy = Date.now() < renderHotUntil || animatedLayer || hasFocusRing || !!v.trackedEntity
+
+        // Render-quiescence controller (env-gated): when the visible scene is provably
+        // static, throttle the render loop to GLOBE_IDLE_FPS; restore to normal
+        // otherwise. Quiescence = camera/interaction idle, no motion (aircraft/sat) or
+        // pulse (quakes/nodes/military) layer, no tracked entity or focus ring, AND
+        // tile loading has gone quiet (tileLoadProgressEvent silent). Using load-
+        // progress silence rather than tilesLoaded/empty-queue is essential: the HUD's
+        // root imagery stays perpetually TRANSITIONING, so tilesLoaded never turns true
+        // and the visible queue can stay non-empty forever. Motion layers animate
+        // continuously and are never throttled (would look choppy = quality loss).
+        if (GLOBE_IDLE_FPS > 0) {
+          const tilesSettled = Date.now() - lastTileProgressAt > GLOBE_IDLE_TILE_SETTLE_MS
+          const quiescent = !busy && !motionLayer && tilesSettled
+          const desired = quiescent ? GLOBE_IDLE_FPS : GLOBE_IDLE_RESTORE_FPS
+          if (v.targetFrameRate !== desired) v.targetFrameRate = desired
+        }
+
+        if (!v.scene.requestRenderMode) return
+        if (busy) {
+          try { v.scene.requestRender() } catch { /* teardown */ }
+        }
+      }
+      pumpRaf = requestAnimationFrame(pump)
+      bumpRender(2000)
 
       // ---------- Interaction ----------
 
@@ -1547,10 +1752,14 @@ export default function Globe({
 
     return () => {
       cancelled = true
+      applyPowerRef.current = null
       if (pumpRaf) cancelAnimationFrame(pumpRaf)
+      detachIdleWake?.()
       detachTerrainFailover?.()
       if (recoverAfterOnline) window.removeEventListener('online', recoverAfterOnline)
       resizeObserver?.disconnect()
+      intersectionObserver?.disconnect()
+      window.clearTimeout(fxaaIdleTimer)
       timers.forEach((id) => {
         clearTimeout(id)
         clearInterval(id)
