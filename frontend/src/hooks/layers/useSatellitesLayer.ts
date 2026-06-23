@@ -1,22 +1,34 @@
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  CustomDataSource,
-  Entity,
-  Cartesian3,
-  ConstantPositionProperty,
-  Color,
-  LabelStyle,
-  VerticalOrigin,
   Cartesian2,
+  Cartesian3,
+  Color,
+  CustomDataSource,
   DistanceDisplayCondition,
+  LabelCollection,
+  LabelStyle,
+  PointPrimitiveCollection,
   PolylineGlowMaterialProperty,
+  VerticalOrigin,
   Viewer,
-  Math as CMath
+  Math as CMath,
 } from 'cesium';
 import * as satellite from 'satellite.js';
 import { fetchApi } from '../../lib/networkFetch';
-import { attachDataSource, detachDataSource } from './layerUtils';
+import type { GlobePrimitivePick } from '../../lib/globePick';
+import {
+  attachDataSource,
+  attachPrimitiveCollection,
+  detachDataSource,
+  detachPrimitiveCollection,
+  requestSceneRender,
+} from './layerUtils';
+
+type SatEntry = {
+  point: ReturnType<PointPrimitiveCollection['add']>;
+  label: ReturnType<LabelCollection['add']>;
+};
 
 export function useSatellitesLayer({
   viewer,
@@ -24,7 +36,7 @@ export function useSatellitesLayer({
   orbitsActive,
   satGroup,
   feedActive,
-  setStats
+  setStats,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -33,9 +45,10 @@ export function useSatellitesLayer({
   feedActive: boolean;
   setStats: React.Dispatch<React.SetStateAction<any>>;
 }) {
-  const satSrcRef = useRef<CustomDataSource | null>(null);
+  const pointsRef = useRef<PointPrimitiveCollection | null>(null);
+  const labelsRef = useRef<LabelCollection | null>(null);
   const orbitSrcRef = useRef<CustomDataSource | null>(null);
-  const satMapRef = useRef(new Map<string, Entity>());
+  const satMapRef = useRef(new Map<string, SatEntry>());
 
   const { data: satCache } = useQuery({
     queryKey: ['satellites', satGroup],
@@ -46,49 +59,61 @@ export function useSatellitesLayer({
       for (const s of d.satellites || []) {
         try {
           cache.push({ name: s.name, rec: satellite.twoline2satrec(s.tle1, s.tle2) });
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
       }
-      // Reset maps when group changes
       satMapRef.current.clear();
-      if (satSrcRef.current) satSrcRef.current.entities.removeAll();
-      if (orbitSrcRef.current) orbitSrcRef.current.entities.removeAll();
+      pointsRef.current?.removeAll();
+      labelsRef.current?.removeAll();
+      orbitSrcRef.current?.entities.removeAll();
       return cache;
     },
     enabled: active && feedActive,
-    staleTime: 1000 * 60 * 60, // TLEs change slowly
+    staleTime: 1000 * 60 * 60,
   });
 
   useEffect(() => {
     if (!viewer) return;
-    const satSrc = new CustomDataSource('satellites');
+    const points = new PointPrimitiveCollection();
+    const labels = new LabelCollection();
+    attachPrimitiveCollection(viewer, points);
+    attachPrimitiveCollection(viewer, labels);
+    pointsRef.current = points;
+    labelsRef.current = labels;
+
     const orbitSrc = new CustomDataSource('orbits');
-    attachDataSource(viewer, satSrc);
     attachDataSource(viewer, orbitSrc);
-    satSrcRef.current = satSrc;
     orbitSrcRef.current = orbitSrc;
 
-    satSrc.show = active;
+    points.show = active;
+    labels.show = active;
     orbitSrc.show = active && orbitsActive;
 
     return () => {
-      detachDataSource(viewer, satSrc);
+      detachPrimitiveCollection(viewer, points);
+      detachPrimitiveCollection(viewer, labels);
       detachDataSource(viewer, orbitSrc);
-      satSrcRef.current = null;
+      pointsRef.current = null;
+      labelsRef.current = null;
       orbitSrcRef.current = null;
       satMapRef.current.clear();
     };
   }, [viewer]);
 
   useEffect(() => {
-    if (satSrcRef.current) satSrcRef.current.show = active;
+    if (pointsRef.current) pointsRef.current.show = active;
+    if (labelsRef.current) labelsRef.current.show = active;
     if (orbitSrcRef.current) orbitSrcRef.current.show = active && orbitsActive;
   }, [active, orbitsActive]);
 
   const lastOrbitDrawMs = useRef(0);
 
   useEffect(() => {
-    if (!active || !feedActive || !satCache || satCache.length === 0 || !satSrcRef.current || !orbitSrcRef.current) return;
-    
+    if (!active || !feedActive || !satCache || satCache.length === 0 || !pointsRef.current || !labelsRef.current || !orbitSrcRef.current || !viewer) {
+      return;
+    }
+
     let isCancelled = false;
 
     const propagateSats = (forceOrbits = false) => {
@@ -96,10 +121,11 @@ export function useSatellitesLayer({
       const now = new Date();
       const gmst = satellite.gstime(now);
       const seen = new Set<string>();
-      const drawOrbits = forceOrbits || (Date.now() - lastOrbitDrawMs.current >= 45000);
-      
+      const drawOrbits = forceOrbits || Date.now() - lastOrbitDrawMs.current >= 45000;
+
+      const points = pointsRef.current!;
+      const labels = labelsRef.current!;
       const orbitSrc = orbitSrcRef.current!;
-      const satSrc = satSrcRef.current!;
       const satMap = satMapRef.current;
 
       if (drawOrbits) {
@@ -120,39 +146,47 @@ export function useSatellitesLayer({
           const lat = CMath.toDegrees(gd.latitude);
           const alt = gd.height * 1000;
           if (!isFinite(lon) || !isFinite(lat) || !isFinite(alt)) continue;
-          
+
           seen.add(name);
           const pos = Cartesian3.fromDegrees(lon, lat, alt);
-          
-          let e = satMap.get(name);
-          if (e) {
-            (e.position as ConstantPositionProperty).setValue(pos);
+          const pickMeta: GlobePrimitivePick = {
+            kind: 'satellite',
+            lon,
+            lat,
+            name,
+            alt,
+          };
+
+          let entry = satMap.get(name);
+          if (entry) {
+            entry.point.position = pos;
+            entry.label.position = pos;
+            entry.point.id = pickMeta;
           } else {
-            e = satSrc.entities.add({
-              id: 'sat-' + name,
-              position: new ConstantPositionProperty(pos),
-              point: {
-                pixelSize: 5,
-                color: Color.fromCssColorString('#00e5ff'),
-                outlineColor: Color.fromCssColorString('#003a44'),
-                outlineWidth: 1,
-              },
-              label: {
-                text: name,
-                font: '600 10px "Courier New"',
-                fillColor: Color.fromCssColorString('#7df9ff'),
-                outlineColor: Color.BLACK,
-                outlineWidth: 2,
-                style: LabelStyle.FILL_AND_OUTLINE,
-                verticalOrigin: VerticalOrigin.BOTTOM,
-                pixelOffset: new Cartesian2(0, -8),
-                distanceDisplayCondition: new DistanceDisplayCondition(0, 6e7),
-              },
-              properties: { kind: 'satellite', name, alt } as any,
+            const point = points.add({
+              position: pos,
+              pixelSize: 5,
+              color: Color.fromCssColorString('#00e5ff'),
+              outlineColor: Color.fromCssColorString('#003a44'),
+              outlineWidth: 1,
+              id: pickMeta,
             });
-            satMap.set(name, e);
+            const label = labels.add({
+              position: pos,
+              text: name,
+              font: '600 10px "Courier New"',
+              fillColor: Color.fromCssColorString('#7df9ff'),
+              outlineColor: Color.BLACK,
+              outlineWidth: 2,
+              style: LabelStyle.FILL_AND_OUTLINE,
+              verticalOrigin: VerticalOrigin.BOTTOM,
+              pixelOffset: new Cartesian2(0, -8),
+              distanceDisplayCondition: new DistanceDisplayCondition(0, 6e7),
+            });
+            entry = { point, label };
+            satMap.set(name, entry);
           }
-          
+
           if (drawOrbits && orbitsActive && drawn < MAX_ORBITS) {
             drawn++;
             const periodMin = (2 * Math.PI) / rec.no;
@@ -163,7 +197,13 @@ export function useSatellitesLayer({
               const p = satellite.propagate(rec, t);
               if (!p || !p.position || typeof p.position === 'boolean') continue;
               const od = satellite.eciToGeodetic(p.position as any, g);
-              pts.push(Cartesian3.fromDegrees(CMath.toDegrees(od.longitude), CMath.toDegrees(od.latitude), od.height * 1000));
+              pts.push(
+                Cartesian3.fromDegrees(
+                  CMath.toDegrees(od.longitude),
+                  CMath.toDegrees(od.latitude),
+                  od.height * 1000,
+                ),
+              );
             }
             if (pts.length > 2) {
               orbitSrc.entities.add({
@@ -178,15 +218,22 @@ export function useSatellitesLayer({
               });
             }
           }
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
       }
-      
-      for (const [name, e] of satMap) {
-        if (!seen.has(name)) { satSrc.entities.remove(e); satMap.delete(name); }
+
+      for (const [name, entry] of satMap) {
+        if (!seen.has(name)) {
+          points.remove(entry.point);
+          labels.remove(entry.label);
+          satMap.delete(name);
+        }
       }
-      
+
       if (drawOrbits) orbitSrc.entities.resumeEvents();
       setStats((p: any) => ({ ...p, satellites: satMap.size }));
+      requestSceneRender(viewer);
     };
 
     propagateSats(true);

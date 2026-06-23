@@ -1640,6 +1640,54 @@ export default function Globe({
         const gp = resolveGlobePick(scene.pick(click.position))
         if (gp?.entity) {
           selectEntity(gp.entity)
+        } else if (gp && gp.prop('kind') === 'aircraft') {
+          const prop = gp.prop
+          const lon = Number(prop('lon'))
+          const lat = Number(prop('lat'))
+          const alt = Number(prop('alt') ?? 0)
+          const icao = String(prop('icao') || '').toLowerCase()
+          applyTarget({
+            kind: 'aircraft',
+            title: `✈ ${prop('callsign') || icao}`,
+            entityId: icao ? `aircraft:${icao}` : undefined,
+            lat: Number.isFinite(lat) ? lat : undefined,
+            lon: Number.isFinite(lon) ? lon : undefined,
+            lines: [
+              `ICAO24: ${icao}`,
+              `COUNTRY: ${prop('country') ?? '—'}`,
+              `ALTITUDE: ${Math.round(Number.isFinite(alt) ? alt : 0)} m`,
+              `VELOCITY: ${Math.round(Number(prop('vel') ?? 0))} m/s`,
+              `HEADING: ${Math.round(Number(prop('heading') ?? 0))}°`,
+              trailsEnabledRef.current ? 'TRAIL: fetching…' : 'TRAIL: disabled',
+            ],
+          })
+          if (Number.isFinite(lon) && Number.isFinite(lat)) {
+            viewer!.camera.flyTo({
+              destination: Cartesian3.fromDegrees(lon, lat, Math.max(alt + 8000, 12000)),
+              duration: 1.2,
+            })
+          }
+          viewer!.trackedEntity = undefined
+          if (trailsEnabledRef.current && icao) trailsApi.fetchTrail(icao)
+        } else if (gp && gp.prop('kind') === 'satellite') {
+          const prop = gp.prop
+          const lon = Number(prop('lon'))
+          const lat = Number(prop('lat'))
+          const alt = Number(prop('alt') ?? 0)
+          applyTarget({
+            kind: 'satellite',
+            title: `🛰 ${prop('name') || 'Satellite'}`,
+            lat: Number.isFinite(lat) ? lat : undefined,
+            lon: Number.isFinite(lon) ? lon : undefined,
+            lines: [`ALTITUDE: ${Math.round(Number.isFinite(alt) ? alt : 0)} m`, 'ORBIT: TRACKING'],
+          })
+          if (Number.isFinite(lon) && Number.isFinite(lat)) {
+            viewer!.camera.flyTo({
+              destination: Cartesian3.fromDegrees(lon, lat, Math.max(alt + 500000, 800000)),
+              duration: 1.2,
+            })
+          }
+          viewer!.trackedEntity = undefined
         } else if (gp && gp.prop('kind') === 'wildfire') {
           const prop = gp.prop
           const lon = Number(prop('lon'))

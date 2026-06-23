@@ -1,4 +1,4 @@
-import { Cartesian3, Color, NearFarScalar, type CustomDataSource, type Viewer } from 'cesium';
+import { Cartesian3, Color, NearFarScalar, type CustomDataSource, type LabelCollection, type PointPrimitiveCollection, type Viewer } from 'cesium';
 
 export function viewerAlive(viewer: Viewer | null | undefined): viewer is Viewer {
   if (!viewer) return false;
@@ -19,6 +19,31 @@ export function detachDataSource(viewer: Viewer | null, src: CustomDataSource | 
   if (!src || !viewerAlive(viewer)) return;
   try {
     viewer.dataSources.remove(src);
+  } catch {
+    /* viewer already destroyed */
+  }
+}
+
+export function attachPrimitiveCollection(
+  viewer: Viewer,
+  collection: PointPrimitiveCollection | LabelCollection,
+): boolean {
+  if (!viewerAlive(viewer)) return false;
+  try {
+    viewer.scene.primitives.add(collection);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function detachPrimitiveCollection(
+  viewer: Viewer | null,
+  collection: PointPrimitiveCollection | LabelCollection | null,
+): void {
+  if (!collection || !viewerAlive(viewer)) return;
+  try {
+    viewer.scene.primitives.remove(collection);
   } catch {
     /* viewer already destroyed */
   }
