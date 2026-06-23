@@ -19,7 +19,7 @@ import httpx
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Depends
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from auth.security import verify_api_key
+from auth.security import verify_api_key, verify_lan_auth, require_admin_token, lan_exposed
 
 # Pydantic Models for type-safe validation
 from models.node import (
@@ -772,7 +772,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
 
 
 @router.get("/briefing")
-async def latest_briefing():
+async def latest_briefing(_auth: str | None = Depends(verify_lan_auth)):
     """Latest stored situation briefing."""
     with _db() as conn:
         row = conn.execute(
@@ -1036,8 +1036,14 @@ async def ack_command(
 
 
 @router.get("/node/{node_id}/command-history")
-async def command_history(node_id: str, limit: int = 20):
+async def command_history(
+    request: Request,
+    node_id: str,
+    limit: int = 20,
+):
     """Show recent commands for a node (PC-side view)."""
+    if lan_exposed():
+        require_admin_token(request)
     with _db() as conn:
         rows = conn.execute(
             "SELECT id, command, status, created_at, acked_at, result FROM node_commands WHERE node_id = ? ORDER BY id DESC LIMIT ?",

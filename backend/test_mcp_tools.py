@@ -20,17 +20,17 @@ from mcp_server import (
 class MCPAuthTests(unittest.TestCase):
     def test_auth_when_api_key_set(self):
         with patch.dict("os.environ", {"WORLDBASE_API_KEY": "secret", "WORLDBASE_BIND_HOST": "127.0.0.1"}, clear=False):
-            with patch("mcp_server.API_KEY", "secret"):
+            with patch("auth.security.API_KEY", "secret"):
                 self.assertTrue(mcp_auth_required())
 
     def test_auth_when_lan_bind_without_key(self):
         with patch.dict("os.environ", {"WORLDBASE_BIND_HOST": "0.0.0.0"}, clear=False):
-            with patch("mcp_server.API_KEY", ""):
+            with patch("auth.security.API_KEY", ""):
                 self.assertTrue(mcp_auth_required())
 
     def test_no_auth_localhost_without_key(self):
         with patch.dict("os.environ", {"WORLDBASE_BIND_HOST": "127.0.0.1"}, clear=False):
-            with patch("mcp_server.API_KEY", ""):
+            with patch("auth.security.API_KEY", ""):
                 self.assertFalse(mcp_auth_required())
 
 

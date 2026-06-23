@@ -15,7 +15,7 @@ from typing import Any
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from auth.security import API_KEY
+from auth.security import API_KEY, lan_auth_required
 from mcp.server.fastmcp import FastMCP
 
 # Feeds allowed for worldbase_feed_sample (cache key or live bridge id).
@@ -74,10 +74,7 @@ def _normalize_briefing_lang(lang: str | None) -> str | None:
 
 def mcp_auth_required() -> bool:
     """Require X-API-Key when LAN-bound or when WORLDBASE_API_KEY is set."""
-    if API_KEY:
-        return True
-    bind = os.getenv("WORLDBASE_BIND_HOST", "127.0.0.1").strip().lower()
-    return bind not in ("127.0.0.1", "localhost", "::1")
+    return lan_auth_required()
 
 
 def _db_path() -> str:

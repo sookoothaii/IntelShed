@@ -226,10 +226,14 @@ try {
 
 Write-Host ""
 Write-Host '[7] Briefing (cached - autopilot fills; skip slow POST)' -ForegroundColor Cyan
+$briefHeaders = @{}
+if ($WorldBaseApiKey) {
+    $briefHeaders['X-API-Key'] = $WorldBaseApiKey
+}
 Test-Endpoint "briefing latest" "$Backend/api/briefing" {
     param($d)
     if ($null -eq $d.text) { throw 'no text field' }
-} -TimeoutSec 15 -Optional
+} -TimeoutSec 15 -Optional -Headers $briefHeaders
 
 Write-Host ""
 Write-Host '[7b] Pi node pull (cached alerts — no live snapshot)' -ForegroundColor Cyan

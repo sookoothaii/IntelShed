@@ -38,6 +38,23 @@ ADMIN_TOKEN = os.getenv("NODE_ADMIN_TOKEN", "") or INGEST_TOKEN
 API_KEY = os.getenv("WORLDBASE_API_KEY", "")
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+node_token_header = APIKeyHeader(name="X-Node-Token", auto_error=False)
+
+_LOOPBACK_BINDS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def lan_exposed() -> bool:
+    """Server listens beyond loopback (Pi sync / Docker LAN bind)."""
+    bind = os.getenv("WORLDBASE_BIND_HOST", "127.0.0.1").strip().lower()
+    return bind not in _LOOPBACK_BINDS
+
+
+def lan_auth_required() -> bool:
+    """MCP and other operator tools: key when configured, or when LAN-exposed."""
+    if API_KEY:
+        return True
+    return lan_exposed()
+
 
 async def verify_api_key(api_key: str = Security(api_key_header)):
     """Verify API key if WORLDBASE_API_KEY is set."""
@@ -49,6 +66,32 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
             detail="Invalid or missing API Key",
         )
     return api_key
+
+
+async def verify_lan_auth(
+    api_key: str = Security(api_key_header),
+    x_node_token: str = Security(node_token_header),
+) -> str | None:
+    """Require X-API-Key or X-Node-Token only when the API is LAN-exposed.
+
+    Default PC dev (``WORLDBASE_BIND_HOST=127.0.0.1``): HUD and pilots stay open;
+    keys in ``.env`` still gate chat, MCP, and node ingest/pull routes.
+    """
+    if not lan_exposed():
+        return None
+    if API_KEY and api_key and hmac.compare_digest(API_KEY, api_key):
+        return "api_key"
+    if INGEST_TOKEN and x_node_token and hmac.compare_digest(INGEST_TOKEN, x_node_token):
+        return "node_token"
+    if not API_KEY and not INGEST_TOKEN:
+        raise HTTPException(
+            status_code=HTTP_503_SERVICE_UNAVAILABLE,
+            detail="LAN exposure requires WORLDBASE_API_KEY or NODE_INGEST_TOKEN",
+        )
+    raise HTTPException(
+        status_code=HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing credentials (X-API-Key or X-Node-Token)",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -669,4 +712,8 @@ __all__ = [
     "generate_secure_nonce",
     "get_auth_config",
     "clear_nonce_cache",
+    "lan_auth_required",
+    "lan_exposed",
+    "verify_lan_auth",
+    "verify_api_key",
 ]

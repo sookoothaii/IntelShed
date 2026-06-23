@@ -472,9 +472,15 @@ def extract_document(filename: str, data: bytes) -> str:
 # FastAPI routes (heavy deps stay lazy; load failures map to HTTP 503)
 # ---------------------------------------------------------------------------
 
-from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile  # noqa: E402
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile  # noqa: E402
+
+from auth.security import verify_lan_auth
 
 router = APIRouter(prefix="/api/intel/ingest", tags=["intel"])
+
+INTEL_UPLOAD_MAX_BYTES = int(
+    os.getenv("WORLDBASE_INTEL_UPLOAD_MAX_BYTES", str(10 * 1024 * 1024))
+)
 
 
 @router.get("/status")
@@ -489,7 +495,10 @@ async def ingest_status(load: bool = False):
 
 
 @router.post("/text")
-async def ingest_text_route(payload: dict = Body(...)):
+async def ingest_text_route(
+    payload: dict = Body(...),
+    _auth: str | None = Depends(verify_lan_auth),
+):
     text = payload.get("text") or ""
     if not text.strip():
         raise HTTPException(status_code=400, detail="field 'text' is required")
@@ -510,8 +519,22 @@ async def ingest_text_route(payload: dict = Body(...)):
 async def ingest_document_route(
     file: UploadFile = File(...),
     dataset: str = Form("intel-ingest"),
+    _auth: str | None = Depends(verify_lan_auth),
 ):
-    data = await file.read()
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(65536)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > INTEL_UPLOAD_MAX_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"upload exceeds {INTEL_UPLOAD_MAX_BYTES} bytes",
+            )
+        chunks.append(chunk)
+    data = b"".join(chunks)
     if not data:
         raise HTTPException(status_code=400, detail="empty upload")
     try:
