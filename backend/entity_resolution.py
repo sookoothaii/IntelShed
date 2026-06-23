@@ -407,7 +407,9 @@ def status() -> dict:
 # FastAPI routes
 # ---------------------------------------------------------------------------
 
-from fastapi import APIRouter, HTTPException  # noqa: E402
+from fastapi import APIRouter, Depends, HTTPException  # noqa: E402
+
+from auth.security import verify_lan_auth
 
 router = APIRouter(prefix="/api/intel/resolution", tags=["intel"])
 
@@ -418,7 +420,7 @@ async def resolution_status():
 
 
 @router.post("/run")
-async def resolution_run():
+async def resolution_run(_auth: str | None = Depends(verify_lan_auth)):
     try:
         return await asyncio.to_thread(run_resolution)
     except Exception as exc:
@@ -426,7 +428,7 @@ async def resolution_run():
 
 
 @router.post("/reset")
-async def resolution_reset():
+async def resolution_reset(_auth: str | None = Depends(verify_lan_auth)):
     """Delete all sameAs edges produced by resolution (append-only reset)."""
     try:
         deleted = await asyncio.to_thread(ftm_store.delete_edges_for_dataset, RESOLUTION_DATASET)

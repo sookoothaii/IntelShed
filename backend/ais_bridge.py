@@ -103,14 +103,6 @@ def _parse_aisstream_message(msg: dict) -> tuple[str | None, dict | None, dict]:
             mtype = mtype or "PositionReport"
     return mtype or None, body, meta
 
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        return default
-
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
@@ -276,6 +268,7 @@ def _ingest_stream_message(msg: dict, regions: dict[str, dict]) -> bool:
     if err:
         _STREAM["errors"] = [err[:200]]
         return False
+    _STREAM["last_msg_at"] = time.time()
     vessel = _vessel_from_aisstream(msg, regions)
     if not vessel:
         return True
@@ -283,7 +276,6 @@ def _ingest_stream_message(msg: dict, regions: dict[str, dict]) -> bool:
         return True
     vessel["_seen_at"] = time.time()
     _STREAM["vessels"][vessel["mmsi"]] = vessel
-    _STREAM["last_msg_at"] = time.time()
     max_n = _max_vessels()
     if len(_STREAM["vessels"]) > max_n:
         _prune_stream_vessels()
@@ -489,8 +481,7 @@ async def _aisstream_collector_loop() -> None:
                     msg = json.loads(raw)
                     if not _ingest_stream_message(msg, regions):
                         break
-                    if _STREAM["vessels"]:
-                        _STREAM["connected"] = True
+                    _STREAM["connected"] = True
         except asyncio.CancelledError:
             _STREAM["connected"] = False
             raise
@@ -522,10 +513,8 @@ async def _empty_maritime_errors(errors: list[str]) -> list[str]:
     out.extend(str(e) for e in (_STREAM.get("errors") or []) if e)
     if _aisstream_background_on():
         if _STREAM.get("connected"):
-            if _STREAM.get("last_msg_at"):
-                out.append("AISstream connected but no vessels in buffer yet")
-            else:
-                out.append("AISstream connected; waiting for first PositionReport")
+            if not _STREAM.get("vessels"):
+                out.append("AISstream connected; no vessels in tracked regions yet")
         elif _STREAM.get("errors"):
             pass  # already copied above
         else:

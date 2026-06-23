@@ -118,6 +118,21 @@ class AisBridgeTests(unittest.TestCase):
         err = ais._aisstream_service_error({"error": "Api Key Is Not Valid"})
         self.assertEqual(err, "Api Key Is Not Valid")
 
+    def test_ingest_stream_message_marks_connected_on_any_frame(self):
+        ais._STREAM["vessels"] = {}
+        ais._STREAM["last_msg_at"] = 0.0
+        sample = {
+            "Message": {"PositionReport": {"UserID": 1, "Latitude": 53.5, "Longitude": 9.9}},
+            "MessageType": "PositionReport",
+            "MetaData": {"MMSI": 1, "latitude": 53.5, "longitude": 9.9},
+        }
+        with patch.dict(os.environ, {"WORLDBASE_MARITIME_REGIONS": "all"}, clear=False):
+            ok = ais._ingest_stream_message(sample, ais._active_regions())
+        self.assertTrue(ok)
+        self.assertGreater(ais._STREAM["last_msg_at"], 0.0)
+        ais._STREAM["vessels"] = {}
+        ais._STREAM["last_msg_at"] = 0.0
+
 
 if __name__ == "__main__":
     unittest.main()

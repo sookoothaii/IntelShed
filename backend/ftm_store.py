@@ -29,7 +29,9 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 import duckdb
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
+
+from auth.security import verify_lan_auth
 from fastapi.responses import JSONResponse
 from followthemoney import model
 
@@ -1160,7 +1162,11 @@ async def api_intel_graph_stats():
 
 
 @router.post("/entity/import")
-async def api_entity_import(request: Request, dataset: str = Query("import")):
+async def api_entity_import(
+    request: Request,
+    dataset: str = Query("import"),
+    _auth: str | None = Depends(verify_lan_auth),
+):
     """Round-trip an FtM entity stream (NDJSON, one JSON per line, or a JSON array)."""
     body = await request.body()
     text = body.decode("utf-8", "ignore")
