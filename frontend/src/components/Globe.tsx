@@ -29,8 +29,6 @@ import {
   ScreenSpaceEventType,
   PostProcessStage,
   Cartographic,
-  CallbackProperty,
-  ColorMaterialProperty,
   
   MVTDataProvider,
   ImageryLayer,
@@ -65,6 +63,7 @@ import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SAT
 import { fetchApi } from '../lib/networkFetch';
 import { buildEntityHoverTip } from '../lib/entityHoverTip';
 import { resolveGlobePick } from '../lib/globePick';
+import { attachPulseEllipse, tickPulseAnimations } from '../hooks/layers/pulseAnimation';
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
@@ -74,12 +73,9 @@ const TIMELINE_WINDOWS = [6, 12, 24] as const
 // camera moves, tracked entities, focus ring, and pulse layers animating smoothly.
 const GLOBE_EXPLICIT_RENDER = import.meta.env.VITE_WORLDBASE_GLOBE_EXPLICIT_RENDER === '1'
 
-// Frame-rate cap: throttle Cesium's render loop to cut GPU power/heat. The pulse
-// layers (quakes/nodes/military) use per-frame CallbackProperty so the scene
-// repaints every frame even when idle, which makes requestRenderMode a no-op;
-// capping fps is therefore the most reliable thermal lever. Measured on the live
-// HUD: 60 -> 30 fps dropped Cesium draw-calls ~7060/s -> ~1900/s with no visible
-// loss. Default 30; set a higher number to relax, or <=0 to uncap (browser rAF).
+// Frame-rate cap: throttle Cesium's render loop to cut GPU power/heat. Pulse rings
+// (quakes/nodes/military) are throttled separately (~15 fps via pulseAnimation.ts);
+// motion layers (aircraft/sat) still repaint every frame when enabled.
 const GLOBE_TARGET_FPS = (() => {
   const raw = import.meta.env.VITE_WORLDBASE_GLOBE_TARGET_FPS
   if (raw == null || raw === '') return 30
@@ -115,6 +111,15 @@ const GLOBE_IDLE_RESTORE_FPS = GLOBE_TARGET_FPS > 0 ? GLOBE_TARGET_FPS : 60
 // an empty load queue or tilesLoaded=true would never idle — silence is the reliable
 // signal.)
 const GLOBE_IDLE_TILE_SETTLE_MS = 1500
+
+// Globe tile detail (Cesium default 2.0). Was hard-coded 1.0 (~4× tile load); 2.0
+// is a free CPU/GPU lever with marginal visual change at globe scale.
+const GLOBE_MAX_SSE = (() => {
+  const raw = import.meta.env.VITE_WORLDBASE_GLOBE_SSE
+  if (raw == null || raw === '') return 2.0
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : 2.0
+})()
 
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
@@ -1015,6 +1020,7 @@ export default function Globe({
     let pumpRaf = 0
     let intersectionObserver: IntersectionObserver | null = null
     let fxaaIdleTimer = 0
+    let focusPulseCleanup: (() => void) | null = null
 
     ;(async () => {
       const terrainProvider = await createTerrainWithFallback()
@@ -1042,7 +1048,7 @@ export default function Globe({
       const scene = viewer.scene
       scene.globe.enableLighting = true
       scene.globe.depthTestAgainstTerrain = false
-      scene.globe.maximumScreenSpaceError = 1.0
+      scene.globe.maximumScreenSpaceError = GLOBE_MAX_SSE
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
@@ -1137,13 +1143,9 @@ export default function Globe({
       ;[focusSrc, osintSrc].forEach((s) => viewer!.dataSources.add(s))
 
       // ---------- Explicit-render activity pump ----------
-      // With requestRenderMode on, Cesium only paints when something requests a
-      // render. Camera interaction and entity property changes (aircraft/sat
-      // setValue, layer rebuilds) already request renders; this pump additionally
-      // keeps time-driven CallbackProperty pulses (quakes M>=5, nodes, military,
-      // focus ring) and tracked entities animating, and paints briefly after
-      // camera moves. When the globe is hidden, idle, and no pulse layer is on, it
-      // stops requesting frames — that is where the idle CPU win comes from.
+      // Throttled pulse ring updates (~15 fps) plus render wake for camera moves,
+      // tracked entities, and focus ring. When requestRenderMode is on, only dirty
+      // frames are painted.
       let renderHotUntil = 0
       const wakeIdleFps = () => {
         // Restore full fps synchronously on interaction so the first frame after idle
@@ -1210,8 +1212,8 @@ export default function Globe({
           if (v.targetFrameRate !== desired) v.targetFrameRate = desired
         }
 
-        if (!v.scene.requestRenderMode) return
-        if (busy) {
+        const pulseFrame = tickPulseAnimations()
+        if (pulseFrame || (v.scene.requestRenderMode && busy)) {
           try { v.scene.requestRender() } catch { /* teardown */ }
         }
       }
@@ -1694,10 +1696,10 @@ export default function Globe({
             lat: f.lat,
             lon: f.lon,
           })
+          focusPulseCleanup?.()
+          focusPulseCleanup = null
           focusSrc.entities.removeAll()
-          const t0 = Date.now()
-          const ring = () => ((Date.now() - t0) % 1600) / 1600
-          focusSrc.entities.add({
+          const focusEnt = focusSrc.entities.add({
             position: Cartesian3.fromDegrees(f.lon, f.lat, 0),
             point: {
               pixelSize: 11,
@@ -1705,14 +1707,13 @@ export default function Globe({
               outlineColor: Color.WHITE,
               outlineWidth: 2,
             },
-            ellipse: {
-              semiMajorAxis: new CallbackProperty(() => 20000 + ring() * 200000, false) as any,
-              semiMinorAxis: new CallbackProperty(() => (20000 + ring() * 200000) * 0.97, false) as any,
-              material: new ColorMaterialProperty(
-                new CallbackProperty(() => Color.fromCssColorString('#00ffa3').withAlpha(0.5 * (1 - ring())), false) as any
-              ),
-              height: 0,
-            } as any,
+          })
+          focusPulseCleanup = attachPulseEllipse(focusEnt, {
+            cycleMs: 1600,
+            baseRadius: 20000,
+            pulseScale: 200000,
+            color: Color.fromCssColorString('#00ffa3'),
+            alphaScale: 0.5,
           })
         }
       }
@@ -1771,6 +1772,7 @@ export default function Globe({
     return () => {
       cancelled = true
       applyPowerRef.current = null
+      focusPulseCleanup?.()
       if (pumpRaf) cancelAnimationFrame(pumpRaf)
       detachIdleWake?.()
       detachTerrainFailover?.()

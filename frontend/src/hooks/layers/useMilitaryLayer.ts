@@ -12,12 +12,11 @@ import {
   HorizontalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  CallbackProperty,
-  ColorMaterialProperty,
   Viewer
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import { attachPulseEllipse } from './pulseAnimation';
 
 export function useMilitaryLayer({
   viewer,
@@ -34,6 +33,7 @@ export function useMilitaryLayer({
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const milMapRef = useRef(new Map<string, Entity>());
+  const pulseCleanupByMil = useRef(new Map<string, () => void>());
 
   const { data } = useQuery({
     queryKey: ['military'],
@@ -52,6 +52,8 @@ export function useMilitaryLayer({
     srcRef.current = src;
     
     return () => {
+      for (const fn of pulseCleanupByMil.current.values()) fn();
+      pulseCleanupByMil.current.clear();
       detachDataSource(viewer, src);
       srcRef.current = null;
       milMapRef.current.clear();
@@ -112,24 +114,16 @@ export function useMilitaryLayer({
         });
         
         if (isEmergency) {
-          const t0 = Date.now();
-          (e as any).ellipse = {
-            semiMajorAxis: new CallbackProperty(() => {
-              const ph = ((Date.now() - t0) % 1200) / 1200;
-              return 20000 + ph * 80000;
-            }, false),
-            semiMinorAxis: new CallbackProperty(() => {
-              const ph = ((Date.now() - t0) % 1200) / 1200;
-              return (20000 + ph * 80000) * 0.97;
-            }, false),
-            material: new ColorMaterialProperty(
-              new CallbackProperty(() => {
-                const ph = ((Date.now() - t0) % 1200) / 1200;
-                return Color.fromCssColorString('#ff2d00').withAlpha(0.5 * (1 - ph));
-              }, false)
-            ),
-            height: 0,
-          };
+          pulseCleanupByMil.current.set(
+            id,
+            attachPulseEllipse(e, {
+              cycleMs: 1200,
+              baseRadius: 20000,
+              pulseScale: 80000,
+              color: Color.fromCssColorString('#ff2d00'),
+              alphaScale: 0.5,
+            }),
+          );
         }
         milMap.set(id, e);
       }
@@ -137,6 +131,8 @@ export function useMilitaryLayer({
     
     for (const [id, e] of milMap) {
       if (!seen.has(id)) {
+        pulseCleanupByMil.current.get(id)?.();
+        pulseCleanupByMil.current.delete(id);
         src.entities.remove(e);
         milMap.delete(id);
       }

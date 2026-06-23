@@ -3,13 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import {
   CustomDataSource,
   Color,
-  CallbackProperty,
-  ColorMaterialProperty,
   Viewer
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint, timelineCutoffMs } from './layerUtils';
+import { attachPulseEllipse, clearPulseCleanups } from './pulseAnimation';
 
 export function useQuakesLayer({
   viewer,
@@ -29,6 +28,7 @@ export function useQuakesLayer({
   timelineHours: number;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
+  const pulseCleanupsRef = useRef<Array<() => void>>([]);
 
   const { data } = useQuery({
     queryKey: ['earthquakes'],
@@ -47,6 +47,7 @@ export function useQuakesLayer({
     srcRef.current = src;
     
     return () => {
+      clearPulseCleanups(pulseCleanupsRef.current);
       detachDataSource(viewer, src);
       srcRef.current = null;
     };
@@ -64,6 +65,7 @@ export function useQuakesLayer({
     const cutoff = timelineCutoffMs(scrubT, timelineHours);
     const list = (data.earthquakes || []).filter((q: any) => (q.time ?? 0) <= cutoff);
     
+    clearPulseCleanups(pulseCleanupsRef.current);
     src.entities.suspendEvents();
     src.entities.removeAll();
     
@@ -82,24 +84,15 @@ export function useQuakesLayer({
       });
       
       if (mag >= 5) {
-        const t0 = Date.now();
-        ent.ellipse = {
-          semiMajorAxis: new CallbackProperty(() => {
-            const ph = ((Date.now() - t0) % 2000) / 2000;
-            return 30000 + ph * mag * 90000;
-          }, false) as any,
-          semiMinorAxis: new CallbackProperty(() => {
-            const ph = ((Date.now() - t0) % 2000) / 2000;
-            return (30000 + ph * mag * 90000) * 0.95;
-          }, false) as any,
-          material: new ColorMaterialProperty(
-            new CallbackProperty(() => {
-              const ph = ((Date.now() - t0) % 2000) / 2000;
-              return Color.fromCssColorString('#ff3b30').withAlpha(0.4 * (1 - ph));
-            }, false) as any
-          ),
-          height: 0,
-        } as any;
+        pulseCleanupsRef.current.push(
+          attachPulseEllipse(ent, {
+            baseRadius: 30000,
+            pulseScale: mag * 90000,
+            color: Color.fromCssColorString('#ff3b30'),
+            alphaScale: 0.4,
+            minorScale: 0.95,
+          }),
+        );
       }
     }
     

@@ -12,12 +12,11 @@ import {
   HorizontalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  CallbackProperty,
-  ColorMaterialProperty,
   Viewer
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import { attachPulseEllipse } from './pulseAnimation';
 
 export function useNodesLayer({
   viewer,
@@ -34,6 +33,7 @@ export function useNodesLayer({
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const nodeMapRef = useRef(new Map<string, Entity>());
+  const pulseCleanupByNode = useRef(new Map<string, () => void>());
 
   const { data } = useQuery({
     queryKey: ['nodes'],
@@ -57,6 +57,8 @@ export function useNodesLayer({
     srcRef.current = src;
     
     return () => {
+      for (const fn of pulseCleanupByNode.current.values()) fn();
+      pulseCleanupByNode.current.clear();
       detachDataSource(viewer, src);
       srcRef.current = null;
       nodeMapRef.current.clear();
@@ -126,24 +128,15 @@ export function useNodesLayer({
         });
         
         if (isOnline) {
-          const t0 = Date.now();
-          (e as any).ellipse = {
-            semiMajorAxis: new CallbackProperty(() => {
-              const ph = ((Date.now() - t0) % 2000) / 2000;
-              return 15000 + ph * 40000;
-            }, false),
-            semiMinorAxis: new CallbackProperty(() => {
-              const ph = ((Date.now() - t0) % 2000) / 2000;
-              return (15000 + ph * 40000) * 0.97;
-            }, false),
-            material: new ColorMaterialProperty(
-              new CallbackProperty(() => {
-                const ph = ((Date.now() - t0) % 2000) / 2000;
-                return tempToColor(temp).withAlpha(0.35 * (1 - ph));
-              }, false)
-            ),
-            height: 0,
-          };
+          pulseCleanupByNode.current.set(
+            id,
+            attachPulseEllipse(e, {
+              baseRadius: 15000,
+              pulseScale: 40000,
+              color: tempToColor(temp),
+              alphaScale: 0.35,
+            }),
+          );
         }
         nodeMap.set(id, e);
       }
@@ -203,6 +196,8 @@ export function useNodesLayer({
     // Cleanup removed nodes
     for (const [id, e] of nodeMap) {
       if (!seen.has(id)) {
+        pulseCleanupByNode.current.get(id)?.();
+        pulseCleanupByNode.current.delete(id);
         src.entities.remove(e);
         nodeMap.delete(id);
       }
