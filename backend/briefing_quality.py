@@ -412,6 +412,11 @@ def score_briefing(
     score = (
         0.35 * coverage + 0.25 * timeliness + 0.25 * geo_relevance + 0.15 * (passed / 4.0)
     )
+    pipeline_yield = gdelt_meta.get("pipeline_yield")
+    if pipeline_yield is not None and float(pipeline_yield) < 0.5:
+        score -= 0.08
+    if gdelt_meta.get("pipeline_blocker"):
+        score -= 0.05
     if corro_avg is not None and corro_avg < 0.5:
         score -= 0.04
     if corro_blocker == "single_source_local":

@@ -149,6 +149,21 @@ class GdeltPipelineMetaTests(unittest.TestCase):
         self.assertTrue(meta["pipeline_ok"])
         self.assertFalse(meta["pipeline_placed_ok"])
 
+    def test_quality_penalizes_low_gdelt_pipeline_yield(self):
+        now = datetime.now(timezone.utc).isoformat()
+        sources = {
+            "digest": {"local_count": 1, "intel_count": 1},
+            "gdelt": {
+                "feed_operator_available": 25,
+                "gdelt_collected": 1,
+                "digest_gdelt_lines": 1,
+                "pipeline_yield": 0.04,
+                "pipeline_blocker": "bucket_cap",
+            },
+        }
+        q = score_briefing(text="LOCAL\n- Local news: test", sources=sources, created_at=now)
+        self.assertLess(q["score"], 0.92)
+
 
 class CorroborationTests(unittest.TestCase):
     def test_quake_gdacs_dual_source(self):
