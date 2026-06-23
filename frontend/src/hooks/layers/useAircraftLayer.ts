@@ -15,7 +15,7 @@ import {
   Viewer
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
-import { attachDataSource, detachDataSource } from './layerUtils';
+import { attachDataSource, detachDataSource, requestSceneRender } from './layerUtils';
 
 export function useAircraftLayer({
   viewer,
@@ -127,5 +127,6 @@ export function useAircraftLayer({
 
     setStats((p: any) => ({ ...p, aircraft: acMap.size }));
     if (data.source) setAircraftSource(String(data.source));
+    requestSceneRender(viewer);
   }, [viewer, data, isSuccess, active, setStats, setAircraftSource]);
 }

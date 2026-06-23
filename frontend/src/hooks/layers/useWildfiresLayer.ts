@@ -9,7 +9,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import type { GlobePrimitivePick } from '../../lib/globePick';
-import { viewerAlive } from './layerUtils';
+import { requestSceneRender, viewerAlive } from './layerUtils';
 
 type WildfireRow = {
   lon?: number | null;
@@ -138,5 +138,6 @@ export function useWildfiresLayer({
     setStats((p: any) => ({ ...p, wildfires: data.count ?? mapped }));
     const source = data.source === 'eonet_fallback' ? 'eonet' : (data.source || '');
     setFeedHud((p: any) => ({ ...p, wildfires: source || (data.errors ? 'degraded' : '') }));
+    if (viewer) requestSceneRender(viewer);
   }, [viewer, data, active, setStats, setFeedHud]);
 }

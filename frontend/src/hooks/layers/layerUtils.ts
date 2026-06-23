@@ -24,6 +24,16 @@ export function detachDataSource(viewer: Viewer | null, src: CustomDataSource | 
   }
 }
 
+/** Batch layer refresh under requestRenderMode — one render after all entities/primitives update. */
+export function requestSceneRender(viewer: Viewer | null | undefined): void {
+  if (!viewerAlive(viewer)) return;
+  try {
+    if (viewer.scene.requestRenderMode) viewer.scene.requestRender();
+  } catch {
+    /* viewer already destroyed */
+  }
+}
+
 export function parseEventMs(date: string | undefined): number {
   if (!date) return 0;
   const t = Date.parse(date);

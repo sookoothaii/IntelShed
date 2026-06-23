@@ -29,6 +29,11 @@ export function clearPulseUpdaters(): void {
   lastTickAt = 0;
 }
 
+/** True when at least one throttled pulse ring is registered (quakes/nodes/military). */
+export function hasPulseUpdaters(): boolean {
+  return updaters.size > 0;
+}
+
 /** Returns true when a pulse frame was applied (caller may requestRender). */
 export function tickPulseAnimations(now = Date.now()): boolean {
   if (updaters.size === 0) return false;

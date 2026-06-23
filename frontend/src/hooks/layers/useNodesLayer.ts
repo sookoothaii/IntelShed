@@ -15,7 +15,7 @@ import {
   Viewer
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
-import { attachDataSource, detachDataSource } from './layerUtils';
+import { attachDataSource, detachDataSource, requestSceneRender } from './layerUtils';
 import { attachPulseEllipse } from './pulseAnimation';
 
 export function useNodesLayer({
@@ -220,5 +220,6 @@ export function useNodesLayer({
     
     src.entities.resumeEvents();
     setStats((p: any) => ({ ...p, nodes: nodeMap.size }));
+    requestSceneRender(viewer);
   }, [viewer, data, active, setStats]);
 }

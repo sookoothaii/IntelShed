@@ -68,10 +68,11 @@ import { attachPulseEllipse, tickPulseAnimations } from '../hooks/layers/pulseAn
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
 // Cesium explicit rendering (requestRenderMode): only paint frames when the scene
-// changes, cutting idle CPU/GPU (Cesium docs: ~25% -> ~3% idle). Opt-in via env so
-// the operator can A/B it on the live tool; an rAF activity pump (below) keeps
-// camera moves, tracked entities, focus ring, and pulse layers animating smoothly.
-const GLOBE_EXPLICIT_RENDER = import.meta.env.VITE_WORLDBASE_GLOBE_EXPLICIT_RENDER === '1'
+// changes, cutting idle CPU/GPU (Cesium docs: ~25% -> ~3% idle). Default ON since
+// pulse rings use throttled ConstantProperty updates; rAF pump calls requestRender()
+// for camera, motion layers, pulse ticks, and focus ring. Opt out for debug:
+// VITE_WORLDBASE_GLOBE_CONTINUOUS_RENDER=1
+const GLOBE_CONTINUOUS_RENDER = import.meta.env.VITE_WORLDBASE_GLOBE_CONTINUOUS_RENDER === '1'
 
 // Frame-rate cap: throttle Cesium's render loop to cut GPU power/heat. Pulse rings
 // (quakes/nodes/military) are throttled separately (~15 fps via pulseAnimation.ts);
@@ -119,6 +120,18 @@ const GLOBE_MAX_SSE = (() => {
   if (raw == null || raw === '') return 2.0
   const n = Number(raw)
   return Number.isFinite(n) && n > 0 ? n : 2.0
+})()
+
+// Dynamic SSE: coarser tiles while panning or at high altitude (fewer tile loads).
+const GLOBE_SSE_MOVING = 4.0
+const GLOBE_SSE_HIGH_ALT = 3.0
+const GLOBE_SSE_HIGH_ALT_M = 100_000
+
+const GLOBE_TILE_CACHE_SIZE = (() => {
+  const raw = import.meta.env.VITE_WORLDBASE_GLOBE_TILE_CACHE
+  if (raw == null || raw === '') return 100
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 100
 })()
 
 function timelineCutoffMs(scrubT: number, hours: number): number {
@@ -318,21 +331,18 @@ const GLOBE_ATMOSPHERE_OFF_HEIGHT_M = 2_000_000
 const GLOBE_FXAA_IDLE_MS = 3000
 const GLOBE_MSAA_WHEN_SUPERSAMPLE = 1
 
-function globeHasPulseLayer(l: Pick<GlobeLayers, 'quakes' | 'nodes' | 'military'>): boolean {
-  return !!(l.quakes || l.nodes || l.military)
-}
-
 type GlobePowerState = {
   docVisible: boolean
   intersecting: boolean
   interactionIdle: boolean
+  cameraMoving: boolean
   cameraHeightM: number
 }
 
 function applyGlobePowerSettings(
   viewer: Viewer,
   hudVisible: boolean,
-  layers: GlobeLayers,
+  _layers: GlobeLayers,
   power: GlobePowerState,
 ) {
   const scene = viewer.scene
@@ -340,10 +350,21 @@ function applyGlobePowerSettings(
   const normalFps = GLOBE_TARGET_FPS > 0 ? GLOBE_TARGET_FPS : 0
   viewer.targetFrameRate = throttle ? GLOBE_POWER_SAVE_FPS : normalFps
 
-  if (!GLOBE_EXPLICIT_RENDER) {
-    const pulse = globeHasPulseLayer(layers)
-    scene.requestRenderMode = !pulse
-    scene.maximumRenderTimeChange = pulse ? 0.0 : Infinity
+  if (!GLOBE_CONTINUOUS_RENDER) {
+    scene.requestRenderMode = true
+    scene.maximumRenderTimeChange = Infinity
+  } else {
+    scene.requestRenderMode = false
+  }
+
+  let sse = GLOBE_MAX_SSE
+  if (power.cameraMoving) {
+    sse = Math.max(sse, GLOBE_SSE_MOVING)
+  } else if (power.cameraHeightM > GLOBE_SSE_HIGH_ALT_M) {
+    sse = Math.max(sse, GLOBE_SSE_HIGH_ALT)
+  }
+  if (scene.globe.maximumScreenSpaceError !== sse) {
+    scene.globe.maximumScreenSpaceError = sse
   }
 
   if (viewer.resolutionScale > 1) {
@@ -882,6 +903,7 @@ export default function Globe({
     docVisible: typeof document !== 'undefined' ? !document.hidden : true,
     intersecting: true,
     interactionIdle: false,
+    cameraMoving: false,
     cameraHeightM: 0,
   })
   const applyPowerRef = useRef<(() => void) | null>(null)
@@ -1037,9 +1059,8 @@ export default function Globe({
         geocoder: true,
         infoBox: false,
         selectionIndicator: false,
-        requestRenderMode: GLOBE_EXPLICIT_RENDER || !globeHasPulseLayer(layersRef.current),
-        maximumRenderTimeChange:
-          GLOBE_EXPLICIT_RENDER || !globeHasPulseLayer(layersRef.current) ? Infinity : undefined,
+        requestRenderMode: !GLOBE_CONTINUOUS_RENDER,
+        maximumRenderTimeChange: !GLOBE_CONTINUOUS_RENDER ? Infinity : undefined,
       })
       viewerRef.current = viewer
       setViewer(viewer)
@@ -1049,6 +1070,7 @@ export default function Globe({
       scene.globe.enableLighting = true
       scene.globe.depthTestAgainstTerrain = false
       scene.globe.maximumScreenSpaceError = GLOBE_MAX_SSE
+      scene.globe.tileCacheSize = GLOBE_TILE_CACHE_SIZE
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
@@ -1101,8 +1123,14 @@ export default function Globe({
         }
       }
       viewer.camera.changed.addEventListener(onCameraHeight)
-      viewer.camera.moveStart.addEventListener(markInteraction)
-      viewer.camera.moveEnd.addEventListener(markInteraction)
+      viewer.camera.moveStart.addEventListener(() => {
+        powerStateRef.current.cameraMoving = true
+        markInteraction()
+      })
+      viewer.camera.moveEnd.addEventListener(() => {
+        powerStateRef.current.cameraMoving = false
+        markInteraction()
+      })
       onCameraHeight()
       syncPowerSettings()
       markInteraction()
@@ -1191,18 +1219,23 @@ export default function Globe({
         const v = viewerRef.current
         if (!v || (v as any).isDestroyed?.() || !visibleRef.current) return
         const L = layersRef.current
-        const animatedLayer = !!(L.quakes || L.nodes || L.military)
         const motionLayer = !!(L.aircraft || L.satellites)
         const hasFocusRing = focusSrc.entities.values.length > 0
-        const busy = Date.now() < renderHotUntil || animatedLayer || hasFocusRing || !!v.trackedEntity
+        const pulseFrame = tickPulseAnimations()
+        const busy =
+          Date.now() < renderHotUntil ||
+          motionLayer ||
+          pulseFrame ||
+          hasFocusRing ||
+          !!v.trackedEntity
 
         // Render-quiescence controller (env-gated): when the visible scene is provably
         // static, throttle the render loop to GLOBE_IDLE_FPS; restore to normal
-        // otherwise. Quiescence = camera/interaction idle, no motion (aircraft/sat) or
-        // pulse (quakes/nodes/military) layer, no tracked entity or focus ring, AND
-        // tile loading has gone quiet (tileLoadProgressEvent silent). Using load-
-        // progress silence rather than tilesLoaded/empty-queue is essential: the HUD's
-        // root imagery stays perpetually TRANSITIONING, so tilesLoaded never turns true
+        // otherwise. Quiescence = camera/interaction idle, no motion (aircraft/sat),
+        // no pulse tick (~15 fps rings), no tracked entity or focus ring, AND tile
+        // loading has gone quiet (tileLoadProgressEvent silent). Using load-progress
+        // silence rather than tilesLoaded/empty-queue is essential: the HUD's root
+        // imagery stays perpetually TRANSITIONING, so tilesLoaded never turns true
         // and the visible queue can stay non-empty forever. Motion layers animate
         // continuously and are never throttled (would look choppy = quality loss).
         if (GLOBE_IDLE_FPS > 0) {
@@ -1212,7 +1245,6 @@ export default function Globe({
           if (v.targetFrameRate !== desired) v.targetFrameRate = desired
         }
 
-        const pulseFrame = tickPulseAnimations()
         if (pulseFrame || (v.scene.requestRenderMode && busy)) {
           try { v.scene.requestRender() } catch { /* teardown */ }
         }

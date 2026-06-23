@@ -15,7 +15,7 @@ import {
   Viewer
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
-import { attachDataSource, detachDataSource } from './layerUtils';
+import { attachDataSource, detachDataSource, requestSceneRender } from './layerUtils';
 import { attachPulseEllipse } from './pulseAnimation';
 
 export function useMilitaryLayer({
@@ -140,5 +140,6 @@ export function useMilitaryLayer({
     
     src.entities.resumeEvents();
     setStats((p: any) => ({ ...p, military: milMap.size }));
+    requestSceneRender(viewer);
   }, [viewer, data, active, setStats]);
 }
