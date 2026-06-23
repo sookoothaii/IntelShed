@@ -681,6 +681,8 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   const [briefError, setBriefError] = useState<string | null>(null)
   const reloadCounterRef = useRef(0)
   const [reloadTick, setReloadTick] = useState(0)
+  const hasRenderedRef = useRef(false)
+  const FULL_SITUATION_FETCH_MS = 15000
 
   const generateBriefing = async () => {
     setBriefBusy(true)
@@ -707,7 +709,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   useEffect(() => {
     let interval: any
     const fetchAll = async () => {
-      setLoading(true)
+      if (!hasRenderedRef.current) setLoading(true)
       const endpoints = [
         { key: 'health', url: '/api/health' },
         { key: 'nodes', url: '/api/nodes' },
@@ -727,17 +729,30 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
         { key: 'cve', url: '/api/cve?limit=15' },
         { key: 'pegel', url: '/api/pegel' },
       ]
-      const out: any = {}
-      await Promise.all(endpoints.map(async (ep) => {
+      let pending = endpoints.length
+      const markDone = () => {
+        pending -= 1
+        if (pending <= 0) setLoading(false)
+      }
+      await Promise.allSettled(endpoints.map(async (ep) => {
         try {
-          const r = await fetchApi(ep.url)
-          if (r.ok) out[ep.key] = await r.json()
-        } catch (e) {
-          out[ep.key] = { error: 'unavailable' }
+          const r = await fetchApi(ep.url, { timeoutMs: FULL_SITUATION_FETCH_MS })
+          if (r.ok) {
+            const data = await r.json()
+            setResults((prev: any) => ({ ...prev, [ep.key]: data }))
+          } else {
+            setResults((prev: any) => ({ ...prev, [ep.key]: { error: 'unavailable' } }))
+          }
+        } catch {
+          setResults((prev: any) => ({ ...prev, [ep.key]: { error: 'unavailable' } }))
+        } finally {
+          if (!hasRenderedRef.current) {
+            hasRenderedRef.current = true
+            setLoading(false)
+          }
+          markDone()
         }
       }))
-      setResults(out)
-      setLoading(false)
     }
     fetchAll()
     if (autoRefresh) interval = setInterval(fetchAll, 30000)
