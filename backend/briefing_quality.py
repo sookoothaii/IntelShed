@@ -97,6 +97,10 @@ def gdelt_digest_pipeline_meta(snap: dict[str, Any], digest: dict[str, Any]) -> 
     blocker = None
     if (reported_local + reported_geo_local) > 0 and feed_operator == 0:
         blocker = "empty_feed_body"
+    elif feed_operator >= 1 and collected == 0:
+        # Raw feed rows existed but none survived collection filters
+        # (24h freshness guard, sports, tourism-promo) — typically a stale cache.
+        blocker = "stale_filtered"
     elif collected >= 1 and placed_total == 0:
         blocker = "bucket_cap"
 

@@ -149,6 +149,18 @@ class GdeltPipelineMetaTests(unittest.TestCase):
         self.assertTrue(meta["pipeline_ok"])
         self.assertFalse(meta["pipeline_placed_ok"])
 
+    def test_stale_filtered_blocker(self):
+        # Raw articles present (feed_operator>0) but all dropped by collection
+        # filters → collected=0. Distinguishes a stale cache from a dead feed.
+        snap = {"gdelt_pulse_local": {"count": 25, "articles": [{}] * 25}}
+        digest = {"local": ["- Air quality Bangkok"], "_gdelt_collected": 0}
+        from briefing_quality import gdelt_digest_pipeline_meta
+
+        meta = gdelt_digest_pipeline_meta(snap, digest)
+        self.assertEqual(meta["feed_operator_available"], 25)
+        self.assertEqual(meta["pipeline_blocker"], "stale_filtered")
+        self.assertFalse(meta["pipeline_ok"])
+
 
 class CorroborationTests(unittest.TestCase):
     def test_quake_gdacs_dual_source(self):
