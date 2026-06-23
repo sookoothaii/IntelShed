@@ -639,9 +639,44 @@ type BriefLang = 'en' | 'de'
 type AnalysisTab = 'operator' | 'alerts' | 'feeds'
 
 const ANALYSIS_TABS: AnalysisTab[] = ['operator', 'alerts', 'feeds']
+const ANALYSIS_FETCH_TIMEOUT_MS = 15_000
+
+const ANALYSIS_ENDPOINTS = [
+  { key: 'health', url: '/api/health' },
+  { key: 'nodes', url: '/api/nodes' },
+  { key: 'spaceweather', url: '/api/spaceweather' },
+  { key: 'earthquakes', url: '/api/earthquakes?period=day&magnitude=2.5' },
+  { key: 'events', url: '/api/events?limit=80' },
+  { key: 'military', url: '/api/military' },
+  { key: 'geopolitics', url: '/api/geopolitics?limit=20' },
+  { key: 'markets', url: '/api/markets' },
+  { key: 'correlations', url: '/api/correlations' },
+  { key: 'anomalies', url: '/api/anomalies' },
+  { key: 'airquality', url: '/api/airquality' },
+  { key: 'gdacs', url: '/api/gdacs' },
+  { key: 'briefing', url: '/api/briefing' },
+  { key: 'predictions', url: '/api/predictions' },
+  { key: 'trust', url: '/api/trust' },
+  { key: 'cve', url: '/api/cve?limit=15' },
+  { key: 'pegel', url: '/api/pegel' },
+] as const
 
 function isAnalysisTab(v: unknown): v is AnalysisTab {
   return typeof v === 'string' && (ANALYSIS_TABS as readonly string[]).includes(v as AnalysisTab)
+}
+
+async function fetchAnalysisEndpoint(url: string, timeoutMs: number): Promise<unknown> {
+  const ac = new AbortController()
+  const timer = window.setTimeout(() => ac.abort(), timeoutMs)
+  try {
+    const r = await fetchApi(url, { signal: ac.signal })
+    if (r.ok) return await r.json()
+    return { error: 'unavailable' }
+  } catch {
+    return { error: ac.signal.aborted ? 'timeout' : 'unavailable' }
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function AnalysisCollapsible({
@@ -680,6 +715,7 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   const [briefBusy, setBriefBusy] = useState(false)
   const [briefError, setBriefError] = useState<string | null>(null)
   const reloadCounterRef = useRef(0)
+  const fetchGenerationRef = useRef(0)
   const [reloadTick, setReloadTick] = useState(0)
 
   const generateBriefing = async () => {
@@ -705,40 +741,24 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
   }, [briefLang])
 
   useEffect(() => {
-    let interval: any
-    const fetchAll = async () => {
-      setLoading(true)
-      const endpoints = [
-        { key: 'health', url: '/api/health' },
-        { key: 'nodes', url: '/api/nodes' },
-        { key: 'spaceweather', url: '/api/spaceweather' },
-        { key: 'earthquakes', url: '/api/earthquakes?period=day&magnitude=2.5' },
-        { key: 'events', url: '/api/events?limit=80' },
-        { key: 'military', url: '/api/military' },
-        { key: 'geopolitics', url: '/api/geopolitics?limit=20' },
-        { key: 'markets', url: '/api/markets' },
-        { key: 'correlations', url: '/api/correlations' },
-        { key: 'anomalies', url: '/api/anomalies' },
-        { key: 'airquality', url: '/api/airquality' },
-        { key: 'gdacs', url: '/api/gdacs' },
-        { key: 'briefing', url: '/api/briefing' },
-        { key: 'predictions', url: '/api/predictions' },
-        { key: 'trust', url: '/api/trust' },
-        { key: 'cve', url: '/api/cve?limit=15' },
-        { key: 'pegel', url: '/api/pegel' },
-      ]
-      const out: any = {}
-      await Promise.all(endpoints.map(async (ep) => {
-        try {
-          const r = await fetchApi(ep.url)
-          if (r.ok) out[ep.key] = await r.json()
-        } catch (e) {
-          out[ep.key] = { error: 'unavailable' }
-        }
-      }))
-      setResults(out)
-      setLoading(false)
+    let interval: ReturnType<typeof setInterval> | undefined
+
+    const fetchAll = () => {
+      const generation = ++fetchGenerationRef.current
+      setResults((prev: Record<string, unknown>) => {
+        if (Object.keys(prev).length === 0) setLoading(true)
+        return prev
+      })
+
+      ANALYSIS_ENDPOINTS.forEach((ep) => {
+        fetchAnalysisEndpoint(ep.url, ANALYSIS_FETCH_TIMEOUT_MS).then((data) => {
+          if (generation !== fetchGenerationRef.current) return
+          setResults((prev: Record<string, unknown>) => ({ ...prev, [ep.key]: data }))
+          setLoading(false)
+        })
+      })
     }
+
     fetchAll()
     if (autoRefresh) interval = setInterval(fetchAll, 30000)
     return () => { if (interval) clearInterval(interval) }
