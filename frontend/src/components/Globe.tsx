@@ -74,6 +74,19 @@ const TIMELINE_WINDOWS = [6, 12, 24] as const
 // camera moves, tracked entities, focus ring, and pulse layers animating smoothly.
 const GLOBE_EXPLICIT_RENDER = import.meta.env.VITE_WORLDBASE_GLOBE_EXPLICIT_RENDER === '1'
 
+// Frame-rate cap: throttle Cesium's render loop to cut GPU power/heat. The pulse
+// layers (quakes/nodes/military) use per-frame CallbackProperty so the scene
+// repaints every frame even when idle, which makes requestRenderMode a no-op;
+// capping fps is therefore the most reliable thermal lever. Measured on the live
+// HUD: 60 -> 30 fps dropped Cesium draw-calls ~7060/s -> ~1900/s with no visible
+// loss. Default 30; set a higher number to relax, or <=0 to uncap (browser rAF).
+const GLOBE_TARGET_FPS = (() => {
+  const raw = import.meta.env.VITE_WORLDBASE_GLOBE_TARGET_FPS
+  if (raw == null || raw === '') return 30
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : 0
+})()
+
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
   const windowMs = hours * 3600 * 1000
@@ -931,6 +944,7 @@ export default function Globe({
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
       viewer.resolutionScale = Math.min(window.devicePixelRatio, 1.5)
       if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
+      if (GLOBE_TARGET_FPS > 0) viewer.targetFrameRate = GLOBE_TARGET_FPS
 
       // OSM 3D buildings — free via Cesium Ion (same token as terrain)
       viewer.camera.moveEnd.addEventListener(() => {
