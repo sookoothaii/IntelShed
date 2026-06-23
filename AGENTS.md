@@ -191,7 +191,7 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | Chat 401 with `WORLDBASE_API_KEY` set | Pass header `X-API-Key` on `POST /api/chat` |
 | Briefing empty | `POST /api/briefing/generate`; check Ollama |
 | LOCAL block thin | GDELT rate limits; verify `/api/gdelt/pulse/local` (stale cache with `count>0` still counts for trust/quality); also `/api/cams/haze`, `/api/humanitarian`, `/api/airquality` in briefing snapshot |
-| Maritime layer shows demo fleet | Set `AISSTREAM_API_KEY` in `backend/.env` and restart; expect `stream_connected=true` and `count` growing after ~30 s. Default regions: Malacca, Laem Chabang, Bangkok Port, Phuket, Singapore (`WORLDBASE_MARITIME_REGIONS=all` for global ports). Disable background collector: `WORLDBASE_MARITIME_AISSTREAM=0` |
+| Maritime layer empty | Set `AISSTREAM_API_KEY` in `backend/.env` and restart; expect `stream_connected=true` and `count` growing after ~30 s. No synthetic demo vessels — empty means upstream silent. Default regions: Malacca, Laem Chabang, Bangkok Port, Phuket, Singapore (`WORLDBASE_MARITIME_REGIONS=all` for global ports). Disable background collector: `WORLDBASE_MARITIME_AISSTREAM=0` |
 | GDELT trust 0 after cold boot | Wait ~90 s for startup warm-up or `GET /api/gdelt/pulse/local`; disk cache `gdelt_pulse_local:thailand` hydrates trust probe |
 | Pi old brief | deploy scripts + token; `brief.source` should be `worldbase-pc` |
 | INTEL ingest 503 | optional ML stack not installed — see `docs/INTEL_INGEST.md` + `backend/requirements.txt` |

@@ -136,7 +136,7 @@ async def _stack_warmup() -> None:
 
         m = await ais_bridge.warm_maritime()
         if m:
-            print(f"[WARMUP] Maritime: {m.get('count')} vessels demo={m.get('demo_mode')}", flush=True)
+            print(f"[WARMUP] Maritime: {m.get('count')} vessels", flush=True)
     except Exception as e:
         print(f"[WARMUP] Maritime failed: {e}", flush=True)
     try:

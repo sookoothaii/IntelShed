@@ -422,7 +422,7 @@ async def sanctions_screen_vessels(
         "min_score": min_score,
         "matches": hits,
         "count": len(hits),
-        "demo_mode": maritime.get("demo_mode", False),
+        "live_maritime": bool(maritime.get("count")),
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
     _SCREEN_CACHE[cache_key] = (now, result)

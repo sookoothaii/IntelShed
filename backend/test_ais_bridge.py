@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import unittest
 from unittest.mock import patch
@@ -65,6 +66,57 @@ class AisBridgeTests(unittest.TestCase):
             self.assertFalse(ais._aisstream_background_on())
         with patch.dict(os.environ, {"AISSTREAM_API_KEY": "abc", "WORLDBASE_MARITIME_AISSTREAM": "0"}, clear=False):
             self.assertFalse(ais._aisstream_background_on())
+
+    def test_empty_sources_return_no_vessels(self):
+        async def run() -> dict:
+            with patch.dict(
+                os.environ,
+                {"AISSTREAM_API_KEY": "abc", "WORLDBASE_MARITIME_AISSTREAM": "1"},
+                clear=False,
+            ):
+                ais._STREAM["vessels"] = {}
+                ais._STREAM["connected"] = True
+                ais._STREAM["errors"] = []
+                with patch.object(ais, "_supplement_myshiptracking", return_value=[]):
+                    with patch.object(ais, "_fetch_aishub", return_value=[]):
+                        return await ais._build_maritime_result()
+
+        result = asyncio.run(run())
+        self.assertEqual(result["count"], 0)
+        self.assertEqual(result["vessels"], [])
+        self.assertNotIn("demo_mode", result)
+        self.assertTrue(result.get("errors"))
+
+    def test_vessel_from_aisstream_doc_example(self):
+        sample = {
+            "Message": {
+                "PositionReport": {
+                    "Cog": 308,
+                    "Latitude": 66.02695,
+                    "Longitude": 12.253821666666665,
+                    "Sog": 0,
+                    "UserID": 259000420,
+                }
+            },
+            "MessageType": "PositionReport",
+            "MetaData": {
+                "MMSI": 259000420,
+                "ShipName": "AUGUSTSON",
+                "latitude": 66.02695,
+                "longitude": 12.253821666666665,
+            },
+        }
+        with patch.dict(os.environ, {"WORLDBASE_MARITIME_REGIONS": "all"}, clear=False):
+            vessel = ais._vessel_from_aisstream(sample, ais._active_regions())
+        self.assertIsNotNone(vessel)
+        assert vessel is not None
+        self.assertEqual(vessel["mmsi"], "259000420")
+        self.assertEqual(vessel["name"], "AUGUSTSON")
+        self.assertEqual(vessel["source"], "aisstream")
+
+    def test_aisstream_service_error_detected(self):
+        err = ais._aisstream_service_error({"error": "Api Key Is Not Valid"})
+        self.assertEqual(err, "Api Key Is Not Valid")
 
 
 if __name__ == "__main__":

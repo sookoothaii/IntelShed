@@ -111,7 +111,7 @@ export default function DataPanel({
   const [pegel, setPegel] = useState<{ count: number; alerts: number; gauges: RiverGauge[]; error?: string } | null>(null)
   const [energy, setEnergy] = useState<any>(null)
   const [stocks, setStocks] = useState<any>(null)
-  const [maritime, setMaritime] = useState<{ count: number; vessels: any[]; demo_mode?: boolean; cached_at: string; error?: string } | null>(null)
+  const [maritime, setMaritime] = useState<{ count: number; vessels: any[]; stream_connected?: boolean; stream_buffer?: number; errors?: string[]; cached_at: string; error?: string } | null>(null)
   const [euEnergy, setEuEnergy] = useState<{ country: string; prices: any[]; generation_by_source?: Record<string, number>; total_mw?: number; demo_mode?: boolean; error?: string } | null>(null)
   const [euCountry, setEuCountry] = useState('de')
   const [webcams, setWebcams] = useState<{ count: number; categories: string[]; webcams: any[]; cached_at: string } | null>(null)
@@ -745,10 +745,18 @@ export default function DataPanel({
       {tab === 'maritime' && (
         <section>
           <button onClick={loadMaritime} disabled={loading['maritime']}>{loading['maritime'] ? 'Loading…' : '↻ Refresh'}</button>
-          {maritime?.demo_mode && <div className="health-status pending" style={{ marginTop: 8 }}>⚠ DEMO MODE — live AIS sources unavailable</div>}
-          {maritime?.error && !maritime.demo_mode && <div className="data-error">{maritime.error}</div>}
+          {maritime?.stream_connected != null && (
+            <div className="health-status pending" style={{ marginTop: 8 }}>
+              AISstream {maritime.stream_connected ? 'connected' : 'disconnected'}
+              {maritime.stream_buffer != null ? ` · buffer ${maritime.stream_buffer}` : ''}
+            </div>
+          )}
+          {(maritime?.errors?.length ?? 0) > 0 && (
+            <div className="data-error">{maritime!.errors!.join(' · ')}</div>
+          )}
+          {maritime?.error && <div className="data-error">{maritime.error}</div>}
           <span className="data-count">{maritime?.count ?? 0} vessels</span>
-          {!maritime?.vessels?.length && <div className="health-status pending">No vessel data</div>}
+          {!maritime?.vessels?.length && <div className="health-status pending">No live vessel data</div>}
           <table className="data-table clickable">
             <thead><tr><th>Name</th><th>Type</th><th>Lat</th><th>Lon</th><th>Course</th><th>Speed</th><th>Destination</th><th></th></tr></thead>
             <tbody>

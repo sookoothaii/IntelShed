@@ -66,6 +66,24 @@ class TestCredentialRegistry(unittest.TestCase):
         ):
             self.assertFalse(is_configured("opensky"))
 
+    def test_ais_maritime_any_one_key(self):
+        with patch.dict(
+            os.environ,
+            {
+                "AISHUB_API_KEY": "",
+                "AISSTREAM_API_KEY": "live-aisstream-token",
+                "MYSHIPTRACKING_API_KEY": "",
+            },
+            clear=False,
+        ):
+            self.assertTrue(is_configured("ais_maritime"))
+        with patch.dict(
+            os.environ,
+            {"AISHUB_API_KEY": "", "AISSTREAM_API_KEY": "", "MYSHIPTRACKING_API_KEY": ""},
+            clear=False,
+        ):
+            self.assertFalse(is_configured("ais_maritime"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -31,7 +31,6 @@ OUTAGES_SAMPLE = {
 
 MARITIME_SAMPLE = {
     "count": 135,
-    "demo_mode": False,
     "stream_connected": True,
     "stream_buffer": 135,
     "cached_at": "2026-06-21T10:00:00+00:00",
