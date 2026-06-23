@@ -68,11 +68,11 @@ import { buildEntityHoverTip } from '../lib/entityHoverTip';
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
-// Cesium explicit rendering (requestRenderMode): only paint frames when the scene
-// changes, cutting idle CPU/GPU (Cesium docs: ~25% -> ~3% idle). Opt-in via env so
-// the operator can A/B it on the live tool; an rAF activity pump (below) keeps
-// camera moves, tracked entities, focus ring, and pulse layers animating smoothly.
-const GLOBE_EXPLICIT_RENDER = import.meta.env.VITE_WORLDBASE_GLOBE_EXPLICIT_RENDER === '1'
+// Cesium explicit rendering (requestRenderMode): paint only on scene change to cut
+// idle CPU/GPU (~25% -> ~3% per Cesium docs). Default: on when no pulse layers
+// (quakes/nodes/military); off while CallbackProperty pulses animate. Override:
+// VITE_WORLDBASE_GLOBE_EXPLICIT_RENDER=1|0. An rAF activity pump keeps camera,
+// tracked entities, focus ring, and pulses smooth when explicit mode is active.
 
 // Frame-rate cap: throttle Cesium's render loop to cut GPU power/heat. The pulse
 // layers (quakes/nodes/military) use per-frame CallbackProperty so the scene
@@ -86,6 +86,56 @@ const GLOBE_TARGET_FPS = (() => {
   const n = Number(raw)
   return Number.isFinite(n) && n > 0 ? n : 0
 })()
+
+// Throttle to ~1 fps when the tab is hidden, the globe tab is inactive, or the
+// canvas is fully occluded (DATA/SITUATIONS overlay).
+const GLOBE_HIDDEN_FPS = 1
+
+// Disable sky atmosphere above ~2000 km — negligible at global zoom, saves GPU.
+const GLOBE_ATMOSPHERE_CUTOFF_M = 2_000_000
+
+// Turn FXAA off after this many ms without camera or pointer activity.
+const GLOBE_FXAA_IDLE_MS = 3000
+
+type GlobeLayersLike = { quakes: boolean; nodes: boolean; military: boolean }
+
+function pulseLayersActive(L: GlobeLayersLike): boolean {
+  return !!(L.quakes || L.nodes || L.military)
+}
+
+/** Explicit render when idle; continuous render while pulse CallbackProperties animate. */
+function globeRequestRenderMode(pulseActive: boolean): boolean {
+  const force = import.meta.env.VITE_WORLDBASE_GLOBE_EXPLICIT_RENDER
+  if (force === '1') return true
+  if (force === '0') return false
+  return !pulseActive
+}
+
+function applyGlobeTargetFps(
+  viewer: Viewer,
+  opts: { tabHidden: boolean; propVisible: boolean; containerVisible: boolean },
+) {
+  const throttled = opts.tabHidden || !opts.propVisible || !opts.containerVisible
+  if (throttled) {
+    viewer.targetFrameRate = GLOBE_HIDDEN_FPS
+  } else if (GLOBE_TARGET_FPS > 0) {
+    viewer.targetFrameRate = GLOBE_TARGET_FPS
+  }
+}
+
+function applyGlobeSceneQuality(viewer: Viewer, idleMs: number) {
+  const scene = viewer.scene
+  if (viewer.resolutionScale > 1 && scene.msaaSamples > 1) {
+    scene.msaaSamples = 1
+  }
+  if (scene.postProcessStages?.fxaa) {
+    scene.postProcessStages.fxaa.enabled = idleMs < GLOBE_FXAA_IDLE_MS
+  }
+  if (scene.skyAtmosphere) {
+    const c = Cartographic.fromCartesian(viewer.camera.position)
+    scene.skyAtmosphere.show = c.height < GLOBE_ATMOSPHERE_CUTOFF_M
+  }
+}
 
 function timelineCutoffMs(scrubT: number, hours: number): number {
   const now = Date.now()
@@ -795,6 +845,60 @@ export default function Globe({
   useEffect(() => { visibleRef.current = visible }, [visible])
   const layersRef = useRef(layers)
   useEffect(() => { layersRef.current = layers }, [layers])
+  const tabHiddenRef = useRef(typeof document !== 'undefined' ? document.hidden : false)
+  const containerVisibleRef = useRef(true)
+  const fxaaIdleRef = useRef(0)
+
+  const syncGlobeRenderThrottle = useCallback(() => {
+    const v = viewerRef.current
+    if (!v || (v as any).isDestroyed?.()) return
+    applyGlobeTargetFps(v, {
+      tabHidden: tabHiddenRef.current,
+      propVisible: visibleRef.current,
+      containerVisible: containerVisibleRef.current,
+    })
+    applyGlobeSceneQuality(v, Date.now() - fxaaIdleRef.current)
+    try { v.scene.requestRender() } catch { /* teardown */ }
+  }, [])
+
+  useEffect(() => {
+    const onVis = () => {
+      tabHiddenRef.current = document.hidden
+      syncGlobeRenderThrottle()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    tabHiddenRef.current = document.hidden
+    syncGlobeRenderThrottle()
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [syncGlobeRenderThrottle])
+
+  useEffect(() => {
+    syncGlobeRenderThrottle()
+  }, [visible, syncGlobeRenderThrottle])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        containerVisibleRef.current = !!(entry?.isIntersecting && entry.intersectionRatio > 0)
+        syncGlobeRenderThrottle()
+      },
+      { threshold: [0, 0.01] },
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [syncGlobeRenderThrottle])
+
+  useEffect(() => {
+    const v = viewerRef.current
+    if (!v || (v as any).isDestroyed?.()) return
+    const pulseActive = pulseLayersActive(layers)
+    const explicit = globeRequestRenderMode(pulseActive)
+    v.scene.requestRenderMode = explicit
+    v.scene.maximumRenderTimeChange = explicit ? Infinity : undefined as unknown as number
+    try { v.scene.requestRender() } catch { /* teardown */ }
+  }, [layers.quakes, layers.nodes, layers.military])
 
   useEffect(() => {
     const onAgentLayer = (ev: Event) => {
@@ -894,6 +998,7 @@ export default function Globe({
     if (!v || (v as any).isDestroyed?.()) return
     try {
       v.resolutionScale = Math.min(window.devicePixelRatio, layoutSplit ? 1.0 : 1.5)
+      if (v.resolutionScale > 1) v.scene.msaaSamples = 1
       v.resize()
       v.scene.requestRender()
     } catch {
@@ -928,8 +1033,10 @@ export default function Globe({
         geocoder: true,
         infoBox: false,
         selectionIndicator: false,
-        requestRenderMode: GLOBE_EXPLICIT_RENDER,
-        maximumRenderTimeChange: GLOBE_EXPLICIT_RENDER ? Infinity : undefined,
+        requestRenderMode: globeRequestRenderMode(pulseLayersActive(layersRef.current)),
+        maximumRenderTimeChange: globeRequestRenderMode(pulseLayersActive(layersRef.current))
+          ? Infinity
+          : undefined,
       })
       viewerRef.current = viewer
       setViewer(viewer)
@@ -943,8 +1050,36 @@ export default function Globe({
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
       viewer.resolutionScale = Math.min(window.devicePixelRatio, 1.5)
+      if (viewer.resolutionScale > 1) scene.msaaSamples = 1
+      fxaaIdleRef.current = Date.now()
       if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
-      if (GLOBE_TARGET_FPS > 0) viewer.targetFrameRate = GLOBE_TARGET_FPS
+      applyGlobeTargetFps(viewer, {
+        tabHidden: tabHiddenRef.current,
+        propVisible: visibleRef.current,
+        containerVisible: containerVisibleRef.current,
+      })
+
+      const markGlobeActive = () => {
+        fxaaIdleRef.current = Date.now()
+        if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
+      }
+      viewer.camera.changed.addEventListener(markGlobeActive)
+      viewer.camera.moveStart.addEventListener(markGlobeActive)
+      scene.canvas.addEventListener('pointermove', markGlobeActive)
+      const fxaaIdleTimer = window.setInterval(() => {
+        const v = viewerRef.current
+        if (!v || (v as any).isDestroyed?.() || !visibleRef.current) return
+        applyGlobeSceneQuality(v, Date.now() - fxaaIdleRef.current)
+      }, 1000)
+      timers.push(fxaaIdleTimer)
+
+      const updateAtmosphere = () => {
+        if (!scene.skyAtmosphere) return
+        const c = Cartographic.fromCartesian(viewer!.camera.position)
+        scene.skyAtmosphere.show = c.height < GLOBE_ATMOSPHERE_CUTOFF_M
+      }
+      viewer.camera.changed.addEventListener(updateAtmosphere)
+      updateAtmosphere()
 
       // OSM 3D buildings — free via Cesium Ion (same token as terrain)
       viewer.camera.moveEnd.addEventListener(() => {
@@ -982,14 +1117,13 @@ export default function Globe({
       ;[focusSrc, osintSrc].forEach((s) => viewer!.dataSources.add(s))
 
       // ---------- Explicit-render activity pump ----------
-      // With requestRenderMode on, Cesium only paints when something requests a
-      // render. Camera interaction and entity property changes (aircraft/sat
-      // setValue, layer rebuilds) already request renders; this pump additionally
-      // keeps time-driven CallbackProperty pulses (quakes M>=5, nodes, military,
-      // focus ring) and tracked entities animating, and paints briefly after
-      // camera moves. When the globe is hidden, idle, and no pulse layer is on, it
-      // stops requesting frames — that is where the idle CPU win comes from.
-      if (GLOBE_EXPLICIT_RENDER) {
+      // With requestRenderMode on, paint only when something requests a render.
+      // Camera interaction and entity property changes already request renders;
+      // this pump keeps time-driven CallbackProperty pulses (quakes M>=5, nodes,
+      // military, focus ring) and tracked entities animating, and paints briefly
+      // after camera moves. When the globe is hidden, idle, and no pulse layer is
+      // on, it stops requesting frames — that is where the idle CPU win comes from.
+      {
         let renderHotUntil = 0
         const bumpRender = (ms = 1200) => {
           renderHotUntil = Math.max(renderHotUntil, Date.now() + ms)
@@ -1002,8 +1136,9 @@ export default function Globe({
           pumpRaf = requestAnimationFrame(pump)
           const v = viewerRef.current
           if (!v || (v as any).isDestroyed?.() || !visibleRef.current) return
+          if (!v.scene.requestRenderMode) return
           const L = layersRef.current
-          const animatedLayer = !!(L.quakes || L.nodes || L.military)
+          const animatedLayer = pulseLayersActive(L)
           const hasFocusRing = focusSrc.entities.values.length > 0
           if (Date.now() < renderHotUntil || animatedLayer || hasFocusRing || !!v.trackedEntity) {
             try { v.scene.requestRender() } catch { /* teardown */ }
