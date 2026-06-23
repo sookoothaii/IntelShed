@@ -3,13 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import {
   CustomDataSource,
   Color,
-  CallbackProperty,
-  ColorMaterialProperty,
   Viewer
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint, timelineCutoffMs } from './layerUtils';
+import { type PulseRingSpec, startPulseAnimator } from '../../lib/cesiumPulseRing';
 
 export function useQuakesLayer({
   viewer,
@@ -29,6 +28,7 @@ export function useQuakesLayer({
   timelineHours: number;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
+  const pulseRef = useRef<PulseRingSpec[]>([]);
 
   const { data } = useQuery({
     queryKey: ['earthquakes'],
@@ -53,6 +53,11 @@ export function useQuakesLayer({
   }, [viewer]);
 
   useEffect(() => {
+    if (!viewer || !active) return;
+    return startPulseAnimator(viewer, () => pulseRef.current);
+  }, [viewer, active]);
+
+  useEffect(() => {
     if (!srcRef.current) return;
     srcRef.current.show = active;
   }, [active]);
@@ -66,6 +71,7 @@ export function useQuakesLayer({
     
     src.entities.suspendEvents();
     src.entities.removeAll();
+    pulseRef.current = [];
     
     for (const q of list) {
       if (q.lon == null || q.lat == null) continue;
@@ -82,24 +88,15 @@ export function useQuakesLayer({
       });
       
       if (mag >= 5) {
-        const t0 = Date.now();
-        ent.ellipse = {
-          semiMajorAxis: new CallbackProperty(() => {
-            const ph = ((Date.now() - t0) % 2000) / 2000;
-            return 30000 + ph * mag * 90000;
-          }, false) as any,
-          semiMinorAxis: new CallbackProperty(() => {
-            const ph = ((Date.now() - t0) % 2000) / 2000;
-            return (30000 + ph * mag * 90000) * 0.95;
-          }, false) as any,
-          material: new ColorMaterialProperty(
-            new CallbackProperty(() => {
-              const ph = ((Date.now() - t0) % 2000) / 2000;
-              return Color.fromCssColorString('#ff3b30').withAlpha(0.4 * (1 - ph));
-            }, false) as any
-          ),
-          height: 0,
-        } as any;
+        pulseRef.current.push({
+          entity: ent,
+          t0: Date.now(),
+          periodMs: 2000,
+          baseRadius: 30000,
+          ampRadius: mag * 90000,
+          color: Color.fromCssColorString('#ff3b30'),
+          alphaPeak: 0.4,
+        });
       }
     }
     
