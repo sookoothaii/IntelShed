@@ -12,12 +12,11 @@ import {
   HorizontalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  CallbackProperty,
-  ColorMaterialProperty,
   Viewer
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import { type PulseRingSpec, startPulseAnimator } from '../../lib/cesiumPulseRing';
 
 export function useNodesLayer({
   viewer,
@@ -34,6 +33,7 @@ export function useNodesLayer({
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const nodeMapRef = useRef(new Map<string, Entity>());
+  const pulseRef = useRef<PulseRingSpec[]>([]);
 
   const { data } = useQuery({
     queryKey: ['nodes'],
@@ -69,6 +69,11 @@ export function useNodesLayer({
   }, [active]);
 
   useEffect(() => {
+    if (!viewer || !active) return;
+    return startPulseAnimator(viewer, () => pulseRef.current);
+  }, [viewer, active]);
+
+  useEffect(() => {
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
     const nodeMap = nodeMapRef.current;
@@ -76,6 +81,7 @@ export function useNodesLayer({
     const seen = new Set<string>();
 
     src.entities.suspendEvents();
+    pulseRef.current = [];
     
     for (const n of nodes) {
       if (n.lon == null || n.lat == null) continue;
@@ -88,6 +94,17 @@ export function useNodesLayer({
       let e = nodeMap.get(id);
       if (e) {
         (e.position as ConstantPositionProperty).setValue(pos);
+        if (isOnline) {
+          pulseRef.current.push({
+            entity: e,
+            t0: Date.now(),
+            periodMs: 2000,
+            baseRadius: 15000,
+            ampRadius: 40000,
+            color: tempToColor(temp),
+            alphaPeak: 0.35,
+          });
+        }
       } else {
         e = src.entities.add({
           id: 'node-' + id,
@@ -126,24 +143,15 @@ export function useNodesLayer({
         });
         
         if (isOnline) {
-          const t0 = Date.now();
-          (e as any).ellipse = {
-            semiMajorAxis: new CallbackProperty(() => {
-              const ph = ((Date.now() - t0) % 2000) / 2000;
-              return 15000 + ph * 40000;
-            }, false),
-            semiMinorAxis: new CallbackProperty(() => {
-              const ph = ((Date.now() - t0) % 2000) / 2000;
-              return (15000 + ph * 40000) * 0.97;
-            }, false),
-            material: new ColorMaterialProperty(
-              new CallbackProperty(() => {
-                const ph = ((Date.now() - t0) % 2000) / 2000;
-                return tempToColor(temp).withAlpha(0.35 * (1 - ph));
-              }, false)
-            ),
-            height: 0,
-          };
+          pulseRef.current.push({
+            entity: e,
+            t0: Date.now(),
+            periodMs: 2000,
+            baseRadius: 15000,
+            ampRadius: 40000,
+            color: tempToColor(temp),
+            alphaPeak: 0.35,
+          });
         }
         nodeMap.set(id, e);
       }

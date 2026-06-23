@@ -12,12 +12,11 @@ import {
   HorizontalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  CallbackProperty,
-  ColorMaterialProperty,
   Viewer
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import { type PulseRingSpec, startPulseAnimator } from '../../lib/cesiumPulseRing';
 
 export function useMilitaryLayer({
   viewer,
@@ -34,6 +33,7 @@ export function useMilitaryLayer({
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const milMapRef = useRef(new Map<string, Entity>());
+  const pulseRef = useRef<PulseRingSpec[]>([]);
 
   const { data } = useQuery({
     queryKey: ['military'],
@@ -64,6 +64,11 @@ export function useMilitaryLayer({
   }, [active]);
 
   useEffect(() => {
+    if (!viewer || !active) return;
+    return startPulseAnimator(viewer, () => pulseRef.current);
+  }, [viewer, active]);
+
+  useEffect(() => {
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
     const milMap = milMapRef.current;
@@ -71,18 +76,30 @@ export function useMilitaryLayer({
     const seen = new Set<string>();
 
     src.entities.suspendEvents();
+    pulseRef.current = [];
     
     for (const a of list) {
       if (a.lon == null || a.lat == null) continue;
       const id = a.hex;
       seen.add(id);
       const pos = Cartesian3.fromDegrees(a.lon, a.lat, Math.max(a.alt ?? 0, 0));
+      const isEmergency = ['7500', '7600', '7700'].includes(a.squawk || '');
       
       let e = milMap.get(id);
       if (e) {
         (e.position as ConstantPositionProperty).setValue(pos);
+        if (isEmergency) {
+          pulseRef.current.push({
+            entity: e,
+            t0: Date.now(),
+            periodMs: 1200,
+            baseRadius: 20000,
+            ampRadius: 80000,
+            color: Color.fromCssColorString('#ff2d00'),
+            alphaPeak: 0.5,
+          });
+        }
       } else {
-        const isEmergency = ['7500', '7600', '7700'].includes(a.squawk || '');
         e = src.entities.add({
           id: 'mil-' + id,
           position: new ConstantPositionProperty(pos),
@@ -112,24 +129,15 @@ export function useMilitaryLayer({
         });
         
         if (isEmergency) {
-          const t0 = Date.now();
-          (e as any).ellipse = {
-            semiMajorAxis: new CallbackProperty(() => {
-              const ph = ((Date.now() - t0) % 1200) / 1200;
-              return 20000 + ph * 80000;
-            }, false),
-            semiMinorAxis: new CallbackProperty(() => {
-              const ph = ((Date.now() - t0) % 1200) / 1200;
-              return (20000 + ph * 80000) * 0.97;
-            }, false),
-            material: new ColorMaterialProperty(
-              new CallbackProperty(() => {
-                const ph = ((Date.now() - t0) % 1200) / 1200;
-                return Color.fromCssColorString('#ff2d00').withAlpha(0.5 * (1 - ph));
-              }, false)
-            ),
-            height: 0,
-          };
+          pulseRef.current.push({
+            entity: e,
+            t0: Date.now(),
+            periodMs: 1200,
+            baseRadius: 20000,
+            ampRadius: 80000,
+            color: Color.fromCssColorString('#ff2d00'),
+            alphaPeak: 0.5,
+          });
         }
         milMap.set(id, e);
       }

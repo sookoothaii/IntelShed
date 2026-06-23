@@ -29,8 +29,6 @@ import {
   ScreenSpaceEventType,
   PostProcessStage,
   Cartographic,
-  CallbackProperty,
-  ColorMaterialProperty,
   
   defined,
   MVTDataProvider,
@@ -60,6 +58,12 @@ import { GlobeLayerManager } from '../hooks/layers/GlobeLayerManager';
 
 import { canFetch } from '../lib/networkFetch';
 import { createTerrainWithFallback, attachTerrainFailover } from '../lib/cesiumTerrain';
+import {
+  attachTilesLoadedWatchdog,
+  esriTileProviderOptions,
+  tuneGlobeImageryLoading,
+} from '../lib/cesiumImagery';
+import { type PulseRingSpec, startPulseAnimator } from '../lib/cesiumPulseRing';
 
 import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
@@ -74,11 +78,8 @@ const TIMELINE_WINDOWS = [6, 12, 24] as const
 // camera moves, tracked entities, focus ring, and pulse layers animating smoothly.
 const GLOBE_EXPLICIT_RENDER = import.meta.env.VITE_WORLDBASE_GLOBE_EXPLICIT_RENDER === '1'
 
-// Frame-rate cap: throttle Cesium's render loop to cut GPU power/heat. The pulse
-// layers (quakes/nodes/military) use per-frame CallbackProperty so the scene
-// repaints every frame even when idle, which makes requestRenderMode a no-op;
-// capping fps is therefore the most reliable thermal lever. Measured on the live
-// HUD: 60 -> 30 fps dropped Cesium draw-calls ~7060/s -> ~1900/s with no visible
+// Frame-rate cap: throttle Cesium's render loop to cut GPU power/heat. Measured on the
+// live HUD: 60 -> 30 fps dropped Cesium draw-calls ~7060/s -> ~1900/s with no visible
 // loss. Default 30; set a higher number to relax, or <=0 to uncap (browser rAF).
 const GLOBE_TARGET_FPS = (() => {
   const raw = import.meta.env.VITE_WORLDBASE_GLOBE_TARGET_FPS
@@ -103,11 +104,7 @@ function fmtTimelineLabel(ms: number): string {
 }
 
 function esriImagery(url: string, credit: string) {
-  return new UrlTemplateImageryProvider({
-    url,
-    credit,
-    maximumLevel: 19,
-  })
+  return new UrlTemplateImageryProvider(esriTileProviderOptions(url, credit))
 }
 
 async function applyGlobeMapMode(
@@ -911,7 +908,10 @@ export default function Globe({
     const feedActive = () => !cancelled && visibleRef.current
 
     let detachTerrainFailover: (() => void) | undefined
+    let detachTilesWatchdog: (() => void) | undefined
+    let stopFocusPulse: (() => void) | undefined
     let pumpRaf = 0
+    const focusPulseRef: PulseRingSpec[] = []
 
     ;(async () => {
       const terrainProvider = await createTerrainWithFallback()
@@ -919,6 +919,7 @@ export default function Globe({
 
       viewer = new Viewer(containerRef.current, {
         terrainProvider,
+        baseLayer: false,
         baseLayerPicker: false,
         sceneModePicker: false,
         navigationHelpButton: false,
@@ -938,13 +939,18 @@ export default function Globe({
       const scene = viewer.scene
       scene.globe.enableLighting = true
       scene.globe.depthTestAgainstTerrain = false
-      scene.globe.maximumScreenSpaceError = 1.0
+      tuneGlobeImageryLoading(scene.globe)
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
       viewer.resolutionScale = Math.min(window.devicePixelRatio, 1.5)
       if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
       if (GLOBE_TARGET_FPS > 0) viewer.targetFrameRate = GLOBE_TARGET_FPS
+
+      stopFocusPulse = startPulseAnimator(viewer, () => focusPulseRef)
+      detachTilesWatchdog = attachTilesLoadedWatchdog(scene, () => {
+        void apiRef.current.applyMapMode?.()
+      })
 
       // OSM 3D buildings — free via Cesium Ion (same token as terrain)
       viewer.camera.moveEnd.addEventListener(() => {
@@ -985,7 +991,7 @@ export default function Globe({
       // With requestRenderMode on, Cesium only paints when something requests a
       // render. Camera interaction and entity property changes (aircraft/sat
       // setValue, layer rebuilds) already request renders; this pump additionally
-      // keeps time-driven CallbackProperty pulses (quakes M>=5, nodes, military,
+      // keeps time-driven pulse rings (quakes M>=5, nodes, military,
       // focus ring) and tracked entities animating, and paints briefly after
       // camera moves. When the globe is hidden, idle, and no pulse layer is on, it
       // stops requesting frames — that is where the idle CPU win comes from.
@@ -1446,7 +1452,13 @@ export default function Globe({
             duration: 2.5,
           })
         },
-        unlock: () => { if (viewer) viewer.trackedEntity = undefined; focusSrc.entities.removeAll(); setDetailOpen(false); setTarget(null) },
+        unlock: () => {
+          if (viewer) viewer.trackedEntity = undefined
+          focusSrc.entities.removeAll()
+          focusPulseRef.length = 0
+          setDetailOpen(false)
+          setTarget(null)
+        },
         focusOn: (f: FocusTarget) => {
           if (!viewer) return
           viewer.trackedEntity = undefined
@@ -1472,9 +1484,9 @@ export default function Globe({
             lon: f.lon,
           })
           focusSrc.entities.removeAll()
+          focusPulseRef.length = 0
           const t0 = Date.now()
-          const ring = () => ((Date.now() - t0) % 1600) / 1600
-          focusSrc.entities.add({
+          const ent = focusSrc.entities.add({
             position: Cartesian3.fromDegrees(f.lon, f.lat, 0),
             point: {
               pixelSize: 11,
@@ -1482,14 +1494,15 @@ export default function Globe({
               outlineColor: Color.WHITE,
               outlineWidth: 2,
             },
-            ellipse: {
-              semiMajorAxis: new CallbackProperty(() => 20000 + ring() * 200000, false) as any,
-              semiMinorAxis: new CallbackProperty(() => (20000 + ring() * 200000) * 0.97, false) as any,
-              material: new ColorMaterialProperty(
-                new CallbackProperty(() => Color.fromCssColorString('#00ffa3').withAlpha(0.5 * (1 - ring())), false) as any
-              ),
-              height: 0,
-            } as any,
+          })
+          focusPulseRef.push({
+            entity: ent,
+            t0,
+            periodMs: 1600,
+            baseRadius: 20000,
+            ampRadius: 200000,
+            color: Color.fromCssColorString('#00ffa3'),
+            alphaPeak: 0.5,
           })
         }
       }
@@ -1548,6 +1561,8 @@ export default function Globe({
     return () => {
       cancelled = true
       if (pumpRaf) cancelAnimationFrame(pumpRaf)
+      stopFocusPulse?.()
+      detachTilesWatchdog?.()
       detachTerrainFailover?.()
       if (recoverAfterOnline) window.removeEventListener('online', recoverAfterOnline)
       resizeObserver?.disconnect()
