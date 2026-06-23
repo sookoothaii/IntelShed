@@ -8,14 +8,35 @@ runtime_cache so chat context and globe snapshots keep seeing the same data.
 from __future__ import annotations
 
 import os
+import re
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 import feed_registry
 from runtime_cache import cache_get, cache_get_stale, cache_set
 
 router = APIRouter(tags=["core-feeds"])
+
+_SATELLITE_GROUP_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+def _normalize_satellite_group(group: str) -> str:
+    """CelesTrak group slug — blocks path traversal in on-disk TLE cache."""
+    g = (group or "active").strip().lower()
+    if not _SATELLITE_GROUP_RE.match(g):
+        raise HTTPException(status_code=400, detail="Invalid satellite group")
+    return g
+
+
+def _tle_disk_path(tle_dir: str, group: str) -> str:
+    """Resolve TLE cache path and ensure it stays under tle_dir."""
+    disk_path = os.path.join(tle_dir, f"{group}.tle")
+    base = os.path.realpath(tle_dir)
+    resolved = os.path.realpath(disk_path)
+    if resolved != base and not resolved.startswith(base + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid satellite group")
+    return disk_path
 
 
 @router.get("/api/satellites")
@@ -24,10 +45,11 @@ async def get_satellites(limit: int = 400, group: str = "active"):
 
     Useful groups: active, stations, starlink, gps-ops, weather, science, geo.
     """
+    group = _normalize_satellite_group(group)
     cache_key = f"sat:{group}"
     tle_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "tle")
     os.makedirs(tle_dir, exist_ok=True)
-    disk_path = os.path.join(tle_dir, f"{group}.tle")
+    disk_path = _tle_disk_path(tle_dir, group)
 
     tle_text = cache_get(cache_key, ttl=6 * 3600.0)
     if tle_text is None:

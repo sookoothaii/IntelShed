@@ -17,11 +17,13 @@ export function logFetchError(scope: string, label: string): void {
   console.warn(`[WorldBase/${scope}] ${label}: ${hint}`)
 }
 
+export type FetchApiInit = RequestInit & { timeoutMs?: number }
+
 /**
  * Centralized fetch wrapper for WorldBase API.
  * Automatically injects API key if present in localStorage.
  */
-export async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export async function fetchApi(input: RequestInfo | URL, init?: FetchApiInit): Promise<Response> {
   if (!canFetch()) {
     throw new Error('Browser is offline')
   }
@@ -31,11 +33,27 @@ export async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Pr
     import.meta.env.VITE_WORLDBASE_API_KEY ||
     ''
   const headers = new Headers(init?.headers)
-  
+
   if (apiKey) {
     headers.set('X-API-Key', apiKey)
   }
 
-  const updatedInit = { ...init, headers }
-  return fetch(input, updatedInit)
+  const { timeoutMs, signal: outerSignal, ...restInit } = init || {}
+  let signal = outerSignal
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+  if (timeoutMs && timeoutMs > 0) {
+    const controller = new AbortController()
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+    if (outerSignal) {
+      outerSignal.addEventListener('abort', () => controller.abort(), { once: true })
+    }
+    signal = controller.signal
+  }
+
+  try {
+    return await fetch(input, { ...restInit, headers, signal })
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
+  }
 }

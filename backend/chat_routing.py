@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 from typing import Any
+from urllib.parse import urlparse
 
 SUPPORTED_PROVIDERS = frozenset({"ollama", "openai", "anthropic", "groq", "openrouter"})
 
@@ -72,6 +74,53 @@ def select_api_key(provider: str, api_keys: dict[str, Any] | None, env_key: str 
     return env_key
 
 
+class UnsafeProviderUrl(ValueError):
+    """Client-supplied provider base URL failed SSRF guardrails."""
+
+
+_BLOCKED_PROVIDER_HOSTS = frozenset(
+    {
+        "metadata",
+        "metadata.google.internal",
+        "metadata.goog",
+    }
+)
+
+
+def validate_provider_base_url(raw: str) -> str:
+    """Reject HUD-supplied base URLs that target private/metadata networks."""
+    u = normalize_base_url(raw)
+    parsed = urlparse(u)
+    if parsed.scheme not in ("http", "https"):
+        raise UnsafeProviderUrl(f"Unsupported URL scheme: {parsed.scheme or '(none)'}")
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        raise UnsafeProviderUrl("URL must include a host")
+
+    if host in _BLOCKED_PROVIDER_HOSTS or host.endswith(".internal"):
+        raise UnsafeProviderUrl("Blocked host")
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+
+    if ip is not None:
+        if ip.is_loopback:
+            return u
+        if ip.is_private or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise UnsafeProviderUrl("Private or link-local hosts are not allowed")
+        if parsed.scheme != "https":
+            raise UnsafeProviderUrl("Provider base URL must use HTTPS")
+        return u
+
+    if host in ("localhost",):
+        return u
+    if parsed.scheme != "https":
+        raise UnsafeProviderUrl("Provider base URL must use HTTPS")
+    return u
+
+
 def select_base_url(
     provider: str,
     base_urls: dict[str, Any] | None,
@@ -82,7 +131,7 @@ def select_base_url(
     if base_urls:
         candidate = base_urls.get(provider)
         if isinstance(candidate, str) and candidate.strip():
-            return normalize_base_url(candidate)
+            return validate_provider_base_url(candidate)
     if env_base and env_base.strip():
         return normalize_base_url(env_base)
     return normalize_base_url(default_base)
