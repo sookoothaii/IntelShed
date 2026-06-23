@@ -639,6 +639,17 @@ type BriefLang = 'en' | 'de'
 type AnalysisTab = 'operator' | 'alerts' | 'feeds'
 
 const ANALYSIS_TABS: AnalysisTab[] = ['operator', 'alerts', 'feeds']
+const ANALYSIS_FETCH_TIMEOUT_MS = 15_000
+
+async function fetchAnalysisEndpoint(url: string): Promise<Response> {
+  const ctrl = new AbortController()
+  const timer = window.setTimeout(() => ctrl.abort(), ANALYSIS_FETCH_TIMEOUT_MS)
+  try {
+    return await fetchApi(url, { signal: ctrl.signal })
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
 
 function isAnalysisTab(v: unknown): v is AnalysisTab {
   return typeof v === 'string' && (ANALYSIS_TABS as readonly string[]).includes(v as AnalysisTab)
@@ -728,16 +739,20 @@ function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () => void; onFocu
         { key: 'pegel', url: '/api/pegel' },
       ]
       const out: any = {}
-      await Promise.all(endpoints.map(async (ep) => {
-        try {
-          const r = await fetchApi(ep.url)
-          if (r.ok) out[ep.key] = await r.json()
-        } catch (e) {
-          out[ep.key] = { error: 'unavailable' }
-        }
-      }))
-      setResults(out)
-      setLoading(false)
+      try {
+        await Promise.all(endpoints.map(async (ep) => {
+          try {
+            const r = await fetchAnalysisEndpoint(ep.url)
+            if (r.ok) out[ep.key] = await r.json()
+            else out[ep.key] = { error: `HTTP ${r.status}` }
+          } catch (e: any) {
+            out[ep.key] = { error: e?.name === 'AbortError' ? 'timeout' : 'unavailable' }
+          }
+        }))
+        setResults(out)
+      } finally {
+        setLoading(false)
+      }
     }
     fetchAll()
     if (autoRefresh) interval = setInterval(fetchAll, 30000)
