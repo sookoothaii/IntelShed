@@ -118,6 +118,25 @@ class AisBridgeTests(unittest.TestCase):
         err = ais._aisstream_service_error({"error": "Api Key Is Not Valid"})
         self.assertEqual(err, "Api Key Is Not Valid")
 
+    def test_touch_maritime_cache_writes_stream_snapshot(self):
+        ais._STREAM["vessels"] = {
+            "9": {
+                "mmsi": "9",
+                "name": "Touch",
+                "lat": 13.7,
+                "lon": 100.5,
+                "region": "bangkok_port",
+                "_seen_at": 9999999999.0,
+            },
+        }
+        with patch.dict(os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False):
+            with patch.object(ais.feed_registry, "write_auto") as write_auto:
+                out = ais.touch_maritime_cache()
+        self.assertIsNotNone(out)
+        self.assertEqual(out.get("count"), 1)
+        write_auto.assert_called_once()
+        ais._STREAM["vessels"] = {}
+
 
 if __name__ == "__main__":
     unittest.main()
