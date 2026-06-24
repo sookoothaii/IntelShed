@@ -135,7 +135,7 @@ Stage 3: Consolidate + cluster
 
 ---
 
-### P3 — Agentic Loop für Chat
+### P3 — Agentic Loop für Chat ✅ SHIPPED
 
 **Why:** NullSec Apr 2026: "Agentic investigation becomes the baseline. The question changes from 'what data can I find?' to 'what conclusions should I validate?'" Aktuell läuft der Agentic Loop (`briefing_agentic.py`) nur im Briefing-Pfad, nicht im Chat. Chat nutzt nur CRAG-Lite (post-hoc Fallback).
 
@@ -511,3 +511,4 @@ python -m unittest test_mcp_tools test_agent_bus ... test_ais_trajectory -v
 | 2026-06-25 | Initial roadmap; P1-P7 defined, validated against 2026 industry research |
 | 2026-06-25 | **P1 shipped** — Query Router (`query_router.py`): 5 routes (vector/graph/spatial/hybrid/live), rule-based classification, `build_routed_block()` in `rag_crag.py`, route tag in `chat_proxy.py` system prompt. 33 new tests, 0 regressions. Env: `WORLDBASE_QUERY_ROUTER=1` (default on) |
 | 2026-06-25 | **P4 shipped** — Digital Provenance (`provenance.py`): source reliability table (30+ feeds), temporal decay (6h half-life), corroboration boost, conflict penalty, ingestion chain hash. Integrity field in `digest_line_meta`, provenance in insight cards, source-weighted fusion cells. 34 new tests, 0 regressions. Env: `WORLDBASE_PROVENANCE=1` (default on) |
+| 2026-06-25 | **P3 shipped** — Agentic Chat Loop (`chat_agentic.py`): 3-phase state machine (coverage → retrieve → corroboration) for chat CTX mode. Coverage gap detection on RAG block, targeted retrieval via query router routes, corroboration tags (`[corroborated]`/`[uncorroborated]`) on source-tagged lines. Trace line in system prompt. 26 new tests, 0 regressions. Env: `WORLDBASE_CHAT_AGENTIC=1` (default off, opt-in) |

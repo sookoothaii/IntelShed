@@ -117,6 +117,7 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
 
     rag_block = ""
     route_tag = ""
+    agentic_trace_line = ""
     if want_ctx:
         from firewall_bridge import _extract_user_text
         from query_router import router_enabled, route_label
@@ -132,13 +133,24 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
                 from rag_crag import build_rag_crag_block
                 rag_block = await build_rag_crag_block(user_q)
 
+            # P3: Agentic chat loop — coverage → retrieve → corroboration
+            from chat_agentic import chat_agentic_enabled, run_chat_agentic_loop, format_agentic_trace_line
+            if chat_agentic_enabled() and rag_block:
+                rag_block, agentic_trace = await run_chat_agentic_loop(user_q, rag_block)
+                agentic_trace_line = format_agentic_trace_line(agentic_trace)
+
     if ctx or entity_context or search_results or rag_block:
         parts = []
         if ctx:
             parts.append("=== INTERNAL TELEMETRY ===\n" + ctx)
         if rag_block:
+            prefix = ""
             if route_tag:
-                parts.append(f"Retrieval mode: {route_tag}\n\n" + rag_block)
+                prefix = f"Retrieval mode: {route_tag}"
+            if agentic_trace_line:
+                prefix = (prefix + "\n" + agentic_trace_line).strip() if prefix else agentic_trace_line
+            if prefix:
+                parts.append(f"{prefix}\n\n" + rag_block)
             else:
                 parts.append(rag_block)
         if entity_context:
@@ -164,6 +176,9 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
                 "adds live situations + FtM subgraph when memory confidence is low.\n"
                 "- Query Router (P1): retrieval mode shown above — use the indicated "
                 "retrieval strategy (VECTOR/GRAPH/SPATIAL/HYBRID/LIVE) for context.\n"
+                "- Agentic (P3): when AGENTIC trace is shown, coverage gaps were filled "
+                "with targeted retrieval; [corroborated]/[uncorroborated] tags mark "
+                "claim strength — weigh tagged claims accordingly.\n"
                 "- Tools may query WorldBase APIs (situations, OSINT lookups).\n\n"
                 "RULES:\n"
                 "1. Answer the user's actual question FIRST (1-3 sentences), same language.\n"
