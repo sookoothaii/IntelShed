@@ -26,15 +26,18 @@ def db_path() -> str:
 
 def write(key: str, payload: dict) -> None:
     """Persist feed snapshot for health dashboard and stale fallback.
-    
+
     Uses SQLite as default. For PostgreSQL, use async_write() instead.
     """
     try:
+        from connector_registry import feed_ttl_sec
+
+        ttl = int(feed_ttl_sec(key))
         conn = sqlite3.connect(db_path())
         c = conn.cursor()
         c.execute(
-            "INSERT OR REPLACE INTO feed_cache (key, value, cached_at) VALUES (?, ?, ?)",
-            (key, json.dumps(payload), datetime.now(timezone.utc).isoformat()),
+            "INSERT OR REPLACE INTO feed_cache (key, value, cached_at, ttl_seconds) VALUES (?, ?, ?, ?)",
+            (key, json.dumps(payload), datetime.now(timezone.utc).isoformat(), ttl),
         )
         conn.commit()
         conn.close()

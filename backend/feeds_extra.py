@@ -54,11 +54,14 @@ def _db_get(key: str, ttl: float):
 
 def _db_set(key: str, value):
     try:
+        from connector_registry import feed_ttl_sec
+
+        ttl = int(feed_ttl_sec(key))
         conn = _db_connect()
         c = conn.cursor()
         c.execute(
-            "INSERT OR REPLACE INTO feed_cache (key, value, cached_at) VALUES (?, ?, ?)",
-            (key, json.dumps(value), datetime.now(timezone.utc).isoformat()),
+            "INSERT OR REPLACE INTO feed_cache (key, value, cached_at, ttl_seconds) VALUES (?, ?, ?, ?)",
+            (key, json.dumps(value), datetime.now(timezone.utc).isoformat(), ttl),
         )
         conn.commit()
         conn.close()

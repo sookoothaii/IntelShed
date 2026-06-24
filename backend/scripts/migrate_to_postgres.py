@@ -96,9 +96,14 @@ PG_SCHEMA = {
     "feed_cache": """
         CREATE TABLE IF NOT EXISTS feed_cache (
             key TEXT PRIMARY KEY,
-            value JSONB,
-            cached_at TIMESTAMP
+            value_json JSONB,
+            cached_at TIMESTAMP,
+            ttl_seconds INTEGER DEFAULT 300
         );
+        CREATE INDEX IF NOT EXISTS idx_feed_cache_cached_at
+            ON feed_cache(cached_at);
+        CREATE INDEX IF NOT EXISTS idx_feed_cache_ttl
+            ON feed_cache(ttl_seconds);
     """,
     "aircraft": """
         CREATE TABLE IF NOT EXISTS aircraft (

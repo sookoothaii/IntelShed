@@ -18,6 +18,7 @@ import tempfile
 from dataclasses import dataclass
 from typing import Any
 
+import ftm_connection
 import ftm_store
 import intel_briefing as ib
 import intel_subgraph as sg
@@ -85,7 +86,7 @@ def compare_prompt_ab(intel_meta: dict[str, Any], lang: str = "en") -> dict[str,
 
 
 def _seed_graph(path: str) -> dict[str, str]:
-    ftm_store._CONN = None
+    ftm_connection._CONN = None
     ftm_store.set_db_path(path)
     ftm_store.init_store()
 
@@ -111,7 +112,7 @@ def evaluate_case(case: PromptAbCase, db_path: str | None = None) -> dict[str, A
         created_tmp = True
         _seed_graph(path)
 
-    ftm_store._CONN = None
+    ftm_connection._CONN = None
     ftm_store.set_db_path(path)
     ftm_store.init_store()
 
@@ -138,10 +139,10 @@ def evaluate_case(case: PromptAbCase, db_path: str | None = None) -> dict[str, A
             os.environ["WORLDBASE_BRIEFING_INTEL_SUBGRAPH"] = old_sub
         if created_tmp:
             try:
-                if ftm_store._CONN is not None:
-                    ftm_store._CONN.close()
+                if ftm_connection._CONN is not None:
+                    ftm_connection._CONN.close()
             finally:
-                ftm_store._CONN = None
+                ftm_connection._CONN = None
             for ext in ("", ".wal"):
                 try:
                     os.remove(path + ext)
@@ -206,15 +207,15 @@ def run_fixture_pilot() -> dict[str, Any]:
                 fd2, empty_path = tempfile.mkstemp(suffix=".duckdb")
                 os.close(fd2)
                 os.remove(empty_path)
-                ftm_store._CONN = None
+                ftm_connection._CONN = None
                 ftm_store.set_db_path(empty_path)
                 ftm_store.init_store()
                 results.append(evaluate_case(case, db_path=empty_path))
                 try:
-                    if ftm_store._CONN is not None:
-                        ftm_store._CONN.close()
+                    if ftm_connection._CONN is not None:
+                        ftm_connection._CONN.close()
                 finally:
-                    ftm_store._CONN = None
+                    ftm_connection._CONN = None
                 for ext in ("", ".wal"):
                     try:
                         os.remove(empty_path + ext)
@@ -224,10 +225,10 @@ def run_fixture_pilot() -> dict[str, Any]:
                 results.append(evaluate_case(case, db_path=shared_path))
     finally:
         try:
-            if ftm_store._CONN is not None:
-                ftm_store._CONN.close()
+            if ftm_connection._CONN is not None:
+                ftm_connection._CONN.close()
         finally:
-            ftm_store._CONN = None
+            ftm_connection._CONN = None
         for ext in ("", ".wal"):
             try:
                 os.remove(shared_path + ext)

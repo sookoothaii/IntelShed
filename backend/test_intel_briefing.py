@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 
+import ftm_connection
 import ftm_store
 import intel_briefing
 from operator_briefing import format_digest_sections
@@ -16,16 +17,16 @@ class IntelBriefingTests(unittest.TestCase):
         fd, self.path = tempfile.mkstemp(suffix=".duckdb")
         os.close(fd)
         os.remove(self.path)
-        ftm_store._CONN = None
+        ftm_connection._CONN = None
         ftm_store.set_db_path(self.path)
         ftm_store.init_store()
 
     def tearDown(self):
         try:
-            if ftm_store._CONN is not None:
-                ftm_store._CONN.close()
+            if ftm_connection._CONN is not None:
+                ftm_connection._CONN.close()
         finally:
-            ftm_store._CONN = None
+            ftm_connection._CONN = None
         for ext in ("", ".wal"):
             try:
                 os.remove(self.path + ext)

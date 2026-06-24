@@ -61,9 +61,23 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS feed_cache (
                 key TEXT PRIMARY KEY,
                 value TEXT,
-                cached_at TEXT
+                cached_at TEXT,
+                ttl_seconds INTEGER DEFAULT 300
             );
         """)
+        # Migrate existing DBs: add ttl_seconds column if missing
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(feed_cache)").fetchall()]
+        if "ttl_seconds" not in cols:
+            conn.execute(
+                "ALTER TABLE feed_cache ADD COLUMN ttl_seconds INTEGER DEFAULT 300"
+            )
+        # Indexes (after migration so ttl_seconds column always exists)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feed_cache_cached_at ON feed_cache(cached_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_feed_cache_ttl ON feed_cache(ttl_seconds)"
+        )
         conn.commit()
 
 
