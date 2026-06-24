@@ -22,6 +22,14 @@ logger = logging.getLogger(__name__)
 DATASET_COLOCATED = "feed-correlation"
 DATASET_CONTEXT = "spatial-context"
 DATASET_SANCTIONS = "sanctions"
+DATASET_EVENT_CORRELATION = "event-correlation"
+
+_STOP_WORDS = frozenset({
+    "the", "a", "an", "in", "of", "on", "at", "to", "for", "and", "or",
+    "is", "are", "was", "were", "be", "been", "by", "with", "from", "as",
+    "this", "that", "it", "its", "has", "have", "had", "not", "but",
+    "near", "off", "over", "into", "than", "then", "so", "if", "no",
+})
 
 
 def enabled() -> bool:
@@ -305,6 +313,162 @@ async def link_sanction_edges(
     }
 
 
+def _tokenize_caption(text: str) -> set[str]:
+    """Extract significant lowercase word tokens from a caption."""
+    import re
+    raw = re.split(r"[^a-z0-9]+", (text or "").lower())
+    return {w for w in raw if len(w) >= 3 and w not in _STOP_WORDS}
+
+
+def _datasets_for_entity(ent: dict[str, Any]) -> set[str]:
+    """Parse the datasets column (JSON list or comma string) into a set."""
+    ds = ent.get("datasets")
+    if isinstance(ds, list):
+        return {str(d) for d in ds if d}
+    if isinstance(ds, str):
+        try:
+            import json
+            parsed = json.loads(ds)
+            if isinstance(parsed, list):
+                return {str(d) for d in parsed if d}
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return {d.strip() for d in ds.split(",") if d.strip()}
+    return set()
+
+
+def _fetch_events_for_correlation(
+    bbox: list[float] | None = None,
+    *,
+    window_hours: int,
+    cap: int = 300,
+) -> list[dict[str, Any]]:
+    """Fetch Event/Thing entities in bbox (or worldwide if bbox is None)."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))).isoformat()
+    if bbox is None:
+        rows = ftm_store.run_query(
+            """
+            SELECT e.id, e.schema, e.caption, e.lat, e.lon, e.datasets
+            FROM entities e
+            WHERE e.lat IS NOT NULL
+              AND e.lon IS NOT NULL
+              AND e.last_seen IS NOT NULL
+              AND e.last_seen >= ?
+              AND e.schema IN ('Event', 'Thing')
+            ORDER BY e.last_seen DESC
+            LIMIT ?
+            """,
+            [cutoff, cap],
+        )
+    else:
+        west, south, east, north = bbox
+        rows = ftm_store.run_query(
+            """
+            SELECT e.id, e.schema, e.caption, e.lat, e.lon, e.datasets
+            FROM entities e
+            WHERE e.lat IS NOT NULL
+              AND e.lon IS NOT NULL
+              AND e.last_seen IS NOT NULL
+              AND e.last_seen >= ?
+              AND e.lat BETWEEN ? AND ?
+              AND e.lon BETWEEN ? AND ?
+              AND e.schema IN ('Event', 'Thing')
+            ORDER BY e.last_seen DESC
+            LIMIT ?
+            """,
+            [cutoff, south, north, west, east, cap],
+        )
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            lat, lon = float(row[3]), float(row[4])
+        except (TypeError, ValueError):
+            continue
+        out.append({
+            "id": row[0],
+            "schema": row[1],
+            "caption": row[2],
+            "lat": lat,
+            "lon": lon,
+            "datasets": row[5],
+        })
+    return out
+
+
+def link_related_events(
+    entities: list[dict[str, Any]],
+    *,
+    max_km: float | None = None,
+    min_shared_words: int = 2,
+    refresh: bool = True,
+) -> dict[str, Any]:
+    """Link Event entities from different feeds that share caption words + spatial proximity.
+
+    Connects e.g. a GDACS flood alert with a GDELT news event about the same situation
+    when they share key terms (e.g. "flood", "Thailand") and are within max_km.
+    """
+    limit_km = max_km if max_km is not None else _max_km()
+    events = [e for e in entities if e.get("schema") in ("Event", "Thing") and e.get("caption")]
+    if refresh:
+        ftm_store.delete_edges_for_dataset(DATASET_EVENT_CORRELATION)
+
+    # Pre-compute token sets
+    for ev in events:
+        ev["_tokens"] = _tokenize_caption(ev.get("caption", ""))
+
+    edges_added = 0
+    pairs_checked = 0
+    seen_at = datetime.now(timezone.utc).isoformat()
+    for i, left in enumerate(events):
+        left_ds = _datasets_for_entity(left)
+        for right in events[i + 1:]:
+            right_ds = _datasets_for_entity(right)
+            # Skip if from same feed (we want cross-feed correlations only)
+            if left_ds and right_ds and (left_ds & right_ds):
+                continue
+            # Must share enough significant words
+            shared = left["_tokens"] & right["_tokens"]
+            if len(shared) < min_shared_words:
+                continue
+            # Must be spatially close
+            km = _haversine_km(left["lat"], left["lon"], right["lat"], right["lon"])
+            if km > limit_km:
+                continue
+            pairs_checked += 1
+            # Confidence: base on word overlap + distance
+            overlap_ratio = len(shared) / max(1, min(len(left["_tokens"]), len(right["_tokens"])))
+            dist_factor = 1.0 - (km / max(1.0, limit_km)) * 0.3
+            conf = round(min(0.90, 0.55 + overlap_ratio * 0.3 * dist_factor), 3)
+            before = ftm_store.count_edges_for_dataset(DATASET_EVENT_CORRELATION)
+            ftm_store.add_edge(
+                left["id"],
+                right["id"],
+                "relatedEvent",
+                dataset=DATASET_EVENT_CORRELATION,
+                confidence=conf,
+                properties={
+                    "method": "text_overlap",
+                    "shared_words": sorted(shared)[:8],
+                    "distance_km": round(km, 2),
+                    "datasets": sorted(left_ds | right_ds)[:4],
+                },
+                seen_at=seen_at,
+            )
+            if ftm_store.count_edges_for_dataset(DATASET_EVENT_CORRELATION) > before:
+                edges_added += 1
+
+    return {
+        "ok": True,
+        "kind": "relatedEvent",
+        "dataset": DATASET_EVENT_CORRELATION,
+        "events_scanned": len(events),
+        "pairs_checked": pairs_checked,
+        "edges_added": edges_added,
+        "min_shared_words": min_shared_words,
+        "max_km": limit_km,
+    }
+
+
 def link_semantic_edges(
     *,
     bbox: list[float] | None = None,
@@ -328,6 +492,9 @@ def link_semantic_edges(
     )
     colocated = link_colocated_entities(entities, refresh=True)
     context = link_vessels_near_events(entities, refresh=True)
+    # Fetch Events globally — they're often outside operator bbox
+    event_entities = _fetch_events_for_correlation(None, window_hours=window_hours)
+    related = link_related_events(event_entities, refresh=True)
     return {
         "ok": True,
         "bbox": target_bbox,
@@ -335,7 +502,8 @@ def link_semantic_edges(
         "entities_scanned": len(entities),
         "colocated": colocated,
         "near_event": context,
-        "edges_added": colocated.get("edges_added", 0) + context.get("edges_added", 0),
+        "related_events": related,
+        "edges_added": colocated.get("edges_added", 0) + context.get("edges_added", 0) + related.get("edges_added", 0),
     }
 
 
@@ -352,7 +520,7 @@ async def semantic_status():
         "enabled": enabled(),
         "sanctions_enabled": sanctions_enabled(),
         "max_km": _max_km(),
-        "datasets": [DATASET_COLOCATED, DATASET_CONTEXT, DATASET_SANCTIONS],
+        "datasets": [DATASET_COLOCATED, DATASET_CONTEXT, DATASET_SANCTIONS, DATASET_EVENT_CORRELATION],
         "edges": {
             DATASET_COLOCATED: ftm_store.count_edges_for_dataset(DATASET_COLOCATED)
             if ftm_store.init_store()
@@ -361,6 +529,9 @@ async def semantic_status():
             if ftm_store.init_store()
             else 0,
             DATASET_SANCTIONS: ftm_store.count_edges_for_dataset(DATASET_SANCTIONS)
+            if ftm_store.init_store()
+            else 0,
+            DATASET_EVENT_CORRELATION: ftm_store.count_edges_for_dataset(DATASET_EVENT_CORRELATION)
             if ftm_store.init_store()
             else 0,
         },
