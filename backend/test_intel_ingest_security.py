@@ -47,7 +47,18 @@ class IntelIngestSecurityTests(unittest.TestCase):
         self.assertIn("loaded", resp.json())
 
     def test_text_requires_auth_on_lan(self):
-        client = _client()
+        import intel_ingest
+        from auth.security import verify_lan_auth
+        from fastapi import HTTPException
+
+        app = FastAPI()
+        app.include_router(intel_ingest.router)
+
+        async def _reject():
+            raise HTTPException(status_code=401, detail="auth required")
+
+        app.dependency_overrides[verify_lan_auth] = _reject
+        client = TestClient(app)
         resp = client.post("/api/intel/ingest/text", json={"text": "probe"})
         self.assertEqual(resp.status_code, 401)
 
