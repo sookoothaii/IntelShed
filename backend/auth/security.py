@@ -20,10 +20,10 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from fastapi import HTTPException, Request, Security
-
-_LOOPBACK_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
 from fastapi.security import APIKeyHeader
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+
+_LOOPBACK_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
 
 # ---------------------------------------------------------------------------
 # Configuration

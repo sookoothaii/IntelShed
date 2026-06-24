@@ -21,7 +21,45 @@ def _lan_env():
     )
 
 
-class LanWriteRouteSecurityTests(unittest.TestCase):
+def _remote_client_middleware(app: FastAPI) -> FastAPI:
+    """Simulate a LAN caller (not loopback) for auth gate tests."""
+
+    @app.middleware("http")
+    async def _force_remote_client(request, call_next):
+        request.scope["client"] = ("192.168.1.50", 12345)
+        return await call_next(request)
+
+    return app
+
+
+class LanWriteRouteLoopbackTests(unittest.TestCase):
+    """TestClient / Vite proxy = loopback — open on LAN bind (PR #34)."""
+
+    def setUp(self):
+        self.env = _lan_env()
+        self.env.start()
+        self.api_key = patch("auth.security.API_KEY", "test-api-key")
+        self.ingest_token = patch("auth.security.INGEST_TOKEN", "test-node-token")
+        self.api_key.start()
+        self.ingest_token.start()
+
+    def tearDown(self):
+        self.ingest_token.stop()
+        self.api_key.stop()
+        self.env.stop()
+
+    def test_feeds_run_open_on_loopback_when_lan_exposed(self):
+        import feed_ingest
+
+        app = FastAPI()
+        app.include_router(feed_ingest.router)
+        client = TestClient(app)
+        with patch("feed_ingest.run_feed_ingest", return_value={"ok": True}):
+            resp = client.post("/api/intel/feeds/run")
+        self.assertEqual(resp.status_code, 200)
+
+
+class LanWriteRouteRemoteSecurityTests(unittest.TestCase):
     def setUp(self):
         self.env = _lan_env()
         self.env.start()
@@ -38,7 +76,7 @@ class LanWriteRouteSecurityTests(unittest.TestCase):
     def test_feeds_run_requires_auth_on_lan(self):
         import feed_ingest
 
-        app = FastAPI()
+        app = _remote_client_middleware(FastAPI())
         app.include_router(feed_ingest.router)
         client = TestClient(app)
         resp = client.post("/api/intel/feeds/run")
@@ -47,7 +85,7 @@ class LanWriteRouteSecurityTests(unittest.TestCase):
     def test_feeds_run_accepts_api_key(self):
         import feed_ingest
 
-        app = FastAPI()
+        app = _remote_client_middleware(FastAPI())
         app.include_router(feed_ingest.router)
         client = TestClient(app)
         with patch("feed_ingest.run_feed_ingest", return_value={"ok": True}):
@@ -60,7 +98,7 @@ class LanWriteRouteSecurityTests(unittest.TestCase):
     def test_resolution_reset_requires_auth_on_lan(self):
         import entity_resolution
 
-        app = FastAPI()
+        app = _remote_client_middleware(FastAPI())
         app.include_router(entity_resolution.router)
         client = TestClient(app)
         resp = client.post("/api/intel/resolution/reset")
@@ -69,7 +107,7 @@ class LanWriteRouteSecurityTests(unittest.TestCase):
     def test_entity_import_requires_auth_on_lan(self):
         import ftm_store
 
-        app = FastAPI()
+        app = _remote_client_middleware(FastAPI())
         app.include_router(ftm_store.router)
         client = TestClient(app)
         resp = client.post("/api/entity/import", content='{"id":"x"}')
@@ -78,7 +116,7 @@ class LanWriteRouteSecurityTests(unittest.TestCase):
     def test_entity_import_accepts_node_token(self):
         import ftm_store
 
-        app = FastAPI()
+        app = _remote_client_middleware(FastAPI())
         app.include_router(ftm_store.router)
         client = TestClient(app)
         with patch("ftm_store.import_ndjson", return_value={"imported": 0}):
@@ -92,7 +130,7 @@ class LanWriteRouteSecurityTests(unittest.TestCase):
     def test_sanctions_refresh_requires_auth_on_lan(self):
         import sanctions_bridge
 
-        app = FastAPI()
+        app = _remote_client_middleware(FastAPI())
         app.include_router(sanctions_bridge.router)
         client = TestClient(app)
         resp = client.post("/api/sanctions/refresh")
@@ -101,7 +139,7 @@ class LanWriteRouteSecurityTests(unittest.TestCase):
     def test_agent_camera_requires_auth_on_lan(self):
         import agent_bus
 
-        app = FastAPI()
+        app = _remote_client_middleware(FastAPI())
         app.include_router(agent_bus.router)
         client = TestClient(app)
         resp = client.post("/api/agent/camera", json={"lat": 0, "lon": 0, "height": 1000})
