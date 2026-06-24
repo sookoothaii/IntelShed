@@ -22,13 +22,14 @@ from connector_registry import feed_ttl_sec as _feed_ttl_sec
 router = APIRouter(tags=["health"])
 
 
-def _feed_status(age_sec: float | None) -> str:
-    """fresh | warn | stale | unknown"""
+def _feed_status(age_sec: float | None, ttl_sec: float | None = None) -> str:
+    """fresh | warn | stale | unknown — aligned with per-feed TTL."""
     if age_sec is None:
         return "unknown"
-    if age_sec < 300:
+    ttl = ttl_sec if ttl_sec and ttl_sec > 0 else 600.0
+    if age_sec < ttl:
         return "fresh"
-    if age_sec < 3600:
+    if age_sec < ttl * 2:
         return "warn"
     return "stale"
 
@@ -91,7 +92,7 @@ async def health():
                         "age_sec": round(age, 1),
                         "ttl_sec": ttl,
                         "fresh": age < ttl,
-                        "status": _feed_status(age),
+                        "status": _feed_status(age, ttl),
                         **meta,
                     }
                 except Exception:

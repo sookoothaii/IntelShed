@@ -629,6 +629,25 @@ async def warmup_global_pulse() -> dict | None:
     return last
 
 
+async def touch_local_pulse_cache() -> bool:
+    """Keep feed_cache.cached_at fresh from memory/disk; refresh GDELT when TTL expired."""
+    reg = _resolve_region(None)
+    key = f"pulse:local:{reg}"
+    reg_key = f"gdelt_pulse_local:{reg}"
+    data = _cache_fresh(key, _GDELT_CACHE_LOCAL_SEC) or _cache_any(key)
+    if not data or int(data.get("count") or 0) == 0:
+        data = _load_pulse_local_registry(reg)
+    if (not data or int(data.get("count") or 0) == 0) and not _in_backoff():
+        try:
+            data = await _refresh_pulse_local(reg)
+        except Exception:
+            _LOG.debug("GDELT local touch refresh failed for %s", reg, exc_info=True)
+    if data and int(data.get("count") or 0) > 0:
+        feed_registry.write_auto(reg_key, finalize_local_pulse(data))
+        return True
+    return False
+
+
 async def gdelt_pulse_local_data(
     region: str | None = None,
     *,

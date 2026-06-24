@@ -219,6 +219,42 @@ async def _prediction_ledger_autopilot() -> None:
         await asyncio.sleep(prediction_ledger.resolve_interval_s())
 
 
+async def _feed_cache_autopilot() -> None:
+    """Keep feed_cache.cached_at fresh for background-collected feeds (no HTTP poll required)."""
+    await asyncio.sleep(45)
+    maritime_interval = float(os.getenv("WORLDBASE_MARITIME_TOUCH_INTERVAL_S", "30"))
+    gdelt_interval = float(os.getenv("WORLDBASE_GDELT_TOUCH_INTERVAL_S", "600"))
+    airquality_interval = float(os.getenv("WORLDBASE_AIRQUALITY_TOUCH_INTERVAL_S", "2700"))
+    next_gdelt = 0.0
+    next_airquality = 0.0
+    while True:
+        now = asyncio.get_event_loop().time()
+        try:
+            import ais_bridge
+
+            if await ais_bridge.touch_maritime_cache():
+                pass  # best-effort; silence when buffer empty
+        except Exception as e:
+            print(f"[AUTOPILOT] Maritime cache touch failed: {e}", flush=True)
+        if now >= next_gdelt:
+            next_gdelt = now + gdelt_interval
+            try:
+                import gdelt_bridge
+
+                await gdelt_bridge.touch_local_pulse_cache()
+            except Exception as e:
+                print(f"[AUTOPILOT] GDELT local touch failed: {e}", flush=True)
+        if now >= next_airquality:
+            next_airquality = now + airquality_interval
+            try:
+                from feeds_extra import air_quality
+
+                await air_quality()
+            except Exception as e:
+                print(f"[AUTOPILOT] Air quality touch failed: {e}", flush=True)
+        await asyncio.sleep(maritime_interval)
+
+
 async def _briefing_autopilot() -> None:
     await asyncio.sleep(30)
     while True:
@@ -284,6 +320,7 @@ def register_lifecycle(app) -> None:
         asyncio.create_task(_aircraft_trail_loop())
         asyncio.create_task(_situations_prewarm())
         asyncio.create_task(_stack_warmup())
+        asyncio.create_task(_feed_cache_autopilot())
         import ais_bridge
 
         ais_bridge.start_aisstream_collector()

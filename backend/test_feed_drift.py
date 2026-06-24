@@ -76,6 +76,15 @@ class FeedDriftTests(unittest.TestCase):
         self.assertEqual(drifting[0]["previous_count"], 100)
         self.assertEqual(drifting[0]["current_count"], 2)
 
+    def test_skips_structural_count_drop_when_feed_healthy(self):
+        self._seed_cache("wildfires", 1575)
+        self._seed_snapshot("wildfires", 27359, hours_ago=9)
+        with fd._conn() as conn:
+            feeds = fd._read_feed_cache(conn)
+            now = datetime.now(timezone.utc)
+            drifting = fd.detect_drift(feeds, conn, now)
+        self.assertEqual(drifting, [])
+
     def test_freshness_status_fresh(self):
         self._seed_cache("cve", 10, hours_ago=0.1)
         with fd._conn() as conn:

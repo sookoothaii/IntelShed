@@ -118,6 +118,28 @@ class AisBridgeTests(unittest.TestCase):
         err = ais._aisstream_service_error({"error": "Api Key Is Not Valid"})
         self.assertEqual(err, "Api Key Is Not Valid")
 
+    def test_touch_maritime_cache_writes_feed_registry(self):
+        async def run() -> bool:
+            ais._STREAM["vessels"] = {
+                "1": {
+                    "mmsi": "1",
+                    "name": "A",
+                    "lat": 1.25,
+                    "lon": 103.85,
+                    "region": "singapore",
+                    "_seen_at": 9999999999.0,
+                },
+            }
+            with patch.dict(os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False):
+                with patch.object(ais.feed_registry, "write_auto") as write_auto:
+                    ok = await ais.touch_maritime_cache()
+            ais._STREAM["vessels"] = {}
+            return ok, write_auto.call_count
+
+        ok, writes = asyncio.run(run())
+        self.assertTrue(ok)
+        self.assertEqual(writes, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
