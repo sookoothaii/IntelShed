@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from fastapi import HTTPException, Request, Security
+
+_LOOPBACK_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
 from fastapi.security import APIKeyHeader
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
@@ -69,6 +71,7 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
 
 
 async def verify_lan_auth(
+    request: Request,
     api_key: str = Security(api_key_header),
     x_node_token: str = Security(node_token_header),
 ) -> str | None:
@@ -76,9 +79,15 @@ async def verify_lan_auth(
 
     Default PC dev (``WORLDBASE_BIND_HOST=127.0.0.1``): HUD and pilots stay open;
     keys in ``.env`` still gate chat, MCP, and node ingest/pull routes.
+
+    When bound to ``0.0.0.0`` for Pi sync, loopback clients (local HUD via Vite
+    proxy) stay open; remote LAN callers still need credentials.
     """
     if not lan_exposed():
         return None
+    client_host = (request.client.host if request.client else "").lower()
+    if client_host in _LOOPBACK_CLIENTS:
+        return "loopback"
     if API_KEY and api_key and hmac.compare_digest(API_KEY, api_key):
         return "api_key"
     if INGEST_TOKEN and x_node_token and hmac.compare_digest(INGEST_TOKEN, x_node_token):
