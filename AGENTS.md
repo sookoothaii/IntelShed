@@ -63,6 +63,7 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | **Prediction ledger** | `quality.meta.prediction_accuracy_30d` / `prediction_pending` — watch outcomes after horizon; `backend/prediction_ledger.py` |
 | **FtM subgraph** | `GET /api/intel/subgraph?hops=2&bbox=` — 2-hop graph around operator bbox; briefing prompt `INTEL SUBGRAPH` block |
 | **Spatial proximity edges** | `POST /api/intel/spatial/run` — rebuild `nearby` links after feed ingest (Track 3+) |
+| **Semantic intel edges** | `POST /api/intel/semantic/run` — colocated (`samePlace`), vessel-near-event (`nearEvent`), **cross-feed event correlation** (`relatedEvent`: text overlap + spatial proximity between Event/Thing from different feeds); sanctions screening; `WORLDBASE_INTEL_SEMANTIC_EDGES=1` (default on) |
 | FtM → digest bridge | `backend/intel_briefing.py` |
 | Autopilot | `WORLDBASE_BRIEFING_AUTOPILOT=1`, interval `WORLDBASE_BRIEFING_INTERVAL` (default 6 h) |
 | FtM in digest | `WORLDBASE_BRIEFING_INTEL=1` (default), excludes `Airplane` by default |
@@ -84,7 +85,7 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_briefing_agentic test_chat_agentic test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_prediction_ground_truth test_corroboration_ground_truth test_subgraph_prompt_ground_truth test_newsdata_bridge test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots test_rag_rerank test_rag_spatial test_rag_crag test_rag_memory test_rag_chunking test_query_router test_provenance test_insights test_osint_tools test_freshness test_runtime_cache test_core_feeds_security -v` in `backend/`. Optional: `pip install sentence-transformers` when `RAG_RERANK=1`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_briefing_agentic test_chat_agentic test_intel_briefing test_intel_subgraph test_intel_proximity test_intel_semantic_links test_prediction_ledger test_prediction_ground_truth test_corroboration_ground_truth test_subgraph_prompt_ground_truth test_newsdata_bridge test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots test_rag_rerank test_rag_spatial test_rag_crag test_rag_memory test_rag_chunking test_query_router test_provenance test_insights test_osint_tools test_freshness test_runtime_cache test_core_feeds_security -v` in `backend/`. Optional: `pip install sentence-transformers` when `RAG_RERANK=1`.
 
 Ground-truth pilots (offline): `python corroboration_ground_truth.py --fixtures`, `python prediction_ground_truth.py --fixtures`, `python subgraph_prompt_ground_truth.py --fixtures`; wrappers `.\scripts\corroboration-ground-truth-pilot.ps1`, `.\scripts\prediction-ground-truth-pilot.ps1`, `.\scripts\subgraph-prompt-ab-pilot.ps1`, `.\scripts\fusion-baseline-status.ps1`.
 
@@ -132,6 +133,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | FtM → 24h briefing | `backend/intel_briefing.py` |
 | FtM subgraph (Track 3) | `backend/intel_subgraph.py` — `GET /api/intel/subgraph` |
 | Spatial proximity (Track 3+) | `backend/intel_proximity.py` — `POST /api/intel/spatial/run`; runs after feed ingest when `WORLDBASE_INTEL_SPATIAL_EDGES=1` |
+| Semantic intel edges (Track 3+) | `backend/intel_semantic_links.py` — colocated, vessel-near-event, **cross-feed event correlation** (`relatedEvent`), sanctions; `POST /api/intel/semantic/run`; `WORLDBASE_INTEL_SEMANTIC_EDGES=1` (default on) |
 | Prediction ledger (Track 4) | `backend/prediction_ledger.py` |
 | GDELT | `backend/gdelt_bridge.py` — adaptive backoff, region-first priority, stale-while-revalidate; local pulse `gdelt_pulse_local:{region}`; **global** pulse disk key `gdelt_pulse_global` + `warmup_global_pulse()` |
 | CAMS haze | `backend/cams_bridge.py` — Open-Meteo/CAMS dust + AOD for Thailand/ASEAN cities |
