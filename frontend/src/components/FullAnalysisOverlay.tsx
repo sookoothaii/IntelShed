@@ -534,11 +534,13 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                   const blockerHint =
                     blocker === 'empty_feed_body'
                       ? 'GDELT rate limit or empty body — wait for disk cache'
-                      : blocker === 'bucket_cap'
-                        ? 'LOCAL bucket full — GDELT slots env may help'
-                        : blocker === 'single_source_local'
-                          ? 'LOCAL digest lines share one feed family only'
-                          : blocker || ''
+                      : blocker === 'freshness_guard'
+                        ? 'Stale GDELT local pulse — articles older than 24h filtered out'
+                        : blocker === 'bucket_cap'
+                          ? 'LOCAL bucket full — GDELT slots env may help'
+                          : blocker === 'single_source_local'
+                            ? 'LOCAL digest lines share one feed family only'
+                            : blocker || ''
                   if (collected == null && placed == null && !blocker && watchCount == null && corroAvg == null && predPending == null) return null
                   return (
                     <div className="analysis-row" style={{ fontSize: 11, marginTop: 8 }}>

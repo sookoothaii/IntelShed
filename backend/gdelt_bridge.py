@@ -126,10 +126,17 @@ def finalize_local_pulse(out: dict | None) -> dict:
     """Apply briefing filters and refresh count on a local pulse payload."""
     if not out:
         return {"count": 0, "articles": []}
-    articles = filter_local_pulse_articles(out.get("articles"))
     result = dict(out)
-    result["articles"] = articles
-    result["count"] = len(articles)
+    articles = out.get("articles") or []
+    # Stale-while-revalidate / disk fallback: keep raw article count for trust
+    # probes and HUD; briefing applies filter_local_pulse_articles separately.
+    if out.get("stale"):
+        result["articles"] = articles
+        result["count"] = len(articles) if articles else int(out.get("count") or 0)
+        return result
+    filtered = filter_local_pulse_articles(articles)
+    result["articles"] = filtered
+    result["count"] = len(filtered)
     return result
 
 
@@ -568,8 +575,10 @@ async def _refresh_pulse_local(reg: str) -> dict:
 def _load_pulse_local_registry(reg: str) -> dict | None:
     try:
         data = feed_registry.read(f"gdelt_pulse_local:{reg}")
-        if data and int(data.get("count") or 0) > 0:
-            return finalize_local_pulse(data)
+        if data and (data.get("articles") or int(data.get("count") or 0) > 0):
+            disk = dict(data)
+            disk["stale"] = True
+            return finalize_local_pulse(disk)
     except Exception:
         pass
     return None

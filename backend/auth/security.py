@@ -41,6 +41,17 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 node_token_header = APIKeyHeader(name="X-Node-Token", auto_error=False)
 
 _LOOPBACK_BINDS = frozenset({"127.0.0.1", "localhost", "::1"})
+_CLIENT_LOOPBACK_PREFIXES = ("127.", "::1")
+
+
+def _is_loopback_client(request: Request) -> bool:
+    """True when the HTTP client is on the same host (Vite HUD via proxy)."""
+    if not request.client:
+        return False
+    host = (request.client.host or "").strip().lower()
+    if host in _LOOPBACK_BINDS:
+        return True
+    return any(host.startswith(p) for p in _CLIENT_LOOPBACK_PREFIXES)
 
 
 def lan_exposed() -> bool:
@@ -69,6 +80,7 @@ async def verify_api_key(api_key: str = Security(api_key_header)):
 
 
 async def verify_lan_auth(
+    request: Request,
     api_key: str = Security(api_key_header),
     x_node_token: str = Security(node_token_header),
 ) -> str | None:
@@ -76,9 +88,14 @@ async def verify_lan_auth(
 
     Default PC dev (``WORLDBASE_BIND_HOST=127.0.0.1``): HUD and pilots stay open;
     keys in ``.env`` still gate chat, MCP, and node ingest/pull routes.
+
+    When LAN-bound (``0.0.0.0`` for Pi sync), loopback clients (Vite proxy on
+    the same PC) may read without credentials; remote LAN clients still need a key.
     """
     if not lan_exposed():
         return None
+    if _is_loopback_client(request):
+        return "loopback"
     if API_KEY and api_key and hmac.compare_digest(API_KEY, api_key):
         return "api_key"
     if INGEST_TOKEN and x_node_token and hmac.compare_digest(INGEST_TOKEN, x_node_token):

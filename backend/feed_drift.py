@@ -182,6 +182,14 @@ def detect_drift(feeds: dict[str, dict[str, Any]], conn: sqlite3.Connection, now
         curr = int(current)
         if prev < _MIN_BASELINE:
             continue
+        # Wildfires dedup can shrink counts 10×+ while the feed is healthy — not an outage.
+        if (
+            watch_key == "wildfires"
+            and not meta.get("error")
+            and not meta.get("stale")
+            and prev > curr * 10
+        ):
+            continue
         if curr < prev * _DRIFT_RATIO:
             drop_pct = round(100.0 * (1.0 - curr / prev), 1) if prev else 0.0
             drifting.append(

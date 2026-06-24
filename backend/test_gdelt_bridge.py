@@ -73,6 +73,18 @@ class TestGdeltLocalPulseFilter(unittest.TestCase):
         self.assertEqual(out["count"], 1)
         self.assertNotIn("Songkran", out["articles"][0]["title"])
 
+    def test_finalize_stale_pulse_preserves_raw_count(self):
+        articles = [
+            {"title": "Old headline", "seendate": "20260414T120000Z"},
+            {"title": "Another old one", "seendate": "20260410T080000Z"},
+        ]
+        out = gb.finalize_local_pulse(
+            {"count": 2, "stale": True, "articles": articles, "error": "rate limit"}
+        )
+        self.assertTrue(out["stale"])
+        self.assertEqual(out["count"], 2)
+        self.assertEqual(len(out["articles"]), 2)
+
 
 class TestGdeltCache(unittest.TestCase):
     def test_stale_response_preserves_counts(self):
