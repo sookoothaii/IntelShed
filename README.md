@@ -62,7 +62,7 @@ pip install -r backend\requirements.txt
 | **Health (fast)** | http://localhost:8002/api/health/ping |
 | **Ollama** | http://127.0.0.1:11434 |
 
-Open **http://localhost:5176** (Vite). API docs: **http://127.0.0.1:8002/docs**.
+Open **http://localhost:5176** (Vite; binds `127.0.0.1` to avoid IPv6-only fallback). API docs: **http://127.0.0.1:8002/docs**.
 
 ### MCP + Agent Bus (optional)
 

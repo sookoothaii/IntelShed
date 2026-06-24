@@ -18,6 +18,7 @@ function faviconIcoFallback() {
 export default defineConfig({
   plugins: [react(), cesium(), faviconIcoFallback()],
   server: {
+    host: '127.0.0.1',
     port: 5176,
     proxy: {
       '/api': {

@@ -381,6 +381,8 @@ async def fetch_newsdata_sources(
         domainurl=domainurl,
         q=None,
     )
+    # /sources endpoint does not support excludedomain (UnsupportedParameter)
+    params.pop("excludedomain", None)
 
     _status, payload, transport_err = await _request_newsdata(_SOURCES_BASE, params)
     if transport_err and payload is None:
