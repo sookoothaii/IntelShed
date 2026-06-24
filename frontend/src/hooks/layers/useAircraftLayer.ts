@@ -119,6 +119,7 @@ export function useAircraftLayer({
         entry.label.position = pos;
         entry.label.text = callsign;
         entry.point.id = pickMeta;
+        entry.label.id = pickMeta;
       } else {
         const point = points.add({
           position: pos,
@@ -141,6 +142,7 @@ export function useAircraftLayer({
           horizontalOrigin: HorizontalOrigin.LEFT,
           pixelOffset: new Cartesian2(8, -4),
           distanceDisplayCondition: new DistanceDisplayCondition(0, 1.2e6),
+          id: pickMeta,
         });
         entry = { point, label };
         acMap.set(id, entry);

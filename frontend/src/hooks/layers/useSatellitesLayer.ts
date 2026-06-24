@@ -162,6 +162,7 @@ export function useSatellitesLayer({
             entry.point.position = pos;
             entry.label.position = pos;
             entry.point.id = pickMeta;
+            entry.label.id = pickMeta;
           } else {
             const point = points.add({
               position: pos,
@@ -182,6 +183,7 @@ export function useSatellitesLayer({
               verticalOrigin: VerticalOrigin.BOTTOM,
               pixelOffset: new Cartesian2(0, -8),
               distanceDisplayCondition: new DistanceDisplayCondition(0, 6e7),
+              id: pickMeta,
             });
             entry = { point, label };
             satMap.set(name, entry);
