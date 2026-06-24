@@ -104,8 +104,12 @@ def is_gdelt_article_fresh(article: dict, *, max_age_hours: float | None = None)
     return seen >= cutoff
 
 
-def filter_local_pulse_articles(articles: list[dict] | None) -> list[dict]:
-    """Drop stale, sports, and tourism-promo headlines from local GDELT DOC pulse."""
+def filter_local_pulse_articles(
+    articles: list[dict] | None,
+    *,
+    apply_freshness: bool = True,
+) -> list[dict]:
+    """Drop sports/tourism-promo headlines; optionally enforce the 24h freshness window."""
     from newsdata_bridge import is_sports_content, is_tourism_promo_content
 
     kept: list[dict] = []
@@ -116,17 +120,21 @@ def filter_local_pulse_articles(articles: list[dict] | None) -> list[dict]:
             continue
         if is_tourism_promo_content(title=title, description=desc):
             continue
-        if not is_gdelt_article_fresh(art):
+        if apply_freshness and not is_gdelt_article_fresh(art):
             continue
         kept.append(art)
     return kept
 
 
-def finalize_local_pulse(out: dict | None) -> dict:
+def finalize_local_pulse(out: dict | None, *, apply_freshness: bool | None = None) -> dict:
     """Apply briefing filters and refresh count on a local pulse payload."""
     if not out:
         return {"count": 0, "articles": []}
-    articles = filter_local_pulse_articles(out.get("articles"))
+    if apply_freshness is None:
+        # Stale-while-revalidate / disk fallback: keep aged headlines so trust
+        # probes and HUD do not report count=0 while GDELT backoff refreshes.
+        apply_freshness = not bool(out.get("stale"))
+    articles = filter_local_pulse_articles(out.get("articles"), apply_freshness=apply_freshness)
     result = dict(out)
     result["articles"] = articles
     result["count"] = len(articles)
@@ -568,8 +576,14 @@ async def _refresh_pulse_local(reg: str) -> dict:
 def _load_pulse_local_registry(reg: str) -> dict | None:
     try:
         data = feed_registry.read(f"gdelt_pulse_local:{reg}")
-        if data and int(data.get("count") or 0) > 0:
-            return finalize_local_pulse(data)
+        if not data:
+            return None
+        articles = data.get("articles") or []
+        if not articles and int(data.get("count") or 0) <= 0:
+            return None
+        out = dict(data)
+        out["stale"] = True
+        return finalize_local_pulse(out)
     except Exception:
         pass
     return None
@@ -659,7 +673,7 @@ async def gdelt_pulse_local_data(
 
     if not refresh:
         cached = _cache_any(key)
-        if cached and int(cached.get("count") or 0) > 0:
+        if cached and (cached.get("articles") or int(cached.get("count") or 0) > 0):
             out = cached.copy()
             out["stale"] = True
             return finalize_local_pulse(out)

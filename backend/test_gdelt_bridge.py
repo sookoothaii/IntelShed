@@ -1,8 +1,15 @@
 """Unit tests for GDELT adaptive backoff helpers (no network)."""
 
 import unittest
+import unittest.mock
+from datetime import datetime, timedelta, timezone
 
 import gdelt_bridge as gb
+
+
+def _gdelt_seendate(hours_ago: float) -> str:
+    ts = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
+    return ts.strftime("%Y%m%dT%H%M%SZ")
 
 
 class TestGdeltBackoff(unittest.TestCase):
@@ -45,15 +52,15 @@ class TestGdeltLocalPulseFilter(unittest.TestCase):
         articles = [
             {
                 "title": "Agoda . com celebrates Thai New Year with super special Songkran rates",
-                "seendate": "20260430T204500Z",
+                "seendate": _gdelt_seendate(6),
             },
             {
                 "title": "Top 8 Must - See Destinations When Exploring Thailand",
-                "seendate": "20260420T053000Z",
+                "seendate": _gdelt_seendate(48),
             },
             {
                 "title": "Bangkok authorities issue flood warning for Chao Phraya",
-                "seendate": "20260622T120000Z",
+                "seendate": _gdelt_seendate(4),
             },
         ]
         kept = gb.filter_local_pulse_articles(articles)
@@ -65,13 +72,44 @@ class TestGdeltLocalPulseFilter(unittest.TestCase):
             {
                 "count": 2,
                 "articles": [
-                    {"title": "Songkran festival deals", "seendate": "20260414T230000Z"},
-                    {"title": "M5.2 earthquake near Chiang Rai", "seendate": "20260622T080000Z"},
+                    {"title": "Songkran festival deals", "seendate": _gdelt_seendate(6)},
+                    {"title": "M5.2 earthquake near Chiang Rai", "seendate": _gdelt_seendate(2)},
                 ],
             }
         )
         self.assertEqual(out["count"], 1)
         self.assertNotIn("Songkran", out["articles"][0]["title"])
+
+    def test_finalize_stale_pulse_skips_freshness_guard(self):
+        out = gb.finalize_local_pulse(
+            {
+                "stale": True,
+                "count": 2,
+                "articles": [
+                    {"title": "Bangkok flood warning", "seendate": "20260414T230000Z"},
+                    {"title": "Chiang Mai haze alert", "seendate": "20260410T120000Z"},
+                ],
+            }
+        )
+        self.assertEqual(out["count"], 2)
+        self.assertTrue(out["stale"])
+
+    def test_load_pulse_local_registry_preserves_aged_articles(self):
+        reg = "thailand"
+        key = f"gdelt_pulse_local:{reg}"
+        payload = {
+            "count": 2,
+            "articles": [
+                {"title": "Bangkok flood warning", "seendate": "20260414T230000Z"},
+                {"title": "Chiang Mai haze alert", "seendate": "20260410T120000Z"},
+            ],
+        }
+        with unittest.mock.patch.object(gb.feed_registry, "read", return_value=payload):
+            out = gb._load_pulse_local_registry(reg)
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out["count"], 2)
+        self.assertTrue(out["stale"])
 
 
 class TestGdeltCache(unittest.TestCase):
