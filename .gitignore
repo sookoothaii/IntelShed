@@ -71,6 +71,7 @@ docs/**
 .cursor/
 briefs/
 research/
+KIMI.md
 LLM_HANDOFF.md
 worldbase.code-workspace
 GAP_REPORT.md
