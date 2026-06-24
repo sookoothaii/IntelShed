@@ -169,6 +169,11 @@ async def _stack_warmup() -> None:
         print(f"[WARMUP] Briefing snapshot cache: {n} feeds", flush=True)
     except Exception as e:
         print(f"[WARMUP] Snapshot cache failed: {e}", flush=True)
+    try:
+        grid = await fusion_heatmap.fusion_heatmap(cell_deg=2.0, top=60, include_geojson=0)
+        print(f"[WARMUP] Fusion heatmap: {grid.get('returned', 0)} cells", flush=True)
+    except Exception as e:
+        print(f"[WARMUP] Fusion heatmap failed: {e}", flush=True)
 
 
 async def _entity_resolution_autopilot() -> None:
