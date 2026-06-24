@@ -502,6 +502,14 @@ async def _compute_grid(cell_deg: float, top: int) -> tuple[list[dict], dict, in
     )
 
     all_points = quakes + gdacs + hazards + volcs + anoms + outages + pegel + density
+
+    # P4: apply source reliability weighting when provenance enabled
+    try:
+        from provenance import provenance_enabled, feed_fusion_weight
+        _use_provenance = provenance_enabled()
+    except Exception:
+        _use_provenance = False
+
     cells: dict[tuple[float, float], dict] = {}
     for pt in all_points:
         try:
@@ -515,7 +523,10 @@ async def _compute_grid(cell_deg: float, top: int) -> tuple[list[dict], dict, in
             "contributions": {},
             "samples": [],
         })
-        cell["intensity"] += pt["weight"]
+        weight = pt["weight"]
+        if _use_provenance:
+            weight = feed_fusion_weight(pt["source"], weight)
+        cell["intensity"] += weight
         cell["contributions"][pt["source"]] = cell["contributions"].get(pt["source"], 0) + 1
         if len(cell["samples"]) < 4:
             cell["samples"].append({"source": pt["source"], "label": pt["label"]})

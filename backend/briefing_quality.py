@@ -321,11 +321,22 @@ def build_digest_line_meta(
     picked_by_bucket: dict[str, list[dict[str, Any]]],
 ) -> list[dict[str, Any]]:
     """Parallel metadata for digest lines placed in each bucket."""
+    try:
+        from provenance import provenance_enabled, score_from_meta
+        use_provenance = provenance_enabled()
+    except Exception:
+        use_provenance = False
+
     meta: list[dict[str, Any]] = []
     for bucket, picked in picked_by_bucket.items():
         for item in picked or []:
             row = corroborate_digest_item(item, all_items)
             row["bucket"] = bucket
+            if use_provenance:
+                try:
+                    row["integrity"] = score_from_meta(row)
+                except Exception:
+                    pass
             meta.append(row)
     return meta
 

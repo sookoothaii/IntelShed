@@ -46,11 +46,24 @@ def _now_iso() -> str:
 
 
 def _confidence(sources: list[str], delta: float, score: float) -> tuple[float, str]:
-    """Confidence from independent source families + escalation + base score."""
+    """Confidence from independent source families + escalation + base score.
+
+    When provenance (P4) is enabled, source reliability modulates confidence.
+    """
     families = len({s for s in (sources or []) if s})
     conf = 0.30 + 0.15 * min(families, 3)
     conf += min(0.15, max(0.0, delta))
     conf += max(0.0, score) * 0.10
+
+    # P4: provenance boost from source reliability
+    try:
+        from provenance import provenance_enabled, source_reliability
+        if provenance_enabled() and sources:
+            avg_reliability = sum(source_reliability(s) for s in sources) / len(sources)
+            conf += (avg_reliability - 0.5) * 0.10  # ±0.05 around neutral
+    except Exception:
+        pass
+
     conf = round(min(0.95, conf), 2)
     basis = f"{families} source famil{'y' if families == 1 else 'ies'}"
     if delta >= _DELTA_MIN:
@@ -155,6 +168,18 @@ def synthesize_insights(
             (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat() if rising else None
         )
 
+        # P4: provenance score per insight
+        provenance_score: float | None = None
+        try:
+            from provenance import provenance_enabled, score_provenance
+            if provenance_enabled():
+                provenance_score = score_provenance(
+                    source=sources[0] if sources else "unknown",
+                    corroboration_count=max(0, families - 1),
+                )
+        except Exception:
+            pass
+
         insights.append({
             "id": f"insight:{cid}",
             "cell_id": cid,
@@ -168,6 +193,7 @@ def synthesize_insights(
             "entities": entities,
             "confidence": conf,
             "confidence_basis": basis,
+            "provenance": provenance_score,
             "headline": _headline(rising, place, sources, sample),
             "so_what": _so_what(rising, families, delta, score, entity_names),
             "narrative_source": "template",
@@ -200,6 +226,7 @@ def slim_insights(insights: list[dict[str, Any]], top: int = 5) -> list[dict[str
             "delta_score": ins.get("delta_score"),
             "rising": ins.get("rising"),
             "confidence": ins.get("confidence"),
+            "provenance": ins.get("provenance"),
             "sources": ins.get("sources") or [],
         })
     return out

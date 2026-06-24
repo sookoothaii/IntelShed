@@ -196,7 +196,7 @@ Chat Query (CTX mode)
 
 ---
 
-### P4 — Feed Fusion Scoring + Digital Provenance
+### P4 — Feed Fusion Scoring + Digital Provenance ✅ SHIPPED
 
 **Why:** Gartner Top Strategic Trend 2026: "Digital Provenance — cryptographic provenance frameworks to verify integrity of all incoming and outgoing digital content." TideWatch: "layered scoring: proximity × behavioral anomaly × vessel type risk × time-of-day." WorldBase hat `briefing_quality.py` (rule-based scoring) und `corroboration_ground_truth.py` (B-04 pilot), aber keinen Integrity-Score pro Feed-Item.
 
@@ -510,3 +510,4 @@ python -m unittest test_mcp_tools test_agent_bus ... test_ais_trajectory -v
 |------|------|
 | 2026-06-25 | Initial roadmap; P1-P7 defined, validated against 2026 industry research |
 | 2026-06-25 | **P1 shipped** — Query Router (`query_router.py`): 5 routes (vector/graph/spatial/hybrid/live), rule-based classification, `build_routed_block()` in `rag_crag.py`, route tag in `chat_proxy.py` system prompt. 33 new tests, 0 regressions. Env: `WORLDBASE_QUERY_ROUTER=1` (default on) |
+| 2026-06-25 | **P4 shipped** — Digital Provenance (`provenance.py`): source reliability table (30+ feeds), temporal decay (6h half-life), corroboration boost, conflict penalty, ingestion chain hash. Integrity field in `digest_line_meta`, provenance in insight cards, source-weighted fusion cells. 34 new tests, 0 regressions. Env: `WORLDBASE_PROVENANCE=1` (default on) |
