@@ -660,6 +660,29 @@ async def warm_maritime() -> dict | None:
     return result
 
 
+async def touch_maritime_cache() -> bool:
+    """Bump feed_cache.cached_at from the AISstream buffer (no upstream HTTP)."""
+    regions = _active_regions()
+    vessels = _snapshot_from_stream(regions)
+    if not vessels:
+        return False
+    stream_meta: dict[str, Any] | None = None
+    if _aisstream_background_on():
+        stream_meta = {
+            "stream_connected": bool(_STREAM.get("connected")),
+            "stream_buffer": len(_STREAM.get("vessels") or {}),
+        }
+    result = _build_result(
+        vessels,
+        errors=None,
+        regions=regions,
+        stream_meta=stream_meta,
+    )
+    _CACHE["maritime:all"] = (time.time(), result)
+    feed_registry.write_auto("maritime", result)
+    return True
+
+
 @router.get("")
 async def get_maritime():
     """Return live vessel positions from all tracked regions."""

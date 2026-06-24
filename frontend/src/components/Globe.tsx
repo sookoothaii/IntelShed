@@ -353,7 +353,10 @@ function applyGlobePowerSettings(
   const scene = viewer.scene
   const throttle = !hudVisible || !power.docVisible || !power.intersecting
   const normalFps = GLOBE_TARGET_FPS > 0 ? GLOBE_TARGET_FPS : 0
-  viewer.targetFrameRate = throttle ? GLOBE_POWER_SAVE_FPS : normalFps
+  // When idle-fps quiescence is enabled, the render pump owns targetFrameRate.
+  if (GLOBE_IDLE_FPS <= 0) {
+    viewer.targetFrameRate = throttle ? GLOBE_POWER_SAVE_FPS : normalFps
+  }
 
   if (!GLOBE_CONTINUOUS_RENDER) {
     scene.requestRenderMode = true
@@ -1084,6 +1087,8 @@ export default function Globe({
       scene.globe.depthTestAgainstTerrain = false
       scene.globe.maximumScreenSpaceError = GLOBE_MAX_SSE
       scene.globe.tileCacheSize = GLOBE_TILE_CACHE_SIZE
+      scene.globe.preloadAncestors = false
+      scene.globe.preloadSiblings = false
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
       ;(scene.globe as any).atmosphereLightIntensity = 12.0
@@ -1255,6 +1260,11 @@ export default function Globe({
           const quiescent = !busy && !motionLayer && tilesSettled
           const desired = quiescent ? GLOBE_IDLE_FPS : GLOBE_IDLE_RESTORE_FPS
           if (v.targetFrameRate !== desired) v.targetFrameRate = desired
+          const globe = v.scene.globe as any
+          const descLimit = quiescent ? 0 : 20
+          if (globe.loadingDescendantLimit !== descLimit) {
+            globe.loadingDescendantLimit = descLimit
+          }
         }
 
         if (pulseFrame || (v.scene.requestRenderMode && busy)) {

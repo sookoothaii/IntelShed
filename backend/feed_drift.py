@@ -183,6 +183,11 @@ def detect_drift(feeds: dict[str, dict[str, Any]], conn: sqlite3.Connection, now
         if prev < _MIN_BASELINE:
             continue
         if curr < prev * _DRIFT_RATIO:
+            # Healthy feed with a large count drop usually means methodology changed
+            # (e.g. wildfires dedup after an inflated baseline), not upstream outage.
+            if not meta.get("error") and not meta.get("stale") and curr >= _MIN_BASELINE:
+                if prev > curr * 10:
+                    continue
             drop_pct = round(100.0 * (1.0 - curr / prev), 1) if prev else 0.0
             drifting.append(
                 {
