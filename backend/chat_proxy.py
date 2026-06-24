@@ -116,20 +116,31 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
     ctx = await build_chat_context() if want_ctx else ""
 
     rag_block = ""
+    route_tag = ""
     if want_ctx:
         from firewall_bridge import _extract_user_text
-        from rag_crag import build_rag_crag_block
+        from query_router import router_enabled, route_label
 
         user_q = _extract_user_text(messages)
         if len(user_q) >= 8:
-            rag_block = await build_rag_crag_block(user_q)
+            if router_enabled():
+                from rag_crag import build_routed_block
+                routed = await build_routed_block(user_q)
+                rag_block = routed.get("block", "")
+                route_tag = route_label(routed.get("route", "vector"))
+            else:
+                from rag_crag import build_rag_crag_block
+                rag_block = await build_rag_crag_block(user_q)
 
     if ctx or entity_context or search_results or rag_block:
         parts = []
         if ctx:
             parts.append("=== INTERNAL TELEMETRY ===\n" + ctx)
         if rag_block:
-            parts.append(rag_block)
+            if route_tag:
+                parts.append(f"Retrieval mode: {route_tag}\n\n" + rag_block)
+            else:
+                parts.append(rag_block)
         if entity_context:
             parts.append("=== SELECTED TARGET (Globe) ===\n" + entity_context)
         if search_results:
@@ -151,6 +162,8 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
                 "INTERNAL TELEMETRY is attached (CTX/situation mode).\n"
                 "- RAG MEMORY block: citable indexed briefings/feeds; CRAG fallback "
                 "adds live situations + FtM subgraph when memory confidence is low.\n"
+                "- Query Router (P1): retrieval mode shown above — use the indicated "
+                "retrieval strategy (VECTOR/GRAPH/SPATIAL/HYBRID/LIVE) for context.\n"
                 "- Tools may query WorldBase APIs (situations, OSINT lookups).\n\n"
                 "RULES:\n"
                 "1. Answer the user's actual question FIRST (1-3 sentences), same language.\n"
