@@ -11,6 +11,7 @@ import tempfile
 import unittest
 
 import ftm_store
+import ftm_connection
 
 
 class FtmStoreTest(unittest.TestCase):
@@ -18,16 +19,16 @@ class FtmStoreTest(unittest.TestCase):
         fd, self.path = tempfile.mkstemp(suffix=".duckdb")
         os.close(fd)
         os.remove(self.path)  # let DuckDB create it fresh
-        ftm_store._CONN = None
+        ftm_connection._CONN = None
         ftm_store.set_db_path(self.path)
         ftm_store.init_store()
 
     def tearDown(self):
         try:
-            if ftm_store._CONN is not None:
-                ftm_store._CONN.close()
+            if ftm_connection._CONN is not None:
+                ftm_connection._CONN.close()
         finally:
-            ftm_store._CONN = None
+            ftm_connection._CONN = None
         for ext in ("", ".wal"):
             try:
                 os.remove(self.path + ext)
@@ -129,15 +130,15 @@ class FtmStoreTest(unittest.TestCase):
         self.assertEqual(rows[0]["schema"], "Event")
 
     def test_store_status_reports_init_error(self):
-        ftm_store._CONN = None
-        ftm_store._INIT_ERROR = "IO Error: file locked"
+        ftm_connection._CONN = None
+        ftm_connection._INIT_ERROR = "IO Error: file locked"
         st = ftm_store.store_status(_recover=False)
         self.assertFalse(st["ready"])
         self.assertIn("locked", st["error"])
 
     def test_store_status_opens_uninitialized_store(self):
-        ftm_store._CONN = None
-        ftm_store._INIT_ERROR = None
+        ftm_connection._CONN = None
+        ftm_connection._INIT_ERROR = None
         st = ftm_store.store_status()
         self.assertTrue(st["ready"])
         self.assertGreaterEqual(st["entities"], 0)

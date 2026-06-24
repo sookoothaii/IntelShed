@@ -1,62 +1,71 @@
-"""Register all WorldBase HTTP routers on the FastAPI app."""
+"""Register all WorldBase HTTP routers on the FastAPI app.
+
+All imports are deferred inside ``register_routers`` so that module-level
+side effects (DuckDB opens, HTTP clients, heavy ML loads) only fire when
+the app is actually assembled — not when ``registry`` itself is imported.
+This breaks circular-import chains and speeds up cold startup.
+"""
 
 from __future__ import annotations
 
-import agent_bus
-import ais_bridge
-import anomaly_river
-import blitzortung_bridge
-import cams_bridge
-import cap_bridge
-import connectors.router as connectors_router
-import credentials.router as credentials_router
-import cve_bridge
-import duckdb_fusion
-import entsoe_bridge
-import entity_resolution
-import feed_ingest
-import feeds_extra
-import firewall_bridge
-import flowsint_bridge
-import ftm_store
-import fusion_heatmap
-import gdelt_bridge
-import gibs_bridge
-import globe_snapshot
-import gtfs_ingestor
-import humanitarian_bridge
-import insights
-import newsdata_bridge
-import intel_ingest
-import intel_graph_export
-import intel_proximity
-import intel_semantic_links
-import markets_bridge
-import nasa_firms
-import node_sync
-import osint_tools
-import outages_bridge
-import pegel_bridge
-import pmtiles_bridge
-import rag_memory
-import sanctions_bridge
-import situations
-import smard_bridge
-import stac_bridge
-import stock_bridge
-import traffic_bridge
-import trust_router
-import volcano_bridge
-import webcam_bridge
-import windy_bridge
-import aircraft_trails
-from routes import aircraft as aircraft_routes
-from routes import chat as chat_routes
-from routes import core_feeds
-from routes import health as health_routes
-
 
 def register_routers(app) -> None:
+    # Core + routes package
+    from routes import aircraft as aircraft_routes
+    from routes import chat as chat_routes
+    from routes import core_feeds
+    from routes import health as health_routes
+
+    # Bridge / feature modules
+    import agent_bus
+    import ais_bridge
+    import aircraft_trails
+    import anomaly_river
+    import blitzortung_bridge
+    import cams_bridge
+    import cap_bridge
+    import connectors.router as connectors_router
+    import credentials.router as credentials_router
+    import cve_bridge
+    import duckdb_fusion
+    import entsoe_bridge
+    import entity_resolution
+    import feed_ingest
+    import feeds_extra
+    import firewall_bridge
+    import flowsint_bridge
+    import ftm_store
+    import fusion_heatmap
+    import gdelt_bridge
+    import gibs_bridge
+    import globe_snapshot
+    import gtfs_ingestor
+    import humanitarian_bridge
+    import insights
+    import intel_graph_export
+    import intel_ingest
+    import intel_proximity
+    import intel_semantic_links
+    import markets_bridge
+    import nasa_firms
+    import newsdata_bridge
+    import node_sync
+    import osint_tools
+    import outages_bridge
+    import pegel_bridge
+    import pmtiles_bridge
+    import rag_memory
+    import sanctions_bridge
+    import situations
+    import smard_bridge
+    import stac_bridge
+    import stock_bridge
+    import traffic_bridge
+    import trust_router
+    import volcano_bridge
+    import webcam_bridge
+    import windy_bridge
+
     app.include_router(agent_bus.router)
     app.include_router(core_feeds.router)
     app.include_router(chat_routes.router)

@@ -29,7 +29,7 @@ Copy env: `backend\.env.example` → `backend\.env`, `frontend\.env.example` →
 
 Unless the user says otherwise, prioritize:
 
-1. **24h security digest** — `backend/operator_briefing.py` + `backend/node_sync.py`
+1. **24h security digest** — `backend/briefing_digest.py` + `backend/briefing_prompt.py` + `backend/node_briefing.py` (compat: `operator_briefing.py`, `node_sync.py`)
 2. **Operator home region** — `WORLDBASE_OPERATOR_REGION=thailand` (LOCAL / REGION / GLOBAL buckets)
 3. **GDELT local** — `backend/gdelt_bridge.py` → `/api/gdelt/pulse/local`, `/api/gdelt/geo/local`
 4. **Pi pull loop** — PC generates briefing → Pi `GET /api/node/pull` → portal `briefing_latest.json`
@@ -126,9 +126,9 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | Credential registry | `backend/credentials/registry.py`, `GET /api/credentials/status` |
 | HUD styles | `frontend/src/styles/hud.css` |
 | Feeds + cache | `backend/feeds_extra.py`, `backend/feed_registry.py`, `backend/connector_registry.py`, `backend/feeds/envelope.py`, `backend/feeds/runner.py` (FeedConnector) |
-| Node sync + briefing routes | `backend/node_sync.py`, `backend/briefing_quality.py`, `backend/trust_probes.py` |
+| Node sync + briefing routes | `backend/node_sync.py` (compat), `backend/node_ingest.py` (telemetry/SSE/mesh), `backend/node_briefing.py` (snapshot/LLM/pull), `backend/briefing_quality.py`, `backend/trust_probes.py` |
 | MCP + Agent Bus | `backend/mcp_server.py`, `backend/agent_bus.py`, [`docs/MCP.md`](docs/MCP.md) |
-| Operator digest | `backend/operator_briefing.py` |
+| Operator digest | `backend/operator_briefing.py` (compat), `backend/briefing_digest.py` (classification/watch items), `backend/briefing_prompt.py` (LLM prompt/fallback) |
 | FtM → 24h briefing | `backend/intel_briefing.py` |
 | FtM subgraph (Track 3) | `backend/intel_subgraph.py` — `GET /api/intel/subgraph` |
 | Spatial proximity (Track 3+) | `backend/intel_proximity.py` — `POST /api/intel/spatial/run`; runs after feed ingest when `WORLDBASE_INTEL_SPATIAL_EDGES=1` |
@@ -145,8 +145,9 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | STAC (imagery + feeds) | `backend/stac_bridge.py` — Element84 search + connector feed ItemCollection (bbox, geometry, registry links) |
 | Connector + feed status UI | `frontend/src/components/FeedsStatusPanel.tsx` — DATA → FEEDS: registry, STAC links, globe fly-to |
 | Fusion → briefing | `backend/fusion_heatmap.py` |
+| Chat + LLM proxy | `backend/routes/chat.py` (compat), `backend/chat_context.py` (context builder + search), `backend/chat_proxy.py` (models/chat/providers) |
 | RAG memory | `backend/rag_memory.py`, `rag_hybrid.py`, `rag_rerank.py`, `rag_spatial.py`, `rag_crag.py` — hybrid RRF + optional BGE rerank; `GET /api/memory/search?spatial=1`, `GET /api/memory/stats` |
-| FtM entity store | `backend/ftm_store.py` |
+| FtM entity store | `backend/ftm_store.py` (compat), `backend/ftm_connection.py` (DuckDB conn + recovery), `backend/ftm_schema.py` (DDL + index drift), `backend/ftm_query.py` (CRUD/graph/briefing), `backend/ftm_sanctions.py` (OpenSanctions adapter), `backend/routes/ftm_api.py` (9 HTTP endpoints) |
 | Document intel ingest (GLiNER; GLiREL opt-in) | `backend/intel_ingest.py`, [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md), [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) |
 | Entity resolution (exact + subset + optional Splink) | `backend/entity_resolution.py` — `POST /api/intel/resolution/run` |
 | Live feed ingest (T2 YAML mappings) | `backend/feed_ingest.py`, `backend/ingest/mappings/` — `POST /api/intel/feeds/run` |
@@ -175,7 +176,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 
 `offgrid-raspi/` is the OGN edge stack (LCD, world-sync, mesh). When changing Pi↔PC sync, touch both:
 
-- PC: `backend/node_sync.py`, `scripts/deploy-pi-sync.ps1`
+- PC: `backend/node_ingest.py` (was `node_sync.py`), `scripts/deploy-pi-sync.ps1`
 - Pi: `offgrid-raspi/scripts/worldbase_push.py`, `worldbase_pull.py`
 
 Push reads:

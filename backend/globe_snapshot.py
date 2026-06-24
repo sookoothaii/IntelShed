@@ -23,10 +23,10 @@ _ALL_LAYERS = frozenset({
 async def _fetch_layer(name: str) -> tuple[str, dict | None]:
     try:
         if name == "quakes":
-            from main import get_earthquakes
+            from routes.core_feeds import get_earthquakes
             return name, await get_earthquakes(period="day", magnitude="2.5")
         if name == "events":
-            from main import get_events
+            from routes.core_feeds import get_events
             return name, await get_events(limit=120)
         if name == "nodes":
             from node_sync import list_nodes

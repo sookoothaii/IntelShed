@@ -56,15 +56,6 @@ for r in app.routes:
 
 register_lifecycle(app)
 
-# Compat re-exports for globe_snapshot, mcp_server, fusion_heatmap.
-from routes.core_feeds import (  # noqa: E402
-    get_earthquakes,
-    get_events,
-    get_iss,
-    get_satellites,
-    get_world,
-)
-
 if __name__ == "__main__":
     import uvicorn
 

@@ -327,8 +327,8 @@ async def _gather_quakes() -> list[dict]:
     """Earthquakes weighted by magnitude (M2.5+). Reads main app endpoint."""
     out: list[dict] = []
     try:
-        import main as worldbase_main
-        data = await worldbase_main.get_earthquakes(period="day", magnitude="2.5")
+        from routes.core_feeds import get_earthquakes
+        data = await get_earthquakes(period="day", magnitude="2.5")
     except Exception:
         return []
     for q in (data.get("earthquakes") or [])[:500]:

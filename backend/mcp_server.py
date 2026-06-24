@@ -244,8 +244,8 @@ async def fetch_feed_sample(feed_id: str, limit: int = 5) -> dict[str, Any]:
 
 async def _fetch_feed_live(feed_id: str, limit: int) -> dict[str, Any]:
     if feed_id == "earthquakes":
-        import main as worldbase_main
-        data = await worldbase_main.get_earthquakes(period="day", magnitude="2.5")
+        from routes.core_feeds import get_earthquakes
+        data = await get_earthquakes(period="day", magnitude="2.5")
         return _trim_payload(data, limit) or {}
 
     if feed_id in ("gdacs", "gdacs_v2"):
