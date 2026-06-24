@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_PATH = Path(__file__).resolve().parent / "data" / "intel_subgraph_latest.json"
 
@@ -75,7 +78,7 @@ def compact_for_pull(
 
             payload = intel_subgraph.build_subgraph(window_hours=window_hours)
         except Exception as exc:
-            return {"available": False, "reason": str(exc)[:120]}
+            return {"available": False, "reason": "subgraph build error"}
 
     if not payload.get("available"):
         return {
@@ -128,7 +131,8 @@ async def subgraph_export(
     try:
         return export_operator_subgraph(hops=hops, window_hours=window_hours, write_disk=True)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"subgraph export failed: {exc}") from exc
+        logger.exception("subgraph export failed")
+        raise HTTPException(status_code=503, detail="subgraph export failed") from exc
 
 
 @router.get("/export/latest")

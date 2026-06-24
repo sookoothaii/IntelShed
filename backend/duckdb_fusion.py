@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -10,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from auth.security import verify_lan_auth
 
 import fusion_spatial_stage as fss
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/fusion", tags=["fusion"])
 
@@ -58,11 +61,9 @@ def fusion_sample(limit: int = 20):
     conn = _duck()
     try:
         if _GEOPARQUET and Path(_GEOPARQUET).exists():
-            q = f"""
-                SELECT * FROM read_parquet('{_GEOPARQUET.replace(chr(39), "")}')
-                LIMIT {min(limit, 100)}
-            """
-            rows = conn.execute(q).fetchdf()
+            rows = conn.execute(
+                "SELECT * FROM read_parquet(?) LIMIT ?", [_GEOPARQUET, min(limit, 100)]
+            ).fetchdf()
             return {"mode": "geoparquet", "count": len(rows), "columns": list(rows.columns), "preview": rows.head(5).to_dict(orient="records")}
         # Built-in demo: H3-style grid from entity_store lat/lon
         db = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
@@ -70,15 +71,16 @@ def fusion_sample(limit: int = 20):
         )
         if Path(db).exists():
             n = conn.execute(
-                f"SELECT COUNT(*) FROM sqlite_scan('{db.replace(chr(39), '')}', 'entities') WHERE lat IS NOT NULL"
+                "SELECT COUNT(*) FROM sqlite_scan(?, 'entities') WHERE lat IS NOT NULL", [db]
             ).fetchone()[0]
             sample = conn.execute(
-                f"""
-                SELECT id, type, label, lat, lon, source_feed
-                FROM sqlite_scan('{db.replace(chr(39), '')}', 'entities')
-                WHERE lat IS NOT NULL
-                LIMIT {min(limit, 50)}
                 """
+                SELECT id, type, label, lat, lon, source_feed
+                FROM sqlite_scan(?, 'entities')
+                WHERE lat IS NOT NULL
+                LIMIT ?
+                """,
+                [db, min(limit, 50)],
             ).fetchdf()
             return {"mode": "entities", "count": int(n), "preview": sample.to_dict(orient="records")}
         return {"mode": "empty", "count": 0, "hint": "Set FUSION_GEOPARQUET or populate entities"}
@@ -92,7 +94,8 @@ def fusion_stage_status():
     try:
         return fss.stage_status()
     except Exception as exc:
-        raise HTTPException(503, str(exc)[:200]) from exc
+        logger.exception("fusion stage status failed")
+        raise HTTPException(503, "stage status unavailable") from exc
 
 
 @router.post("/stage")
@@ -101,9 +104,11 @@ def fusion_stage_run(_auth: str | None = Depends(verify_lan_auth)):
     try:
         return fss.stage_to_parquet()
     except RuntimeError as exc:
-        raise HTTPException(503, str(exc)[:200]) from exc
+        logger.exception("fusion stage run failed")
+        raise HTTPException(503, "staging failed — check FUSION_GEOPARQUET and feed data") from exc
     except Exception as exc:
-        raise HTTPException(500, str(exc)[:200]) from exc
+        logger.exception("fusion stage run failed")
+        raise HTTPException(500, "internal error during staging") from exc
 
 
 @router.get("/stage/query")
@@ -120,4 +125,5 @@ def fusion_stage_query(
     try:
         return fss.query_bbox(min_lat, min_lon, max_lat, max_lon, limit=limit)
     except Exception as exc:
-        raise HTTPException(503, str(exc)[:200]) from exc
+        logger.exception("fusion bbox query failed")
+        raise HTTPException(503, "query failed — staged data may be unavailable") from exc

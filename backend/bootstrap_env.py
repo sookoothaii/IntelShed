@@ -25,7 +25,11 @@ def _truthy(val: str) -> bool:
 
 def log_security_startup() -> None:
     ingest = os.getenv("NODE_INGEST_TOKEN", "")
+    api_key = os.getenv("WORLDBASE_API_KEY", "")
+    admin = os.getenv("NODE_ADMIN_TOKEN", "")
     require = _truthy(os.getenv("WORLDBASE_REQUIRE_NODE_TOKEN", ""))
+    dev_mode = _truthy(os.getenv("WORLDBASE_INSECURE_DEV", ""))
+
     if not ingest:
         msg = (
             "NODE_INGEST_TOKEN not set — /api/node/* is open on the bind address. "
@@ -38,4 +42,30 @@ def log_security_startup() -> None:
             )
         print("[SECURITY] " + msg, flush=True)
     else:
-        print("[SECURITY] Node ingest/admin API protected (NODE_INGEST_TOKEN set).", flush=True)
+        print("[SECURITY] Node ingest API protected (NODE_INGEST_TOKEN set).", flush=True)
+
+    if not api_key and not ingest and not dev_mode:
+        print(
+            "[SECURITY] WARNING: No WORLDBASE_API_KEY or NODE_INGEST_TOKEN set. "
+            "All endpoints are unauthenticated. "
+            "Set WORLDBASE_INSECURE_DEV=1 to acknowledge and suppress this warning.",
+            flush=True,
+        )
+    elif dev_mode and not api_key and not ingest:
+        print(
+            "[SECURITY] Running in INSECURE DEV MODE (WORLDBASE_INSECURE_DEV=1). "
+            "All endpoints unauthenticated. Do NOT use in production.",
+            flush=True,
+        )
+    else:
+        if api_key:
+            print("[SECURITY] API key auth enabled (WORLDBASE_API_KEY set).", flush=True)
+
+    if admin and admin != ingest:
+        print("[SECURITY] Admin token is separate from ingest token (NODE_ADMIN_TOKEN set).", flush=True)
+    elif ingest and not admin:
+        print(
+            "[SECURITY] NOTE: NODE_ADMIN_TOKEN not set — admin endpoints fall back to NODE_INGEST_TOKEN. "
+            "Set NODE_ADMIN_TOKEN separately for privilege separation.",
+            flush=True,
+        )

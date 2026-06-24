@@ -16,6 +16,7 @@ module — it only pulls finished briefings via ``/api/node/pull``.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import threading
@@ -23,6 +24,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 import ftm_store
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config (env-overridable)
@@ -169,10 +172,12 @@ def _load() -> tuple[Any, Any | None, str, str]:
                         glirel.eval()
                     except Exception:
                         pass
-                except ImportError as exc:
-                    _GLIREL_SKIP_REASON = f"glirel not installed: {exc}"
-                except Exception as exc:
-                    _GLIREL_SKIP_REASON = f"{type(exc).__name__}: {exc}"
+                except ImportError:
+                    _GLIREL_SKIP_REASON = "glirel not installed"
+                    logger.exception("glirel import failed")
+                except Exception:
+                    _GLIREL_SKIP_REASON = "glirel load failed"
+                    logger.exception("glirel load failed")
             else:
                 _GLIREL_SKIP_REASON = "WORLDBASE_INTEL_GLIREL is not enabled (default)"
 
@@ -186,8 +191,9 @@ def _load() -> tuple[Any, Any | None, str, str]:
                 pass
 
             _GLINER, _GLIREL, _DEVICE, _LOAD_ERROR = gliner, glirel, device, None
-        except Exception as exc:  # pragma: no cover
-            _LOAD_ERROR = f"{type(exc).__name__}: {exc}"
+        except Exception:  # pragma: no cover
+            _LOAD_ERROR = "model load failed"
+            logger.exception("model load failed")
             raise
     mode = "glirel" if (_GLIREL is not None) else (
         "unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled"
@@ -490,7 +496,8 @@ async def ingest_status(load: bool = False):
         try:
             await _to_thread(_load)
         except Exception as exc:
-            raise HTTPException(status_code=503, detail=f"model load failed: {exc}")
+            logger.exception("model load failed")
+            raise HTTPException(status_code=503, detail="model load failed")
     return status()
 
 
@@ -512,7 +519,8 @@ async def ingest_text_route(
             relation_threshold=payload.get("relation_threshold"),
         )
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"ingest failed: {exc}")
+        logger.exception("text ingest failed")
+        raise HTTPException(status_code=503, detail="ingest failed")
 
 
 @router.post("/document")
@@ -537,10 +545,24 @@ async def ingest_document_route(
     data = b"".join(chunks)
     if not data:
         raise HTTPException(status_code=400, detail="empty upload")
+    allowed_types = {
+        "application/pdf",
+        "message/rfc822",
+        "application/vnd.ms-outlook",
+        "text/plain",
+        "application/octet-stream",
+    }
+    ct = (file.content_type or "").lower()
+    if ct and ct not in allowed_types:
+        raise HTTPException(
+            status_code=415,
+            detail=f"unsupported content-type: {ct}. allowed: pdf, email, text",
+        )
     try:
         text = await _to_thread(extract_document, file.filename or "", data)
     except Exception as exc:
-        raise HTTPException(status_code=415, detail=f"could not parse document: {exc}")
+        logger.exception("document parse failed")
+        raise HTTPException(status_code=415, detail="could not parse document")
     if not text.strip():
         raise HTTPException(status_code=422, detail="no extractable text in document")
     try:
@@ -548,7 +570,8 @@ async def ingest_document_route(
             ingest_text, text, dataset=dataset, source_ref=file.filename
         )
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"ingest failed: {exc}")
+        logger.exception("document ingest failed")
+        raise HTTPException(status_code=503, detail="ingest failed")
 
 
 async def _to_thread(fn, *args, **kwargs):

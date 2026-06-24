@@ -75,9 +75,10 @@ def _verify_node_secret(x_node_token: str = "") -> None:
 
 
 def _verify_admin_secret(x_admin_token: str = "") -> None:
-    if not ADMIN_TOKEN:
+    token = ADMIN_TOKEN or INGEST_TOKEN
+    if not token:
         return
-    if not _hmac.compare_digest(ADMIN_TOKEN, (x_admin_token or "")):
+    if not _hmac.compare_digest(token, (x_admin_token or "")):
         raise HTTPException(status_code=403, detail="Invalid or missing admin token")
 
 

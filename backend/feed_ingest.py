@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import httpx
 
@@ -312,18 +315,20 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
                             rag_source=rag_src,
                         )
                         result["rag_indexed"] = rag_out.get("indexed", 0)
-                    except Exception as exc:
+                    except Exception:
                         if len(errors) < 8:
-                            errors.append(f"{name} rag: {exc}")
+                            errors.append(f"{name} rag: indexing failed")
+                        logger.exception("rag indexing failed for %s", name)
             per_source[name] = result
             totals["records"] += result.get("records", len(records))
             totals["entities"] += result.get("entities_written", 0)
             totals["edges"] += result.get("edges_written", 0)
             if result.get("errors"):
                 errors.extend(result["errors"][:2])
-        except Exception as exc:
-            errors.append(f"{name}: {exc}")
-            per_source[name] = {"error": str(exc)}
+        except Exception:
+            errors.append(f"{name}: ingest failed")
+            per_source[name] = {"error": "ingest failed"}
+            logger.exception("feed ingest failed for %s", name)
 
     # Aircraft anomalies (legacy mirror, no YAML)
     if "anomalies" in chosen or sources is None:
@@ -332,9 +337,10 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
             ac = ingest_aircraft_anomalies(anomalies)
             per_source["anomalies"] = ac
             totals["entities"] += ac.get("entities_written", 0)
-        except Exception as exc:
+        except Exception:
             if len(errors) < 8:
-                errors.append(f"anomalies: {exc}")
+                errors.append("anomalies: ingest failed")
+            logger.exception("anomalies ingest failed")
 
     out = {
         "ok": not errors or totals["entities"] > 0,
@@ -359,8 +365,9 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
                 "splink_edges": resolution.get("splink_edges", 0),
                 "resolution_edges_total": resolution.get("resolution_edges_total", 0),
             }
-        except Exception as exc:
-            out["errors"] = list(out["errors"]) + [f"resolution: {exc}"]
+        except Exception:
+            out["errors"] = list(out["errors"]) + ["resolution: failed"]
+            logger.exception("post-feed resolution failed")
 
     if out["ok"]:
         try:
@@ -373,8 +380,9 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
                 )
                 out["spatial_edges"] = spatial
                 totals["edges"] += spatial.get("edges_added", 0)
-        except Exception as exc:
-            out["errors"] = list(out["errors"]) + [f"spatial: {exc}"]
+        except Exception:
+            out["errors"] = list(out["errors"]) + ["spatial: failed"]
+            logger.exception("spatial proximity failed")
 
         try:
             import intel_semantic_links
@@ -390,8 +398,9 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
                 sanction = await intel_semantic_links.link_sanction_edges(window_hours=24)
                 out["sanction_edges"] = sanction
                 totals["edges"] += sanction.get("edges_added", 0)
-        except Exception as exc:
-            out["errors"] = list(out["errors"]) + [f"semantic: {exc}"]
+        except Exception:
+            out["errors"] = list(out["errors"]) + ["semantic: failed"]
+            logger.exception("semantic links failed")
 
         try:
             import intel_graph_export
@@ -403,8 +412,9 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
                     "edge_count": exported.get("edge_count"),
                     "export_path": exported.get("export_path"),
                 }
-        except Exception as exc:
-            out["errors"] = list(out["errors"]) + [f"subgraph_export: {exc}"]
+        except Exception:
+            out["errors"] = list(out["errors"]) + ["subgraph_export: failed"]
+            logger.exception("subgraph export failed")
 
     _LAST_RUN = out
     _LAST_ERROR = errors[0] if errors else None
@@ -454,4 +464,5 @@ async def feeds_run(
     try:
         return await run_feed_ingest(sources=src_list)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"feed ingest failed: {exc}") from exc
+        logger.exception("feed ingest failed")
+        raise HTTPException(status_code=503, detail="feed ingest failed") from exc

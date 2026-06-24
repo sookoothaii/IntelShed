@@ -6,12 +6,15 @@ has edges even when YAML mappings only write entities.
 
 from __future__ import annotations
 
+import logging
 import math
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import ftm_store
+
+logger = logging.getLogger(__name__)
 
 DATASET = "spatial-proximity"
 EDGE_KIND = "nearby"
@@ -191,4 +194,5 @@ async def spatial_run(
     try:
         return link_proximity_edges(window_hours=window_hours, max_km=max_km)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"spatial link failed: {exc}") from exc
+        logger.exception("spatial link failed")
+        raise HTTPException(status_code=503, detail="spatial link failed") from exc

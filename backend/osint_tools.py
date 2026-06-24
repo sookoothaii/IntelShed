@@ -7,6 +7,7 @@ No API keys required where possible.
 
 import os
 import json
+import ipaddress
 import socket
 import re
 import hashlib
@@ -23,6 +24,15 @@ router = APIRouter(prefix="/api/osint", tags=["osint-tools"])
 
 _UA = {"User-Agent": "WorldBase-OSINT/1.0 (research only)"}
 _HIBP_API_KEY = os.getenv("HIBP_API_KEY", "").strip()
+
+
+def _is_private_or_reserved(ip_str: str) -> bool:
+    """Check if an IP is private, loopback, link-local, or reserved."""
+    try:
+        addr = ipaddress.ip_address(ip_str)
+        return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast
+    except ValueError:
+        return True
 
 
 def _parse_crt_sh_names(rows: list, domain: str, limit: int = 40) -> list[str]:
@@ -92,6 +102,8 @@ async def ip_lookup(request: Request, ip: str, api_key: str = Depends(verify_api
         socket.inet_aton(ip)
     except OSError:
         return {"error": "Invalid IPv4 address"}
+    if _is_private_or_reserved(ip):
+        return {"error": "Private or reserved IP addresses are not allowed"}
     try:
         async with httpx.AsyncClient(timeout=10.0, headers=_UA) as client:
             r = await client.get(f"http://ip-api.com/json/{ip}?fields=status,message,country,regionName,city,zip,lat,lon,isp,org,as,mobile,proxy,hosting")
@@ -135,6 +147,8 @@ async def domain_lookup(request: Request, domain: str, api_key: str = Depends(ve
         ips = [str(r) for r in answers]
     except Exception:
         ips = []
+    # Block private/resolved IPs to prevent SSRF
+    ips = [ip for ip in ips if not _is_private_or_reserved(ip)]
     try:
         answers = dns.resolver.resolve(domain, "MX")
         mx = [str(r.exchange) for r in answers]
@@ -143,6 +157,8 @@ async def domain_lookup(request: Request, domain: str, api_key: str = Depends(ve
     try:
         import socket
         host_ip = socket.gethostbyname(domain)
+        if _is_private_or_reserved(host_ip):
+            host_ip = None
     except Exception:
         host_ip = None
     cert_names, cert_error = await _fetch_crt_sh_subdomains(domain)

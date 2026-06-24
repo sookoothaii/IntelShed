@@ -9,6 +9,7 @@ rows exist. Splink is lazy-imported (``pip install splink``).
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import threading
@@ -17,6 +18,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 import ftm_store
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -336,9 +339,10 @@ def run_resolution(*, schemas: tuple[str, ...] | None = None) -> dict:
                 if _SPLINK_ENABLED:
                     try:
                         splink_added = _run_splink_schema(schema, rows, seen_pairs)
-                    except Exception as exc:
+                    except Exception:
                         if len(errors) < 5:
-                            errors.append(f"{schema}: {exc}")
+                            errors.append(f"{schema}: resolution failed")
+                        logger.exception("splink resolution failed for schema %s", schema)
                 per_schema[schema] = {
                     "candidates": len(entities),
                     "rows": len(rows),
@@ -371,8 +375,9 @@ def run_resolution(*, schemas: tuple[str, ...] | None = None) -> dict:
             _LAST_RUN = result
             _LAST_ERROR = errors[0] if errors else None
             return result
-        except Exception as exc:
-            _LAST_ERROR = str(exc)
+        except Exception:
+            _LAST_ERROR = "resolution run failed"
+            logger.exception("resolution run failed")
             raise
 
 
@@ -424,7 +429,8 @@ async def resolution_run(_auth: str | None = Depends(verify_lan_auth)):
     try:
         return await asyncio.to_thread(run_resolution)
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"resolution failed: {exc}") from exc
+        logger.exception("entity resolution failed")
+        raise HTTPException(status_code=503, detail="entity resolution failed") from exc
 
 
 @router.post("/reset")
@@ -434,4 +440,5 @@ async def resolution_reset(_auth: str | None = Depends(verify_lan_auth)):
         deleted = await asyncio.to_thread(ftm_store.delete_edges_for_dataset, RESOLUTION_DATASET)
         return {"ok": True, "deleted_edges": deleted, "dataset": RESOLUTION_DATASET}
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"resolution reset failed: {exc}") from exc
+        logger.exception("resolution reset failed")
+        raise HTTPException(status_code=503, detail="resolution reset failed") from exc

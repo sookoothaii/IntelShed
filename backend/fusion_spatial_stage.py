@@ -226,9 +226,8 @@ def stage_status() -> dict[str, Any]:
         }
     conn = _duck_conn()
     try:
-        safe = str(path).replace("'", "''")
-        count = int(conn.execute(f"SELECT COUNT(*) FROM read_parquet('{safe}')").fetchone()[0])
-        cols = [r[0] for r in conn.execute(f"DESCRIBE SELECT * FROM read_parquet('{safe}')").fetchall()]
+        count = int(conn.execute("SELECT COUNT(*) FROM read_parquet(?)", [str(path)]).fetchone()[0])
+        cols = [r[0] for r in conn.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(path)]).fetchall()]
     finally:
         conn.close()
     mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
@@ -258,17 +257,16 @@ def query_bbox(
         return {"ok": False, "count": 0, "rows": [], "detail": "parquet not staged"}
     conn = _duck_conn()
     try:
-        safe = str(path).replace("'", "''")
         lim = min(max(limit, 1), 500)
         df = conn.execute(
-            f"""
+            """
             SELECT feed_key, source, lat, lon, label, h3_cell, cached_at
-            FROM read_parquet('{safe}')
+            FROM read_parquet(?)
             WHERE lat BETWEEN ? AND ?
               AND lon BETWEEN ? AND ?
-            LIMIT {lim}
+            LIMIT ?
             """,
-            [min_lat, max_lat, min_lon, max_lon],
+            [str(path), min_lat, max_lat, min_lon, max_lon, lim],
         ).fetchdf()
         rows = df.to_dict(orient="records")
     finally:

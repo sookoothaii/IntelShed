@@ -9,12 +9,15 @@ Adds cross-dataset links beyond haversine ``nearby`` proximity:
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import ftm_store
+
+logger = logging.getLogger(__name__)
 
 DATASET_COLOCATED = "feed-correlation"
 DATASET_CONTEXT = "spatial-context"
@@ -379,4 +382,5 @@ async def semantic_run(
             out["edges_added"] = out.get("edges_added", 0) + out["sanctions"].get("edges_added", 0)
         return out
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"semantic link failed: {exc}") from exc
+        logger.exception("semantic link failed")
+        raise HTTPException(status_code=503, detail="semantic link failed") from exc

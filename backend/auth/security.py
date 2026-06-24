@@ -21,9 +21,14 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Request, Security
 from fastapi.security import APIKeyHeader
-from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
+from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN, HTTP_503_SERVICE_UNAVAILABLE
 
 _LOOPBACK_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
+
+
+def _truthy_env(name: str) -> bool:
+    """Check if an env var is set to a truthy value."""
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -36,7 +41,7 @@ CLEANUP_INTERVAL_SECONDS = 60
 
 # Token constants (exported for node_sync compatibility)
 INGEST_TOKEN = os.getenv("NODE_INGEST_TOKEN", "")
-ADMIN_TOKEN = os.getenv("NODE_ADMIN_TOKEN", "") or INGEST_TOKEN
+ADMIN_TOKEN = os.getenv("NODE_ADMIN_TOKEN", "")
 API_KEY = os.getenv("WORLDBASE_API_KEY", "")
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -511,11 +516,16 @@ def require_admin_token(request: Request, admin_header: str = "X-Admin-Token") -
         ...     require_admin_token(request)
         ...     return {"status": "executed"}
     """
-    admin_token = os.getenv("NODE_ADMIN_TOKEN", "") or os.getenv("NODE_INGEST_TOKEN", "")
+    admin_token = os.getenv("NODE_ADMIN_TOKEN", "")
 
     if not admin_token:
-        # Development mode: allow without token
-        return
+        if _truthy_env("WORLDBASE_INSECURE_DEV"):
+            return
+        raise HTTPException(
+            status_code=HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin operations require NODE_ADMIN_TOKEN to be set. "
+                   "Set WORLDBASE_INSECURE_DEV=1 for local development.",
+        )
 
     provided_token = request.headers.get(admin_header, "")
     if not provided_token:
@@ -702,9 +712,8 @@ def get_auth_config() -> dict:
         "nonce_max_age_seconds": NONCE_MAX_AGE_SECONDS,
         "cleanup_interval_seconds": CLEANUP_INTERVAL_SECONDS,
         "ingest_token_set": bool(os.getenv("NODE_INGEST_TOKEN")),
-        "admin_token_set": bool(
-            os.getenv("NODE_ADMIN_TOKEN") or os.getenv("NODE_INGEST_TOKEN")
-        ),
+        "admin_token_set": bool(os.getenv("NODE_ADMIN_TOKEN")),
+        "admin_token_separate": bool(os.getenv("NODE_ADMIN_TOKEN")) and os.getenv("NODE_ADMIN_TOKEN") != os.getenv("NODE_INGEST_TOKEN"),
     }
 
 
