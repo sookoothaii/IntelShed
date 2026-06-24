@@ -33,6 +33,8 @@ import {
   MVTDataProvider,
   ImageryLayer,
   JulianDate,
+  createWorldImageryAsync,
+  IonWorldImageryStyle,
 } from 'cesium'
 
 import 'cesium/Build/Cesium/Widgets/widgets.css'
@@ -59,7 +61,7 @@ import { canFetch } from '../lib/networkFetch';
 import { createTerrainWithFallback, attachTerrainFailover } from '../lib/cesiumTerrain';
 
 import type { MapViewMode } from '../lib/mapView'
-import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET } from '../lib/mapView'
+import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET, hasCesiumIonToken } from '../lib/mapView'
 import { fetchApi } from '../lib/networkFetch';
 import { buildEntityHoverTip } from '../lib/entityHoverTip';
 import { resolveGlobePick } from '../lib/globePick';
@@ -113,6 +115,13 @@ const GLOBE_IDLE_RESTORE_FPS = GLOBE_TARGET_FPS > 0 ? GLOBE_TARGET_FPS : 60
 // signal.)
 const GLOBE_IDLE_TILE_SETTLE_MS = 1500
 
+// Tile-churn suppression: off-screen preload tiles never settle and keep
+// tileLoadProgressEvent firing, defeating requestRenderMode idle. Disable
+// ancestor/sibling preload at init; drop loadingDescendantLimit to 0 when the
+// visible scene is quiescent (same predicate as idle fps, but always on).
+const GLOBE_LOADING_DESCENDANT_ACTIVE = 20
+const GLOBE_LOADING_DESCENDANT_QUIESCENT = 0
+
 // Globe tile detail (Cesium default 2.0). Was hard-coded 1.0 (~4× tile load); 2.0
 // is a free CPU/GPU lever with marginal visual change at globe scale.
 const GLOBE_MAX_SSE = (() => {
@@ -162,6 +171,10 @@ function esriImagery(url: string, credit: string) {
   })
 }
 
+async function ionWorldImagery(style: IonWorldImageryStyle) {
+  return createWorldImageryAsync({ style })
+}
+
 async function applyGlobeMapMode(
   viewer: Viewer,
   mode: MapViewMode,
@@ -187,20 +200,52 @@ async function applyGlobeMapMode(
     if (layer !== gibsKeep) layers.remove(layer, false)
   }
 
+  const useIon = hasCesiumIonToken()
   if (mode.basemap === 'streets') {
-    layers.addImageryProvider(esriImagery(ESRI_STREET_TILES, 'Esri, OpenStreetMap contributors'))
-  } else if (mode.basemap === 'satellite') {
-    layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
-  } else if (mode.basemap === 'hybrid') {
-    layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
-    if (refs.labelOverlay.current) {
-      layers.remove(refs.labelOverlay.current, false)
-      refs.labelOverlay.current = null
+    if (useIon) {
+      try {
+        layers.addImageryProvider(await ionWorldImagery(IonWorldImageryStyle.ROAD))
+      } catch (e) {
+        console.warn('[Globe] Ion ROAD imagery unavailable, falling back to Esri:', e)
+        layers.addImageryProvider(esriImagery(ESRI_STREET_TILES, 'Esri, OpenStreetMap contributors'))
+      }
+    } else {
+      layers.addImageryProvider(esriImagery(ESRI_STREET_TILES, 'Esri, OpenStreetMap contributors'))
     }
-    refs.labelOverlay.current = layers.addImageryProvider(
-      esriImagery(ESRI_REFERENCE_LABELS, 'Esri, OpenStreetMap contributors'),
-    )
-    if (refs.labelOverlay.current) refs.labelOverlay.current.alpha = 0.85
+  } else if (mode.basemap === 'satellite') {
+    if (useIon) {
+      try {
+        layers.addImageryProvider(await ionWorldImagery(IonWorldImageryStyle.AERIAL))
+      } catch (e) {
+        console.warn('[Globe] Ion AERIAL imagery unavailable, falling back to Esri:', e)
+        layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
+      }
+    } else {
+      layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
+    }
+  } else if (mode.basemap === 'hybrid') {
+    if (useIon) {
+      try {
+        layers.addImageryProvider(await ionWorldImagery(IonWorldImageryStyle.AERIAL_WITH_LABELS))
+      } catch (e) {
+        console.warn('[Globe] Ion AERIAL_WITH_LABELS unavailable, falling back to Esri:', e)
+        layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
+        refs.labelOverlay.current = layers.addImageryProvider(
+          esriImagery(ESRI_REFERENCE_LABELS, 'Esri, OpenStreetMap contributors'),
+        )
+        if (refs.labelOverlay.current) refs.labelOverlay.current.alpha = 0.85
+      }
+    } else {
+      layers.addImageryProvider(esriImagery(ESRI_SATELLITE_TILES, 'Esri, Maxar, Earthstar Geographics'))
+      if (refs.labelOverlay.current) {
+        layers.remove(refs.labelOverlay.current, false)
+        refs.labelOverlay.current = null
+      }
+      refs.labelOverlay.current = layers.addImageryProvider(
+        esriImagery(ESRI_REFERENCE_LABELS, 'Esri, OpenStreetMap contributors'),
+      )
+      if (refs.labelOverlay.current) refs.labelOverlay.current.alpha = 0.85
+    }
   } else {
     layers.addImageryProvider(esriImagery(ESRI_HILLSHADE_TILES, 'Esri World Hillshade'))
     layers.addImageryProvider(esriImagery(ESRI_STREET_TILES, 'Esri, OpenStreetMap contributors'))
@@ -1219,16 +1264,22 @@ export default function Globe({
       // quiescence controller never makes the first interaction feel sluggish.
       const onCanvasWake = () => bumpRender(800)
       const onTileProgress = () => { lastTileProgressAt = Date.now() }
+      try { scene.globe.tileLoadProgressEvent.addEventListener(onTileProgress) } catch { /* older Cesium */ }
       if (GLOBE_IDLE_FPS > 0) {
         scene.canvas.addEventListener('pointerdown', onCanvasWake)
         scene.canvas.addEventListener('wheel', onCanvasWake, { passive: true })
-        try { scene.globe.tileLoadProgressEvent.addEventListener(onTileProgress) } catch { /* older Cesium */ }
         detachIdleWake = () => {
           try {
             scene.canvas.removeEventListener('pointerdown', onCanvasWake)
             scene.canvas.removeEventListener('wheel', onCanvasWake)
             scene.globe.tileLoadProgressEvent.removeEventListener(onTileProgress)
           } catch { /* canvas/globe already torn down */ }
+        }
+      } else {
+        detachIdleWake = () => {
+          try {
+            scene.globe.tileLoadProgressEvent.removeEventListener(onTileProgress)
+          } catch { /* globe already torn down */ }
         }
       }
       const pump = () => {
@@ -1246,6 +1297,15 @@ export default function Globe({
           hasFocusRing ||
           !!v.trackedEntity
 
+        const tilesSettled = Date.now() - lastTileProgressAt > GLOBE_IDLE_TILE_SETTLE_MS
+        const quiescent = !busy && !motionLayer && tilesSettled
+
+        // Tile-churn suppression (always on): stop off-screen descendant loads when idle.
+        const descLimit = quiescent ? GLOBE_LOADING_DESCENDANT_QUIESCENT : GLOBE_LOADING_DESCENDANT_ACTIVE
+        if (v.scene.globe.loadingDescendantLimit !== descLimit) {
+          v.scene.globe.loadingDescendantLimit = descLimit
+        }
+
         // Render-quiescence controller (env-gated): when the visible scene is provably
         // static, throttle the render loop to GLOBE_IDLE_FPS; restore to normal
         // otherwise. Quiescence = camera/interaction idle, no motion (aircraft/sat),
@@ -1256,8 +1316,6 @@ export default function Globe({
         // and the visible queue can stay non-empty forever. Motion layers animate
         // continuously and are never throttled (would look choppy = quality loss).
         if (GLOBE_IDLE_FPS > 0) {
-          const tilesSettled = Date.now() - lastTileProgressAt > GLOBE_IDLE_TILE_SETTLE_MS
-          const quiescent = !busy && !motionLayer && tilesSettled
           const desired = quiescent ? GLOBE_IDLE_FPS : GLOBE_IDLE_RESTORE_FPS
           if (v.targetFrameRate !== desired) v.targetFrameRate = desired
           const globe = v.scene.globe as any
