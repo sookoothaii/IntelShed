@@ -19,7 +19,7 @@
 | **Fast health** | `GET /api/health/ping` | Use before/after changes |
 | **Ollama** | http://127.0.0.1:11434 | Default chat: `qwen3:8b` |
 | **Start** | `.\start.ps1` | Waits for `/api/health/ping` before Vite (avoids proxy ECONNREFUSED); paths with spaces → `-LiteralPath` |
-| **Verify** | `.\scripts\smoke-test.ps1` | 31 checks — run before claiming “done” (includes live feed envelope contract when API is up) |
+| **Verify** | `.\scripts\smoke-test.ps1` | 33 checks — run before claiming “done” (includes live feed envelope contract when API is up) |
 
 Copy env: `backend\.env.example` → `backend\.env`, `frontend\.env.example` → `frontend\.env` (Cesium Ion token required for terrain/buildings).
 
@@ -84,7 +84,7 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |
 
-Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_briefing_agentic test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_prediction_ground_truth test_corroboration_ground_truth test_subgraph_prompt_ground_truth test_newsdata_bridge test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots test_rag_rerank test_rag_spatial test_rag_crag test_rag_memory test_rag_chunking test_insights test_osint_tools -v` in `backend/`. Optional: `pip install sentence-transformers` when `RAG_RERANK=1`.
+Unit tests (no network): `python -m unittest test_mcp_tools test_agent_bus test_connector_registry test_briefing_quality test_operator_briefing test_briefing_agentic test_intel_briefing test_intel_subgraph test_intel_proximity test_prediction_ledger test_prediction_ground_truth test_corroboration_ground_truth test_subgraph_prompt_ground_truth test_newsdata_bridge test_ftm_store test_feed_ingest test_gdelt_bridge test_stac_feeds test_ais_bridge test_feed_envelope_contract test_chat_routing test_firewall_bridge test_prompt_guard test_cams_bridge test_fusion_snapshots test_rag_rerank test_rag_spatial test_rag_crag test_rag_memory test_rag_chunking test_insights test_osint_tools test_freshness test_runtime_cache test_core_feeds_security -v` in `backend/`. Optional: `pip install sentence-transformers` when `RAG_RERANK=1`.
 
 Ground-truth pilots (offline): `python corroboration_ground_truth.py --fixtures`, `python prediction_ground_truth.py --fixtures`, `python subgraph_prompt_ground_truth.py --fixtures`; wrappers `.\scripts\corroboration-ground-truth-pilot.ps1`, `.\scripts\prediction-ground-truth-pilot.ps1`, `.\scripts\subgraph-prompt-ab-pilot.ps1`, `.\scripts\fusion-baseline-status.ps1`.
 
@@ -105,6 +105,8 @@ Live contract (opt-in, gated in smoke test §1 when `:8002` is up): `python -m u
 
 Feed envelope contract: `backend/feeds/envelope.py` — shared validation for Phase 0/2; smoke test calls `test_health_contract_live`, not duplicated PowerShell logic.
 
+Freshness classification: `backend/freshness.py` — `classify_freshness(age_sec, ttl_sec, error, stale_flag, has_payload, vocab)` is the single source of truth. Two vocabularies: `drift` (fresh/aging/stale/error/missing) for `feed_drift.py` + `trust_probes.py`, `health` (fresh/warn/stale/unknown) for `health.py`. Error takes precedence over stale-flag, which takes precedence over age.
+
 On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KEY` is set; `_stack_warmup()` (~6 s after boot) refreshes GDELT **local + global** pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather. Global pulse persists to `feed_registry` key `gdelt_pulse_global`.
 
 ---
@@ -123,7 +125,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | Webcams → globe stream | `backend/webcam_bridge.py`, `WebcamSection.tsx`, `WebcamStreamPanel.tsx` |
 | Credential registry | `backend/credentials/registry.py`, `GET /api/credentials/status` |
 | HUD styles | `frontend/src/styles/hud.css` |
-| Feeds + cache | `backend/feeds_extra.py`, `backend/feed_registry.py`, `backend/connector_registry.py`, `backend/feeds/envelope.py` |
+| Feeds + cache | `backend/feeds_extra.py`, `backend/feed_registry.py`, `backend/connector_registry.py`, `backend/feeds/envelope.py`, `backend/feeds/runner.py` (FeedConnector) |
 | Node sync + briefing routes | `backend/node_sync.py`, `backend/briefing_quality.py`, `backend/trust_probes.py` |
 | MCP + Agent Bus | `backend/mcp_server.py`, `backend/agent_bus.py`, [`docs/MCP.md`](docs/MCP.md) |
 | Operator digest | `backend/operator_briefing.py` |
@@ -137,7 +139,9 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | NewsData headlines | `backend/newsdata_bridge.py` — optional API key; briefing + corroboration family |
 | Ground-truth pilots | `backend/corroboration_ground_truth.py`, `backend/prediction_ground_truth.py`, `backend/subgraph_prompt_ground_truth.py` |
 | Maritime AIS | `backend/ais_bridge.py` — persistent AISstream collector + MyShipTracking; Malacca / Laem Chabang / Bangkok / Phuket / Singapore when operator region is Thailand |
-| Feed drift | `backend/feed_drift.py` — count snapshots + freshness in `/api/trust` |
+| Feed drift | `backend/feed_drift.py` — count snapshots + freshness in `/api/trust`; uses `freshness.classify_freshness()` |
+| **Freshness classifier** | `backend/freshness.py` — shared `classify_freshness()` with `drift` and `health` vocabularies; consumed by `health.py`, `feed_drift.py` |
+| **Core feeds** | `backend/routes/core_feeds.py` — earthquakes + events via `FeedConnector.run()`; satellites/ISS/world via `runtime_cache` |
 | STAC (imagery + feeds) | `backend/stac_bridge.py` — Element84 search + connector feed ItemCollection (bbox, geometry, registry links) |
 | Connector + feed status UI | `frontend/src/components/FeedsStatusPanel.tsx` — DATA → FEEDS: registry, STAC links, globe fly-to |
 | Fusion → briefing | `backend/fusion_heatmap.py` |

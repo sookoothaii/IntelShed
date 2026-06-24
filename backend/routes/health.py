@@ -18,6 +18,7 @@ from fastapi import APIRouter
 
 import feed_registry
 from connector_registry import feed_ttl_sec as _feed_ttl_sec
+from freshness import classify_freshness
 
 router = APIRouter(tags=["health"])
 
@@ -87,12 +88,18 @@ async def health():
                 try:
                     age = (now - datetime.fromisoformat(cached_at)).total_seconds()
                     ttl = _feed_ttl_sec(key)
+                    status = classify_freshness(
+                        age, ttl,
+                        error=meta.get("error"),
+                        stale_flag=bool(meta.get("stale")),
+                        vocab="health",
+                    )
                     feeds[key] = {
                         "cached_at": cached_at,
                         "age_sec": round(age, 1),
                         "ttl_sec": ttl,
-                        "fresh": age < ttl,
-                        "status": _feed_status(age, ttl),
+                        "fresh": age < ttl and not meta.get("error") and not meta.get("stale"),
+                        "status": status,
                         **meta,
                     }
                 except Exception:

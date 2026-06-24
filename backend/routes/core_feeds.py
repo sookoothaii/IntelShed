@@ -14,11 +14,16 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 import feed_registry
+from feeds.envelope import FeedEnvelope
+from feeds.runner import FeedConnector
 from runtime_cache import cache_get, cache_get_stale, cache_set
 
 router = APIRouter(tags=["core-feeds"])
 
 _TLE_GROUP_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
+
+_QUAKES_CONNECTOR = FeedConnector("quakes:day", ttl_sec=300.0, default_source="earthquake.usgs.gov")
+_EONET_CONNECTOR = FeedConnector("eonet", ttl_sec=1800.0, default_source="eonet.gsfc.nasa.gov")
 
 
 def _sanitize_tle_group(group: str) -> str:
@@ -94,120 +99,81 @@ async def get_earthquakes(period: str = "day", magnitude: str = "2.5"):
 
     period: hour, day, week, month. magnitude: significant, 4.5, 2.5, 1.0, all.
     """
-    key = f"quakes:{period}:{magnitude}"
-    data = cache_get(key, ttl=300.0)
-    upstream_err = None
-    stale = False
-    if data is None:
+    subkey = f"quakes:{period}:{magnitude}"
+
+    async def _fetch():
         url = f"https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/{magnitude}_{period}.geojson"
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.get(url)
-                r.raise_for_status()
-                data = r.json()
-            cache_set(key, data)
-        except Exception as e:
-            upstream_err = str(e)
-            cached = cache_get_stale(key)
-            if cached is not None:
-                data = cached
-                stale = True
-            else:
-                return {
-                    "count": 0,
-                    "earthquakes": [],
-                    "error": upstream_err,
-                    "stale": False,
-                    "source": "earthquake.usgs.gov",
-                }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(url)
+            r.raise_for_status()
+            data = r.json()
+        quakes = []
+        for f in data.get("features", []):
+            props = f.get("properties", {})
+            geom = f.get("geometry", {})
+            coords = geom.get("coordinates", [None, None, None])
+            quakes.append({
+                "id": f.get("id"),
+                "place": props.get("place"),
+                "mag": props.get("mag"),
+                "time": props.get("time"),
+                "depth": coords[2],
+                "lon": coords[0],
+                "lat": coords[1],
+                "tsunami": props.get("tsunami"),
+                "url": props.get("url"),
+            })
+        return FeedEnvelope(
+            count=len(quakes),
+            source="earthquake.usgs.gov",
+        ).merge(earthquakes=quakes)
 
-    quakes = []
-    for f in data.get("features", []):
-        props = f.get("properties", {})
-        geom = f.get("geometry", {})
-        coords = geom.get("coordinates", [None, None, None])
-        quakes.append({
-            "id": f.get("id"),
-            "place": props.get("place"),
-            "mag": props.get("mag"),
-            "time": props.get("time"),
-            "depth": coords[2],
-            "lon": coords[0],
-            "lat": coords[1],
-            "tsunami": props.get("tsunami"),
-            "url": props.get("url"),
-        })
-    result = {
-        "count": len(quakes),
-        "earthquakes": quakes,
-        "source": "earthquake.usgs.gov",
-        "stale": stale,
-        "error": upstream_err,
-    }
-    try:
-        import feed_registry
-
-        feed_registry.write_auto(key, result)
-    except Exception:
-        pass
-    return result
+    return await _QUAKES_CONNECTOR.run(_fetch, subkey=subkey)
 
 
 @router.get("/api/events")
 async def get_events(limit: int = 100):
     """NASA EONET natural events: wildfires, storms, volcanoes, ice (cached 30min)."""
-    data = cache_get("eonet", ttl=1800.0)
-    upstream_err = None
-    stale = False
-    if data is None:
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.get(
-                    "https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=200"
-                )
-                r.raise_for_status()
-                data = r.json()
-            cache_set("eonet", data)
-        except Exception as e:
-            upstream_err = str(e)
-            cached = cache_get_stale("eonet")
-            if cached is not None:
-                data = cached
-                stale = True
-            else:
-                return {"count": 0, "events": [], "error": upstream_err, "stale": False}
 
-    events = []
-    for ev in data.get("events", [])[:limit]:
-        cats = [c.get("title") for c in ev.get("categories", [])]
-        geo = ev.get("geometry", [])
-        if not geo:
-            continue
-        last = geo[-1]
-        coords = last.get("coordinates")
-        if not coords or not isinstance(coords, list) or len(coords) < 2:
-            continue
-        sources = [s.get("url") for s in ev.get("sources", []) if s.get("url")]
-        events.append({
-            "id": ev.get("id"),
-            "title": ev.get("title"),
-            "category": cats[0] if cats else "Unknown",
-            "categories": cats,
-            "date": last.get("date"),
-            "lon": coords[0],
-            "lat": coords[1],
-            "magnitude": last.get("magnitudeValue"),
-            "unit": last.get("magnitudeUnit"),
-            "closed": ev.get("closed"),
-            "link": ev.get("link"),
-            "sources": sources,
-            "points": len(geo),
-        })
-    out = {"count": len(events), "events": events}
-    if upstream_err:
-        out["error"] = upstream_err
-        out["stale"] = stale
-    return out
+    async def _fetch():
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.get(
+                "https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=200"
+            )
+            r.raise_for_status()
+            data = r.json()
+        events = []
+        for ev in data.get("events", [])[:limit]:
+            cats = [c.get("title") for c in ev.get("categories", [])]
+            geo = ev.get("geometry", [])
+            if not geo:
+                continue
+            last = geo[-1]
+            coords = last.get("coordinates")
+            if not coords or not isinstance(coords, list) or len(coords) < 2:
+                continue
+            sources = [s.get("url") for s in ev.get("sources", []) if s.get("url")]
+            events.append({
+                "id": ev.get("id"),
+                "title": ev.get("title"),
+                "category": cats[0] if cats else "Unknown",
+                "categories": cats,
+                "date": last.get("date"),
+                "lon": coords[0],
+                "lat": coords[1],
+                "magnitude": last.get("magnitudeValue"),
+                "unit": last.get("magnitudeUnit"),
+                "closed": ev.get("closed"),
+                "link": ev.get("link"),
+                "sources": sources,
+                "points": len(geo),
+            })
+        return FeedEnvelope(
+            count=len(events),
+            source="eonet.gsfc.nasa.gov",
+        ).merge(events=events)
+
+    return await _EONET_CONNECTOR.run(_fetch)
 
 
 @router.get("/api/iss")

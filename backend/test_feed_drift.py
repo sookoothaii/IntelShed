@@ -110,6 +110,70 @@ class FeedDriftTests(unittest.TestCase):
         haz = next(r for r in rows if r["cache_key"] == "hazards")
         self.assertEqual(haz["status"], "missing")
 
+    def test_freshness_status_error_is_distinct(self):
+        """payload with error key → status 'error' (not stale/fresh)."""
+        ts = datetime.now(timezone.utc).isoformat()
+        with fd._conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO feed_cache (key, value, cached_at) VALUES (?, ?, ?)",
+                ("cve", json.dumps({"count": 10, "error": "upstream timeout"}), ts),
+            )
+            conn.commit()
+        with fd._conn() as conn:
+            feeds = fd._read_feed_cache(conn)
+        rows = fd.build_freshness(feeds, datetime.now(timezone.utc))
+        cve = next(r for r in rows if r["cache_key"] == "cve")
+        self.assertEqual(cve["status"], "error")
+
+    def test_freshness_status_stale_when_age_exceeds_ttl(self):
+        """age > ttl * 2 → status 'stale' (not error/fresh)."""
+        self._seed_cache("cve", 10, hours_ago=48.0)
+        with fd._conn() as conn:
+            feeds = fd._read_feed_cache(conn)
+        rows = fd.build_freshness(feeds, datetime.now(timezone.utc))
+        cve = next(r for r in rows if r["cache_key"] == "cve")
+        self.assertEqual(cve["status"], "stale")
+
+    def test_freshness_status_stale_when_payload_stale_flag(self):
+        """payload.stale=True → status 'stale' even when age < ttl."""
+        ts = datetime.now(timezone.utc).isoformat()
+        with fd._conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO feed_cache (key, value, cached_at) VALUES (?, ?, ?)",
+                ("cve", json.dumps({"count": 10, "stale": True}), ts),
+            )
+            conn.commit()
+        with fd._conn() as conn:
+            feeds = fd._read_feed_cache(conn)
+        rows = fd.build_freshness(feeds, datetime.now(timezone.utc))
+        cve = next(r for r in rows if r["cache_key"] == "cve")
+        self.assertEqual(cve["status"], "stale")
+
+    def test_freshness_statuses_are_distinct(self):
+        """error, stale (age), and stale (flag) must all differ from fresh."""
+        now = datetime.now(timezone.utc)
+        # fresh
+        self._seed_cache("cve", 10, hours_ago=0.01)
+        # error
+        with fd._conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO feed_cache (key, value, cached_at) VALUES (?, ?, ?)",
+                ("gdacs_v3", json.dumps({"count": 5, "error": "timeout"}), now.isoformat()),
+            )
+            conn.commit()
+        # stale by age
+        self._seed_cache("wildfires", 100, hours_ago=48.0)
+        with fd._conn() as conn:
+            feeds = fd._read_feed_cache(conn)
+        rows = fd.build_freshness(feeds, now)
+        statuses = {r["cache_key"]: r["status"] for r in rows}
+        self.assertEqual(statuses["cve"], "fresh")
+        self.assertEqual(statuses["gdacs_v3"], "error")
+        self.assertEqual(statuses["wildfires"], "stale")
+        self.assertNotEqual(statuses["cve"], statuses["gdacs_v3"])
+        self.assertNotEqual(statuses["cve"], statuses["wildfires"])
+        self.assertNotEqual(statuses["gdacs_v3"], statuses["wildfires"])
+
 
 if __name__ == "__main__":
     unittest.main()

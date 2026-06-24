@@ -490,6 +490,7 @@ async def _refresh_pulse_global(*, priority: Priority = "global") -> dict:
     if err:
         out["error"] = err
         out["stale"] = True
+    out.setdefault("stale", False)
     _CACHE[key] = (time.time(), out)
     try:
         feed_registry.write_auto("gdelt_pulse_global", out)
@@ -565,6 +566,7 @@ async def _refresh_pulse_local(reg: str) -> dict:
     if err:
         out["error"] = err
         out["stale"] = True
+    out.setdefault("stale", False)
     _CACHE[key] = (time.time(), out)
     try:
         feed_registry.write_auto(f"gdelt_pulse_local:{reg}", out)
@@ -767,6 +769,7 @@ async def gdelt_geo(timespan: str = "1d", maxrecords: int = 60):
     if err:
         out["error"] = err
         out["stale"] = True
+    out.setdefault("stale", False)
     _CACHE[key] = (time.time(), out)
     return out
 
@@ -800,6 +803,7 @@ async def _refresh_geo_local(reg: str, timespan: str, maxrecords: int) -> dict:
     if err:
         out["error"] = err
         out["stale"] = True
+    out.setdefault("stale", False)
     _CACHE[key] = (time.time(), out)
     return out
 

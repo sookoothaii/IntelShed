@@ -8,26 +8,31 @@ This is the in-memory layer; durable snapshots live in feed_registry (SQLite).
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import Any
 
 # key -> (stored_at_epoch, value)
 STORE: dict[str, tuple[float, Any]] = {}
+_STORE_LOCK = threading.Lock()
 
 
 def cache_get(key: str, ttl: float):
     """Return cached value if newer than ttl seconds, else None."""
-    item = STORE.get(key)
-    if item and (time.time() - item[0]) < ttl:
-        return item[1]
+    with _STORE_LOCK:
+        item = STORE.get(key)
+        if item and (time.time() - item[0]) < ttl:
+            return item[1]
     return None
 
 
 def cache_set(key: str, value: Any) -> None:
-    STORE[key] = (time.time(), value)
+    with _STORE_LOCK:
+        STORE[key] = (time.time(), value)
 
 
 def cache_get_stale(key: str):
     """Return last cached value regardless of age (stale fallback), else None."""
-    item = STORE.get(key)
-    return item[1] if item else None
+    with _STORE_LOCK:
+        item = STORE.get(key)
+        return item[1] if item else None

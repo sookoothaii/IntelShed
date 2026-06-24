@@ -34,8 +34,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "X-API-Key",
+        "X-Node-Token",
+        "X-Request-Timestamp",
+        "X-Request-Nonce",
+    ],
 )
 app.add_middleware(SecurityHeadersMiddleware)
 setup_rate_limiting(app)

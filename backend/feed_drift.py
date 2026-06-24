@@ -8,6 +8,8 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
+from freshness import classify_freshness
+
 _DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
 )
@@ -246,19 +248,16 @@ def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: i
         cached_at = _parse_ts(meta.get("cached_at"))
         age_sec = round((now - cached_at).total_seconds(), 1) if cached_at else None
         ttl = feed_ttl_sec(eff_key or watch_key)
-        fresh = age_sec is not None and age_sec < ttl
         err = meta.get("error")
         stale = bool(meta.get("stale"))
-        if err:
-            status = "error"
-        elif stale:
-            status = "stale"
-        elif fresh:
-            status = "fresh"
-        elif age_sec is not None and age_sec < ttl * 2:
-            status = "aging"
-        else:
-            status = "stale"
+        fresh = age_sec is not None and age_sec < ttl and not err and not stale
+        status = classify_freshness(
+            age_sec, ttl,
+            error=err,
+            stale_flag=stale,
+            has_payload=bool(meta),
+            vocab="drift",
+        )
         spec = key_to_spec.get(watch_key)
         rows.append(
             {
