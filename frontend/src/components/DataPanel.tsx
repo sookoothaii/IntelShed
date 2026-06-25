@@ -33,6 +33,7 @@ import {
 } from './DataFeedPanels';
 import WildfiresPanel from './WildfiresPanel';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
+import { ErrorBoundary } from './ErrorBoundary';
 import { useHudSessionState } from '../lib/hudSessionState';
 
 export const DATA_TABS = [
@@ -908,7 +909,9 @@ export default function DataPanel({
       )}
 
       {tab === 'intel' && (
-        <IntelGraphPanel onFocus={onFocus} initialEntityId={intelEntityId} />
+        <ErrorBoundary name="IntelGraph">
+          <IntelGraphPanel onFocus={onFocus} initialEntityId={intelEntityId} />
+        </ErrorBoundary>
       )}
 
       {tab === 'flags' && <FeatureFlagsPanel />}

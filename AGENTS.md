@@ -83,6 +83,7 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | **FtM globe layer** | `GET /api/intel/entities?geolocated=1` → HUD **INTEL** toggle (`intelFt`) — [`docs/GLOBE.md`](docs/GLOBE.md#intel-ftm-globe-layer) |
 | **DuckDB Write Queue** | `WORLDBASE_DUCKDB_QUEUE=1` — serializes all DuckDB writes via SQLite WAL + retry + DLQ; `GET /api/intel/queue/status`, `GET /api/admin/dlq` — `backend/duckdb_queue.py` |
 | **Dynamic Feature Flags** | `GET /api/admin/flags`, `POST /api/admin/flags/{key}`, `GET /api/admin/flags/log` — SQLite-backed runtime toggles with 5s cache + audit log; `WORLDBASE_ADMIN_FLAGS=1` (default on), `WORLDBASE_FLAG_OVERRIDE=env` forces env-only; DATA → **FLAGS** tab — `backend/features.py` |
+| **Error Boundaries (J3)** | `ErrorBoundary` wraps Globe, Map, IntelGraph, FullAnalysis; Cesium `scene.renderError` → fallback UI + auto-retry (3×/3s); `POST /api/telemetry/frontend-error` — crash ingestion with structured log; `useCesiumErrorHandler` hook — `frontend/src/components/ErrorBoundary.tsx`, `frontend/src/hooks/useCesiumErrorHandler.ts` |
 | **Docker MCP setup** | `.\scripts\setup-docker-mcp-worldbase.ps1` — fetch + database-server profile |
 | Deploy Pi scripts | `.\scripts\deploy-pi-sync.ps1` — see `offgrid-raspi/docs/WORLDBASE_PI_SYNC.md` |
 | Pi runtime data | `world.json` not in Git — `offgrid-raspi/offgrid/content/RUNTIME.md`; inline geo in `world.json` |

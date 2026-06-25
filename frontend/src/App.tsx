@@ -7,6 +7,7 @@ import DataPanel from './components/DataPanel'
 import NewsPanel from './components/NewsPanel'
 import SituationBoard from './components/SituationBoard'
 import FullAnalysisOverlay from './components/FullAnalysisOverlay'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { NodeHealthBanner } from './components/NodeHealthBanner'
 import type { FocusTarget } from './lib/focus'
 import type { OsintPin } from './lib/osintPins'
@@ -378,7 +379,7 @@ export default function App() {
           onOpenIntel={openIntel}
         />
       )}
-      {analysisOpen && <FullAnalysisOverlay onClose={() => setAnalysisOpen(false)} onFocus={focusOnMap} />}
+      {analysisOpen && <ErrorBoundary name="FullAnalysis"><FullAnalysisOverlay onClose={() => setAnalysisOpen(false)} onFocus={focusOnMap} /></ErrorBoundary>}
 
       <main className={splitView ? 'hud-main hud-main--split' : 'hud-main'}>
         <div
@@ -388,7 +389,9 @@ export default function App() {
             globeVisible ? 'view-layer--active' : 'view-layer--hidden',
           ].join(' ')}
         >
-          <Globe {...globeSharedProps} />
+          <ErrorBoundary name="Globe" onFallback={() => setView('map')}>
+            <Globe {...globeSharedProps} />
+          </ErrorBoundary>
           {windyMapOpen && windyMapKey && (
             <WindyMapOverlay
               open={windyMapOpen}
@@ -440,7 +443,9 @@ export default function App() {
             mapVisible ? 'map-pane--visible' : 'map-pane--hidden',
           ].join(' ')}
         >
-          <MapPanel {...mapPanelProps} />
+          <ErrorBoundary name="Map" onFallback={() => setView('globe')}>
+            <MapPanel {...mapPanelProps} />
+          </ErrorBoundary>
         </div>
 
         {showMapChrome && (

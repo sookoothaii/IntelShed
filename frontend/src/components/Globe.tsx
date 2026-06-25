@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { useCesiumErrorHandler } from '../hooks/useCesiumErrorHandler'
 import {
   clampCameraHeight,
   containerHasSize,
@@ -843,6 +844,8 @@ export default function Globe({
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
   const [viewer, setViewer] = useState<Viewer | null>(null)
+  const { cesiumError: _cesiumError } = useCesiumErrorHandler(viewerRef, visible ?? true)
+  void _cesiumError // Cesium render errors are rethrown into ErrorBoundary
   const apiRef = useRef<any>({})
   const osintSrcRef = useRef<CustomDataSource | null>(null)
   const focusRef = useRef<FocusTarget | null>(focus ?? null)
