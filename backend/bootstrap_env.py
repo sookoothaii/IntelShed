@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import os
 
+from structured_log import get_logger
+
+log = get_logger(__name__)
+
 
 def load_env() -> None:
     """Load backend/.env without overriding real environment variables."""
@@ -40,32 +44,19 @@ def log_security_startup() -> None:
                 "[SECURITY] WORLDBASE_REQUIRE_NODE_TOKEN is set but NODE_INGEST_TOKEN is empty. "
                 "Refusing to start. " + msg
             )
-        print("[SECURITY] " + msg, flush=True)
+        log.warning("security_node_token_missing", detail=msg)
     else:
-        print("[SECURITY] Node ingest API protected (NODE_INGEST_TOKEN set).", flush=True)
+        log.info("security_node_token_set")
 
     if not api_key and not ingest and not dev_mode:
-        print(
-            "[SECURITY] WARNING: No WORLDBASE_API_KEY or NODE_INGEST_TOKEN set. "
-            "All endpoints are unauthenticated. "
-            "Set WORLDBASE_INSECURE_DEV=1 to acknowledge and suppress this warning.",
-            flush=True,
-        )
+        log.warning("security_no_auth", detail="No WORLDBASE_API_KEY or NODE_INGEST_TOKEN set. All endpoints unauthenticated. Set WORLDBASE_INSECURE_DEV=1 to acknowledge.")
     elif dev_mode and not api_key and not ingest:
-        print(
-            "[SECURITY] Running in INSECURE DEV MODE (WORLDBASE_INSECURE_DEV=1). "
-            "All endpoints unauthenticated. Do NOT use in production.",
-            flush=True,
-        )
+        log.warning("security_insecure_dev", detail="Running in INSECURE DEV MODE. All endpoints unauthenticated. Do NOT use in production.")
     else:
         if api_key:
-            print("[SECURITY] API key auth enabled (WORLDBASE_API_KEY set).", flush=True)
+            log.info("security_api_key_set")
 
     if admin and admin != ingest:
-        print("[SECURITY] Admin token is separate from ingest token (NODE_ADMIN_TOKEN set).", flush=True)
+        log.info("security_admin_token_separate")
     elif ingest and not admin:
-        print(
-            "[SECURITY] NOTE: NODE_ADMIN_TOKEN not set — admin endpoints fall back to NODE_INGEST_TOKEN. "
-            "Set NODE_ADMIN_TOKEN separately for privilege separation.",
-            flush=True,
-        )
+        log.info("security_admin_token_not_set", detail="NODE_ADMIN_TOKEN not set — admin endpoints fall back to NODE_INGEST_TOKEN. Set NODE_ADMIN_TOKEN separately for privilege separation.")

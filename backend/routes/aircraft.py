@@ -13,6 +13,9 @@ import asyncio
 from fastapi import APIRouter
 
 import aircraft_provider
+from structured_log import get_logger
+
+log = get_logger(__name__)
 from runtime_cache import cache_get, cache_get_stale, cache_set
 
 router = APIRouter(tags=["aircraft"])
@@ -66,11 +69,11 @@ async def aircraft_warmup() -> None:
         data, source = await aircraft_provider.fetch_live_states(timeout=14.0)
         cache_set(_CACHE_KEY, data)
         n = len(data.get("states") or [])
-        print(f"[WARMUP] aircraft cache primed ({n} states, {source})", flush=True)
+        log.info("aircraft_cache_primed", states=n, source=source)
     except asyncio.CancelledError:
         raise
     except Exception as e:
-        print(f"[WARMUP] aircraft cache skipped: {e!r}", flush=True)
+        log.warning("aircraft_cache_skipped", error=repr(e))
 
 
 async def _refresh_aircraft_cache() -> None:

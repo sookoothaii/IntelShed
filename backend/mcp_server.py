@@ -13,6 +13,10 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
+from structured_log import get_logger
+
+log = get_logger(__name__)
+
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -489,7 +493,7 @@ def _get_mcp_asgi() -> ASGIApp:
 def mount_worldbase_mcp(app) -> None:
     """Attach MCP Streamable HTTP at /api/mcp when WORLDBASE_MCP=1."""
     if not mcp_enabled():
-        print("[MCP] Tools disabled (WORLDBASE_MCP=0)", flush=True)
+        log.info("mcp_disabled")
         return
 
     mcp.streamable_http_app()
@@ -498,7 +502,7 @@ def mount_worldbase_mcp(app) -> None:
     auth_note = "X-API-Key required" if mcp_auth_required() else "open (localhost, no API key)"
     write_note = "write on" if mcp_write_enabled() else "write off"
     globe_note = "globe on" if mcp_globe_enabled() else "globe off"
-    print(f"[MCP] Tools mounted at /api/mcp ({auth_note}; {write_note}; {globe_note})", flush=True)
+    log.info("mcp_mounted", auth=auth_note, write=write_note, globe=globe_note)
 
     @app.on_event("startup")
     async def _mcp_startup() -> None:

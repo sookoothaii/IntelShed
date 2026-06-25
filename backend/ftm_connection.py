@@ -13,6 +13,10 @@ from typing import Any
 
 import duckdb
 
+from structured_log import get_logger
+
+log = get_logger(__name__)
+
 # ---------------------------------------------------------------------------
 # Globals (single in-process connection, lock-guarded)
 # ---------------------------------------------------------------------------
@@ -91,7 +95,7 @@ def store_status(*, _recover: bool = True) -> dict[str, Any]:
             return {"ready": True, "entities": int(n), "error": None}
         except Exception as exc:
             if _recover and _is_invalidated_error(exc):
-                print(f"[FTM] store invalidated — resetting: {exc}", flush=True)
+                log.warning("ftm_store_invalidated", error=str(exc))
                 reset_store()
                 return store_status(_recover=False)
             return {"ready": False, "entities": 0, "error": str(exc)}
@@ -112,7 +116,7 @@ def init_store() -> bool:
         return True
     except Exception as exc:
         if _is_invalidated_error(exc):
-            print(f"[FTM] init probe failed — resetting: {exc}", flush=True)
+            log.warning("ftm_init_probe_failed", error=str(exc))
             with _LOCK:
                 if _CONN is not None:
                     try:
@@ -129,7 +133,7 @@ def init_store() -> bool:
             except Exception as retry_exc:
                 exc = retry_exc
         _INIT_ERROR = str(exc)
-        print(f"[FTM] store unavailable: {exc}", flush=True)
+        log.error("ftm_store_unavailable", error=str(exc))
         return False
 
 
@@ -172,7 +176,7 @@ def _run_with_recovery(fn):
         except Exception as exc:
             last_exc = exc
             if attempt == 0 and _is_invalidated_error(exc):
-                print(f"[FTM] operation failed — resetting: {exc}", flush=True)
+                log.warning("ftm_operation_failed", error=str(exc))
                 reset_store()
                 continue
             raise

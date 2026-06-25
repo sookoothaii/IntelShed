@@ -25,6 +25,9 @@ import stac_bridge
 from config import get_config as _cfg
 from sqlite_bootstrap import init_db, prune_feed_cache
 from routes import aircraft as aircraft_routes
+from structured_log import get_logger
+
+log = get_logger(__name__)
 
 _BRIEFING_AUTOPILOT_TASK: asyncio.Task | None = None
 _BRIEFING_INTERVAL = _cfg().briefing_interval
@@ -39,48 +42,38 @@ async def _phase1_background_tasks() -> None:
         try:
             await anomaly_river.scan_feeds()
         except Exception as e:
-            print(f"[PHASE1] River scan failed: {e}", flush=True)
+            log.warning("river_scan_failed", error=str(e))
         if rag_autopilot_on():
             try:
                 news = await rag_memory.ingest_news_sources()
-                print(
-                    f"[PHASE1] RAG news index: {news.get('indexed', 0)} chunks",
-                    flush=True,
-                )
+                log.info("rag_news_indexed", chunks=news.get('indexed', 0))
                 await rag_memory.ingest_hazards()
                 await rag_memory.ingest_situations()
                 await rag_memory.ingest_volcanoes()
                 watches = await rag_memory.ingest_prediction_watches()
                 if watches.get("indexed"):
-                    print(
-                        f"[PHASE1] RAG prediction watches: {watches.get('indexed')} indexed",
-                        flush=True,
-                    )
+                    log.info("rag_watches_indexed", indexed=watches.get('indexed'))
             except Exception as e:
-                print(f"[PHASE1] RAG index failed: {e}", flush=True)
+                log.warning("rag_index_failed", error=str(e))
         try:
             items = await stac_bridge.fetch_recent_thailand_items(limit=6)
             await rag_memory.ingest_stac_items(items)
         except Exception as e:
-            print(f"[PHASE2] STAC ingest failed: {e}", flush=True)
+            log.warning("stac_ingest_failed", error=str(e))
         try:
             screen = await sanctions_bridge.sanctions_screen_vessels(min_score=0.85, limit=200)
             hits = [m.get("sanction") for m in (screen.get("matches") or []) if m.get("sanction")]
             if hits:
                 await rag_memory.ingest_sanctions_hits(hits)
         except Exception as e:
-            print(f"[PHASE2] Sanctions ingest failed: {e}", flush=True)
+            log.warning("sanctions_ingest_failed", error=str(e))
         if feed_ingest.autopilot_on():
             try:
                 result = await feed_ingest.run_feed_ingest()
                 t = result.get("totals") or {}
-                print(
-                    f"[PHASE2] Feed ingest: +{t.get('entities', 0)} entities "
-                    f"({t.get('records', 0)} records)",
-                    flush=True,
-                )
+                log.info("feed_ingest_done", entities=t.get('entities', 0), records=t.get('records', 0))
             except Exception as e:
-                print(f"[PHASE2] Feed ingest failed: {e}", flush=True)
+                log.warning("feed_ingest_failed", error=str(e))
         await asyncio.sleep(600)
 
 
@@ -90,7 +83,7 @@ async def _aircraft_trail_loop() -> None:
         try:
             await aircraft_trails.snapshot_now()
         except Exception as e:
-            print(f"[TRAIL] aircraft snapshot failed: {e}", flush=True)
+            log.warning("aircraft_snapshot_failed", error=str(e))
         await asyncio.sleep(30)
 
 
@@ -118,42 +111,42 @@ async def _stack_warmup() -> None:
 
         out = await gdelt_bridge.warmup_local_pulse()
         n = int((out or {}).get("count") or 0)
-        print(f"[WARMUP] GDELT local pulse: {n} articles", flush=True)
+        log.info("warmup_gdelt_local", articles=n)
         await asyncio.sleep(gdelt_bridge._GDELT_MIN_INTERVAL + 1.0)
         out = await gdelt_bridge.warmup_global_pulse()
         n = int((out or {}).get("count") or 0)
-        print(f"[WARMUP] GDELT global pulse: {n} articles", flush=True)
+        log.info("warmup_gdelt_global", articles=n)
     except Exception as e:
-        print(f"[WARMUP] GDELT local failed: {e}", flush=True)
+        log.warning("warmup_gdelt_failed", error=str(e))
     try:
         from traffic_bridge import warm_traffic_cams
 
         await warm_traffic_cams(force=True)
-        print("[WARMUP] Traffic cams refreshed (regional/global/all)", flush=True)
+        log.info("warmup_traffic_cams")
     except Exception as e:
-        print(f"[WARMUP] Traffic cams failed: {e}", flush=True)
+        log.warning("warmup_traffic_cams_failed", error=str(e))
     try:
         import ais_bridge
 
         m = await ais_bridge.warm_maritime()
         if m:
-            print(f"[WARMUP] Maritime: {m.get('count')} vessels", flush=True)
+            log.info("warmup_maritime", vessels=m.get('count'))
     except Exception as e:
-        print(f"[WARMUP] Maritime failed: {e}", flush=True)
+        log.warning("warmup_maritime_failed", error=str(e))
     try:
         import cams_bridge
 
         h = await cams_bridge.get_haze(refresh=True)
-        print(f"[WARMUP] CAMS haze: {h.get('count')} cities", flush=True)
+        log.info("warmup_cams_haze", cities=h.get('count'))
     except Exception as e:
-        print(f"[WARMUP] CAMS haze failed: {e}", flush=True)
+        log.warning("warmup_cams_haze_failed", error=str(e))
     try:
         from feeds_extra import air_quality
 
         await air_quality()
-        print("[WARMUP] Air quality refreshed", flush=True)
+        log.info("warmup_air_quality")
     except Exception as e:
-        print(f"[WARMUP] Air quality failed: {e}", flush=True)
+        log.warning("warmup_air_quality_failed", error=str(e))
     try:
         import feed_registry
         from windy_bridge import fetch_point_weather
@@ -161,15 +154,15 @@ async def _stack_warmup() -> None:
         pt = await fetch_point_weather(13.75, 100.5)
         if pt.get("current"):
             feed_registry.write_auto("weather:13.75:100.5", pt)
-            print(f"[WARMUP] Bangkok weather: source={pt.get('source')}", flush=True)
+            log.info("warmup_weather", source=pt.get('source'))
     except Exception as e:
-        print(f"[WARMUP] Weather failed: {e}", flush=True)
+        log.warning("warmup_weather_failed", error=str(e))
     try:
         snap = await node_sync.warm_snapshot_cache()
         n = sum(1 for k in snap if snap.get(k))
-        print(f"[WARMUP] Briefing snapshot cache: {n} feeds", flush=True)
+        log.info("warmup_snapshot_cache", feeds=n)
     except Exception as e:
-        print(f"[WARMUP] Snapshot cache failed: {e}", flush=True)
+        log.warning("warmup_snapshot_cache_failed", error=str(e))
 
 
 async def _entity_resolution_autopilot() -> None:
@@ -178,13 +171,14 @@ async def _entity_resolution_autopilot() -> None:
     while True:
         try:
             result = await asyncio.to_thread(entity_resolution.run_resolution)
-            print(
-                f"[AUTOPILOT] Entity resolution: +{result.get('edges_added', 0)} edges "
-                f"({result.get('exact_edges', 0)} exact, {result.get('splink_edges', 0)} splink)",
-                flush=True,
+            log.info(
+                "entity_resolution_done",
+                edges_added=result.get('edges_added', 0),
+                exact_edges=result.get('exact_edges', 0),
+                splink_edges=result.get('splink_edges', 0),
             )
         except Exception as e:
-            print(f"[AUTOPILOT] Entity resolution failed: {e}", flush=True)
+            log.warning("entity_resolution_failed", error=str(e))
         await asyncio.sleep(interval)
 
 
@@ -208,15 +202,16 @@ async def _prediction_ledger_autopilot() -> None:
             )
             if result.get("resolved"):
                 stats = prediction_ledger.accuracy_30d()
-                print(
-                    "[AUTOPILOT] Prediction ledger: "
-                    f"resolved={result.get('resolved')} "
-                    f"hits={result.get('hits')} misses={result.get('misses')} "
-                    f"30d={stats.get('accuracy')} n={stats.get('sample_size')}",
-                    flush=True,
+                log.info(
+                    "prediction_ledger_resolved",
+                    resolved=result.get('resolved'),
+                    hits=result.get('hits'),
+                    misses=result.get('misses'),
+                    accuracy_30d=stats.get('accuracy'),
+                    sample_size=stats.get('sample_size'),
                 )
         except Exception as e:
-            print(f"[AUTOPILOT] Prediction ledger failed: {e}", flush=True)
+            log.warning("prediction_ledger_failed", error=str(e))
         await asyncio.sleep(prediction_ledger.resolve_interval_s())
 
 
@@ -236,7 +231,7 @@ async def _feed_cache_autopilot() -> None:
             if await ais_bridge.touch_maritime_cache():
                 pass  # best-effort; silence when buffer empty
         except Exception as e:
-            print(f"[AUTOPILOT] Maritime cache touch failed: {e}", flush=True)
+            log.warning("maritime_cache_touch_failed", error=str(e))
         if now >= next_gdelt:
             next_gdelt = now + gdelt_interval
             try:
@@ -244,7 +239,7 @@ async def _feed_cache_autopilot() -> None:
 
                 await gdelt_bridge.touch_local_pulse_cache()
             except Exception as e:
-                print(f"[AUTOPILOT] GDELT local touch failed: {e}", flush=True)
+                log.warning("gdelt_touch_failed", error=str(e))
         if now >= next_airquality:
             next_airquality = now + airquality_interval
             try:
@@ -252,7 +247,7 @@ async def _feed_cache_autopilot() -> None:
 
                 await air_quality()
             except Exception as e:
-                print(f"[AUTOPILOT] Air quality touch failed: {e}", flush=True)
+                log.warning("air_quality_touch_failed", error=str(e))
         await asyncio.sleep(maritime_interval)
 
 
@@ -261,9 +256,9 @@ async def _briefing_autopilot() -> None:
     while True:
         try:
             await node_sync.generate_briefing_internal()
-            print(f"[AUTOPILOT] Briefing generated at {datetime.now(timezone.utc).isoformat()}")
+            log.info("briefing_generated", ts=datetime.now(timezone.utc).isoformat())
         except Exception as e:
-            print(f"[AUTOPILOT] Briefing generation failed: {e}")
+            log.warning("briefing_generation_failed", error=str(e))
         await asyncio.sleep(_BRIEFING_INTERVAL)
 
 
@@ -277,11 +272,7 @@ def register_lifecycle(app) -> None:
         prune_feed_cache()
         entity_store.init_entity_db()
         if not ftm_store.init_store():
-            print(
-                "[FTM] Intel graph offline — DuckDB locked or missing. "
-                "/api/intel/* and briefing FtM block may be empty until restart.",
-                flush=True,
-            )
+            log.error("ftm_store_offline", detail="DuckDB locked or missing")
         node_sync.init_node_db()
         node_sync.init_command_db()
         anomaly_river.init_river_db()
@@ -298,24 +289,17 @@ def register_lifecycle(app) -> None:
         if briefing_autopilot_on():
             _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
         else:
-            print("[AUTOPILOT] Briefing autopilot disabled (WORLDBASE_BRIEFING_AUTOPILOT=0)", flush=True)
+            log.info("briefing_autopilot_disabled")
         if entity_resolution.autopilot_on():
             asyncio.create_task(_entity_resolution_autopilot())
         else:
-            print(
-                "[AUTOPILOT] Entity resolution autopilot disabled "
-                "(WORLDBASE_ENTITY_RESOLUTION_AUTOPILOT=0)",
-                flush=True,
-            )
+            log.info("entity_resolution_autopilot_disabled")
         import prediction_ledger
 
         if prediction_ledger.autopilot_on():
             asyncio.create_task(_prediction_ledger_autopilot())
         else:
-            print(
-                "[AUTOPILOT] Prediction ledger disabled (WORLDBASE_PREDICTION_LEDGER=0)",
-                flush=True,
-            )
+            log.info("prediction_ledger_disabled")
         asyncio.create_task(aircraft_routes.aircraft_warmup())
         asyncio.create_task(_phase1_background_tasks())
         asyncio.create_task(_aircraft_trail_loop())

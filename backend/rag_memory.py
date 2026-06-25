@@ -14,6 +14,10 @@ import httpx
 from fastapi import APIRouter, Depends
 import sqlite_vec
 
+from structured_log import get_logger
+
+log = get_logger(__name__)
+
 from rag_hybrid import (
     format_embed_text,
     format_prediction_watch_text,
@@ -96,7 +100,7 @@ def init_memory_db():
         fts_count = conn.execute("SELECT COUNT(*) FROM rag_fts").fetchone()[0]
 
         if vec_count == 0 and chunk_count > 0:
-            print(f"[RAG] Migrating {chunk_count} existing chunks to sqlite-vec...", flush=True)
+            log.info("rag_vec_migration", chunks=chunk_count)
             chunks = conn.execute("SELECT id, embedding_json FROM rag_chunks").fetchall()
             for chunk in chunks:
                 try:
@@ -108,16 +112,16 @@ def init_memory_db():
                         )
                 except Exception:
                     pass
-            print("[RAG] vec migration complete.", flush=True)
+            log.info("rag_vec_migration_complete")
 
         if fts_count == 0 and chunk_count > 0:
-            print(f"[RAG] Backfilling FTS5 for {chunk_count} chunks...", flush=True)
+            log.info("rag_fts_backfill", chunks=chunk_count)
             for row in conn.execute("SELECT id, text FROM rag_chunks").fetchall():
                 conn.execute(
                     "INSERT INTO rag_fts(chunk_id, text) VALUES (?, ?)",
                     (row["id"], row["text"]),
                 )
-            print("[RAG] FTS5 backfill complete.", flush=True)
+            log.info("rag_fts_backfill_complete")
 
         conn.commit()
 
