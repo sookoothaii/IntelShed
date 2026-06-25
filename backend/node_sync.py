@@ -52,6 +52,8 @@ from node_briefing import (  # noqa: F401
     predictions_status,
     _compress_briefing,
     _pull_payload_digest,
+    _briefing_hash,
+    _node_pull_delta_enabled,
     node_pull,
     node_pull_mesh,
 )

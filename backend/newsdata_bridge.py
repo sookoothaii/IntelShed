@@ -343,7 +343,15 @@ async def fetch_newsdata_latest(
             "filters": params,
         }
 
-    assert payload is not None
+    if payload is None:
+        return {
+            "count": 0,
+            "articles": [],
+            "configured": True,
+            "error": "empty response from newsdata.io",
+            "source": "newsdata.io",
+            "filters": params,
+        }
     api_err = _payload_error(payload)
     if api_err:
         return {
@@ -408,7 +416,15 @@ async def fetch_newsdata_sources(
             "filters": params,
         }
 
-    assert payload is not None
+    if payload is None:
+        return {
+            "count": 0,
+            "sources": [],
+            "configured": True,
+            "error": "empty response from newsdata.io",
+            "source": "newsdata.io",
+            "filters": params,
+        }
     api_err = _payload_error(payload)
     if api_err:
         return {

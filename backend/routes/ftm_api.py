@@ -164,3 +164,126 @@ async def api_get_entity(entity_id: str):
     if not ent:
         return {"id": entity_id, "found": False}
     return {**ent, "found": True}
+
+
+# I6: Tiered storage — archive endpoints
+
+@router.post("/intel/archive/run")
+async def api_archive_run(dry_run: bool = Query(False)):
+    """Trigger FtM archival of stale entities (zero-edge, older than archive_days)."""
+    import ftm_archive
+
+    return await asyncio.to_thread(ftm_archive.archive_stale_entities, dry_run)
+
+
+@router.post("/intel/archive/reload")
+async def api_archive_reload(month: str = Query(..., description="YYYY-MM")):
+    """Reload archived entities from Parquet back into DuckDB."""
+    import ftm_archive
+
+    return await asyncio.to_thread(ftm_archive.reload_archive, month)
+
+
+@router.get("/intel/archive/stats")
+async def api_archive_stats():
+    """Archive directory stats."""
+    import ftm_archive
+
+    return ftm_archive.archive_stats()
+
+
+@router.get("/intel/impact")
+async def api_impact(entity_id: str):
+    """Get full downstream impact for an entity (J4)."""
+    import impact_graph
+
+    return impact_graph.get_impact(entity_id)
+
+
+# ---------------------------------------------------------------------------
+# P5 — FtM StatementEntity: per-value provenance API
+# ---------------------------------------------------------------------------
+
+
+@router.get("/intel/statements")
+async def api_statements(entity_id: str):
+    """Get per-value statements for an entity (P5)."""
+    import ftm_query
+
+    return {"statements": ftm_query.get_statements(entity_id)}
+
+
+@router.get("/intel/statements/provenance")
+async def api_query_provenance(
+    dataset: str,
+    prop: str | None = None,
+    limit: int = 100,
+):
+    """Query statements by source dataset (P5)."""
+    import ftm_query
+
+    return {"results": ftm_query.query_by_provenance(dataset, prop, limit)}
+
+
+@router.get("/intel/statements/stats")
+async def api_statement_stats():
+    """Statement table statistics (P5)."""
+    import ftm_query
+
+    return ftm_query.statement_stats()
+
+
+# ---------------------------------------------------------------------------
+# P5+ — Dynamic Knowledge Graph: external edge review API
+# ---------------------------------------------------------------------------
+
+
+@router.get("/intel/edges/external")
+async def api_list_external_edges(
+    confirmed: bool | None = None,
+    limit: int = 100,
+):
+    """List external edges for review (P5+)."""
+    import edge_review
+
+    return {"edges": edge_review.list_external_edges(confirmed=confirmed, limit=limit)}
+
+
+@router.post("/intel/edges/approve")
+async def api_approve_edge(
+    source_id: str,
+    target_id: str,
+    kind: str,
+    dataset: str,
+):
+    """Approve an external edge (P5+)."""
+    import edge_review
+
+    ok = edge_review.approve_edge(source_id, target_id, kind, dataset)
+    if not ok:
+        return JSONResponse(status_code=404, content={"error": "Edge not found"})
+    return {"ok": True, "approved": True}
+
+
+@router.post("/intel/edges/reject")
+async def api_reject_edge(
+    source_id: str,
+    target_id: str,
+    kind: str,
+    dataset: str,
+):
+    """Reject an external edge — deletes it (P5+)."""
+    import edge_review
+
+    ok = edge_review.reject_edge(source_id, target_id, kind, dataset)
+    if not ok:
+        return JSONResponse(status_code=404, content={"error": "Edge not found"})
+    return {"ok": True, "rejected": True}
+
+
+@router.get("/intel/edges/review/stats")
+async def api_edge_review_stats():
+    """Edge review statistics (P5+)."""
+    import edge_review
+
+    return edge_review.edge_review_stats()

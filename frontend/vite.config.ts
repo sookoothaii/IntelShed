@@ -16,7 +16,7 @@ function faviconIcoFallback() {
 }
 
 export default defineConfig({
-  plugins: [react(), cesium(), faviconIcoFallback()],
+  plugins: [react(), cesium({ devMinifyCesium: true }), faviconIcoFallback()],
   server: {
     host: '127.0.0.1',
     port: 5176,
@@ -26,6 +26,19 @@ export default defineConfig({
         changeOrigin: true,
         timeout: 600_000,
         proxyTimeout: 600_000,
+      },
+    },
+  },
+  build: {
+    chunkSizeWarningLimit: 6_000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'maplibre-vendor': ['maplibre-gl'],
+          'react-vendor': ['react', 'react-dom', '@tanstack/react-query'],
+          'cytoscape-vendor': ['cytoscape'],
+          'satellite-vendor': ['satellite.js'],
+        },
       },
     },
   },

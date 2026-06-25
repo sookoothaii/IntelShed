@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import unittest
 
-from rag_rerank import rerank_enabled, rerank_hits, search_mode_label
+from rag_rerank import (
+    rerank_enabled,
+    rerank_hits,
+    search_mode_label,
+    warmup_status,
+    _warmup_status,
+    _set_warmup,
+)
 
 
 def _hit(cid: int, text: str) -> dict:
@@ -52,6 +59,35 @@ class RagRerankTests(unittest.TestCase):
             self.assertEqual(search_mode_label(), "hybrid_rrf_rerank")
         else:
             self.assertEqual(search_mode_label(), "hybrid_rrf")
+
+    def test_warmup_status_shape(self):
+        """warmup_status returns a dict with required keys."""
+        status = warmup_status()
+        self.assertIn("state", status)
+        self.assertIn("backend", status)
+        self.assertIn("elapsed_s", status)
+        self.assertIn("error", status)
+        self.assertIn("model", status)
+
+    def test_set_warmup_updates_state(self):
+        """_set_warmup updates the module-level status dict."""
+        _set_warmup("warming")
+        self.assertEqual(_warmup_status["state"], "warming")
+        _set_warmup("ready", backend="onnx", elapsed_s=5.2)
+        self.assertEqual(_warmup_status["state"], "ready")
+        self.assertEqual(_warmup_status["backend"], "onnx")
+        self.assertAlmostEqual(_warmup_status["elapsed_s"], 5.2)
+        # Restore idle for other tests
+        _set_warmup("idle", backend=None, elapsed_s=0.0, error=None)
+
+    def test_rerank_preserves_original_hit_fields(self):
+        """Reranked hits keep original fields and add rerank_score."""
+        hits = [_hit(1, "alpha"), _hit(2, "beta")]
+        out = rerank_hits("q", hits, top_k=2, score_fn=lambda q, t: [0.9, 0.1])
+        self.assertEqual(out[0]["id"], 1)
+        self.assertEqual(out[0]["source"], "test")
+        self.assertIn("rerank_score", out[0])
+        self.assertEqual(out[0]["rank_source"], "hybrid_rrf_rerank")
 
 
 if __name__ == "__main__":

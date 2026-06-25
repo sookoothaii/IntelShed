@@ -513,15 +513,28 @@ async def cross_feed_correlations():
 
     situations = []
 
-    # 1. Earthquake near nuclear site
-    try:
-        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
-            r = await client.get(
-                "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
-            )
-            quakes = r.json().get("features", [])
-    except Exception:
-        quakes = []
+    # 1+2. Fetch earthquakes (USGS) and disasters (ReliefWeb) in parallel
+    async def _fetch_usgs() -> list:
+        try:
+            async with httpx.AsyncClient(timeout=8.0, headers=_UA) as client:
+                r = await client.get(
+                    "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
+                )
+                return r.json().get("features", [])
+        except Exception:
+            return []
+
+    async def _fetch_reliefweb() -> list:
+        try:
+            async with httpx.AsyncClient(timeout=8.0, headers=_UA) as client:
+                r = await client.get(
+                    "https://api.reliefweb.int/v1/disasters?appname=worldbase&profile=list&preset=latest&limit=20"
+                )
+                return r.json().get("data", [])
+        except Exception:
+            return []
+
+    quakes, disasters = await asyncio.gather(_fetch_usgs(), _fetch_reliefweb())
 
     for q in quakes:
         props = q.get("properties", {})
@@ -550,16 +563,7 @@ async def cross_feed_correlations():
                     }
                 )
 
-    # 2. Military aircraft surge near disaster zone ( ReliefWeb )
-    try:
-        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
-            r = await client.get(
-                "https://api.reliefweb.int/v1/disasters?appname=worldbase&profile=list&preset=latest&limit=20"
-            )
-            disasters = r.json().get("data", [])
-    except Exception:
-        disasters = []
-
+    # 2. Military aircraft surge near disaster zone (ReliefWeb data fetched above)
     os_data = aircraft_provider.last_known_states()
     if not os_data or not os_data.get("states"):
         try:
@@ -647,7 +651,7 @@ async def cross_feed_correlations():
         import pegel_bridge
 
         peg = await pegel_bridge.get_pegel()
-        async with httpx.AsyncClient(timeout=12.0, headers=_UA) as client:
+        async with httpx.AsyncClient(timeout=8.0, headers=_UA) as client:
             for g in peg.get("gauges") or []:
                 if g.get("severity") not in ("high", "critical"):
                     continue

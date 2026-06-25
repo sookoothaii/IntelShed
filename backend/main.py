@@ -8,6 +8,7 @@ import mcp_server
 from bootstrap_env import load_env, log_security_startup
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from lifespan import register_lifecycle
 from middleware.rate_limit import setup_rate_limiting
 from middleware.security_headers import SecurityHeadersMiddleware
@@ -17,6 +18,9 @@ load_env()
 log_security_startup()
 
 app = FastAPI(title="WorldBase API", version="0.1.0", redirect_slashes=False)
+
+# I8: GZip compression for Pi pull payload (delta sync + bandwidth savings)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 _CORS_ORIGINS = [
     "http://localhost:5173",
@@ -46,6 +50,28 @@ app.add_middleware(
 )
 app.add_middleware(SecurityHeadersMiddleware)
 setup_rate_limiting(app)
+
+# I4: OpenTelemetry tracing (opt-in via OTEL_EXPORTER_OTLP_ENDPOINT + WORLDBASE_OTEL=1)
+try:
+    import telemetry_otel
+    if telemetry_otel.setup_otel(app):
+        print("[OTEL] tracing enabled", flush=True)
+except Exception:
+    pass
+
+# I4: Health check latency histogram middleware
+@app.middleware("http")
+async def health_check_timing(request, call_next):
+    import time as _time
+    start = _time.perf_counter()
+    response = await call_next(request)
+    if request.url.path in ("/api/health", "/api/health/ping"):
+        try:
+            import metrics as _metrics
+            _metrics.record_health_check_duration(_time.perf_counter() - start)
+        except Exception:
+            pass
+    return response
 
 register_routers(app)
 mcp_server.mount_worldbase_mcp(app)

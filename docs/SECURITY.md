@@ -277,6 +277,23 @@ Deploying to production? Verify:
 
 ---
 
+## RBAC + JWT + API Key Scopes (I9)
+
+Optional role-based access control, opt-in via `WORLDBASE_RBAC=1` (default off).
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| JWT tokens | `backend/auth/jwt.py` | Access + refresh tokens, TTL, rotation |
+| RBAC middleware | `backend/middleware/rbac.py` | Role hierarchy (`admin`, `operator`, `viewer`, `node`) |
+| API keys + rotation | `backend/routes/auth.py` | Scoped API keys with grace period during rotation |
+| Tests | `backend/test_rbac_jwt.py` | Token encode/decode/refresh + rotation coverage |
+
+When enabled:
+- `POST /api/auth/token` — exchange credentials for JWT access/refresh pair
+- `POST /api/auth/refresh` — refresh access token
+- `POST /api/auth/api-key/rotate` — rotate API key with grace period
+- Routes use `Depends(require_role("operator"))` or similar
+
 ## Penetration Testing
 
 ### Tools

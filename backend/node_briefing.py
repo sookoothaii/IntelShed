@@ -641,18 +641,45 @@ def _pull_payload_digest(payload: dict) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _briefing_hash(text: str | None) -> str:
+    """SHA-256 of briefing text — used for briefing diff (X-Briefing-Hash)."""
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
+def _node_pull_delta_enabled() -> bool:
+    """Check if delta sync is enabled via config or env."""
+    try:
+        from config import get_config
+        return get_config().node_pull_delta
+    except Exception:
+        return os.getenv("WORLDBASE_NODE_PULL_DELTA", "1").strip().lower() not in {
+            "0", "false", "no", "off",
+        }
+
+
 @router.get("/node/pull")
 @rate_limit_node_pull()
 async def node_pull(
-    request: Request, mesh: bool = False, x_node_token: str = Header(default="")
+    request: Request,
+    mesh: bool = False,
+    since: str | None = Query(default=None, description="ISO 8601 timestamp for delta sync"),
+    x_node_token: str = Header(default=""),
 ):
     """Single payload the Pi pulls: latest briefing + live critical alerts.
 
     Designed so the off-grid portal can show global situational awareness even
     when the Pi itself has no upstream internet — the PC did the heavy lifting.
-    Set ?mesh=1 for a <230 byte payload suitable for Meshtastic/LoRa relay.
+    Set ?mesh=1 for a <230 byte payload suitable for Meshtatic/LoRa relay.
 
     When NODE_INGEST_TOKEN is set, send the same value as header X-Node-Token.
+
+    **I8 Delta Sync (v3):** When ``?since=<ISO8601>`` is provided and delta
+    sync is enabled, the response uses ``payload_version: 3`` with:
+    - Briefing diff: if briefing text unchanged (SHA-256 match with
+      ``X-Briefing-Hash`` header), response body is ``{"briefing_unchanged": true}``
+    - Intel delta: only entities/edges with ``last_seen``/``seen_at`` after
+      ``since`` are included in ``intel_delta`` (instead of full ``intel_subgraph``)
+    - Full refresh forced when ``since`` > 7d old or missing
     """
     _verify_node_secret(x_node_token)
     brief = await latest_briefing()
@@ -668,11 +695,57 @@ async def node_pull(
             "s": len(compressed),
         }
 
+    briefing_text = brief.get("text")
+    b_hash = _briefing_hash(briefing_text)
+    delta_enabled = _node_pull_delta_enabled()
+    use_delta = bool(since) and delta_enabled
+
+    # --- Briefing diff: check if client already has this briefing ---
+    client_briefing_hash = request.headers.get("x-briefing-hash", "").strip()
+    if use_delta and client_briefing_hash and client_briefing_hash == b_hash:
+        # Briefing unchanged — send minimal payload with intel delta only
+        payload: dict = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "source": "worldbase-pc",
+            "payload_version": 3,
+            "briefing_unchanged": True,
+            "briefing_at": brief.get("created_at"),
+            "briefing_hash": b_hash,
+            "since": since,
+        }
+        try:
+            import intel_graph_export
+
+            if intel_graph_export.enabled():
+                payload["intel_delta"] = await asyncio.to_thread(
+                    intel_graph_export.compact_delta_for_pull, since
+                )
+        except Exception:
+            payload["intel_delta"] = {"available": False}
+        digest = _pull_payload_digest(payload)
+        payload["content_sha256"] = digest
+
+        inm = request.headers.get("if-none-match", "").strip().strip('"')
+        if inm and inm == digest:
+            return Response(
+                status_code=304,
+                headers={"ETag": f'"{digest}"', "X-Content-SHA256": digest},
+            )
+        return JSONResponse(
+            payload,
+            headers={
+                "ETag": f'"{digest}"',
+                "X-Content-SHA256": digest,
+                "X-Briefing-Hash": b_hash,
+            },
+        )
+
+    # --- Full or delta payload with briefing text ---
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source": "worldbase-pc",
-        "payload_version": 2,
-        "briefing": brief.get("text"),
+        "payload_version": 3 if use_delta else 2,
+        "briefing": briefing_text,
         "briefing_at": brief.get("created_at"),
         "alerts": alerts,
         "fusion_hotspots": fusion_hotspots,
@@ -681,15 +754,28 @@ async def node_pull(
         "watch_items": brief.get("watch_items") or [],
         "insights": brief.get("insights") or [],
     }
+    if use_delta:
+        payload["briefing_hash"] = b_hash
+        payload["since"] = since
+
     try:
         import intel_graph_export
 
         if intel_graph_export.enabled():
-            payload["intel_subgraph"] = await asyncio.to_thread(
-                intel_graph_export.compact_for_pull
-            )
+            if use_delta:
+                payload["intel_delta"] = await asyncio.to_thread(
+                    intel_graph_export.compact_delta_for_pull, since
+                )
+            else:
+                payload["intel_subgraph"] = await asyncio.to_thread(
+                    intel_graph_export.compact_for_pull
+                )
     except Exception:
-        payload["intel_subgraph"] = {"available": False}
+        if use_delta:
+            payload["intel_delta"] = {"available": False}
+        else:
+            payload["intel_subgraph"] = {"available": False}
+
     digest = _pull_payload_digest(payload)
     payload["content_sha256"] = digest
 
@@ -701,7 +787,11 @@ async def node_pull(
 
     return JSONResponse(
         payload,
-        headers={"ETag": f'"{digest}"', "X-Content-SHA256": digest},
+        headers={
+            "ETag": f'"{digest}"',
+            "X-Content-SHA256": digest,
+            **({"X-Briefing-Hash": b_hash} if use_delta else {}),
+        },
     )
 
 

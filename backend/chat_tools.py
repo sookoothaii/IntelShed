@@ -109,6 +109,27 @@ OLLAMA_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "spatial_query",
+            "description": "Execute a natural-language spatial query against WorldBase entities. Examples: 'within 50km of Bangkok', 'near Phuket', 'downstream from Chao Phraya'. Returns matching entities with coordinates.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language spatial query",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results to return (default 12)",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
@@ -206,6 +227,35 @@ async def execute_tool(name: str, arguments: dict) -> dict[str, Any]:
                 "count": len(results),
                 "spatial": bool(bbox),
                 "results": results,
+            },
+        }
+
+    if name == "spatial_query":
+        import spatial_reasoning
+
+        query = str(args.get("query", "")).strip()
+        limit = int(args.get("limit") or 12)
+        raw = spatial_reasoning.spatial_query(query)
+        results = (raw.get("results") or [])[:limit]
+        return {
+            "tool": name,
+            "result": {
+                "query": query,
+                "enabled": raw.get("enabled"),
+                "composition": raw.get("composition"),
+                "operations": raw.get("operations"),
+                "resolved_entities": raw.get("resolved_entities"),
+                "count": len(results),
+                "results": [
+                    {
+                        "id": r.get("id"),
+                        "schema": r.get("schema"),
+                        "caption": r.get("caption"),
+                        "lat": r.get("lat"),
+                        "lon": r.get("lon"),
+                    }
+                    for r in results
+                ],
             },
         }
 

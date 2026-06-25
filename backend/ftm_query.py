@@ -962,3 +962,167 @@ try:
     _register_op("import_entities", _op_import_entities)
 except ImportError:
     pass
+
+
+# ---------------------------------------------------------------------------
+# P5 — FtM 4.0 StatementEntity: per-value provenance query helpers
+# ---------------------------------------------------------------------------
+
+
+def get_statements(entity_id: str) -> list[dict]:
+    """Get all per-value statements for an entity.
+
+    Returns list of {prop, value, dataset, seen_at, lang} dicts.
+    """
+    def _do(con):
+        rows = con.execute(
+            "SELECT prop, value, dataset, seen_at, lang FROM statements WHERE entity_id = ? ORDER BY prop, dataset",
+            [entity_id],
+        ).fetchall()
+        return [
+            {"prop": r[0], "value": r[1], "dataset": r[2], "seen_at": r[3], "lang": r[4]}
+            for r in rows
+        ]
+    return _run_with_recovery(_do) or []
+
+
+def query_by_provenance(dataset: str, prop: str | None = None, limit: int = 100) -> list[dict]:
+    """Query statements by source dataset, optionally filtered by property.
+
+    Returns list of {entity_id, prop, value, seen_at} dicts.
+    """
+    def _do(con):
+        if prop:
+            rows = con.execute(
+                "SELECT entity_id, prop, value, seen_at FROM statements WHERE dataset = ? AND prop = ? LIMIT ?",
+                [dataset, prop, limit],
+            ).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT entity_id, prop, value, seen_at FROM statements WHERE dataset = ? LIMIT ?",
+                [dataset, limit],
+            ).fetchall()
+        return [
+            {"entity_id": r[0], "prop": r[1], "value": r[2], "seen_at": r[3]}
+            for r in rows
+        ]
+    return _run_with_recovery(_do) or []
+
+
+def statement_stats() -> dict:
+    """Get statement table statistics."""
+    def _do(con):
+        total = con.execute("SELECT COUNT(*) FROM statements").fetchone()[0]
+        by_dataset = con.execute(
+            "SELECT dataset, COUNT(*) as c FROM statements GROUP BY dataset ORDER BY c DESC LIMIT 20"
+        ).fetchall()
+        by_prop = con.execute(
+            "SELECT prop, COUNT(*) as c FROM statements GROUP BY prop ORDER BY c DESC LIMIT 20"
+        ).fetchall()
+        return {
+            "total_statements": total,
+            "by_dataset": {r[0]: r[1] for r in by_dataset},
+            "by_prop": {r[0]: r[1] for r in by_prop},
+        }
+    return _run_with_recovery(_do) or {"total_statements": 0, "by_dataset": {}, "by_prop": {}}
+
+
+# ---------------------------------------------------------------------------
+# P5+ — Dynamic Knowledge Graph: external edge support
+# ---------------------------------------------------------------------------
+
+import os as _os
+
+_MAX_EXT_CONF = float(_os.getenv("WORLDBASE_DYNAMIC_GRAPH_MAX_CONFIDENCE", "0.7"))
+
+
+def add_external_edge(
+    source_id: str,
+    target_id: str,
+    kind: str,
+    dataset: str = "user-query",
+    *,
+    confidence: float = 0.6,
+    properties: dict | None = None,
+    seen_at: str | None = None,
+) -> None:
+    """Add an external (user-derived) edge with confidence cap.
+
+    Confidence is capped at WORLDBASE_DYNAMIC_GRAPH_MAX_CONFIDENCE (default 0.7).
+    The edge is marked with external=true in properties.
+    """
+    capped = min(confidence, _MAX_EXT_CONF)
+    props = dict(properties or {})
+    props["external"] = True
+    props["confirmed"] = False
+    add_edge(
+        source_id, target_id, kind, dataset,
+        confidence=capped, properties=props, seen_at=seen_at,
+    )
+
+
+def list_external_edges(confirmed: bool | None = None, limit: int = 100) -> list[dict]:
+    """List external edges, optionally filtered by confirmation status."""
+    def _do(con):
+        rows = con.execute(
+            """
+            SELECT source_id, target_id, kind, properties, confidence, dataset, seen_at
+            FROM edges
+            WHERE properties LIKE '%\"external\": true%'
+            ORDER BY seen_at DESC
+            LIMIT ?
+            """,
+            [limit],
+        ).fetchall()
+        results = []
+        for r in rows:
+            props = json.loads(r[3] or "{}")
+            is_confirmed = props.get("confirmed", False)
+            if confirmed is not None and is_confirmed != confirmed:
+                continue
+            results.append({
+                "source_id": r[0],
+                "target_id": r[1],
+                "kind": r[2],
+                "properties": props,
+                "confidence": r[4],
+                "dataset": r[5],
+                "seen_at": r[6],
+                "external": props.get("external", False),
+                "confirmed": is_confirmed,
+            })
+        return results
+    return _run_with_recovery(_do) or []
+
+
+def approve_external_edge(source_id: str, target_id: str, kind: str, dataset: str) -> bool:
+    """Approve an external edge — sets confirmed=true and raises confidence to 0.9."""
+    def _do(con):
+        row = con.execute(
+            "SELECT properties FROM edges WHERE source_id = ? AND target_id = ? AND kind = ? AND dataset = ?",
+            [source_id, target_id, kind, dataset],
+        ).fetchone()
+        if not row:
+            return False
+        props = json.loads(row[0] or "{}")
+        props["confirmed"] = True
+        props["external"] = True
+        con.execute(
+            "UPDATE edges SET properties = ?, confidence = 0.9 WHERE source_id = ? AND target_id = ? AND kind = ? AND dataset = ?",
+            [json.dumps(props), source_id, target_id, kind, dataset],
+        )
+        return True
+    result = _run_with_recovery(_do)
+    return bool(result)
+
+
+def reject_external_edge(source_id: str, target_id: str, kind: str, dataset: str) -> bool:
+    """Reject an external edge — deletes it from the graph."""
+    def _do(con):
+        con.execute(
+            "DELETE FROM edges WHERE source_id = ? AND target_id = ? AND kind = ? AND dataset = ?",
+            [source_id, target_id, kind, dataset],
+        )
+        return True
+    result = _run_with_recovery(_do)
+    return bool(result)

@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OSINT Pins",
+  "description": "Fields produced by osint_tools for OSINT pin records",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "Pin ID" },
+    "label": { "type": "string", "description": "Pin label / display name" },
+    "lat": { "type": ["number", "string"], "description": "Latitude" },
+    "lon": { "type": ["number", "string"], "description": "Longitude" },
+    "country": { "type": "string", "description": "Country name" },
+    "query": { "type": "string", "description": "Original OSINT query" },
+    "email": { "type": "string", "description": "Email address (if person)" },
+    "pin_type": { "type": "string", "description": "Pin type (person, username, email, location)" }
+  },
+  "required": ["id"],
+  "optional": ["label", "lat", "lon", "country", "query", "email", "pin_type"]
+}

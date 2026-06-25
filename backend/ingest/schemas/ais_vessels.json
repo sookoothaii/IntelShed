@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AIS Vessels",
+  "description": "Fields produced by ais_bridge for AIS vessel contacts",
+  "type": "object",
+  "properties": {
+    "mmsi": { "type": ["string", "integer"], "description": "Maritime Mobile Service Identity" },
+    "name": { "type": "string", "description": "Vessel name" },
+    "imo": { "type": ["string", "integer"], "description": "IMO number" },
+    "flag": { "type": "string", "description": "Flag state (ISO 2-letter)" },
+    "type": { "type": "string", "description": "Vessel type" },
+    "callsign": { "type": "string", "description": "Radio callsign" },
+    "lat": { "type": ["number", "string"], "description": "Latitude" },
+    "lon": { "type": ["number", "string"], "description": "Longitude" },
+    "course": { "type": ["number", "string"], "description": "Course over ground" },
+    "speed": { "type": ["number", "string"], "description": "Speed over ground" },
+    "heading": { "type": ["number", "string"], "description": "True heading" },
+    "timestamp": { "type": "string", "description": "Position timestamp" }
+  },
+  "required": ["mmsi"],
+  "optional": ["name", "imo", "flag", "type", "callsign", "lat", "lon", "course", "speed", "heading", "timestamp"]
+}

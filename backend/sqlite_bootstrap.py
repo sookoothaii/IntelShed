@@ -22,7 +22,7 @@ entity_store.set_db_path(DB_PATH)
 ftm_store.set_db_path()
 
 _FEED_CACHE_MAX_AGE_SEC = float(
-    os.getenv("WORLDBASE_FEED_CACHE_MAX_AGE_SEC", 7 * 24 * 3600)
+    os.getenv("WORLDBASE_FEED_CACHE_TTL", os.getenv("WORLDBASE_FEED_CACHE_MAX_AGE_SEC", str(7 * 24 * 3600)))
 )
 
 

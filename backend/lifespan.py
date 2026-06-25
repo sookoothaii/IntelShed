@@ -173,6 +173,20 @@ async def _stack_warmup() -> None:
         log.info("warmup_snapshot_cache", feeds=n)
     except Exception as e:
         log.warning("warmup_snapshot_cache_failed", error=str(e))
+    # I7: RAG reranker warmup (ONNX int8 or Torch fallback)
+    try:
+        import rag_rerank
+
+        if rag_rerank.rerank_enabled():
+            result = await rag_rerank.warmup_reranker()
+            log.info(
+                "warmup_reranker",
+                state=result.get("state"),
+                backend=result.get("backend"),
+                elapsed_s=result.get("elapsed_s"),
+            )
+    except Exception as e:
+        log.warning("warmup_reranker_failed", error=str(e))
 
 
 async def _entity_resolution_autopilot() -> None:
@@ -273,6 +287,49 @@ async def _briefing_autopilot() -> None:
             log.info("briefing_generated", ts=datetime.now(timezone.utc).isoformat())
         except Exception as e:
             log.warning("briefing_generation_failed", error=str(e))
+        # I4: webhook alerting after briefing
+        try:
+            import alerting
+            import metrics as _metrics
+            m = _metrics.collect_all()
+            alerts = alerting.check_and_alert(
+                trust_score=int(m.get("ollama_reachable", 0) + m.get("pi_edge_online", 0) + (1 if m.get("briefing_age_seconds", 999) < 21600 else 0) + (1 if m.get("feed_fresh_count", 0) > 0 else 0)),
+                feed_fresh=int(m.get("feed_fresh_count", 0)),
+                feed_stale=int(m.get("feed_stale_count", 0)),
+                duckdb_queue_backlog=int(m.get("duckdb_queue_backlog", 0)),
+            )
+            for a in alerts:
+                log.warning("alert_fired", **a)
+        except Exception as exc:
+            log.debug("alert_check_failed", error=str(exc))
+        # J5: quota alerting
+        try:
+            import quota_monitor
+            quota_alerts = quota_monitor.check_alerts()
+            for qa in quota_alerts:
+                log.warning("quota_alert", **qa)
+        except Exception as exc:
+            log.debug("quota_alert_check_failed", error=str(exc))
+        # I6: tiered storage maintenance (every 24h — runs when briefing interval >= 6h, otherwise every loop)
+        try:
+            import ftm_archive
+            import sqlite_bootstrap
+            # Prune stale feed cache
+            pruned = sqlite_bootstrap.prune_feed_cache()
+            if pruned:
+                log.info("feed_cache_pruned", removed=pruned)
+            # VACUUM SQLite
+            import sqlite3
+            conn = sqlite3.connect(sqlite_bootstrap.DB_PATH, timeout=10.0)
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("VACUUM")
+            conn.close()
+            # FtM archival (no-op when WORLDBASE_FTM_ARCHIVE_DAYS=0)
+            result = ftm_archive.archive_stale_entities()
+            if result.get("enabled") and result.get("archived", 0) > 0:
+                log.info("ftm_archived", **result)
+        except Exception as exc:
+            log.debug("tiered_storage_maintenance_failed", error=str(exc))
         await asyncio.sleep(_BRIEFING_INTERVAL)
 
 
@@ -305,6 +362,9 @@ def register_lifecycle(app) -> None:
         import features
 
         features.init_feature_flags_db()
+        import quota_monitor
+
+        quota_monitor.init_quota_db()
         from ollama_config import briefing_autopilot_on
 
         if briefing_autopilot_on():

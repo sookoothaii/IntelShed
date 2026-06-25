@@ -163,6 +163,13 @@ async def health():
     except Exception:
         pass
     try:
+        import ftm_archive
+
+        result["duckdb_size_mb"] = ftm_archive.duckdb_size_mb()
+        result["archive"] = ftm_archive.archive_stats()
+    except Exception:
+        pass
+    try:
         from credentials.registry import providers_status
 
         result["credentials"] = {

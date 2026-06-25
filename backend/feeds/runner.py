@@ -115,8 +115,24 @@ class FeedConnector:
         cached = self.get_cached(subkey)
         if cached is not None:
             return cached
+        # J5: hard stop if quota exceeded — serve stale instead of fetching
+        try:
+            import quota_monitor
+            if quota_monitor.is_quota_exceeded(self.cache_key):
+                stale = self.stale_from_memory("quota_exceeded") or self.stale_from_disk("quota_exceeded")
+                if stale:
+                    return stale
+                return self.empty_payload("quota_exceeded", source=self.default_source)
+        except Exception:
+            pass
         try:
             payload = await fetch()
+            # J5: record API call for quota tracking
+            try:
+                import quota_monitor
+                quota_monitor.record_call(self.cache_key)
+            except Exception:
+                pass
             if "updated" not in payload:
                 payload["updated"] = utc_now_iso()
             if self.default_source:

@@ -95,6 +95,7 @@ export default function ChatPanel({
   const [showAddModel, setShowAddModel] = useState(false)
   const [newModelDraft, setNewModelDraft] = useState('')
   const [customModelDrafts, setCustomModelDrafts] = useState<Record<string, string>>({})
+  const [rerankerWarming, setRerankerWarming] = useState(false)
   const processedAskIdRef = useRef(0)
 
   const saveApiKeys = (next: Record<string, string>) => {
@@ -277,6 +278,28 @@ export default function ChatPanel({
     }, 1000)
     return () => clearInterval(id)
   }, [busy])
+
+  // I7: Poll reranker warmup status during startup
+  useEffect(() => {
+    let active = true
+    const poll = async () => {
+      try {
+        const r = await fetchApi('/api/memory/reranker/status')
+        if (!r.ok) return
+        const d = await r.json()
+        if (!active) return
+        if (d.enabled && d.state === 'warming') {
+          setRerankerWarming(true)
+        } else if (d.state === 'ready' || d.state === 'failed' || !d.enabled) {
+          setRerankerWarming(false)
+        }
+      } catch { /* best-effort */ }
+    }
+    poll()
+    const id = setInterval(poll, 3000)
+    const stop = setTimeout(() => { clearInterval(id); setRerankerWarming(false) }, 120000)
+    return () => { active = false; clearInterval(id); clearTimeout(stop) }
+  }, [])
 
   // Auto-send when askAI is provided (from globe / situation board)
   useEffect(() => {
@@ -501,6 +524,11 @@ export default function ChatPanel({
       {(feedContext || webSearch || useTools) && !busy && (
         <div className="chat-slow-hint">
           CTX / 🔍 / TOOLS active — manual chats often take 30–90&nbsp;s. Ask AI from the globe uses the fast entity path automatically.
+        </div>
+      )}
+      {rerankerWarming && (
+        <div className="chat-slow-hint" style={{ borderColor: '#ffd23f', color: '#ffd23f' }}>
+          ⏳ Reranker warming up (ONNX/Torch) — first search may take a few extra seconds…
         </div>
       )}
 

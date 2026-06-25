@@ -12,6 +12,29 @@ import ftm_store
 _DEFAULT_EXCLUDE = ("Airplane", "Thing")
 
 
+def _decay_floor() -> float:
+    """Minimum decay_weight for an edge to appear in the prompt subgraph. Default 0.3."""
+    try:
+        return max(
+            0.0,
+            min(1.0, float(os.getenv("WORLDBASE_INTEL_SUBGRAPH_DECAY_FLOOR", "0.3") or "0.3")),
+        )
+    except ValueError:
+        return 0.3
+
+
+def _communities_enabled() -> bool:
+    return os.getenv("WORLDBASE_INTEL_SUBGRAPH_COMMUNITIES", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+_PROMPT_EDGE_CAP = 20
+
+
 def _edge_decay_half_life_days() -> float:
     """Half-life for temporal edge decay (days). Default 30."""
     try:
@@ -338,6 +361,23 @@ def build_subgraph(
         e for e in edges if e["source_id"] in node_ids and e["target_id"] in node_ids
     ]
 
+    # I5: aggregate duplicate edges between same node pair
+    aggregated_edges = _aggregate_edges(pruned_edges)
+
+    # I5: graph density scoring + hub tagging
+    density_map = _graph_density(nodes, aggregated_edges)
+    for node in nodes:
+        score = density_map.get(node["id"], 0.0)
+        node["density_score"] = round(score, 3)
+        node["hub"] = score > 0.5
+
+    # I5: optional community detection
+    if _communities_enabled() and len(nodes) >= 3:
+        comm_map = _detect_communities(nodes, aggregated_edges)
+        for node in nodes:
+            if node["id"] in comm_map:
+                node["community_id"] = comm_map[node["id"]]
+
     return {
         "available": True,
         "bbox": target_bbox,
@@ -347,10 +387,169 @@ def build_subgraph(
         "seed_count": len(seeds),
         "seeds": [s["id"] for s in seeds],
         "nodes": nodes,
-        "edges": pruned_edges,
+        "edges": aggregated_edges,
         "node_count": len(nodes),
-        "edge_count": len(pruned_edges),
+        "edge_count": len(aggregated_edges),
+        "raw_edge_count": len(pruned_edges),
     }
+
+
+def _aggregate_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate multiple edges between the same node pair into a single edge.
+
+    Multiple `relatedEvent` or other edges between the same source→target pair
+    are collapsed into one edge with:
+    - count: number of original edges
+    - avg_confidence: mean of raw confidence values
+    - combined_weight: mean of decayed_confidence values
+    - source_types: set of edge kinds
+    - datasets: set of datasets
+    """
+    pair_map: dict[tuple[str, str], dict[str, Any]] = {}
+    for edge in edges:
+        pair = (edge["source_id"], edge["target_id"])
+        if pair not in pair_map:
+            pair_map[pair] = {
+                "source_id": edge["source_id"],
+                "target_id": edge["target_id"],
+                "kind": edge.get("kind") or "linked",
+                "confidence": edge.get("confidence", 1.0),
+                "decayed_confidence": edge.get("decayed_confidence", 1.0),
+                "decay_weight": edge.get("decay_weight", 1.0),
+                "age_days": edge.get("age_days"),
+                "dataset": edge.get("dataset"),
+                "seen_at": edge.get("seen_at"),
+                "_count": 1,
+                "_confidences": [edge.get("confidence", 1.0)],
+                "_decayed": [edge.get("decayed_confidence", 1.0)],
+                "_kinds": {edge.get("kind") or "linked"},
+                "_datasets": set(),
+            }
+            if edge.get("dataset"):
+                pair_map[pair]["_datasets"].add(edge["dataset"])
+        else:
+            agg = pair_map[pair]
+            agg["_count"] += 1
+            agg["_confidences"].append(edge.get("confidence", 1.0))
+            agg["_decayed"].append(edge.get("decayed_confidence", 1.0))
+            agg["_kinds"].add(edge.get("kind") or "linked")
+            if edge.get("dataset"):
+                agg["_datasets"].add(edge["dataset"])
+            # Keep the most recent seen_at
+            if edge.get("seen_at") and (not agg.get("seen_at") or edge["seen_at"] > agg["seen_at"]):
+                agg["seen_at"] = edge["seen_at"]
+                agg["age_days"] = edge.get("age_days")
+                agg["decay_weight"] = edge.get("decay_weight", 1.0)
+
+    result: list[dict[str, Any]] = []
+    for agg in pair_map.values():
+        count = agg.pop("_count")
+        confidences = agg.pop("_confidences")
+        decayed = agg.pop("_decayed")
+        kinds = agg.pop("_kinds")
+        datasets = agg.pop("_datasets")
+        agg["count"] = count
+        agg["avg_confidence"] = round(sum(confidences) / len(confidences), 4)
+        agg["combined_weight"] = round(sum(decayed) / len(decayed), 4)
+        agg["source_types"] = sorted(kinds)
+        agg["datasets"] = sorted(datasets) if datasets else []
+        # Use the primary kind (most common, or first alphabetically as tiebreaker)
+        agg["kind"] = sorted(kinds)[0] if len(kinds) == 1 else "|".join(sorted(kinds)[:3])
+        result.append(agg)
+    return result
+
+
+def _graph_density(
+    nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+) -> dict[str, float]:
+    """Compute per-node density score = edge_count / (node_count - 1).
+
+    High-density nodes (>0.5) are convergence points (hubs).
+    """
+    n = len(nodes)
+    if n <= 1:
+        return {node["id"]: 0.0 for node in nodes}
+    degree: dict[str, int] = {node["id"]: 0 for node in nodes}
+    for edge in edges:
+        sid = edge.get("source_id")
+        tid = edge.get("target_id")
+        if sid in degree:
+            degree[sid] += 1
+        if tid in degree:
+            degree[tid] += 1
+    denom = n - 1
+    return {nid: deg / denom for nid, deg in degree.items()}
+
+
+def _prune_stale_edges(
+    edges: list[dict[str, Any]], floor: float | None = None
+) -> list[dict[str, Any]]:
+    """Filter out edges with decay_weight below the floor (not from DB, just from prompt)."""
+    threshold = floor if floor is not None else _decay_floor()
+    if threshold <= 0:
+        return edges
+    return [
+        e
+        for e in edges
+        if (e.get("decay_weight") or 1.0) >= threshold
+    ]
+
+
+def _prioritize_edges(
+    edges: list[dict[str, Any]],
+    density_map: dict[str, float],
+    cap: int = _PROMPT_EDGE_CAP,
+) -> list[dict[str, Any]]:
+    """Sort edges by priority: decayed_confidence * count * (1 + 0.1 * hub_bonus).
+
+    Keeps the most relevant, well-corroborated, and structurally important edges.
+    """
+    def priority(e: dict[str, Any]) -> float:
+        decayed = e.get("combined_weight") or e.get("decayed_confidence") or 0.0
+        count = e.get("count", 1)
+        src_hub = 1.0 if density_map.get(e.get("source_id", ""), 0) > 0.5 else 0.0
+        tgt_hub = 1.0 if density_map.get(e.get("target_id", ""), 0) > 0.5 else 0.0
+        hub_bonus = max(src_hub, tgt_hub)
+        return decayed * count * (1.0 + 0.1 * hub_bonus)
+
+    return sorted(edges, key=priority, reverse=True)[:cap]
+
+
+def _detect_communities(
+    nodes: list[dict[str, Any]], edges: list[dict[str, Any]]
+) -> dict[str, int]:
+    """Optional: detect communities using networkx greedy modularity.
+
+    Returns mapping of node_id → community_id (0-indexed).
+    """
+    try:
+        import networkx as nx
+    except ImportError:
+        return {}
+
+    g = nx.Graph()
+    for node in nodes:
+        g.add_node(node["id"])
+    for edge in edges:
+        sid = edge.get("source_id")
+        tid = edge.get("target_id")
+        if sid and tid:
+            weight = edge.get("combined_weight") or edge.get("decayed_confidence") or 1.0
+            g.add_edge(sid, tid, weight=weight)
+
+    if g.number_of_edges() == 0:
+        return {}
+
+    try:
+        communities = nx.community.greedy_modularity_communities(g, weight="weight")
+    except Exception:
+        return {}
+
+    result: dict[str, int] = {}
+    for idx, community in enumerate(communities):
+        for node_id in community:
+            result[node_id] = idx
+    return result
 
 
 def format_subgraph_prompt_block(subgraph: dict[str, Any], lang: str = "en") -> str:
@@ -367,6 +566,16 @@ def format_subgraph_prompt_block(subgraph: dict[str, Any], lang: str = "en") -> 
             return "- FtM-Subgraph ohne Knoten."
         return "- FtM subgraph has no nodes."
 
+    # I5: prune stale edges below decay floor before prompt
+    prompt_edges = _prune_stale_edges(edges)
+
+    # I5: compute density for prioritization
+    density_map = _graph_density(nodes, prompt_edges)
+
+    # I5: prioritize edges when over cap
+    if len(prompt_edges) > _PROMPT_EDGE_CAP:
+        prompt_edges = _prioritize_edges(prompt_edges, density_map, _PROMPT_EDGE_CAP)
+
     id_to_label: dict[str, str] = {}
     node_lines: list[str] = []
     for node in nodes[:24]:
@@ -377,6 +586,10 @@ def format_subgraph_prompt_block(subgraph: dict[str, Any], lang: str = "en") -> 
             tags.append("seed" if lang.startswith("en") else "Seed")
         elif node.get("hop") is not None:
             tags.append(f"{node['hop']}-hop")
+        if node.get("hub"):
+            tags.append("hub" if lang.startswith("en") else "Knotenpunkt")
+        if node.get("community_id") is not None:
+            tags.append(f"c{node['community_id']}")
         ds = (node.get("datasets") or [])[:2]
         if ds:
             tags.append(",".join(ds))
@@ -384,7 +597,7 @@ def format_subgraph_prompt_block(subgraph: dict[str, Any], lang: str = "en") -> 
         node_lines.append(f"- {label}{suffix}")
 
     edge_lines: list[str] = []
-    for edge in edges[:20]:
+    for edge in prompt_edges:
         src = id_to_label.get(edge["source_id"], edge["source_id"][:10])
         tgt = id_to_label.get(edge["target_id"], edge["target_id"][:10])
         kind = edge.get("kind") or "linked"
@@ -392,6 +605,9 @@ def format_subgraph_prompt_block(subgraph: dict[str, Any], lang: str = "en") -> 
         decay = edge.get("decay_weight")
         if decay is not None and decay < 0.5:
             kind = f"{kind} (stale)"
+        count = edge.get("count", 1)
+        if count > 1:
+            kind = f"{kind} x{count}"
         edge_lines.append(f"- {src} --{kind}--> {tgt} [{ds}]")
 
     hop_n = subgraph.get("hops", 2)

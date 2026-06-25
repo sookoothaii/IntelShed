@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GDACS Alerts",
+  "description": "Fields produced by GDACS disaster alerts feed",
+  "type": "object",
+  "properties": {
+    "eventid": { "type": "string", "description": "GDACS event ID" },
+    "title": { "type": "string", "description": "Alert title" },
+    "description": { "type": "string", "description": "Alert description" },
+    "fromdate": { "type": "string", "description": "Start date (ISO 8601)" },
+    "todate": { "type": "string", "description": "End date (ISO 8601)" },
+    "country": { "type": "string", "description": "Affected country name" },
+    "iso3": { "type": "string", "description": "ISO 3-letter country code" },
+    "eventtype": { "type": "string", "description": "Event type (flood, earthquake, etc.)" },
+    "alertlevel": { "type": "string", "description": "Alert level (green, orange, red)" },
+    "link": { "type": "string", "description": "Source URL" },
+    "lat": { "type": ["number", "string"], "description": "Latitude" },
+    "lon": { "type": ["number", "string"], "description": "Longitude" }
+  },
+  "required": ["eventid", "title"],
+  "optional": ["description", "fromdate", "todate", "country", "iso3", "eventtype", "alertlevel", "link", "lat", "lon"]
+}

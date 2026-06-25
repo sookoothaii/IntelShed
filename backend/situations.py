@@ -270,14 +270,20 @@ async def unified_situations():
     if _CACHE["payload"] and (now - _CACHE["ts"]) < _CACHE_TTL:
         return _CACHE["payload"]
 
-    corr, anom, gdacs, pegel, sensors, river = await asyncio.gather(
-        _items_correlations(),
-        _items_anomalies(),
-        _items_gdacs(),
-        _items_pegel(),
-        _items_sensors(),
-        _items_river(),
-    )
+    try:
+        corr, anom, gdacs, pegel, sensors, river = await asyncio.wait_for(
+            asyncio.gather(
+                _items_correlations(),
+                _items_anomalies(),
+                _items_gdacs(),
+                _items_pegel(),
+                _items_sensors(),
+                _items_river(),
+            ),
+            timeout=20.0,
+        )
+    except asyncio.TimeoutError:
+        corr, anom, gdacs, pegel, sensors, river = [], [], [], [], [], []
     items = corr + anom + gdacs + pegel + sensors + river
 
     sev_order = {

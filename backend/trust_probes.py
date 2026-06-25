@@ -174,6 +174,21 @@ async def run_trust_probes() -> dict[str, Any]:
     degradation = feed_drift.get("degradation") or {}
     field_warn = score < 2
     feed_warn = bool(degradation.get("warn"))
+
+    mapping_drift: dict[str, Any] = {"ok": True, "statuses": {}, "detail": "skipped"}
+    try:
+        import mapping_validator as _mv
+        mapping_drift = {
+            "ok": True,
+            "statuses": await asyncio.to_thread(_mv.get_mapping_drift_status),
+            "detail": "ok",
+        }
+        if any(v == "error" for v in mapping_drift["statuses"].values()):
+            mapping_drift["ok"] = False
+            mapping_drift["detail"] = "mapping validation error"
+    except Exception as exc:
+        mapping_drift = {"ok": False, "statuses": {}, "detail": str(exc)[:120]}
+
     return {
         "time": datetime.now(timezone.utc).isoformat(),
         "score": score,
@@ -185,6 +200,7 @@ async def run_trust_probes() -> dict[str, Any]:
         "feed_warn": feed_warn,
         "degraded": field_warn or feed_warn,
         "feed_drift": feed_drift,
+        "mapping_drift": mapping_drift,
         "fusion_compare": fusion_compare,
         "briefing_pipeline": briefing_pipeline,
     }

@@ -1,19 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import Globe from './components/Globe'
-import MapPanel from './components/MapPanel'
-import ChatPanel from './components/ChatPanel'
-import OsintPanel from './components/OsintPanel'
-import DataPanel from './components/DataPanel'
-import NewsPanel from './components/NewsPanel'
-import SituationBoard from './components/SituationBoard'
-import FullAnalysisOverlay from './components/FullAnalysisOverlay'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
+
+// Eager — critical for initial paint, error handling, small size
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { NodeHealthBanner } from './components/NodeHealthBanner'
+import MapModeBar from './components/MapModeBar'
 import type { FocusTarget } from './lib/focus'
 import type { OsintPin } from './lib/osintPins'
 import { loadOsintPins, saveOsintPins, mergeImportedPins } from './lib/osintPins'
-import WindyMapOverlay from './components/WindyMapOverlay'
-import MapModeBar from './components/MapModeBar'
 import { DEFAULT_MAP_VIEW, type MapViewMode } from './lib/mapView'
 import { fetchApi } from './lib/networkFetch'
 import { agentBusEnabled } from './lib/agentBus'
@@ -27,7 +20,38 @@ import {
   useModelsQuery,
 } from './hooks/useSharedFeeds'
 
+// Lazy — code-split per tab, loaded on demand via Suspense
+const Globe = lazy(() => import('./components/Globe'))
+const MapPanel = lazy(() => import('./components/MapPanel'))
+const ChatPanel = lazy(() => import('./components/ChatPanel'))
+const DataPanel = lazy(() => import('./components/DataPanel'))
+const NewsPanel = lazy(() => import('./components/NewsPanel'))
+const OsintPanel = lazy(() => import('./components/OsintPanel'))
+const SituationBoard = lazy(() => import('./components/SituationBoard'))
+const FullAnalysisOverlay = lazy(() => import('./components/FullAnalysisOverlay'))
+const WindyMapOverlay = lazy(() => import('./components/WindyMapOverlay'))
+
 type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'news' | 'osint'
+
+function TabFallback({ label = 'Loading' }: { label?: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 120 }}>
+      <div className="boot-line" style={{ opacity: 0.5, animationDelay: '0s' }}>{label}…</div>
+    </div>
+  )
+}
+
+function usePrefetchNextTab(view: ViewId) {
+  useEffect(() => {
+    const prefetchMap: Partial<Record<ViewId, () => Promise<unknown>>> = {
+      globe: () => import('./components/MapPanel'),
+      data: () => import('./components/ChatPanel'),
+      chat: () => import('./components/DataPanel'),
+    }
+    const prefetch = prefetchMap[view]
+    if (prefetch) prefetch().catch(() => {})
+  }, [view])
+}
 
 const VIEW_IDS: ViewId[] = ['globe', 'map', 'data', 'chat', 'news', 'osint']
 
@@ -229,6 +253,7 @@ export default function App() {
   }
 
   useAgentBus(focusOnMap)
+  usePrefetchNextTab(view)
 
   const lastCamPostRef = useRef(0)
   const handleGlobeMove = useCallback((cam: { lon: number; lat: number; height: number; pitch?: number }) => {
@@ -370,16 +395,22 @@ export default function App() {
       <NodeHealthBanner />
 
       {situationOpen && (
-        <SituationBoard
-          onClose={() => setSituationOpen(false)}
-          onFocus={focusOnMap}
-          osintPins={osintPins}
-          onAddPin={addOsintPin}
-          onAskAI={handleAskAI}
-          onOpenIntel={openIntel}
-        />
+        <Suspense fallback={<TabFallback label="SITUATIONS" />}>
+          <SituationBoard
+            onClose={() => setSituationOpen(false)}
+            onFocus={focusOnMap}
+            osintPins={osintPins}
+            onAddPin={addOsintPin}
+            onAskAI={handleAskAI}
+            onOpenIntel={openIntel}
+          />
+        </Suspense>
       )}
-      {analysisOpen && <ErrorBoundary name="FullAnalysis"><FullAnalysisOverlay onClose={() => setAnalysisOpen(false)} onFocus={focusOnMap} /></ErrorBoundary>}
+      {analysisOpen && (
+        <Suspense fallback={<TabFallback label="FULL SITUATION" />}>
+          <ErrorBoundary name="FullAnalysis"><FullAnalysisOverlay onClose={() => setAnalysisOpen(false)} onFocus={focusOnMap} /></ErrorBoundary>
+        </Suspense>
+      )}
 
       <main className={splitView ? 'hud-main hud-main--split' : 'hud-main'}>
         <div
@@ -390,48 +421,64 @@ export default function App() {
           ].join(' ')}
         >
           <ErrorBoundary name="Globe" onFallback={() => setView('map')}>
-            <Globe {...globeSharedProps} />
+            <Suspense fallback={<TabFallback label="GLOBE" />}>
+              <Globe {...globeSharedProps} />
+            </Suspense>
           </ErrorBoundary>
           {windyMapOpen && windyMapKey && (
-            <WindyMapOverlay
-              open={windyMapOpen}
-              onClose={() => setWindyMapOpen(false)}
-              lat={windyMapCoords.lat}
-              lon={windyMapCoords.lon}
-              mapKey={windyMapKey}
-            />
+            <Suspense fallback={<TabFallback label="WINDY" />}>
+              <WindyMapOverlay
+                open={windyMapOpen}
+                onClose={() => setWindyMapOpen(false)}
+                lat={windyMapCoords.lat}
+                lon={windyMapCoords.lon}
+                mapKey={windyMapKey}
+              />
+            </Suspense>
           )}
         </div>
 
         {splitView ? null : view !== 'globe' && view !== 'map' ? (
           <div key={view} className="view-fade">
-            {view === 'data' && <DataPanel onFocus={focusOnMap} onOpenWindyMap={openWindyMap} intelEntityId={intelEntityId} />}
-            {view === 'chat' && (
-              <ChatPanel
-                askAI={askAI}
-                onClearAsk={() => setAskAI(null)}
-                onClientAction={(act) => {
-                  if (act?.type === 'focus_globe' && act.lat != null && act.lon != null) {
-                    focusOnMap({
-                      kind: act.kind || 'ai_focus',
-                      lat: act.lat,
-                      lon: act.lon,
-                      height: 400000,
-                      title: act.title || 'AI focus',
-                      lines: act.lines || [],
-                    })
-                  }
-                }}
-              />
+            {view === 'data' && (
+              <Suspense fallback={<TabFallback label="DATA" />}>
+                <DataPanel onFocus={focusOnMap} onOpenWindyMap={openWindyMap} intelEntityId={intelEntityId} />
+              </Suspense>
             )}
-            {view === 'news' && <NewsPanel />}
+            {view === 'chat' && (
+              <Suspense fallback={<TabFallback label="AI" />}>
+                <ChatPanel
+                  askAI={askAI}
+                  onClearAsk={() => setAskAI(null)}
+                  onClientAction={(act) => {
+                    if (act?.type === 'focus_globe' && act.lat != null && act.lon != null) {
+                      focusOnMap({
+                        kind: act.kind || 'ai_focus',
+                        lat: act.lat,
+                        lon: act.lon,
+                        height: 400000,
+                        title: act.title || 'AI focus',
+                        lines: act.lines || [],
+                      })
+                    }
+                  }}
+                />
+              </Suspense>
+            )}
+            {view === 'news' && (
+              <Suspense fallback={<TabFallback label="NEWS" />}>
+                <NewsPanel />
+              </Suspense>
+            )}
             {view === 'osint' && (
-              <OsintPanel
-                onFocus={focusOnMap}
-                onAddPin={addOsintPin}
-                onImportPins={(pins) => setOsintPins((prev) => mergeImportedPins(prev, pins))}
-                pinCount={osintPins.length}
-              />
+              <Suspense fallback={<TabFallback label="OSINT" />}>
+                <OsintPanel
+                  onFocus={focusOnMap}
+                  onAddPin={addOsintPin}
+                  onImportPins={(pins) => setOsintPins((prev) => mergeImportedPins(prev, pins))}
+                  pinCount={osintPins.length}
+                />
+              </Suspense>
             )}
           </div>
         ) : null}
@@ -444,7 +491,9 @@ export default function App() {
           ].join(' ')}
         >
           <ErrorBoundary name="Map" onFallback={() => setView('globe')}>
-            <MapPanel {...mapPanelProps} />
+            <Suspense fallback={<TabFallback label="MAP" />}>
+              <MapPanel {...mapPanelProps} />
+            </Suspense>
           </ErrorBoundary>
         </div>
 

@@ -303,6 +303,17 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
                     spec["mapping"],
                     dataset=spec.get("dataset") or name,
                 )
+                # J8 — Runtime payload drift detection
+                if records:
+                    try:
+                        import mapping_validator
+                        drift = mapping_validator.detect_payload_drift(
+                            spec["mapping"], records
+                        )
+                        if drift.get("drift"):
+                            result["mapping_drift"] = drift
+                    except Exception:
+                        pass
                 if rag_feed_ingest_on() and records:
                     try:
                         rag_src = spec.get("rag_source") or name
@@ -477,3 +488,17 @@ async def feeds_run(
     except Exception as exc:
         logger.exception("feed ingest failed")
         raise HTTPException(status_code=503, detail="feed ingest failed") from exc
+
+
+@router.post("/validate")
+async def feeds_validate_mappings(_auth: str | None = Depends(verify_lan_auth)):
+    """J8 — Validate all YAML mappings against JSON schemas. Returns drift report."""
+    import mapping_validator
+    return mapping_validator.validate_all_mappings()
+
+
+@router.get("/validate")
+async def feeds_validate_mappings_get():
+    """GET variant for trust panel / read-only access."""
+    import mapping_validator
+    return mapping_validator.validate_all_mappings()

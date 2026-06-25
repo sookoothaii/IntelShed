@@ -1,0 +1,18 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EONET Events",
+  "description": "Fields produced by NASA EONET natural events feed",
+  "type": "object",
+  "properties": {
+    "id": { "type": "string", "description": "EONET event ID" },
+    "title": { "type": "string", "description": "Event title" },
+    "description": { "type": "string", "description": "Event description" },
+    "date": { "type": "string", "description": "Event date (ISO 8601)" },
+    "link": { "type": "string", "description": "Source URL" },
+    "category": { "type": "string", "description": "Event category" },
+    "lat": { "type": ["number", "string"], "description": "Latitude" },
+    "lon": { "type": ["number", "string"], "description": "Longitude" }
+  },
+  "required": ["id", "title"],
+  "optional": ["description", "date", "link", "category", "lat", "lon"]
+}

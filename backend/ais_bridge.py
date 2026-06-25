@@ -338,6 +338,19 @@ def _ingest_stream_message(msg: dict, regions: dict[str, dict]) -> bool:
     vessel["_seen_at"] = time.time()
     _STREAM["vessels"][vessel["mmsi"]] = vessel
     _STREAM["last_msg_at"] = time.time()
+    # P7: Store trajectory position for pattern-of-life analysis
+    try:
+        import ais_trajectory
+        ais_trajectory.store_position(
+            vessel["mmsi"],
+            vessel["lat"],
+            vessel["lon"],
+            speed=vessel.get("speed"),
+            course=vessel.get("course"),
+            source="aisstream",
+        )
+    except Exception:
+        pass
     max_n = _max_vessels()
     if len(_STREAM["vessels"]) > max_n:
         _prune_stream_vessels()
@@ -797,3 +810,35 @@ def list_ports():
         "ports": [{"id": k, **v} for k, v in PORT_REGIONS.items()],
         "active": list(_active_regions().keys()),
     }
+
+
+# ---------------------------------------------------------------------------
+# P7 — Maritime Pattern-of-Life (Anomaly Detection)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/anomalies")
+async def get_maritime_anomalies():
+    """Get vessels with anomalous behavior patterns (P7)."""
+    import ais_trajectory
+
+    return {
+        "anomalies": ais_trajectory.detect_anomalies(),
+        "threshold": float(__import__("os").getenv("WORLDBASE_MARITIME_ANOMALY_THRESHOLD", "0.6")),
+    }
+
+
+@router.get("/trajectory/{mmsi}")
+async def get_vessel_trajectory(mmsi: str):
+    """Get trajectory features for a specific vessel (P7)."""
+    import ais_trajectory
+
+    return ais_trajectory.get_vessel_features(mmsi)
+
+
+@router.get("/trajectory/stats")
+async def get_trajectory_stats():
+    """Get trajectory tracking statistics (P7)."""
+    import ais_trajectory
+
+    return ais_trajectory.trajectory_stats()

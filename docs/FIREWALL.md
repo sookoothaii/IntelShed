@@ -4,7 +4,7 @@ Optional bridge to the external **HAK_GAL LLM-Security-Firewall** orchestrator (
 
 **Important:** HAK_GAL full stack is **not** treated as always functional. It is a **spare-parts warehouse** — borrow ideas and optional `/v1/detect` enrichment when the orchestrator is up. Full stack easily fills **16 GB VRAM** alongside Ollama.
 
-**WorldBase baseline (always on, 0 VRAM):** `backend/prompt_guard.py` — slim regex guard for MCP write tools.
+**WorldBase baseline (always on, 0 VRAM):** 4-layer prompt-injection defense — `prompt_guard.py` (Layer 0), `rag_integrity.py` (Layer 1), `session_guard.py` (Layer 2), `output_guard.py` (Layer 3). HAK_GAL is an optional fifth/external layer.
 
 Deep research: operator-local `research/HAK_GAL_PICK_LIST.md`, `research/VRAM_16GB_DOCKER_GPU_SCHEDULER_PLAN.md`.
 
@@ -13,15 +13,13 @@ Deep research: operator-local `research/HAK_GAL_PICK_LIST.md`, `research/VRAM_16
 ## Architecture
 
 ```text
-MCP write tool
-    → prompt_guard.slim_prompt_scan     [WorldBase, 0 VRAM, default ON]
-    → optional HAK_GAL /v1/detect       [only if FIREWALL_HOST + WORLDBASE_FIREWALL_MCP=1]
+MCP write tool / HUD chat
+    → Layer 0: prompt_guard.py        [regex input scan, NFKD normalization, 0 VRAM, default ON]
+    → Layer 1: rag_integrity.py         [RAG context integrity before LLM injection]
+    → Layer 2: session_guard.py         [multi-turn state scoring, exponential decay]
+    → Layer 3: output_guard.py          [post-LLM leak/echo/secret detection]
+    → optional HAK_GAL /v1/detect     [only if FIREWALL_HOST + WORLDBASE_FIREWALL_MCP=1]
     → fail-open if HAK_GAL down         [default — not a hard dependency]
-
-HUD chat (🛡️ ON)
-    → prompt_guard.slim_prompt_scan     [WorldBase, 0 VRAM, default ON]
-    → optional HAK_GAL /v1/detect
-    → fail-open if down
 ```
 
 Do **not** run full HAK_GAL microservice fleet + qwen3:8b on a 16 GB GPU and expect reliability.

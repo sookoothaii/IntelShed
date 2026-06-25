@@ -28,7 +28,7 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | **NEWS** | HUD **NEWS** tab — NewsData + GDELT local/global headline feed |
 | **Track R** | **R0 + R1.1–R1.4 shipped** — rerank, spatial bbox, CRAG-lite chat, adaptive YAML chunking, briefing agentic loop — [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
 | **Connectors** | Manifest registry + cache overlay — `GET /api/connectors`, DATA → **FEEDS**, STAC feed items |
-| **AI** | Local chat via Ollama (`qwen3:8b` default) |
+| **AI** | Local chat via Ollama (`qwen3:8b` default); spatial reasoning tool for "within X km of Y" queries |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → hardened briefing pull back to Pi |
 | **Trust** | Rule-based briefing quality + field trust score (FULL SITUATION panel; feed drift + connector provenance) |
 | **Thailand operator** | CAMS haze, HDX humanitarian, GDELT local, maritime Malacca corridor — enriched LOCAL/REGION briefing blocks |
@@ -87,7 +87,7 @@ ollama pull nomic-embed-text   # RAG embeddings
 pip install sentence-transformers   # when RAG_RERANK=1 in backend/.env
 ```
 
-**Verify stack:** `.\scripts\smoke-test.ps1` → expect **32/32 PASS** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, Vite proxy, Ollama chat, frontend build).
+**Verify stack:** `.\scripts\smoke-test.ps1` → expect **33 PASS / 0 FAIL / 1 WARN** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, Vite proxy, Ollama chat, frontend build). The WARN is the expected intel-ingest auth gate when no API key is set for that check.
 
 `.\start.ps1` waits for `GET /api/health/ping` before starting Vite (avoids proxy `ECONNREFUSED`). ~**6 s** after backend boot, a feed warm-up refreshes GDELT local + **global** pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
 

@@ -119,6 +119,118 @@ def compact_for_pull(
     }
 
 
+def compact_delta_for_pull(
+    since: str | None = None,
+    *,
+    max_nodes: int = 20,
+    max_edges: int = 30,
+) -> dict[str, Any]:
+    """Return only entities/edges created or modified after *since* timestamp.
+
+    Delta format (payload_version 3):
+        {
+            "available": true,
+            "delta": true,
+            "since": "...",
+            "as_of": "...",
+            "nodes_added": [...],
+            "edges_added": [...],
+            "node_count": N,
+            "edge_count": M,
+        }
+
+    When *since* is None or older than 7 days, falls back to full
+    :func:`compact_for_pull`.
+    """
+    if not since:
+        return compact_for_pull(max_nodes=max_nodes, max_edges=max_edges)
+
+    # Force full refresh when since > 7d old
+    try:
+        from datetime import datetime, timezone, timedelta
+
+        since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - since_dt
+        if age > timedelta(days=7):
+            return compact_for_pull(max_nodes=max_nodes, max_edges=max_edges)
+    except Exception:
+        return compact_for_pull(max_nodes=max_nodes, max_edges=max_edges)
+
+    try:
+        from ftm_connection import _LOCK, _conn
+    except ImportError:
+        return {"available": False, "reason": "ftm_connection not importable"}
+
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+
+    try:
+        with _LOCK:
+            con = _conn()
+            # Entities with last_seen after since
+            entity_rows = con.execute(
+                """
+                SELECT id, schema, caption, datasets, lat, lon, last_seen
+                FROM entities
+                WHERE last_seen IS NOT NULL AND last_seen > ?
+                ORDER BY last_seen DESC
+                LIMIT ?
+                """,
+                [since, max_nodes],
+            ).fetchall()
+            for row in entity_rows:
+                nodes.append(
+                    {
+                        "id": row[0],
+                        "caption": str(row[2] or "")[:80],
+                        "schema": row[1],
+                        "datasets": json.loads(row[3] or "[]")[:3],
+                        "lat": row[4],
+                        "lon": row[5],
+                        "last_seen": row[6],
+                    }
+                )
+
+            # Edges with seen_at after since
+            edge_rows = con.execute(
+                """
+                SELECT source_id, target_id, kind, dataset, confidence, seen_at
+                FROM edges
+                WHERE seen_at IS NOT NULL AND seen_at > ?
+                ORDER BY seen_at DESC
+                LIMIT ?
+                """,
+                [since, max_edges],
+            ).fetchall()
+            for row in edge_rows:
+                edges.append(
+                    {
+                        "kind": row[2],
+                        "dataset": row[3],
+                        "source_id": row[0],
+                        "target_id": row[1],
+                        "confidence": row[4],
+                        "seen_at": row[5],
+                    }
+                )
+    except Exception as exc:
+        logger.warning("compact_delta_for_pull query failed: %s", exc)
+        return {"available": False, "reason": "delta query error"}
+
+    return {
+        "available": True,
+        "delta": True,
+        "since": since,
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "nodes_added": nodes,
+        "edges_added": edges,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+    }
+
+
 from fastapi import APIRouter, Depends, HTTPException, Query  # noqa: E402
 
 from auth.security import verify_lan_auth  # noqa: E402

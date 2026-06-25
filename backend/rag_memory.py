@@ -14,6 +14,29 @@ import httpx
 from fastapi import APIRouter, Depends
 import sqlite_vec
 
+# I4: RAG query tracking for Prometheus metrics
+_rag_query_count: int = 0
+_rag_query_latencies: list[float] = []
+
+
+def record_rag_query(duration_s: float) -> None:
+    global _rag_query_count
+    _rag_query_count += 1
+    _rag_query_latencies.append(duration_s)
+    if len(_rag_query_latencies) > 500:
+        del _rag_query_latencies[:300]
+
+
+def query_stats() -> dict[str, Any]:
+    """RAG query count and p95 latency for Prometheus metrics."""
+    latencies = sorted(_rag_query_latencies)
+    n = len(latencies)
+    if n == 0:
+        return {"count": _rag_query_count, "p95_ms": 0.0}
+    p95_idx = int(n * 0.95)
+    p95_ms = latencies[min(p95_idx, n - 1)] * 1000.0
+    return {"count": _rag_query_count, "p95_ms": round(p95_ms, 2)}
+
 from structured_log import get_logger
 
 from rag_hybrid import (
@@ -337,6 +360,7 @@ async def search(
     bbox: list[float] | None = None,
 ) -> list[dict]:
     """Hybrid search: sqlite-vec cosine + FTS5 BM25 fused via reciprocal rank fusion."""
+    _t0 = time.perf_counter()
     k = k or _TOP_K
     candidate_k = max(
         k * 2, _HYBRID_CANDIDATES, _RERANK_POOL if rerank_enabled() else 0
@@ -365,7 +389,9 @@ async def search(
                 rrf_merge(vec_hits, fts_hits, k=_RRF_K, top_k=pool_k),
                 k,
             )
-        return apply_spatial_postfilter(merged, search_bbox, min_keep=k)
+        result = apply_spatial_postfilter(merged, search_bbox, min_keep=k)
+        record_rag_query(time.perf_counter() - _t0)
+        return result
 
 
 async def _ingest_gdelt_articles(
@@ -746,4 +772,20 @@ async def memory_stats():
         "rerank_enabled": rerank_enabled(),
         "spatial_enabled": spatial_enabled(),
         "adaptive_chunking": True,
+    }
+
+
+@router.get("/reranker/status")
+async def reranker_status():
+    """I7: Reranker warmup status and active backend (ONNX/Torch/none)."""
+    from rag_rerank import warmup_status, rerank_enabled, _backend_active
+
+    status = warmup_status()
+    return {
+        "enabled": rerank_enabled(),
+        "state": status.get("state"),
+        "backend": status.get("backend") or _backend_active,
+        "elapsed_s": status.get("elapsed_s", 0.0),
+        "error": status.get("error"),
+        "model": status.get("model"),
     }

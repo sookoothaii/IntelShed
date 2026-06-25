@@ -1090,7 +1090,7 @@ export default function Globe({
     let viewer: Viewer | null = null
     let resizeObserver: ResizeObserver | null = null
     let recoverAfterOnline: (() => void) | null = null
-    const timers: ReturnType<typeof setInterval>[] = []
+    const timers: ReturnType<typeof setTimeout>[] = []
     const feedActive = () => !cancelled && visibleRef.current
 
     let detachTerrainFailover: (() => void) | undefined
@@ -1884,7 +1884,7 @@ export default function Globe({
       timers.push(window.setTimeout(() => {
         if (!feedActive()) return
         fetchApi('/api/gibs/latest').then((r) => r.json()).then((d) => { gibsDateRef.current = d.date || '' }).catch(() => {})
-      }, 1200))
+      }, 1200) as unknown as ReturnType<typeof setTimeout>)
 
       
       

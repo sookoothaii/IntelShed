@@ -135,5 +135,29 @@ class OpenAIToolLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ordered[0]["id"], "call_1")
 
 
+class ChatToolExecutionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_spatial_query_tool(self):
+        """P6: spatial_query chat tool executes spatial reasoning and returns compact results."""
+        fake_result = {
+            "query": "within 50km of Bangkok",
+            "enabled": True,
+            "composition": "AND",
+            "operations": [{"operation": "within", "target": "bangkok", "params": {"radius_km": 50.0}}],
+            "resolved_entities": [{"operation": "within", "target": "bangkok", "resolved": {"lat": 13.7563, "lon": 100.5018}}],
+            "result_count": 2,
+            "results": [
+                {"id": "e1", "schema": "Vessel", "caption": "HOPE C", "lat": 13.61, "lon": 100.58},
+                {"id": "e2", "schema": "Airplane", "caption": "THA941", "lat": 13.69, "lon": 100.76},
+            ],
+        }
+        with patch("spatial_reasoning.spatial_query", return_value=fake_result):
+            out = await chat_tools.execute_tool("spatial_query", {"query": "within 50km of Bangkok", "limit": 5})
+        self.assertEqual(out["tool"], "spatial_query")
+        self.assertEqual(out["result"]["count"], 2)
+        self.assertEqual(out["result"]["query"], "within 50km of Bangkok")
+        self.assertEqual(len(out["result"]["results"]), 2)
+        self.assertEqual(out["result"]["results"][0]["id"], "e1")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -401,6 +401,20 @@ SSE_HEARTBEAT_INTERVAL=30                 # Keepalive seconds
 
 ---
 
+## Spatial Reasoning (P6)
+
+Rule-based natural-language → spatial operation layer (0 VRAM, zero external dependencies).
+
+| Component | File | Role |
+|-----------|------|------|
+| NL parser | `backend/spatial_reasoning.py` | Regex patterns extract `within`, `near`, `border`, `river_direction`, `visible_from`, `contains` |
+| Composition | `backend/spatial_relations.py` | SpaRAGraph-style matrix for AND/OR/THEN composition of operations |
+| Execution | `backend/spatial_reasoning.py` | Resolves place names against static geography, queries FtM entities in computed bbox |
+| API | `backend/intel_proximity.py` | `GET /api/intel/spatial/query?q=...`, `GET /api/intel/spatial/reasoning/stats`, `GET /api/intel/spatial/composition` |
+| Chat tool | `backend/chat_tools.py` | `spatial_query` tool exposes the pipeline to Ollama / OpenAI function calling |
+
+Opt-in via `WORLDBASE_SPATIAL_REASONING=1` (default off).
+
 ## Testing
 
 ### Quick Validation
@@ -411,6 +425,9 @@ python -c "from main import app; print('✓ Imports OK')"
 
 # Database health
 curl http://localhost:8002/api/health
+
+# Spatial reasoning
+curl "http://localhost:8002/api/intel/spatial/query?q=within%2050km%20of%20Bangkok"
 
 # Node ingest (with token)
 curl -X POST http://localhost:8002/api/node/ingest `

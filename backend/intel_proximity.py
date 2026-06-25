@@ -206,3 +206,32 @@ async def spatial_run(
     except Exception as exc:
         logger.exception("spatial link failed")
         raise HTTPException(status_code=503, detail="spatial link failed") from exc
+
+
+# ---------------------------------------------------------------------------
+# P6 — Spatial Reasoning (NL → Spatial Operation)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/query")
+async def spatial_reasoning_query(q: str = Query(..., min_length=3, max_length=500)):
+    """Parse a natural language spatial query and return matching entities (P6)."""
+    import spatial_reasoning
+
+    return spatial_reasoning.spatial_query(q)
+
+
+@router.get("/reasoning/stats")
+async def spatial_reasoning_stats():
+    """Get spatial reasoning statistics (P6)."""
+    import spatial_reasoning
+
+    return spatial_reasoning.spatial_reasoning_stats()
+
+
+@router.get("/composition")
+async def spatial_composition_matrix():
+    """Get the SpaRAGraph composition matrix (P6)."""
+    import spatial_relations
+
+    return spatial_relations.composition_matrix()
