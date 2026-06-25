@@ -123,6 +123,16 @@ def is_postgres_mode() -> bool:
     return bool(os.getenv("DATABASE_URL", "").strip())
 
 
+async def async_read_sqlite(key: str) -> dict | None:
+    """Non-blocking SQLite read for use in async route handlers."""
+    return await asyncio.to_thread(read, key)
+
+
+async def async_write_sqlite(key: str, payload: dict) -> None:
+    """Non-blocking SQLite write for use in async route handlers."""
+    await asyncio.to_thread(write, key, payload)
+
+
 # Unified write function (auto-detects database)
 def write_auto(key: str, payload: dict) -> None:
     """Write feed cache with automatic backend detection.

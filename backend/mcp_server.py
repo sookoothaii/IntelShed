@@ -230,7 +230,7 @@ async def fetch_feed_sample(feed_id: str, limit: int = 5) -> dict[str, Any]:
 
     import feed_registry
 
-    cached = feed_registry.read(feed_id)
+    cached = await feed_registry.async_read_sqlite(feed_id)
     if cached is not None:
         return {
             "feed_id": feed_id,

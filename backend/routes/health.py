@@ -58,13 +58,15 @@ async def health():
             db_connected = False
     else:
         # Test SQLite
-        try:
-            conn = sqlite3.connect(db_file, timeout=2.0)
-            conn.execute("SELECT 1")
-            conn.close()
-            db_connected = True
-        except Exception:
-            db_connected = False
+        def _test_sqlite():
+            try:
+                conn = sqlite3.connect(db_file, timeout=2.0)
+                conn.execute("SELECT 1")
+                conn.close()
+                return True
+            except Exception:
+                return False
+        db_connected = await asyncio.to_thread(_test_sqlite)
 
     def _build():
         now = datetime.now(timezone.utc)

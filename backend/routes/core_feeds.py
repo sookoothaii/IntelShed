@@ -192,7 +192,7 @@ async def get_iss():
 @router.get("/api/world")
 async def get_world():
     """Stub for world.json aggregation (markets, geo threats)."""
-    data = feed_registry.read("world")
+    data = await feed_registry.async_read_sqlite("world")
     if data:
         return data
     return {
