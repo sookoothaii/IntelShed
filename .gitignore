@@ -32,6 +32,7 @@ data/sanctions/
 backend/data/entities.duckdb*
 backend/data/*.json
 backend/data/*.parquet
+backend/data/splink_model_*.json
 backend/data/tle/*.tle
 backend/data/**/*.cache
 

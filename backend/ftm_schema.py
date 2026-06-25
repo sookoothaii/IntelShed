@@ -50,6 +50,15 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_entities_schema ON entities(schema);
         CREATE INDEX IF NOT EXISTS idx_stmt_entity ON statements(entity_id);
+        CREATE TABLE IF NOT EXISTS resolution_labels (
+            pair_id     VARCHAR PRIMARY KEY,
+            source_id   VARCHAR NOT NULL,
+            target_id   VARCHAR NOT NULL,
+            schema      VARCHAR,
+            confidence  DOUBLE,
+            confirmed   BOOLEAN,
+            labeled_at  VARCHAR
+        );
         """
     )
     _ensure_edge_indexes(con)

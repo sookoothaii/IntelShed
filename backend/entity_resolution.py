@@ -9,6 +9,7 @@ rows exist. Splink is lazy-imported (``pip install splink``).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -63,6 +64,31 @@ _LOCK = threading.RLock()
 _LAST_RUN: dict[str, Any] | None = None
 _LAST_ERROR: str | None = None
 _SPLINK_VERSION: str | None = None
+
+# ---------------------------------------------------------------------------
+# Model persistence (P2+ dual-pipeline)
+# ---------------------------------------------------------------------------
+
+_MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+_AMBIGUOUS_MIN = float(os.getenv("WORLDBASE_ENTITY_RESOLUTION_AMBIGUOUS_MIN", "0.60"))
+_AMBIGUOUS_MAX = float(os.getenv("WORLDBASE_ENTITY_RESOLUTION_AMBIGUOUS_MAX", "0.84"))
+
+
+def _model_path(schema: str) -> str:
+    return os.path.join(_MODEL_DIR, f"splink_model_{schema}.json")
+
+
+def _model_exists(schema: str) -> bool:
+    return os.path.isfile(_model_path(schema))
+
+
+def _should_run_splink(schema: str) -> bool:
+    """True if Splink should run for this schema.
+
+    If a trained model exists, prediction is cheap (no retraining) → run even
+    when ``_SPLINK_ENABLED`` is off.  Otherwise fall back to the env gate.
+    """
+    return _SPLINK_ENABLED or _model_exists(schema)
 
 
 def _truthy_env(name: str, default: str = "0") -> bool:
@@ -134,6 +160,8 @@ def _rows_for_schema(schema: str, entities: list[dict]) -> list[dict]:
         country = _normalize_token(_first(props.get("country")))
         imo = _normalize_token(_first(props.get("imoNumber")))
         toks = _name_token_list(name)
+        email = _normalize_token(_first(props.get("email")))
+        alias = _normalize_token(_first(props.get("alias")) or _first(props.get("weakAlias")))
         rows.append({
             "unique_id": ent["id"],
             "entity_id": ent["id"],
@@ -141,6 +169,8 @@ def _rows_for_schema(schema: str, entities: list[dict]) -> list[dict]:
             "name_last": toks[-1] if toks else name,
             "country": country or None,
             "imo_number": imo or None,
+            "email": email or None,
+            "username": alias or None,
             "schema": schema,
         })
     return rows
@@ -254,26 +284,17 @@ def _run_subset_matches(schema: str, entities: list[dict], seen_pairs: set[tuple
     return added
 
 
-def _run_splink_schema(schema: str, rows: list[dict], seen_pairs: set[tuple[str, str, str]]) -> int:
-    if len(rows) < _MIN_ROWS_SPLINK:
-        return 0
-    try:
-        import pandas as pd
-        from splink import DuckDBAPI, Linker, SettingsCreator, block_on
-        import splink.comparison_library as cl
-    except ImportError as exc:
-        raise RuntimeError("splink not installed — pip install 'splink>=4.0,<5'") from exc
+def _build_comparisons_and_blocking(schema: str, df: "pd.DataFrame") -> tuple[list, list]:
+    """Build Splink comparisons and blocking rules for a schema.
 
-    global _SPLINK_VERSION
-    import splink as _splink_mod
+    Extracted so both ``train_model`` and ``_run_splink_schema`` share the same
+    comparison configuration.  OSINT comparisons (JaroWinkler on username,
+    Levenshtein on email) are added when the column has usable data.
+    """
+    import splink.comparison_library as cl
+    from splink import block_on
 
-    _SPLINK_VERSION = getattr(_splink_mod, "__version__", None)
-
-    df = pd.DataFrame(rows)
     comparisons = [cl.NameComparison("name")]
-    # Block on first 4 chars AND on the last name token, so records whose names
-    # share a surname/head token but differ in prefix (e.g. "Erdogan" vs
-    # "Recep Tayyip Erdogan") still land in a common comparison block.
     blocking = [block_on("substr(name, 1, 4)"), block_on("name_last")]
     if schema == "Vessel":
         comparisons.append(cl.ExactMatch("imo_number"))
@@ -281,6 +302,39 @@ def _run_splink_schema(schema: str, rows: list[dict], seen_pairs: set[tuple[str,
     if df["country"].notna().any() and (df["country"] != "").any():
         comparisons.append(cl.ExactMatch("country"))
         blocking.append(block_on("country"))
+    if "email" in df.columns and df["email"].notna().any() and (df["email"] != "").any():
+        comparisons.append(cl.LevenshteinAtThresholds("email"))
+        blocking.append(block_on("substr(email, 1, 4)"))
+    if "username" in df.columns and df["username"].notna().any() and (df["username"] != "").any():
+        comparisons.append(cl.JaroWinklerAtThresholds("username"))
+        blocking.append(block_on("substr(username, 1, 3)"))
+    return comparisons, blocking
+
+
+def train_model(schema: str) -> dict:
+    """Train Splink model for a schema and persist settings to JSON.
+
+    Runs u-sampling + EM on all entities of the given schema, then saves the
+    trained settings to ``data/splink_model_{schema}.json``.  Future resolution
+    runs will load this model instead of retraining.
+    """
+    entities = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA)
+    rows = _rows_for_schema(schema, entities)
+    if len(rows) < _MIN_ROWS_SPLINK:
+        return {"ok": False, "error": f"insufficient rows: {len(rows)} < {_MIN_ROWS_SPLINK}", "schema": schema}
+
+    try:
+        import pandas as pd
+        from splink import DuckDBAPI, Linker, SettingsCreator
+    except ImportError as exc:
+        raise RuntimeError("splink not installed — pip install 'splink>=4.0,<5'") from exc
+
+    global _SPLINK_VERSION
+    import splink as _splink_mod
+    _SPLINK_VERSION = getattr(_splink_mod, "__version__", None)
+
+    df = pd.DataFrame(rows)
+    comparisons, blocking = _build_comparisons_and_blocking(schema, df)
 
     settings = SettingsCreator(
         link_type="dedupe_only",
@@ -291,14 +345,60 @@ def _run_splink_schema(schema: str, rows: list[dict], seen_pairs: set[tuple[str,
     linker = Linker(df, settings, db_api=DuckDBAPI())
 
     if len(df) >= _EM_MIN_ROWS:
-        # u (agreement among non-matches) from random sampling only. We do NOT
-        # run EM m-estimation: with a single full-name comparison and no term-
-        # frequency adjustments, EM over-fits common given names (every
-        # "Mohammad *" / "Jose *" pair) and floods false-positive matches. The
-        # conservative default m keeps precision high; real fuzzy duplicates with
-        # distinctive names still clear the threshold. Proper EM needs a
-        # forename/surname split + term-frequency adjustments (future work).
-        linker.training.estimate_u_using_random_sampling(max_pairs=min(1_000_000, len(df) * 20))
+        linker.training.estimate_u_using_random_sampling(
+            max_pairs=min(1_000_000, len(df) * 20)
+        )
+        try:
+            linker.training.estimate_parameters_using_expectation_maximization(
+                blocking_rules_to_train_blocking=blocking,
+            )
+        except Exception:
+            logger.warning("EM training failed for %s — continuing with u-sampling only", schema)
+
+    path = _model_path(schema)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    linker.misc.save_model_to_json(path)
+
+    return {
+        "ok": True,
+        "schema": schema,
+        "rows": len(rows),
+        "model_path": path,
+        "splink_version": _SPLINK_VERSION,
+    }
+
+
+def _run_splink_schema(schema: str, rows: list[dict], seen_pairs: set[tuple[str, str, str]]) -> int:
+    if len(rows) < _MIN_ROWS_SPLINK:
+        return 0
+    try:
+        import pandas as pd
+        from splink import DuckDBAPI, Linker, SettingsCreator
+    except ImportError as exc:
+        raise RuntimeError("splink not installed — pip install 'splink>=4.0,<5'") from exc
+
+    global _SPLINK_VERSION
+    import splink as _splink_mod
+
+    _SPLINK_VERSION = getattr(_splink_mod, "__version__", None)
+
+    df = pd.DataFrame(rows)
+    model_path = _model_path(schema)
+    if os.path.isfile(model_path):
+        linker = Linker(df, model_path, db_api=DuckDBAPI())
+    else:
+        comparisons, blocking = _build_comparisons_and_blocking(schema, df)
+        settings = SettingsCreator(
+            link_type="dedupe_only",
+            comparisons=comparisons,
+            blocking_rules_to_generate_predictions=blocking,
+            probability_two_random_records_match=0.02,
+        )
+        linker = Linker(df, settings, db_api=DuckDBAPI())
+        if len(df) >= _EM_MIN_ROWS:
+            linker.training.estimate_u_using_random_sampling(
+                max_pairs=min(1_000_000, len(df) * 20)
+            )
 
     pred = linker.inference.predict(threshold_match_probability=_THRESHOLD)
     out = pred.as_pandas_dataframe()
@@ -409,7 +509,7 @@ def _run_two_stage_schema(
         exact = _run_exact_matches(schema, entities, seen_pairs)
         subset = _run_subset_matches(schema, entities, seen_pairs)
         splink = 0
-        if _SPLINK_ENABLED:
+        if _should_run_splink(schema):
             try:
                 splink = _run_splink_schema(schema, rows, seen_pairs)
             except Exception:
@@ -433,7 +533,7 @@ def _run_two_stage_schema(
         dataset_rows[ds] = rows
         total_exact += _run_exact_matches(schema, entities, seen_pairs)
         total_subset += _run_subset_matches(schema, entities, seen_pairs)
-        if _SPLINK_ENABLED and len(rows) >= _MIN_ROWS_SPLINK:
+        if _should_run_splink(schema) and len(rows) >= _MIN_ROWS_SPLINK:
             try:
                 total_splink += _run_splink_schema(schema, rows, seen_pairs)
             except Exception:
@@ -453,7 +553,7 @@ def _run_two_stage_schema(
             combined = entities_a + entities_b
             total_exact += _run_exact_matches(schema, combined, seen_pairs)
             total_subset += _run_subset_matches(schema, combined, seen_pairs)
-            if _SPLINK_ENABLED:
+            if _should_run_splink(schema):
                 try:
                     total_cross += _run_splink_cross_dataset(
                         schema, dataset_rows[ds_a], dataset_rows[ds_b], seen_pairs,
@@ -505,7 +605,7 @@ def run_resolution(
                     _exact = _run_exact_matches(schema, entities, seen_pairs)
                     _subset = _run_subset_matches(schema, entities, seen_pairs)
                     _splink = 0
-                    if _SPLINK_ENABLED:
+                    if _should_run_splink(schema):
                         try:
                             _splink = _run_splink_schema(schema, rows, seen_pairs)
                         except Exception:
@@ -569,18 +669,120 @@ def status() -> dict:
             splink_version = getattr(sm, "__version__", None)
     except ImportError:
         pass
+    models = {}
+    for s in RESOLUTION_SCHEMAS:
+        if _model_exists(s):
+            models[s] = _model_path(s)
     return {
         "available": splink_ok,
         "splink_enabled": _SPLINK_ENABLED,
         "splink_version": splink_version,
+        "models": models,
         "autopilot": autopilot_on(),
         "interval_sec": _AUTOPILOT_INTERVAL,
         "threshold": _THRESHOLD,
+        "ambiguous_range": [_AMBIGUOUS_MIN, _AMBIGUOUS_MAX],
         "schemas": list(RESOLUTION_SCHEMAS),
         "resolution_edges": ftm_store.count_edges_for_dataset(RESOLUTION_DATASET),
         "last_run": _LAST_RUN,
         "last_error": _LAST_ERROR,
     }
+
+
+# ---------------------------------------------------------------------------
+# Human-in-the-loop Grauzonen (P2+)
+# ---------------------------------------------------------------------------
+
+def list_ambiguous_pairs(
+    schema: str | None = None,
+    *,
+    min_prob: float | None = None,
+    max_prob: float | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Return resolution edges in the Grauzonen (ambiguous) confidence band.
+
+    Pairs with confidence between ``_AMBIGUOUS_MIN`` and ``_AMBIGUOUS_MAX``
+    that have not yet been labeled.  These are candidates for human review.
+    """
+    lo = min_prob if min_prob is not None else _AMBIGUOUS_MIN
+    hi = max_prob if max_prob is not None else _AMBIGUOUS_MAX
+    from ftm_connection import _LOCK, _conn
+    schema_clause = ""
+    params: list = [RESOLUTION_DATASET, lo, hi]
+    if schema:
+        schema_clause = " AND json_extract_string(properties, '$.schema') = ?"
+        params.append(schema)
+    params.append(int(limit))
+    with _LOCK:
+        rows = _conn().execute(
+            f"""
+            SELECT source_id, target_id, confidence,
+                   json_extract_string(properties, '$.method') AS method,
+                   json_extract_string(properties, '$.schema') AS schema
+            FROM edges
+            WHERE dataset = ?
+              AND confidence >= ?
+              AND confidence <= ?
+              AND NOT EXISTS (
+                  SELECT 1 FROM resolution_labels rl
+                  WHERE rl.source_id = edges.source_id
+                    AND rl.target_id = edges.target_id
+              )
+              {schema_clause}
+            ORDER BY confidence DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    return [
+        {
+            "source_id": r[0],
+            "target_id": r[1],
+            "confidence": r[2],
+            "method": r[3],
+            "schema": r[4],
+        }
+        for r in rows
+    ]
+
+
+def label_pair(source_id: str, target_id: str, confirmed: bool, *, schema: str | None = None) -> dict:
+    """Record a human label for an ambiguous pair.
+
+    If ``confirmed`` is True, the edge is kept (and confidence bumped to
+    ``_EXACT_CONFIDENCE``).  If False, the edge is deleted.
+    """
+    pair_id = f"{source_id}::{target_id}"
+    from ftm_connection import _LOCK, _conn
+    with _LOCK:
+        _conn().execute(
+            """
+            INSERT OR REPLACE INTO resolution_labels
+                (pair_id, source_id, target_id, schema, confidence, confirmed, labeled_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [pair_id, source_id, target_id, schema, 0.0, confirmed, _now()],
+        )
+    if confirmed:
+        with _LOCK:
+            _conn().execute(
+                "DELETE FROM edges WHERE source_id = ? AND target_id = ? AND dataset = ?",
+                [source_id, target_id, RESOLUTION_DATASET],
+            )
+        ftm_store.add_edge(
+            source_id, target_id, RESOLUTION_KIND,
+            dataset=RESOLUTION_DATASET,
+            confidence=_EXACT_CONFIDENCE,
+            properties={"method": "human-confirmed", "schema": schema or ""},
+        )
+    else:
+        with _LOCK:
+            _conn().execute(
+                "DELETE FROM edges WHERE source_id = ? AND target_id = ? AND dataset = ?",
+                [source_id, target_id, RESOLUTION_DATASET],
+            )
+    return {"ok": True, "pair_id": pair_id, "confirmed": confirmed}
 
 
 # ---------------------------------------------------------------------------
@@ -609,6 +811,46 @@ async def resolution_run(
     except Exception as exc:
         logger.exception("entity resolution failed")
         raise HTTPException(status_code=503, detail="entity resolution failed") from exc
+
+
+@router.post("/train")
+async def resolution_train(
+    schema: str = "Person",
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Train and persist a Splink model for the given schema."""
+    try:
+        return await asyncio.to_thread(train_model, schema)
+    except Exception as exc:
+        logger.exception("model training failed for %s", schema)
+        raise HTTPException(status_code=503, detail=f"training failed: {exc}") from exc
+
+
+@router.get("/ambiguous")
+async def resolution_ambiguous(
+    schema: str | None = None,
+    min: float | None = None,
+    max: float | None = None,
+    limit: int = 50,
+):
+    """List ambiguous pairs in the Grauzonen confidence band."""
+    return list_ambiguous_pairs(schema, min_prob=min, max_prob=max, limit=limit)
+
+
+@router.post("/label")
+async def resolution_label(
+    source_id: str,
+    target_id: str,
+    confirmed: bool = True,
+    schema: str | None = None,
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Record a human label for an ambiguous pair."""
+    try:
+        return await asyncio.to_thread(label_pair, source_id, target_id, confirmed, schema=schema)
+    except Exception as exc:
+        logger.exception("labeling failed")
+        raise HTTPException(status_code=503, detail="labeling failed") from exc
 
 
 @router.post("/reset")
