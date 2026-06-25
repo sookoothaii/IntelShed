@@ -13,6 +13,8 @@ import json
 import logging
 import os
 import re
+
+from config import get_config as _get_cfg
 import threading
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -35,14 +37,15 @@ _LIMIT_PER_SCHEMA = int(os.getenv("WORLDBASE_ENTITY_RESOLUTION_LIMIT", "3000"))
 _THRESHOLD = float(os.getenv("WORLDBASE_ENTITY_RESOLUTION_THRESHOLD", "0.85"))
 _EXACT_CONFIDENCE = float(os.getenv("WORLDBASE_ENTITY_RESOLUTION_EXACT_CONF", "0.98"))
 _SUBSET_CONFIDENCE = float(os.getenv("WORLDBASE_ENTITY_RESOLUTION_SUBSET_CONF", "0.88"))
-_AUTOPILOT_INTERVAL = int(os.getenv("WORLDBASE_ENTITY_RESOLUTION_INTERVAL", "86400"))
+__cfg = _get_cfg()
+_AUTOPILOT_INTERVAL = __cfg.entity_resolution_interval
 # Splink fuzzy stage is OFF by default: the current single full-name comparison
 # (no term-frequency adjustments) over-matches common given names on real-world
 # data (every "Mohammad *" / "Jose *" pair from same country crosses 0.85). The
 # deterministic exact + token-subset stages stay always-on. Re-enable once the
 # comparison is calibrated (forename/surname split + TF). See progress notes.
-_SPLINK_ENABLED = os.getenv("WORLDBASE_ENTITY_RESOLUTION_SPLINK", "0").strip().lower() in ("1", "true", "yes", "on")
-_PIPELINE_MODE = os.getenv("WORLDBASE_ENTITY_RESOLUTION_PIPELINE", "single").strip().lower()
+_SPLINK_ENABLED = __cfg.entity_resolution_splink_enabled
+_PIPELINE_MODE = __cfg.entity_resolution_pipeline_mode
 
 # Generic head/tail tokens that must not, on their own, trigger a single-token
 # subset match (e.g. "authorities" sub of "local authorities"). Proper nouns

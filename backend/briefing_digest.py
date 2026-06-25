@@ -16,8 +16,11 @@ from stac_bridge import REGION_PRESETS
 from gdelt_bridge import filter_local_pulse_articles
 from newsdata_bridge import is_sports_content, is_tourism_promo_content
 
-OPERATOR_REGION = os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower()
-BRIEFING_LANG = os.getenv("WORLDBASE_BRIEFING_LANG", "en").strip().lower()
+from config import get_config
+
+_cfg = get_config
+OPERATOR_REGION = _cfg().operator_region
+BRIEFING_LANG = _cfg().briefing_lang
 
 
 def _gdelt_local_slots() -> int:

@@ -33,6 +33,12 @@ class WorldBaseConfig(BaseModel):
     feed_ingest_autopilot: bool = True
     entity_resolution_after_feeds: bool = False
     rag_feed_ingest: bool = True
+    briefing_interval: int = 21600
+    briefing_lang: str = "en"
+    entity_resolution_interval: int = 86400
+    entity_resolution_autopilot: bool = False
+    entity_resolution_splink_enabled: bool = False
+    entity_resolution_pipeline_mode: str = "single"
 
     @classmethod
     def from_env(cls) -> Self:
@@ -50,6 +56,24 @@ class WorldBaseConfig(BaseModel):
                 os.getenv("WORLDBASE_ENTITY_RESOLUTION_AFTER_FEEDS", "0")
             ),
             rag_feed_ingest=_truthy(os.getenv("RAG_FEED_INGEST", "1")),
+            briefing_interval=int(
+                os.getenv("WORLDBASE_BRIEFING_INTERVAL", "21600")
+            ),
+            briefing_lang=os.getenv(
+                "WORLDBASE_BRIEFING_LANG", "en"
+            ).strip().lower(),
+            entity_resolution_interval=int(
+                os.getenv("WORLDBASE_ENTITY_RESOLUTION_INTERVAL", "86400")
+            ),
+            entity_resolution_autopilot=_truthy(
+                os.getenv("WORLDBASE_ENTITY_RESOLUTION_AUTOPILOT", "0")
+            ),
+            entity_resolution_splink_enabled=_truthy(
+                os.getenv("WORLDBASE_ENTITY_RESOLUTION_SPLINK", "0")
+            ),
+            entity_resolution_pipeline_mode=os.getenv(
+                "WORLDBASE_ENTITY_RESOLUTION_PIPELINE", "single"
+            ).strip().lower(),
         )
 
 

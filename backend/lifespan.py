@@ -22,11 +22,12 @@ import rag_memory
 import sanctions_bridge
 import situations
 import stac_bridge
+from config import get_config as _cfg
 from sqlite_bootstrap import init_db, prune_feed_cache
 from routes import aircraft as aircraft_routes
 
 _BRIEFING_AUTOPILOT_TASK: asyncio.Task | None = None
-_BRIEFING_INTERVAL = int(os.getenv("WORLDBASE_BRIEFING_INTERVAL", "21600"))
+_BRIEFING_INTERVAL = _cfg().briefing_interval
 
 
 async def _phase1_background_tasks() -> None:
@@ -173,7 +174,7 @@ async def _stack_warmup() -> None:
 
 async def _entity_resolution_autopilot() -> None:
     await asyncio.sleep(120)
-    interval = int(os.getenv("WORLDBASE_ENTITY_RESOLUTION_INTERVAL", "86400"))
+    interval = _cfg().entity_resolution_interval
     while True:
         try:
             result = await asyncio.to_thread(entity_resolution.run_resolution)

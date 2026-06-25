@@ -75,7 +75,8 @@ _REGION_GEO_QUERIES: dict[str, str] = {
 
 
 def _operator_region() -> str:
-    return os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower()
+    from config import get_config
+    return get_config().operator_region
 
 
 def _resolve_region(region: str | None) -> str:

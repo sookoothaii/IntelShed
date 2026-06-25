@@ -12,6 +12,8 @@ import os
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+
+from config import get_config as _cfg
 from typing import Any
 
 # Per-feed max age (seconds) before marked stale in /api/health — single source of truth.
@@ -635,7 +637,7 @@ def connectors_snapshot(*, include_unlisted: bool = True) -> dict[str, Any]:
 
     return {
         "time": datetime.now(timezone.utc).isoformat(),
-        "operator_region": os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower(),
+        "operator_region": _cfg().operator_region,
         "count": len(connectors),
         "credentials_configured": configured_n,
         "connectors": connectors,
@@ -650,7 +652,7 @@ def export_manifest(*, include_runtime: bool = False) -> dict[str, Any]:
         return {
             "version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "operator_region": os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower(),
+            "operator_region": _cfg().operator_region,
             "connectors": [spec.to_dict() for spec in sorted(CONNECTOR_CATALOG.values(), key=lambda s: s.id)],
         }
     snap = connectors_snapshot()
