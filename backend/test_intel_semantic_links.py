@@ -145,6 +145,18 @@ class IntelSemanticLinksTests(unittest.TestCase):
         self.assertNotIn("a", tokens)
         self.assertNotIn("of", tokens)
 
+    def test_related_events_text_only_no_geo(self):
+        """Cross-feed events with shared words but no coordinates should link via text-only matching."""
+        self._seed_with_caption("gdacs-flood", "Event", 13.75, 100.5, "gdacs", "Flood warning Thailand Bangkok")
+        # GDELT event with no coordinates (lat/lon not set)
+        proxy = ftm_store.make_entity("Event", ["gdelt-flood"], {"name": ["Thailand Bangkok flooding situation"]})
+        ftm_store.upsert(proxy, dataset="gdelt-pulse", lat=None, lon=None)
+        events = isl._fetch_events_for_correlation(None, window_hours=48, cap=20)
+        out = isl.link_related_events(events, max_km=50, refresh=True)
+        self.assertTrue(out["ok"])
+        self.assertGreaterEqual(out["edges_added"], 1)
+        self.assertGreaterEqual(out.get("text_only_edges", 0), 1)
+
     def test_datasets_for_entity_json_list(self):
         """Should parse JSON list format datasets."""
         ent = {"datasets": '["gdacs", "eonet"]'}

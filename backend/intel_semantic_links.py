@@ -64,6 +64,22 @@ def _entity_cap() -> int:
         return 120
 
 
+def _event_corr_max_km() -> float:
+    """Max distance for cross-feed event correlation (global events can be far apart)."""
+    try:
+        return max(50.0, float(os.getenv("WORLDBASE_INTEL_EVENT_CORR_MAX_KM", "500")))
+    except ValueError:
+        return 500.0
+
+
+def _event_corr_min_shared_words() -> int:
+    """Min shared caption words for event correlation (1 = country name suffices)."""
+    try:
+        return max(1, int(os.getenv("WORLDBASE_INTEL_EVENT_CORR_MIN_WORDS", "1")))
+    except ValueError:
+        return 1
+
+
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -350,9 +366,7 @@ def _fetch_events_for_correlation(
             """
             SELECT e.id, e.schema, e.caption, e.lat, e.lon, e.datasets
             FROM entities e
-            WHERE e.lat IS NOT NULL
-              AND e.lon IS NOT NULL
-              AND e.last_seen IS NOT NULL
+            WHERE e.last_seen IS NOT NULL
               AND e.last_seen >= ?
               AND e.schema IN ('Event', 'Thing')
             ORDER BY e.last_seen DESC
@@ -381,9 +395,10 @@ def _fetch_events_for_correlation(
     out: list[dict[str, Any]] = []
     for row in rows:
         try:
-            lat, lon = float(row[3]), float(row[4])
+            lat = float(row[3]) if row[3] is not None else None
+            lon = float(row[4]) if row[4] is not None else None
         except (TypeError, ValueError):
-            continue
+            lat, lon = None, None
         out.append({
             "id": row[0],
             "schema": row[1],
@@ -399,7 +414,7 @@ def link_related_events(
     entities: list[dict[str, Any]],
     *,
     max_km: float | None = None,
-    min_shared_words: int = 2,
+    min_shared_words: int | None = None,
     refresh: bool = True,
 ) -> dict[str, Any]:
     """Link Event entities from different feeds that share caption words + spatial proximity.
@@ -407,7 +422,9 @@ def link_related_events(
     Connects e.g. a GDACS flood alert with a GDELT news event about the same situation
     when they share key terms (e.g. "flood", "Thailand") and are within max_km.
     """
-    limit_km = max_km if max_km is not None else _max_km()
+    limit_km = max_km if max_km is not None else _event_corr_max_km()
+    if min_shared_words is None:
+        min_shared_words = _event_corr_min_shared_words()
     events = [e for e in entities if e.get("schema") in ("Event", "Thing") and e.get("caption")]
     if refresh:
         ftm_store.delete_edges_for_dataset(DATASET_EVENT_CORRELATION)
@@ -418,9 +435,11 @@ def link_related_events(
 
     edges_added = 0
     pairs_checked = 0
+    text_only_edges = 0
     seen_at = datetime.now(timezone.utc).isoformat()
     for i, left in enumerate(events):
         left_ds = _datasets_for_entity(left)
+        left_has_geo = left.get("lat") is not None and left.get("lon") is not None
         for right in events[i + 1:]:
             right_ds = _datasets_for_entity(right)
             # Skip if from same feed (we want cross-feed correlations only)
@@ -430,15 +449,25 @@ def link_related_events(
             shared = left["_tokens"] & right["_tokens"]
             if len(shared) < min_shared_words:
                 continue
-            # Must be spatially close
-            km = _haversine_km(left["lat"], left["lon"], right["lat"], right["lon"])
-            if km > limit_km:
-                continue
+            right_has_geo = right.get("lat") is not None and right.get("lon") is not None
+            # Spatial proximity check (skip if either event lacks coordinates)
+            km = None
+            if left_has_geo and right_has_geo:
+                km = _haversine_km(left["lat"], left["lon"], right["lat"], right["lon"])
+                if km > limit_km:
+                    continue
             pairs_checked += 1
-            # Confidence: base on word overlap + distance
+            # Confidence: base on word overlap + distance (text-only gets penalty)
             overlap_ratio = len(shared) / max(1, min(len(left["_tokens"]), len(right["_tokens"])))
-            dist_factor = 1.0 - (km / max(1.0, limit_km)) * 0.3
-            conf = round(min(0.90, 0.55 + overlap_ratio * 0.3 * dist_factor), 3)
+            if km is not None:
+                dist_factor = 1.0 - (km / max(1.0, limit_km)) * 0.3
+                conf = round(min(0.90, 0.55 + overlap_ratio * 0.3 * dist_factor), 3)
+                method = "text_overlap"
+            else:
+                # Text-only match (one or both events lack coordinates)
+                conf = round(min(0.75, 0.40 + overlap_ratio * 0.3), 3)
+                method = "text_overlap_no_geo"
+                text_only_edges += 1
             before = ftm_store.count_edges_for_dataset(DATASET_EVENT_CORRELATION)
             ftm_store.add_edge(
                 left["id"],
@@ -447,9 +476,9 @@ def link_related_events(
                 dataset=DATASET_EVENT_CORRELATION,
                 confidence=conf,
                 properties={
-                    "method": "text_overlap",
+                    "method": method,
                     "shared_words": sorted(shared)[:8],
-                    "distance_km": round(km, 2),
+                    "distance_km": round(km, 2) if km is not None else None,
                     "datasets": sorted(left_ds | right_ds)[:4],
                 },
                 seen_at=seen_at,
@@ -464,6 +493,7 @@ def link_related_events(
         "events_scanned": len(events),
         "pairs_checked": pairs_checked,
         "edges_added": edges_added,
+        "text_only_edges": text_only_edges,
         "min_shared_words": min_shared_words,
         "max_km": limit_km,
     }

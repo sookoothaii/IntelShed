@@ -167,6 +167,17 @@ def build_ollama_chat_body(
     }
     if "qwen3" in model_name.lower():
         body["think"] = False
+    options: dict[str, Any] = {}
     if force_fast:
-        body["options"] = {"num_predict": 260, "temperature": 0.4}
+        options["num_predict"] = 260
+        options["temperature"] = 0.4
+    try:
+        from ollama_config import context_length_for
+        ctx = context_length_for(model_name)
+        if ctx is not None:
+            options["num_ctx"] = ctx
+    except Exception:
+        pass
+    if options:
+        body["options"] = options
     return body

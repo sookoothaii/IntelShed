@@ -7,9 +7,12 @@ is offline.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from briefing_digest import _resolve_lang, format_watch_items_block
+
+logger = logging.getLogger(__name__)
 
 
 def _lang_instructions(lang: str | None = None) -> str:
@@ -139,6 +142,12 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
         + final_reminder + "\n\n"
         + protocol_label
     )
+    _approx_tokens = len(prompt) // 4
+    logger.info(
+        "briefing prompt: %d chars, ~%d tokens (lang=%s, region=%s)",
+        len(prompt), _approx_tokens, lang, region,
+    )
+    return prompt
 
 
 def format_fallback_protocol(digest: dict[str, Any], lang: str | None = None) -> str:

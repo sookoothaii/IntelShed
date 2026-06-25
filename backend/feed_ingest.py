@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -286,6 +287,7 @@ async def _index_mapping_records_to_rag(
 async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
     global _LAST_RUN, _LAST_ERROR
     started = _now()
+    _t0 = time.monotonic()
     chosen = sources or list(FEED_SOURCES.keys())
     per_source: dict[str, dict] = {}
     totals = {"entities": 0, "edges": 0, "records": 0}
@@ -416,6 +418,12 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
             out["errors"] = list(out["errors"]) + ["subgraph_export: failed"]
             logger.exception("subgraph export failed")
 
+    _elapsed = time.monotonic() - _t0
+    out["duration_sec"] = round(_elapsed, 2)
+    logger.info(
+        "feed ingest: %.1fs, +%d entities, +%d edges, sources=%s",
+        _elapsed, totals["entities"], totals["edges"], chosen,
+    )
     _LAST_RUN = out
     _LAST_ERROR = errors[0] if errors else None
     return out

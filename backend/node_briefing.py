@@ -294,12 +294,20 @@ def _compile_alerts(snap: dict) -> list:
 # ---------------------------------------------------------------------------
 async def _ollama_briefing(prompt: str) -> str:
     """Single-shot briefing via local Ollama — capped tokens, no Qwen3 thinking."""
+    options: dict = {"num_predict": 420, "temperature": 0.35}
+    try:
+        from ollama_config import context_length_for
+        ctx = context_length_for(OLLAMA_MODEL)
+        if ctx is not None:
+            options["num_ctx"] = ctx
+    except Exception:
+        pass
     body: dict = {
         "model": OLLAMA_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "stream": False,
         "keep_alive": __import__("ollama_config").keep_alive(),
-        "options": {"num_predict": 420, "temperature": 0.35},
+        "options": options,
     }
     if "qwen3" in OLLAMA_MODEL.lower():
         body["think"] = False
