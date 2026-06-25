@@ -178,6 +178,7 @@ async def run_trust_probes() -> dict[str, Any]:
     mapping_drift: dict[str, Any] = {"ok": True, "statuses": {}, "detail": "skipped"}
     try:
         import mapping_validator as _mv
+
         mapping_drift = {
             "ok": True,
             "statuses": await asyncio.to_thread(_mv.get_mapping_drift_status),

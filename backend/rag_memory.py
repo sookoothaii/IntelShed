@@ -37,24 +37,25 @@ def query_stats() -> dict[str, Any]:
     p95_ms = latencies[min(p95_idx, n - 1)] * 1000.0
     return {"count": _rag_query_count, "p95_ms": round(p95_ms, 2)}
 
-from structured_log import get_logger
 
-from rag_hybrid import (
+from structured_log import get_logger  # noqa: E402
+
+from rag_hybrid import (  # noqa: E402
     format_embed_text,
     format_prediction_watch_text,
     fts_query,
     row_to_hit,
     rrf_merge,
 )
-from rag_chunking import (
+from rag_chunking import (  # noqa: E402
     chunk_record,
     get_source_profile,
     iter_chunk_ids,
     resolve_source_id,
 )
-from rag_rerank import rerank_enabled, rerank_hits, search_mode_label
-from auth.security import verify_lan_auth
-from rag_spatial import (
+from rag_rerank import rerank_enabled, rerank_hits, search_mode_label  # noqa: E402
+from auth.security import verify_lan_auth  # noqa: E402
+from rag_spatial import (  # noqa: E402
     apply_spatial_postfilter,
     enrich_meta_spatial,
     operator_search_bbox,

@@ -35,7 +35,9 @@ class TestLineage(unittest.TestCase):
 
     def test_record_and_get_downstream(self):
         from lineage import (
-            record_edge, get_downstream, init_lineage_db, lineage_enabled,
+            record_edge,
+            get_downstream,
+            init_lineage_db,
         )
 
         os.environ["WORLDBASE_LINEAGE"] = "1"
@@ -61,7 +63,9 @@ class TestLineage(unittest.TestCase):
 
     def test_get_full_impact(self):
         from lineage import (
-            record_edge, get_full_impact, init_lineage_db,
+            record_edge,
+            get_full_impact,
+            init_lineage_db,
         )
 
         os.environ["WORLDBASE_LINEAGE"] = "1"
@@ -102,9 +106,13 @@ class TestLineage(unittest.TestCase):
 
     def test_convenience_functions(self):
         from lineage import (
-            record_feed_to_entity, record_entity_to_briefing,
-            record_entity_to_insight, record_entity_to_watch_item,
-            record_feed_to_fusion, get_downstream, init_lineage_db,
+            record_feed_to_entity,
+            record_entity_to_briefing,
+            record_entity_to_insight,
+            record_entity_to_watch_item,
+            record_feed_to_fusion,
+            get_downstream,
+            init_lineage_db,
         )
 
         os.environ["WORLDBASE_LINEAGE"] = "1"

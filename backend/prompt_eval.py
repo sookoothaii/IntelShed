@@ -6,7 +6,6 @@ of variant A vs B. If p < 0.05, the winning variant is auto-promoted.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from prompt_registry import (
@@ -132,8 +131,7 @@ def _fallback_ttest(a: list[float], b: list[float]) -> float:
 
     # Rough degrees of freedom (Welch-Satterthwaite)
     df = (var_a / n_a + var_b / n_b) ** 2 / (
-        (var_a / n_a) ** 2 / max(n_a - 1, 1)
-        + (var_b / n_b) ** 2 / max(n_b - 1, 1)
+        (var_a / n_a) ** 2 / max(n_a - 1, 1) + (var_b / n_b) ** 2 / max(n_b - 1, 1)
     )
     df = max(df, 1)
 

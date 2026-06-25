@@ -650,10 +650,14 @@ def _node_pull_delta_enabled() -> bool:
     """Check if delta sync is enabled via config or env."""
     try:
         from config import get_config
+
         return get_config().node_pull_delta
     except Exception:
         return os.getenv("WORLDBASE_NODE_PULL_DELTA", "1").strip().lower() not in {
-            "0", "false", "no", "off",
+            "0",
+            "false",
+            "no",
+            "off",
         }
 
 
@@ -662,7 +666,9 @@ def _node_pull_delta_enabled() -> bool:
 async def node_pull(
     request: Request,
     mesh: bool = False,
-    since: str | None = Query(default=None, description="ISO 8601 timestamp for delta sync"),
+    since: str | None = Query(
+        default=None, description="ISO 8601 timestamp for delta sync"
+    ),
     x_node_token: str = Header(default=""),
 ):
     """Single payload the Pi pulls: latest briefing + live critical alerts.

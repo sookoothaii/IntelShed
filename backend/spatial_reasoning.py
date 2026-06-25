@@ -58,10 +58,13 @@ def _load_geography() -> dict[str, Any]:
 # Data types
 # ---------------------------------------------------------------------------
 
+
 class SpatialOperation:
     __slots__ = ("operation", "target", "params", "confidence")
 
-    def __init__(self, operation: str, target: str, params: dict, confidence: float = 0.8):
+    def __init__(
+        self, operation: str, target: str, params: dict, confidence: float = 0.8
+    ):
         self.operation = operation
         self.target = target
         self.params = params
@@ -167,13 +170,16 @@ def parse_spatial_query(query: str) -> SpatialQueryPlan:
             except Exception:
                 continue
 
-    composition = "AND" if " and " in query_lower else "OR" if " or " in query_lower else "AND"
+    composition = (
+        "AND" if " and " in query_lower else "OR" if " or " in query_lower else "AND"
+    )
     return SpatialQueryPlan(operations=operations, composition=composition)
 
 
 # ---------------------------------------------------------------------------
 # Entity Resolution
 # ---------------------------------------------------------------------------
+
 
 def _bbox_from_point(lat: float, lon: float, radius_km: float) -> list[float]:
     """BBox [west, south, east, north] from center + radius."""
@@ -188,7 +194,9 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlon = math.radians(lon2 - lon1)
     a = (
         math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
     )
     return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
@@ -262,6 +270,7 @@ def resolve_entity(name: str) -> dict[str, Any] | None:
     # 2. FtM entity lookup (lazy import)
     try:
         import ftm_query
+
         entities = ftm_query.list_entities_recent(limit=500)
         for ent in entities:
             ent_name = (ent.get("caption") or "").lower()
@@ -284,10 +293,12 @@ def resolve_entity(name: str) -> dict[str, Any] | None:
 # Spatial Executor
 # ---------------------------------------------------------------------------
 
+
 def _get_entities_in_bbox(bbox: list[float], limit: int = 200) -> list[dict]:
     """Get FtM entities within a bounding box."""
     try:
         import ftm_query
+
         with ftm_query._LOCK:
             rows = (
                 ftm_query._conn()
@@ -331,7 +342,8 @@ def _op_within(op: SpatialOperation) -> list[dict]:
     candidates = _get_entities_in_bbox(bbox)
     # Fine-grained haversine filter
     return [
-        e for e in candidates
+        e
+        for e in candidates
         if _haversine_km(resolved["lat"], resolved["lon"], e["lat"], e["lon"]) <= radius
     ]
 
@@ -372,8 +384,9 @@ def _op_border(op: SpatialOperation) -> list[dict]:
         return _get_entities_in_bbox(bbox)
 
     # Use border polygon bbox + proximity filter
-    polygon = resolved.get("polygon", [])
-    bbox = resolved.get("bbox", _bbox_from_point(resolved["lat"], resolved["lon"], 50.0))
+    bbox = resolved.get(
+        "bbox", _bbox_from_point(resolved["lat"], resolved["lon"], 50.0)
+    )
     candidates = _get_entities_in_bbox(bbox)
     radius_km = op.params.get("radius_km", 50.0)
 
@@ -448,11 +461,13 @@ def execute_spatial_plan(plan: SpatialQueryPlan) -> dict[str, Any]:
         entities = execute_spatial_operation(op)
         ent_resolved = resolve_entity(op.target)
         if ent_resolved:
-            resolved.append({
-                "operation": op.operation,
-                "target": op.target,
-                "resolved": ent_resolved,
-            })
+            resolved.append(
+                {
+                    "operation": op.operation,
+                    "target": op.target,
+                    "resolved": ent_resolved,
+                }
+            )
 
         ids = set()
         for e in entities:
@@ -487,6 +502,7 @@ def execute_spatial_plan(plan: SpatialQueryPlan) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def spatial_query(query: str) -> dict[str, Any]:
     """Full pipeline: parse NL → resolve entities → execute → return results."""

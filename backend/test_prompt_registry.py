@@ -38,10 +38,15 @@ class TestPromptRegistry(unittest.TestCase):
         self.assertTrue(any(p["id"] == prompt_id for p in prompts))
 
     def test_activate_prompt(self):
-        from prompt_registry import save_prompt, activate_prompt, list_prompts, init_prompt_db
+        from prompt_registry import (
+            save_prompt,
+            activate_prompt,
+            list_prompts,
+            init_prompt_db,
+        )
 
         init_prompt_db()
-        id1 = save_prompt("test_activate", "v1", set_default=True)
+        _ = save_prompt("test_activate", "v1", set_default=True)
         id2 = save_prompt("test_activate", "v2")
         ok = activate_prompt(id2)
         self.assertTrue(ok)
@@ -57,7 +62,10 @@ class TestPromptRegistry(unittest.TestCase):
 
     def test_create_and_get_experiment(self):
         from prompt_registry import (
-            save_prompt, create_experiment, get_experiment, init_prompt_db,
+            save_prompt,
+            create_experiment,
+            get_experiment,
+            init_prompt_db,
         )
 
         init_prompt_db()
@@ -96,7 +104,10 @@ class TestPromptEval(unittest.TestCase):
 
     def test_evaluate_insufficient_samples(self):
         from prompt_registry import (
-            save_prompt, create_experiment, record_result, init_prompt_db,
+            save_prompt,
+            create_experiment,
+            record_result,
+            init_prompt_db,
         )
         from prompt_eval import evaluate_experiment
 

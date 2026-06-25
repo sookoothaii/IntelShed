@@ -341,6 +341,7 @@ def _ingest_stream_message(msg: dict, regions: dict[str, dict]) -> bool:
     # P7: Store trajectory position for pattern-of-life analysis
     try:
         import ais_trajectory
+
         ais_trajectory.store_position(
             vessel["mmsi"],
             vessel["lat"],
@@ -824,7 +825,9 @@ async def get_maritime_anomalies():
 
     return {
         "anomalies": ais_trajectory.detect_anomalies(),
-        "threshold": float(__import__("os").getenv("WORLDBASE_MARITIME_ANOMALY_THRESHOLD", "0.6")),
+        "threshold": float(
+            __import__("os").getenv("WORLDBASE_MARITIME_ANOMALY_THRESHOLD", "0.6")
+        ),
     }
 
 

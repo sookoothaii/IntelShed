@@ -17,7 +17,9 @@ def dynamic_graph_enabled() -> bool:
     return _truthy(os.getenv("WORLDBASE_DYNAMIC_GRAPH", "0"))
 
 
-def list_external_edges(confirmed: bool | None = None, limit: int = 100) -> list[dict[str, Any]]:
+def list_external_edges(
+    confirmed: bool | None = None, limit: int = 100
+) -> list[dict[str, Any]]:
     """List external edges for review."""
     from ftm_query import list_external_edges as _list
 
@@ -51,8 +53,12 @@ def add_external_edge(
     from ftm_query import add_external_edge as _add
 
     _add(
-        source_id, target_id, kind, dataset,
-        confidence=confidence, properties=properties,
+        source_id,
+        target_id,
+        kind,
+        dataset,
+        confidence=confidence,
+        properties=properties,
     )
 
 
@@ -69,5 +75,7 @@ def edge_review_stats() -> dict[str, Any]:
         "total_external": len(all_edges),
         "confirmed": len(confirmed),
         "pending_review": len(pending),
-        "max_confidence": float(os.getenv("WORLDBASE_DYNAMIC_GRAPH_MAX_CONFIDENCE", "0.7")),
+        "max_confidence": float(
+            os.getenv("WORLDBASE_DYNAMIC_GRAPH_MAX_CONFIDENCE", "0.7")
+        ),
     }

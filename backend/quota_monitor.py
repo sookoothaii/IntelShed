@@ -22,8 +22,12 @@ _ALERT_THRESHOLD = float(os.getenv("WORLDBASE_QUOTA_ALERT_THRESHOLD", "0.8"))
 
 def _monitor_enabled() -> bool:
     return os.getenv("WORLDBASE_QUOTA_MONITOR", "1").strip().lower() not in {
-        "0", "false", "no", "off"
+        "0",
+        "false",
+        "no",
+        "off",
     }
+
 
 # Default daily limits per source (can be overridden via WORLDBASE_QUOTA_LIMIT_{SOURCE})
 _DEFAULT_LIMITS: dict[str, int] = {
@@ -185,7 +189,12 @@ def get_usage(source: str, day: str | None = None) -> dict[str, Any]:
             "cost_usd_est": round(total_cost, 6),
             "exceeded": total_count >= limit if limit > 0 else False,
             "endpoints": [
-                {"endpoint": r[0], "count": r[1], "cost_usd_est": r[2], "last_call_at": r[3]}
+                {
+                    "endpoint": r[0],
+                    "count": r[1],
+                    "cost_usd_est": r[2],
+                    "last_call_at": r[3],
+                }
                 for r in rows
             ],
         }
@@ -211,9 +220,7 @@ def get_quota_status() -> dict[str, Any]:
     try:
         conn = sqlite3.connect(_db_path(), timeout=3.0)
         conn.execute("PRAGMA busy_timeout=3000")
-        rows = conn.execute(
-            "SELECT DISTINCT source FROM api_quota"
-        ).fetchall()
+        rows = conn.execute("SELECT DISTINCT source FROM api_quota").fetchall()
         conn.close()
         for r in rows:
             sources.add(r[0])

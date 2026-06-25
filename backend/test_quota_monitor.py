@@ -19,6 +19,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def tearDown(self):
         import gc
+
         gc.collect()
         try:
             os.unlink(self._tmp.name)
@@ -35,8 +36,10 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_init_quota_db(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         import sqlite3
+
         conn = sqlite3.connect(self._tmp.name)
         tables = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='api_quota'"
@@ -46,6 +49,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_record_call_increments_count(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         quota_monitor.record_call("test_source", "/api/test")
         usage = quota_monitor.get_usage("test_source")
@@ -56,6 +60,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_record_call_disabled(self):
         import quota_monitor
+
         os.environ["WORLDBASE_QUOTA_MONITOR"] = "0"
         quota_monitor.init_quota_db()
         quota_monitor.record_call("test_source", "/api/test")
@@ -65,12 +70,14 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_is_quota_exceeded_false_no_limit(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         # Source with no configured limit should never be exceeded
         self.assertFalse(quota_monitor.is_quota_exceeded("unknown_source"))
 
     def test_is_quota_exceeded_true_at_limit(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         os.environ["WORLDBASE_QUOTA_LIMIT_TESTHIGH"] = "3"
         for _ in range(3):
@@ -80,6 +87,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_is_quota_exceeded_false_below_limit(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         os.environ["WORLDBASE_QUOTA_LIMIT_TESTLOW"] = "100"
         quota_monitor.record_call("testlow", "/api/test")
@@ -88,6 +96,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_get_usage_returns_structure(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         quota_monitor.record_call("gdelt", "/api/v1/events")
         usage = quota_monitor.get_usage("gdelt")
@@ -102,6 +111,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_get_quota_status(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         quota_monitor.record_call("gdelt", "/api/v1/events")
         status = quota_monitor.get_quota_status()
@@ -115,6 +125,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_check_alerts_empty_when_healthy(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         alerts = quota_monitor.check_alerts()
         # No calls recorded, no alerts expected
@@ -122,6 +133,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_check_alerts_fires_at_80_percent(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         os.environ["WORLDBASE_QUOTA_LIMIT_TEST80"] = "10"
         for _ in range(8):
@@ -134,6 +146,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_check_alerts_fires_at_exceeded(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         os.environ["WORLDBASE_QUOTA_LIMIT_TESTEX"] = "5"
         for _ in range(5):
@@ -147,6 +160,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_cost_tracking(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         # newsdata has a cost of 0.001 per call
         for _ in range(3):
@@ -156,6 +170,7 @@ class QuotaMonitorTests(unittest.TestCase):
 
     def test_env_limit_override(self):
         import quota_monitor
+
         quota_monitor.init_quota_db()
         os.environ["WORLDBASE_QUOTA_LIMIT_GDELT"] = "42"
         usage = quota_monitor.get_usage("gdelt")
@@ -174,6 +189,7 @@ class FeedConnectorQuotaTests(unittest.IsolatedAsyncioTestCase):
 
     def tearDown(self):
         import gc
+
         gc.collect()
         try:
             os.unlink(self._tmp.name)
@@ -197,7 +213,9 @@ class FeedConnectorQuotaTests(unittest.IsolatedAsyncioTestCase):
         connector = FeedConnector("test_quota_feed", ttl_sec=60, default_source="test")
 
         async def _fetch():
-            return FeedEnvelope(count=1, updated="2026-06-25T00:00:00+00:00").merge(gauges=[])
+            return FeedEnvelope(count=1, updated="2026-06-25T00:00:00+00:00").merge(
+                gauges=[]
+            )
 
         with mock.patch("feeds.runner.feed_registry.write_auto"):
             await connector.run(_fetch, persist=False)
@@ -234,4 +252,5 @@ class FeedConnectorQuotaTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     import unittest.mock
+
     unittest.main()

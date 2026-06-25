@@ -6,7 +6,6 @@ Dedup via SQLite alert_dedup table: max 1 alert per 15 min per condition.
 
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 import time
@@ -20,6 +19,7 @@ def _db_path() -> str:
     return os.getenv("WORLDBASE_DB_PATH") or os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
     )
+
 
 _DEDUP_WINDOW_S = int(os.getenv("WORLDBASE_ALERT_DEDUP_S", "900"))  # 15 min
 
@@ -53,7 +53,9 @@ def _should_fire(condition: str) -> bool:
         conn = sqlite3.connect(_db_path(), timeout=3.0)
         conn.execute("PRAGMA busy_timeout=3000")
         c = conn.cursor()
-        c.execute("SELECT last_fired FROM alert_dedup WHERE condition = ?", (condition,))
+        c.execute(
+            "SELECT last_fired FROM alert_dedup WHERE condition = ?", (condition,)
+        )
         row = c.fetchone()
         now = time.time()
         if row and (now - row[0]) < _DEDUP_WINDOW_S:

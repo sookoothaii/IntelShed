@@ -101,7 +101,11 @@ def refresh_access_token(refresh_token: str) -> dict[str, str] | None:
         return None
     subject = payload.get("sub", "")
     role = payload.get("role", "viewer")
-    extra = {k: v for k, v in payload.items() if k not in ("sub", "role", "type", "iat", "exp")}
+    extra = {
+        k: v
+        for k, v in payload.items()
+        if k not in ("sub", "role", "type", "iat", "exp")
+    }
     return {
         "access_token": encode_access_token(subject, role, extra),
         "refresh_token": encode_refresh_token(subject, role, extra),
@@ -110,7 +114,9 @@ def refresh_access_token(refresh_token: str) -> dict[str, str] | None:
     }
 
 
-def token_pair(subject: str, role: str, extra: dict[str, Any] | None = None) -> dict[str, str]:
+def token_pair(
+    subject: str, role: str, extra: dict[str, Any] | None = None
+) -> dict[str, str]:
     """Generate a full token pair (access + refresh)."""
     return {
         "access_token": encode_access_token(subject, role, extra),

@@ -112,10 +112,18 @@ def record_entity_to_watch_item(entity_id: str, watch_item_id: str) -> None:
 
 def record_feed_to_fusion(feed_item_id: str, fusion_cell_id: str) -> None:
     """Trace: feed item → fusion cell."""
-    record_edge(feed_item_id, "feed_item", fusion_cell_id, "fusion_cell", "feed_item→fusion_cell")
+    record_edge(
+        feed_item_id,
+        "feed_item",
+        fusion_cell_id,
+        "fusion_cell",
+        "feed_item→fusion_cell",
+    )
 
 
-def get_downstream(source_id: str, source_type: str | None = None) -> list[dict[str, Any]]:
+def get_downstream(
+    source_id: str, source_type: str | None = None
+) -> list[dict[str, Any]]:
     """Get all direct downstream targets for a source."""
     init_lineage_db()
     conn = _get_conn()
@@ -133,7 +141,9 @@ def get_downstream(source_id: str, source_type: str | None = None) -> list[dict[
     return [dict(r) for r in rows]
 
 
-def get_upstream(target_id: str, target_type: str | None = None) -> list[dict[str, Any]]:
+def get_upstream(
+    target_id: str, target_type: str | None = None
+) -> list[dict[str, Any]]:
     """Get all direct upstream sources for a target."""
     init_lineage_db()
     conn = _get_conn()
@@ -213,7 +223,10 @@ def get_full_impact(entity_id: str) -> dict[str, Any]:
         "fusion_cells": fusion_cells,
         "feed_sources": [r["source_id"] for r in feed_sources],
         "sibling_entities": sibling_entities,
-        "total_downstream": len(briefings) + len(insights) + len(watch_items) + len(fusion_cells),
+        "total_downstream": len(briefings)
+        + len(insights)
+        + len(watch_items)
+        + len(fusion_cells),
     }
 
 

@@ -142,16 +142,42 @@ class ChatToolExecutionTests(unittest.IsolatedAsyncioTestCase):
             "query": "within 50km of Bangkok",
             "enabled": True,
             "composition": "AND",
-            "operations": [{"operation": "within", "target": "bangkok", "params": {"radius_km": 50.0}}],
-            "resolved_entities": [{"operation": "within", "target": "bangkok", "resolved": {"lat": 13.7563, "lon": 100.5018}}],
+            "operations": [
+                {
+                    "operation": "within",
+                    "target": "bangkok",
+                    "params": {"radius_km": 50.0},
+                }
+            ],
+            "resolved_entities": [
+                {
+                    "operation": "within",
+                    "target": "bangkok",
+                    "resolved": {"lat": 13.7563, "lon": 100.5018},
+                }
+            ],
             "result_count": 2,
             "results": [
-                {"id": "e1", "schema": "Vessel", "caption": "HOPE C", "lat": 13.61, "lon": 100.58},
-                {"id": "e2", "schema": "Airplane", "caption": "THA941", "lat": 13.69, "lon": 100.76},
+                {
+                    "id": "e1",
+                    "schema": "Vessel",
+                    "caption": "HOPE C",
+                    "lat": 13.61,
+                    "lon": 100.58,
+                },
+                {
+                    "id": "e2",
+                    "schema": "Airplane",
+                    "caption": "THA941",
+                    "lat": 13.69,
+                    "lon": 100.76,
+                },
             ],
         }
         with patch("spatial_reasoning.spatial_query", return_value=fake_result):
-            out = await chat_tools.execute_tool("spatial_query", {"query": "within 50km of Bangkok", "limit": 5})
+            out = await chat_tools.execute_tool(
+                "spatial_query", {"query": "within 50km of Bangkok", "limit": 5}
+            )
         self.assertEqual(out["tool"], "spatial_query")
         self.assertEqual(out["result"]["count"], 2)
         self.assertEqual(out["result"]["query"], "within 50km of Bangkok")

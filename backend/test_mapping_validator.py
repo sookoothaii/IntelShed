@@ -7,7 +7,6 @@ and get_mapping_drift_status against the real schema registry.
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -179,6 +178,7 @@ class MappingValidatorTests(unittest.TestCase):
         for schema_file in schemas_dir.glob("*.json"):
             with open(schema_file, encoding="utf-8") as fh:
                 import json
+
                 data = json.load(fh)
             self.assertIn("properties", data, f"{schema_file.name} missing properties")
             self.assertIn("required", data, f"{schema_file.name} missing required")
@@ -191,10 +191,7 @@ class MappingValidatorTests(unittest.TestCase):
         mapping_names = {p.stem for p in mappings_dir.glob("*.yml")}
         schema_names = {p.stem for p in schemas_dir.glob("*.json")}
         missing = mapping_names - schema_names
-        self.assertEqual(
-            missing, set(),
-            f"Mappings without schemas: {missing}"
-        )
+        self.assertEqual(missing, set(), f"Mappings without schemas: {missing}")
 
 
 if __name__ == "__main__":

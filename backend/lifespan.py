@@ -291,9 +291,15 @@ async def _briefing_autopilot() -> None:
         try:
             import alerting
             import metrics as _metrics
+
             m = _metrics.collect_all()
             alerts = alerting.check_and_alert(
-                trust_score=int(m.get("ollama_reachable", 0) + m.get("pi_edge_online", 0) + (1 if m.get("briefing_age_seconds", 999) < 21600 else 0) + (1 if m.get("feed_fresh_count", 0) > 0 else 0)),
+                trust_score=int(
+                    m.get("ollama_reachable", 0)
+                    + m.get("pi_edge_online", 0)
+                    + (1 if m.get("briefing_age_seconds", 999) < 21600 else 0)
+                    + (1 if m.get("feed_fresh_count", 0) > 0 else 0)
+                ),
                 feed_fresh=int(m.get("feed_fresh_count", 0)),
                 feed_stale=int(m.get("feed_stale_count", 0)),
                 duckdb_queue_backlog=int(m.get("duckdb_queue_backlog", 0)),
@@ -305,6 +311,7 @@ async def _briefing_autopilot() -> None:
         # J5: quota alerting
         try:
             import quota_monitor
+
             quota_alerts = quota_monitor.check_alerts()
             for qa in quota_alerts:
                 log.warning("quota_alert", **qa)
@@ -314,12 +321,14 @@ async def _briefing_autopilot() -> None:
         try:
             import ftm_archive
             import sqlite_bootstrap
+
             # Prune stale feed cache
             pruned = sqlite_bootstrap.prune_feed_cache()
             if pruned:
                 log.info("feed_cache_pruned", removed=pruned)
             # VACUUM SQLite
             import sqlite3
+
             conn = sqlite3.connect(sqlite_bootstrap.DB_PATH, timeout=10.0)
             conn.execute("PRAGMA busy_timeout=5000")
             conn.execute("VACUUM")

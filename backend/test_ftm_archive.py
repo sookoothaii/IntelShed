@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from unittest.mock import patch
 
 
@@ -64,7 +62,9 @@ class TestFeedCacheTTL(unittest.TestCase):
             self.assertEqual(removed, 1)
 
             conn = sqlite3.connect(db_path)
-            remaining = [r[0] for r in conn.execute("SELECT key FROM feed_cache").fetchall()]
+            remaining = [
+                r[0] for r in conn.execute("SELECT key FROM feed_cache").fetchall()
+            ]
             conn.close()
             self.assertIn("fresh_feed", remaining)
             self.assertNotIn("old_feed", remaining)

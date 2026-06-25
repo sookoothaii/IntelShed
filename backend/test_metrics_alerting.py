@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -18,6 +17,7 @@ class MetricsTests(unittest.TestCase):
 
     def tearDown(self):
         import gc
+
         gc.collect()
         try:
             os.unlink(self._tmp.name)
@@ -106,6 +106,7 @@ class AlertingTests(unittest.TestCase):
 
     def tearDown(self):
         import gc
+
         gc.collect()
         try:
             os.unlink(self._tmp.name)

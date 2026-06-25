@@ -191,14 +191,18 @@ def upsert(
     """Merge an FtM entity into the store (routes through DuckDB queue when enabled)."""
     try:
         from duckdb_queue import is_enabled, get_queue
+
         if is_enabled():
-            return get_queue().enqueue_sync("upsert", {
-                "entity_dict": proxy.to_dict(),
-                "dataset": dataset,
-                "seen_at": seen_at,
-                "lat": lat,
-                "lon": lon,
-            })
+            return get_queue().enqueue_sync(
+                "upsert",
+                {
+                    "entity_dict": proxy.to_dict(),
+                    "dataset": dataset,
+                    "seen_at": seen_at,
+                    "lat": lat,
+                    "lon": lon,
+                },
+            )
     except ImportError:
         pass
     return _upsert_impl(proxy, dataset, seen_at=seen_at, lat=lat, lon=lon)
@@ -288,21 +292,32 @@ def add_edge(
         return
     try:
         from duckdb_queue import is_enabled, get_queue
+
         if is_enabled():
-            get_queue().enqueue_sync("add_edge", {
-                "source_id": source_id,
-                "target_id": target_id,
-                "kind": kind,
-                "dataset": dataset,
-                "confidence": confidence,
-                "properties": properties,
-                "seen_at": seen_at,
-            })
+            get_queue().enqueue_sync(
+                "add_edge",
+                {
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "kind": kind,
+                    "dataset": dataset,
+                    "confidence": confidence,
+                    "properties": properties,
+                    "seen_at": seen_at,
+                },
+            )
             return
     except ImportError:
         pass
-    _add_edge_impl(source_id, target_id, kind, dataset,
-                   confidence=confidence, properties=properties, seen_at=seen_at)
+    _add_edge_impl(
+        source_id,
+        target_id,
+        kind,
+        dataset,
+        confidence=confidence,
+        properties=properties,
+        seen_at=seen_at,
+    )
 
 
 def get_entity(entity_id: str) -> dict | None:
@@ -550,12 +565,16 @@ def import_entities(
     """Import entities (routes through DuckDB queue when enabled)."""
     try:
         from duckdb_queue import is_enabled, get_queue
+
         if is_enabled():
-            return get_queue().enqueue_sync("import_entities", {
-                "dicts": list(dicts),
-                "dataset": dataset,
-                "seen_at": seen_at,
-            })
+            return get_queue().enqueue_sync(
+                "import_entities",
+                {
+                    "dicts": list(dicts),
+                    "dataset": dataset,
+                    "seen_at": seen_at,
+                },
+            )
     except ImportError:
         pass
     return _import_entities_impl(dicts, dataset, seen_at=seen_at)
@@ -714,10 +733,14 @@ def delete_edges_for_dataset(dataset: str) -> int:
     """Delete edges for a dataset (routes through DuckDB queue when enabled)."""
     try:
         from duckdb_queue import is_enabled, get_queue
+
         if is_enabled():
-            return get_queue().enqueue_sync("delete_edges_for_dataset", {
-                "dataset": dataset,
-            })
+            return get_queue().enqueue_sync(
+                "delete_edges_for_dataset",
+                {
+                    "dataset": dataset,
+                },
+            )
     except ImportError:
         pass
     return _delete_edges_impl(dataset)
@@ -974,23 +997,34 @@ def get_statements(entity_id: str) -> list[dict]:
 
     Returns list of {prop, value, dataset, seen_at, lang} dicts.
     """
+
     def _do(con):
         rows = con.execute(
             "SELECT prop, value, dataset, seen_at, lang FROM statements WHERE entity_id = ? ORDER BY prop, dataset",
             [entity_id],
         ).fetchall()
         return [
-            {"prop": r[0], "value": r[1], "dataset": r[2], "seen_at": r[3], "lang": r[4]}
+            {
+                "prop": r[0],
+                "value": r[1],
+                "dataset": r[2],
+                "seen_at": r[3],
+                "lang": r[4],
+            }
             for r in rows
         ]
+
     return _run_with_recovery(_do) or []
 
 
-def query_by_provenance(dataset: str, prop: str | None = None, limit: int = 100) -> list[dict]:
+def query_by_provenance(
+    dataset: str, prop: str | None = None, limit: int = 100
+) -> list[dict]:
     """Query statements by source dataset, optionally filtered by property.
 
     Returns list of {entity_id, prop, value, seen_at} dicts.
     """
+
     def _do(con):
         if prop:
             rows = con.execute(
@@ -1006,11 +1040,13 @@ def query_by_provenance(dataset: str, prop: str | None = None, limit: int = 100)
             {"entity_id": r[0], "prop": r[1], "value": r[2], "seen_at": r[3]}
             for r in rows
         ]
+
     return _run_with_recovery(_do) or []
 
 
 def statement_stats() -> dict:
     """Get statement table statistics."""
+
     def _do(con):
         total = con.execute("SELECT COUNT(*) FROM statements").fetchone()[0]
         by_dataset = con.execute(
@@ -1024,14 +1060,19 @@ def statement_stats() -> dict:
             "by_dataset": {r[0]: r[1] for r in by_dataset},
             "by_prop": {r[0]: r[1] for r in by_prop},
         }
-    return _run_with_recovery(_do) or {"total_statements": 0, "by_dataset": {}, "by_prop": {}}
+
+    return _run_with_recovery(_do) or {
+        "total_statements": 0,
+        "by_dataset": {},
+        "by_prop": {},
+    }
 
 
 # ---------------------------------------------------------------------------
 # P5+ — Dynamic Knowledge Graph: external edge support
 # ---------------------------------------------------------------------------
 
-import os as _os
+import os as _os  # noqa: E402
 
 _MAX_EXT_CONF = float(_os.getenv("WORLDBASE_DYNAMIC_GRAPH_MAX_CONFIDENCE", "0.7"))
 
@@ -1056,13 +1097,19 @@ def add_external_edge(
     props["external"] = True
     props["confirmed"] = False
     add_edge(
-        source_id, target_id, kind, dataset,
-        confidence=capped, properties=props, seen_at=seen_at,
+        source_id,
+        target_id,
+        kind,
+        dataset,
+        confidence=capped,
+        properties=props,
+        seen_at=seen_at,
     )
 
 
 def list_external_edges(confirmed: bool | None = None, limit: int = 100) -> list[dict]:
     """List external edges, optionally filtered by confirmation status."""
+
     def _do(con):
         rows = con.execute(
             """
@@ -1080,23 +1127,29 @@ def list_external_edges(confirmed: bool | None = None, limit: int = 100) -> list
             is_confirmed = props.get("confirmed", False)
             if confirmed is not None and is_confirmed != confirmed:
                 continue
-            results.append({
-                "source_id": r[0],
-                "target_id": r[1],
-                "kind": r[2],
-                "properties": props,
-                "confidence": r[4],
-                "dataset": r[5],
-                "seen_at": r[6],
-                "external": props.get("external", False),
-                "confirmed": is_confirmed,
-            })
+            results.append(
+                {
+                    "source_id": r[0],
+                    "target_id": r[1],
+                    "kind": r[2],
+                    "properties": props,
+                    "confidence": r[4],
+                    "dataset": r[5],
+                    "seen_at": r[6],
+                    "external": props.get("external", False),
+                    "confirmed": is_confirmed,
+                }
+            )
         return results
+
     return _run_with_recovery(_do) or []
 
 
-def approve_external_edge(source_id: str, target_id: str, kind: str, dataset: str) -> bool:
+def approve_external_edge(
+    source_id: str, target_id: str, kind: str, dataset: str
+) -> bool:
     """Approve an external edge — sets confirmed=true and raises confidence to 0.9."""
+
     def _do(con):
         row = con.execute(
             "SELECT properties FROM edges WHERE source_id = ? AND target_id = ? AND kind = ? AND dataset = ?",
@@ -1112,17 +1165,22 @@ def approve_external_edge(source_id: str, target_id: str, kind: str, dataset: st
             [json.dumps(props), source_id, target_id, kind, dataset],
         )
         return True
+
     result = _run_with_recovery(_do)
     return bool(result)
 
 
-def reject_external_edge(source_id: str, target_id: str, kind: str, dataset: str) -> bool:
+def reject_external_edge(
+    source_id: str, target_id: str, kind: str, dataset: str
+) -> bool:
     """Reject an external edge — deletes it from the graph."""
+
     def _do(con):
         con.execute(
             "DELETE FROM edges WHERE source_id = ? AND target_id = ? AND kind = ? AND dataset = ?",
             [source_id, target_id, kind, dataset],
         )
         return True
+
     result = _run_with_recovery(_do)
     return bool(result)

@@ -150,13 +150,15 @@ def get_all_flags() -> list[dict]:
     env_keys = {f["key"] for f in result}
     for key, info in sqlite_flags.items():
         if key not in env_keys:
-            result.append({
-                "key": key,
-                "enabled": bool(info["enabled"]),
-                "source": "sqlite",
-                "updated_at": info["updated_at"],
-                "updated_by": info["updated_by"],
-            })
+            result.append(
+                {
+                    "key": key,
+                    "enabled": bool(info["enabled"]),
+                    "source": "sqlite",
+                    "updated_at": info["updated_at"],
+                    "updated_by": info["updated_by"],
+                }
+            )
 
     return result
 
@@ -244,7 +246,13 @@ def set_flag(key: str, enabled: bool, updated_by: str = "operator") -> dict:
             INSERT INTO feature_flag_log (key, old_value, new_value, updated_by, at)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (key, None if old_value is None else int(old_value), int(enabled), updated_by, now),
+            (
+                key,
+                None if old_value is None else int(old_value),
+                int(enabled),
+                updated_by,
+                now,
+            ),
         )
         conn.commit()
 

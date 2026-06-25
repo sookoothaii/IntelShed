@@ -117,8 +117,6 @@ class TestP7Functions(unittest.TestCase):
     def test_is_night(self):
         from ais_trajectory import _is_night
 
-        # 2026-06-26 22:00 UTC = night
-        ts = 1750965600  # approx midnight UTC
         # Just test the function doesn't crash
         result = _is_night(time.time())
         self.assertIsInstance(result, bool)

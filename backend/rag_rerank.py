@@ -27,19 +27,26 @@ _RERANK_ENABLED = os.getenv("RAG_RERANK", "0").strip().lower() in ("1", "true", 
 _RERANK_MODEL = os.getenv("RAG_RERANK_MODEL", "BAAI/bge-reranker-base")
 _RERANK_DEVICE = os.getenv("RAG_RERANK_DEVICE", "cpu")
 _RERANK_BACKEND = os.getenv("RAG_RERANK_BACKEND", "auto").strip().lower()
-_RERANK_WARMUP = os.getenv("RAG_RERANK_WARMUP", "1").strip().lower() in ("1", "true", "yes")
+_RERANK_WARMUP = os.getenv("RAG_RERANK_WARMUP", "1").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 _ONNX_DIR = Path(
-    os.getenv("RAG_RERANK_ONNX_DIR", str(Path(__file__).parent / "data" / "models" / "reranker_onnx"))
+    os.getenv(
+        "RAG_RERANK_ONNX_DIR",
+        str(Path(__file__).parent / "data" / "models" / "reranker_onnx"),
+    )
 )
 
 # ---------------------------------------------------------------------------
 # State — module-level singletons
 # ---------------------------------------------------------------------------
-_model = None          # type: object | None  (CrossEncoder | OnnxReranker | TorchReranker)
-_backend_active: str | None = None   # "onnx" | "torch" | None
+_model = None  # type: object | None  (CrossEncoder | OnnxReranker | TorchReranker)
+_backend_active: str | None = None  # "onnx" | "torch" | None
 _warmup_status: dict = {
-    "state": "idle",       # idle | warming | ready | failed
-    "backend": None,       # "onnx" | "torch" | None
+    "state": "idle",  # idle | warming | ready | failed
+    "backend": None,  # "onnx" | "torch" | None
     "elapsed_s": 0.0,
     "error": None,
     "model": _RERANK_MODEL,
@@ -101,7 +108,9 @@ class OnnxReranker:
         onnx_file = self._onnx_path()
         if not onnx_file.exists():
             # Export + quantize on first load
-            print(f"[RAG] ONNX model not found at {onnx_file}, exporting...", flush=True)
+            print(
+                f"[RAG] ONNX model not found at {onnx_file}, exporting...", flush=True
+            )
             self._export_quantized()
 
         if not onnx_file.exists():
@@ -125,7 +134,9 @@ class OnnxReranker:
         # Export base ONNX
         print(f"[RAG] Exporting {_RERANK_MODEL} to ONNX...", flush=True)
         model = ORTModelForSequenceClassification.from_pretrained(
-            _RERANK_MODEL, export=True, provider="CPUExecutionProvider",
+            _RERANK_MODEL,
+            export=True,
+            provider="CPUExecutionProvider",
         )
         model.save_pretrained(str(self.onnx_dir))
 
@@ -142,19 +153,20 @@ class OnnxReranker:
             print(f"[RAG] Quantized model saved to {quant_onnx}", flush=True)
 
     def predict(self, pairs: list[tuple[str, str]]) -> list[float]:
-        import numpy as np
-
         texts_a = [p[0] for p in pairs]
         texts_b = [p[1] for p in pairs]
         encoded = self.tokenizer(
-            texts_a, texts_b,
+            texts_a,
+            texts_b,
             padding=True,
             truncation=True,
             max_length=512,
             return_tensors="np",
         )
         # onnxruntime expects numpy arrays — remove token_type_ids if present
-        inputs = {k: v for k, v in encoded.items() if k in {"input_ids", "attention_mask"}}
+        inputs = {
+            k: v for k, v in encoded.items() if k in {"input_ids", "attention_mask"}
+        }
         outputs = self.session.run(None, inputs)
         logits = outputs[0]
         # Cross-encoder: single logit per pair → relevance score
@@ -176,7 +188,6 @@ class TorchReranker:
 
     def __init__(self, model_name: str, device: str):
         _ensure_pyarrow_first()
-        import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
         self.device = device
@@ -193,7 +204,8 @@ class TorchReranker:
         texts_a = [p[0] for p in pairs]
         texts_b = [p[1] for p in pairs]
         encoded = self.tokenizer(
-            texts_a, texts_b,
+            texts_a,
+            texts_b,
             padding=True,
             truncation=True,
             max_length=512,
@@ -245,9 +257,7 @@ def _get_model():
             print(f"[RAG] Torch backend failed: {e}", flush=True)
 
     _set_warmup("failed", error="; ".join(errors))
-    raise RuntimeError(
-        f"RAG_RERANK=1 but no backend available — {'; '.join(errors)}"
-    )
+    raise RuntimeError(f"RAG_RERANK=1 but no backend available — {'; '.join(errors)}")
 
 
 def rerank_hits(

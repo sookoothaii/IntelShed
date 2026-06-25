@@ -54,24 +54,29 @@ setup_rate_limiting(app)
 # I4: OpenTelemetry tracing (opt-in via OTEL_EXPORTER_OTLP_ENDPOINT + WORLDBASE_OTEL=1)
 try:
     import telemetry_otel
+
     if telemetry_otel.setup_otel(app):
         print("[OTEL] tracing enabled", flush=True)
 except Exception:
     pass
 
+
 # I4: Health check latency histogram middleware
 @app.middleware("http")
 async def health_check_timing(request, call_next):
     import time as _time
+
     start = _time.perf_counter()
     response = await call_next(request)
     if request.url.path in ("/api/health", "/api/health/ping"):
         try:
             import metrics as _metrics
+
             _metrics.record_health_check_duration(_time.perf_counter() - start)
         except Exception:
             pass
     return response
+
 
 register_routers(app)
 mcp_server.mount_worldbase_mcp(app)

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import time
 from datetime import datetime, timezone
 from typing import Any
+
 
 def _db_path() -> str:
     return os.getenv("WORLDBASE_DB_PATH") or os.path.join(
@@ -21,7 +21,10 @@ def _db_path() -> str:
 
 def metrics_enabled() -> bool:
     return os.getenv("WORLDBASE_METRICS", "1").strip().lower() not in {
-        "0", "false", "no", "off"
+        "0",
+        "false",
+        "no",
+        "off",
     }
 
 
@@ -46,6 +49,7 @@ def _collect_feed_counts() -> dict[str, float]:
             if value_json and len(value_json) < 120_000:
                 try:
                     import json
+
                     val = json.loads(value_json)
                     if isinstance(val, dict):
                         meta = val
@@ -57,6 +61,7 @@ def _collect_feed_counts() -> dict[str, float]:
             try:
                 age = (now - datetime.fromisoformat(cached_at)).total_seconds()
                 from connector_registry import feed_ttl_sec
+
                 ttl = feed_ttl_sec(key)
                 if age < ttl:
                     fresh += 1
@@ -74,6 +79,7 @@ def _collect_briefing_metrics() -> dict[str, float]:
     """Briefing quality score and age from SQLite."""
     try:
         import json as _json
+
         conn = sqlite3.connect(_db_path(), timeout=3.0)
         conn.execute("PRAGMA busy_timeout=3000")
         row = conn.execute(
@@ -107,7 +113,9 @@ def _collect_briefing_metrics() -> dict[str, float]:
         if meta.get("prediction_pending") is not None:
             result["prediction_pending"] = _safe_float(meta["prediction_pending"])
         if meta.get("prediction_accuracy_30d") is not None:
-            result["prediction_accuracy_30d"] = _safe_float(meta["prediction_accuracy_30d"])
+            result["prediction_accuracy_30d"] = _safe_float(
+                meta["prediction_accuracy_30d"]
+            )
         return result
     except Exception:
         return {}
@@ -117,6 +125,7 @@ def _collect_graph_counts() -> dict[str, float]:
     """DuckDB entity/edge counts via ftm_store.graph_stats."""
     try:
         import ftm_store
+
         st = ftm_store.store_status()
         if not st.get("ready"):
             return {}
@@ -135,6 +144,7 @@ def _collect_duckdb_queue() -> dict[str, float]:
     """DuckDB write queue backlog."""
     try:
         import duckdb_queue
+
         q = duckdb_queue.get_queue()
         if q.enabled:
             return {"duckdb_queue_backlog": _safe_float(q.backlog)}
@@ -147,6 +157,7 @@ def _collect_ais() -> dict[str, float]:
     """AIS stream status and vessel count."""
     try:
         import ais_bridge
+
         result: dict[str, float] = {}
         if ais_bridge._STREAM.get("connected"):
             result["ais_stream_connected"] = 1.0
@@ -163,6 +174,7 @@ def _collect_ollama() -> dict[str, float]:
     """Ollama reachability (sync quick check)."""
     try:
         import httpx
+
         host = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434").rstrip("/")
         if not host.startswith(("http://", "https://")):
             host = f"http://{host}"
@@ -177,9 +189,7 @@ def _collect_pi_edge() -> dict[str, float]:
     try:
         conn = sqlite3.connect(_db_path(), timeout=3.0)
         conn.execute("PRAGMA busy_timeout=3000")
-        rows = conn.execute(
-            "SELECT node_id, online FROM node_registry"
-        ).fetchall()
+        rows = conn.execute("SELECT node_id, online FROM node_registry").fetchall()
         conn.close()
         pi = next((r for r in rows if r[0] == "offgrid-pi"), None)
         if not pi:
@@ -195,6 +205,7 @@ def _collect_rag() -> dict[str, float]:
     """RAG query count and latency p95 from rag_memory in-memory tracker."""
     try:
         import rag_memory
+
         stats = rag_memory.query_stats()
         result: dict[str, float] = {}
         if "count" in stats:

@@ -19,7 +19,10 @@ log = get_logger("output_guard")
 
 def _enabled() -> bool:
     return os.getenv("WORLDBASE_OUTPUT_GUARD", "1").strip().lower() not in {
-        "0", "false", "no", "off"
+        "0",
+        "false",
+        "no",
+        "off",
     }
 
 

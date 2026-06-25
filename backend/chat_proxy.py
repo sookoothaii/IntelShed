@@ -107,11 +107,15 @@ async def _prepare_chat_messages(
 
     # Layer 2: Session Guard — multi-turn attack detection
     from firewall_bridge import _extract_user_text
+
     user_text = _extract_user_text(messages)
-    session_id = payload.get("chat_session_id") or payload.get("session_id") or "default"
+    session_id = (
+        payload.get("chat_session_id") or payload.get("session_id") or "default"
+    )
     if user_text:
         try:
             from session_guard import get_guard as get_session_guard
+
             sg = get_session_guard()
             session_result = sg.check_session(str(session_id), user_text)
             if session_result["action"] in ("block", "lock"):
@@ -121,7 +125,11 @@ async def _prepare_chat_messages(
                     "guard": {"layer": "session", **session_result},
                 }
                 return messages, {"session_guard": session_result}, block_payload
-            firewall_meta = {"session_guard": session_result} if session_result["action"] == "warn" else None
+            firewall_meta = (
+                {"session_guard": session_result}
+                if session_result["action"] == "warn"
+                else None
+            )
         except Exception:
             pass
 
@@ -182,6 +190,7 @@ async def _prepare_chat_messages(
     if rag_block:
         try:
             from rag_integrity import scan_rag_block as _scan_rag
+
             rag_block, rag_scan = _scan_rag(rag_block, source="rag_memory")
             if rag_scan["blocked"]:
                 rag_integrity_meta = rag_scan
@@ -190,6 +199,7 @@ async def _prepare_chat_messages(
     if ctx:
         try:
             from rag_integrity import scan_rag_block as _scan_rag
+
             ctx, ctx_scan = _scan_rag(ctx, source="briefing")
             if ctx_scan["blocked"]:
                 rag_integrity_meta = rag_integrity_meta or ctx_scan
@@ -198,6 +208,7 @@ async def _prepare_chat_messages(
     if entity_context:
         try:
             from rag_integrity import scan_rag_block as _scan_rag
+
             entity_context, ent_scan = _scan_rag(entity_context, source="ftm_entity")
             if ent_scan["blocked"]:
                 rag_integrity_meta = rag_integrity_meta or ent_scan
@@ -206,13 +217,17 @@ async def _prepare_chat_messages(
     if search_results:
         try:
             from rag_integrity import scan_rag_block as _scan_rag
+
             search_results, sr_scan = _scan_rag(search_results, source="web_search")
             if sr_scan["blocked"]:
                 rag_integrity_meta = rag_integrity_meta or sr_scan
         except Exception:
             pass
     if rag_integrity_meta:
-        firewall_meta = {**(firewall_meta or {}), **{"rag_integrity": rag_integrity_meta}}
+        firewall_meta = {
+            **(firewall_meta or {}),
+            **{"rag_integrity": rag_integrity_meta},
+        }
 
     if ctx or entity_context or search_results or rag_block:
         parts = []
@@ -290,10 +305,13 @@ async def _prepare_chat_messages(
     return messages, firewall_meta, None, user_text
 
 
-def _apply_output_guard(response_text: str, user_text: str = "") -> tuple[str, dict | None]:
+def _apply_output_guard(
+    response_text: str, user_text: str = ""
+) -> tuple[str, dict | None]:
     """Layer 3: Output Guard — scan LLM response for leaks/echo before returning."""
     try:
         from output_guard import check_output
+
         result = check_output(response_text, user_text)
         if result["blocked"]:
             return result["sanitized"], {"output_guard": result}
@@ -343,9 +361,12 @@ async def chat_proxy(
 
             async def ollama_stream():
                 yield f"data: {json.dumps({'status': 'preparing'})}\n\n"
-                messages, firewall_meta, block_msg, user_text = await _prepare_chat_messages(
-                    payload
-                )
+                (
+                    messages,
+                    firewall_meta,
+                    block_msg,
+                    user_text,
+                ) = await _prepare_chat_messages(payload)
                 if block_msg:
                     yield f"data: {json.dumps(block_msg)}\n\n"
                     return
@@ -404,7 +425,9 @@ async def chat_proxy(
 
             return StreamingResponse(ollama_stream(), media_type="text/event-stream")
 
-        messages, firewall_meta, block_msg, user_text = await _prepare_chat_messages(payload)
+        messages, firewall_meta, block_msg, user_text = await _prepare_chat_messages(
+            payload
+        )
         if block_msg:
             return block_msg
 
@@ -422,7 +445,11 @@ async def chat_proxy(
                         "message": {"role": "assistant", "content": text},
                         "client_actions": actions,
                         "done": True,
-                        **({"firewall_result": {**(firewall_meta or {}), **og_meta}} if og_meta else {}),
+                        **(
+                            {"firewall_result": {**(firewall_meta or {}), **og_meta}}
+                            if og_meta
+                            else {}
+                        ),
                     }
                 url = f"http://{host}/api/chat"
                 async with httpx.AsyncClient(timeout=chat_timeout()) as client:
@@ -436,9 +463,12 @@ async def chat_proxy(
                     resp_text = (data.get("message") or {}).get("content", "")
                     if resp_text:
                         resp_text, og_meta = _apply_output_guard(resp_text, user_text)
-                        data.setdefault("message", {})['content'] = resp_text
+                        data.setdefault("message", {})["content"] = resp_text
                         if og_meta:
-                            data["firewall_result"] = {**(firewall_meta or {}), **og_meta}
+                            data["firewall_result"] = {
+                                **(firewall_meta or {}),
+                                **og_meta,
+                            }
                     return data
             except httpx.ConnectError:
                 last_err = f"Ollama not reachable at {host}"
@@ -472,7 +502,9 @@ async def chat_proxy(
     # ------------------------------------------------------------------
     # EXTERNAL PROVIDERS (OpenAI-compatible or Anthropic)
     # ------------------------------------------------------------------
-    messages, firewall_meta, block_msg, user_text = await _prepare_chat_messages(payload)
+    messages, firewall_meta, block_msg, user_text = await _prepare_chat_messages(
+        payload
+    )
     if block_msg:
         if use_stream:
             return StreamingResponse(
@@ -604,7 +636,11 @@ async def chat_proxy(
                     "client_actions": actions,
                     "done": True,
                     "provider": provider,
-                    **({"firewall_result": {**(firewall_meta or {}), **og_meta}} if og_meta else {}),
+                    **(
+                        {"firewall_result": {**(firewall_meta or {}), **og_meta}}
+                        if og_meta
+                        else {}
+                    ),
                 }
             except httpx.HTTPStatusError as e:
                 return {
@@ -658,7 +694,9 @@ async def chat_proxy(
                 r.raise_for_status()
                 data = r.json()
                 choice = data.get("choices", [{}])[0]
-                resp_text = choice.get("message", {}).get("content", "") or choice.get("text", "")
+                resp_text = choice.get("message", {}).get("content", "") or choice.get(
+                    "text", ""
+                )
                 resp_text, og_meta = _apply_output_guard(resp_text, user_text)
                 return {
                     "message": {
@@ -668,7 +706,11 @@ async def chat_proxy(
                     "done": True,
                     "provider": provider,
                     "model": data.get("model"),
-                    **({"firewall_result": {**(firewall_meta or {}), **og_meta}} if og_meta else {}),
+                    **(
+                        {"firewall_result": {**(firewall_meta or {}), **og_meta}}
+                        if og_meta
+                        else {}
+                    ),
                 }
         except httpx.HTTPStatusError as e:
             return {
@@ -774,7 +816,11 @@ async def chat_proxy(
                 return {
                     "message": {"role": "assistant", "content": text},
                     "done": True,
-                    **({"firewall_result": {**(firewall_meta or {}), **og_meta}} if og_meta else {}),
+                    **(
+                        {"firewall_result": {**(firewall_meta or {}), **og_meta}}
+                        if og_meta
+                        else {}
+                    ),
                     "provider": provider,
                     "model": data.get("model"),
                 }

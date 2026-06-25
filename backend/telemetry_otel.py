@@ -12,7 +12,10 @@ import os
 def otel_enabled() -> bool:
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
     return bool(endpoint) and os.getenv("WORLDBASE_OTEL", "0").strip().lower() in {
-        "1", "true", "yes", "on"
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 
 

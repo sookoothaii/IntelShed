@@ -6,7 +6,6 @@ via the structured logger. Integrates with I4 OpenTelemetry when available.
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request

@@ -18,9 +18,9 @@ import unittest
 # Ensure backend is importable
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-import duckdb_queue
-import ftm_query
-import ftm_store
+import duckdb_queue  # noqa: E402
+import ftm_query  # noqa: E402
+import ftm_store  # noqa: E402
 
 
 class TestQueueDisabled(unittest.TestCase):
@@ -86,10 +86,13 @@ class TestQueueEnabled(unittest.TestCase):
 
     def test_upsert_through_queue(self):
         p = ftm_store.make_entity("Person", ["qtest2"], {"name": "Queue Test 2"})
-        eid = self.q.enqueue_sync("upsert", {
-            "entity_dict": p.to_dict(),
-            "dataset": "test_queue",
-        })
+        eid = self.q.enqueue_sync(
+            "upsert",
+            {
+                "entity_dict": p.to_dict(),
+                "dataset": "test_queue",
+            },
+        )
         self.assertIsNotNone(eid)
         # Verify it landed in DuckDB
         ent = ftm_store.get_entity(eid)
@@ -97,23 +100,29 @@ class TestQueueEnabled(unittest.TestCase):
         self.assertEqual(ent["schema"], "Person")
 
     def test_add_edge_through_queue(self):
-        self.q.enqueue_sync("add_edge", {
-            "source_id": "qtest_c",
-            "target_id": "qtest_d",
-            "kind": "sameAs",
-            "dataset": "test_queue",
-            "confidence": 0.9,
-        })
+        self.q.enqueue_sync(
+            "add_edge",
+            {
+                "source_id": "qtest_c",
+                "target_id": "qtest_d",
+                "kind": "sameAs",
+                "dataset": "test_queue",
+                "confidence": 0.9,
+            },
+        )
         count = ftm_store.count_edges_for_dataset("test_queue")
         self.assertGreaterEqual(count, 1)
 
     def test_wal_persistence(self):
         """WAL row is created on enqueue and deleted on success."""
         p = ftm_store.make_entity("Person", ["qtest3"], {"name": "Queue Test 3"})
-        self.q.enqueue_sync("upsert", {
-            "entity_dict": p.to_dict(),
-            "dataset": "test_queue",
-        })
+        self.q.enqueue_sync(
+            "upsert",
+            {
+                "entity_dict": p.to_dict(),
+                "dataset": "test_queue",
+            },
+        )
         # WAL should be empty after successful completion
         row = self.q._wal_conn.execute(
             "SELECT count(*) FROM duckdb_write_queue WHERE status = 'pending'"
@@ -156,6 +165,7 @@ class TestQueueEnabled(unittest.TestCase):
 
     def test_dlq_on_permanent_failure(self):
         """Task that fails all retries goes to DLQ."""
+
         def failing_op(params):
             raise RuntimeError("intentional failure")
 
@@ -276,10 +286,13 @@ class TestAsyncEnqueue(unittest.TestCase):
 
         async def _run():
             p = ftm_store.make_entity("Person", ["qtest_async"], {"name": "Async Test"})
-            task_id = await self.q.enqueue_async("upsert", {
-                "entity_dict": p.to_dict(),
-                "dataset": "test_queue",
-            })
+            task_id = await self.q.enqueue_async(
+                "upsert",
+                {
+                    "entity_dict": p.to_dict(),
+                    "dataset": "test_queue",
+                },
+            )
             self.assertFalse(task_id.startswith("direct:"))
             # Poll until done
             for _ in range(20):

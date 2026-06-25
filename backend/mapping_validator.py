@@ -32,7 +32,10 @@ _MAPPINGS_DIR = Path(__file__).resolve().parent / "ingest" / "mappings"
 
 def _enabled() -> bool:
     return os.getenv("WORLDBASE_MAPPING_VALIDATOR", "1").strip().lower() not in {
-        "0", "false", "no", "off"
+        "0",
+        "false",
+        "no",
+        "off",
     }
 
 
@@ -119,11 +122,13 @@ def _extract_links(mapping_data: dict) -> list[dict[str, str]]:
     queries = (mapping_data.get(root_key) or {}).get("queries") or []
     for query in queries:
         for link in query.get("links") or []:
-            links.append({
-                "source": link.get("source", ""),
-                "target": link.get("target", ""),
-                "kind": link.get("kind", "relatedEntity"),
-            })
+            links.append(
+                {
+                    "source": link.get("source", ""),
+                    "target": link.get("target", ""),
+                    "kind": link.get("kind", "relatedEntity"),
+                }
+            )
     return links
 
 
@@ -165,7 +170,6 @@ def validate_mapping(mapping_name: str) -> ValidationReport:
     schema_props = schema.get("properties") or {}
     schema_fields = set(schema_props.keys())
     required_fields = set(schema.get("required") or [])
-    optional_fields = set(schema.get("optional") or [])
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -173,9 +177,7 @@ def validate_mapping(mapping_name: str) -> ValidationReport:
     # Check 1: unmapped required fields
     unmapped_required = required_fields - mapped_cols
     if unmapped_required:
-        errors.append(
-            f"Required fields not mapped: {sorted(unmapped_required)}"
-        )
+        errors.append(f"Required fields not mapped: {sorted(unmapped_required)}")
 
     # Check 2: unknown fields in mapping (not in schema)
     unknown = mapped_cols - schema_fields
@@ -188,31 +190,23 @@ def validate_mapping(mapping_name: str) -> ValidationReport:
     for alias, keys in entity_keys.items():
         for key in keys:
             if key not in schema_fields:
-                warnings.append(
-                    f"Entity '{alias}' key '{key}' not in schema fields"
-                )
+                warnings.append(f"Entity '{alias}' key '{key}' not in schema fields")
 
     # Check 4: link references must match entity aliases
     links = _extract_links(mapping_data)
     all_aliases = set(entity_keys.keys())
     for link in links:
         if link["source"] not in all_aliases:
-            errors.append(
-                f"Link source '{link['source']}' not defined as entity"
-            )
+            errors.append(f"Link source '{link['source']}' not defined as entity")
         if link["target"] not in all_aliases:
-            errors.append(
-                f"Link target '{link['target']}' not defined as entity"
-            )
+            errors.append(f"Link target '{link['target']}' not defined as entity")
 
     # Check 5: rag source_key must be in schema
     root_key = next(iter(mapping_data))
     rag = (mapping_data.get(root_key) or {}).get("rag") or {}
     source_key = rag.get("source_key")
     if source_key and source_key not in schema_fields:
-        warnings.append(
-            f"RAG source_key '{source_key}' not in schema fields"
-        )
+        warnings.append(f"RAG source_key '{source_key}' not in schema fields")
 
     ok = len(errors) == 0
     return ValidationReport(
@@ -280,14 +274,30 @@ def detect_payload_drift(
     Returns: {ok: bool, unknown_fields: [...], missing_required: [...], drift: bool}
     """
     if not _enabled():
-        return {"ok": True, "unknown_fields": [], "missing_required": [], "drift": False}
+        return {
+            "ok": True,
+            "unknown_fields": [],
+            "missing_required": [],
+            "drift": False,
+        }
 
     if not records:
-        return {"ok": True, "unknown_fields": [], "missing_required": [], "drift": False}
+        return {
+            "ok": True,
+            "unknown_fields": [],
+            "missing_required": [],
+            "drift": False,
+        }
 
     schema = _load_schema(mapping_name)
     if schema is None:
-        return {"ok": True, "unknown_fields": [], "missing_required": [], "drift": False, "reason": "no schema"}
+        return {
+            "ok": True,
+            "unknown_fields": [],
+            "missing_required": [],
+            "drift": False,
+            "reason": "no schema",
+        }
 
     schema_props = set((schema.get("properties") or {}).keys())
     required_fields = set(schema.get("required") or [])

@@ -100,6 +100,7 @@ class TestP5PlusExternalEdges(unittest.TestCase):
         # Need to reimport to get new value
         import importlib
         import ftm_query
+
         importlib.reload(ftm_query)
         self.assertEqual(ftm_query._MAX_EXT_CONF, 0.5)
         os.environ.pop("WORLDBASE_DYNAMIC_GRAPH_MAX_CONFIDENCE", None)

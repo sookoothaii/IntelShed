@@ -192,9 +192,36 @@ class IntelSubgraphTests(unittest.TestCase):
 
     def test_aggregate_edges_collapses_duplicates(self):
         edges = [
-            {"source_id": "a", "target_id": "b", "kind": "relatedEvent", "confidence": 0.8, "decayed_confidence": 0.6, "decay_weight": 0.75, "dataset": "gdelt", "seen_at": "2026-01-01T00:00:00Z"},
-            {"source_id": "a", "target_id": "b", "kind": "relatedEvent", "confidence": 0.9, "decayed_confidence": 0.7, "decay_weight": 0.78, "dataset": "gdacs", "seen_at": "2026-01-02T00:00:00Z"},
-            {"source_id": "a", "target_id": "c", "kind": "linked", "confidence": 1.0, "decayed_confidence": 1.0, "decay_weight": 1.0, "dataset": "osint", "seen_at": None},
+            {
+                "source_id": "a",
+                "target_id": "b",
+                "kind": "relatedEvent",
+                "confidence": 0.8,
+                "decayed_confidence": 0.6,
+                "decay_weight": 0.75,
+                "dataset": "gdelt",
+                "seen_at": "2026-01-01T00:00:00Z",
+            },
+            {
+                "source_id": "a",
+                "target_id": "b",
+                "kind": "relatedEvent",
+                "confidence": 0.9,
+                "decayed_confidence": 0.7,
+                "decay_weight": 0.78,
+                "dataset": "gdacs",
+                "seen_at": "2026-01-02T00:00:00Z",
+            },
+            {
+                "source_id": "a",
+                "target_id": "c",
+                "kind": "linked",
+                "confidence": 1.0,
+                "decayed_confidence": 1.0,
+                "decay_weight": 1.0,
+                "dataset": "osint",
+                "seen_at": None,
+            },
         ]
         agg = sg._aggregate_edges(edges)
         self.assertEqual(len(agg), 2)
@@ -246,11 +273,14 @@ class IntelSubgraphTests(unittest.TestCase):
     def test_prioritize_edges_caps_at_20(self):
         edges = []
         for i in range(30):
-            edges.append({
-                "source_id": f"s{i}", "target_id": f"t{i}",
-                "decayed_confidence": 0.5 + i * 0.01,
-                "count": 1,
-            })
+            edges.append(
+                {
+                    "source_id": f"s{i}",
+                    "target_id": f"t{i}",
+                    "decayed_confidence": 0.5 + i * 0.01,
+                    "count": 1,
+                }
+            )
         density = {}
         prioritized = sg._prioritize_edges(edges, density, cap=20)
         self.assertEqual(len(prioritized), 20)
@@ -261,7 +291,12 @@ class IntelSubgraphTests(unittest.TestCase):
 
     def test_prioritize_edges_hub_bonus(self):
         edges = [
-            {"source_id": "hub", "target_id": "x", "decayed_confidence": 0.5, "count": 1},
+            {
+                "source_id": "hub",
+                "target_id": "x",
+                "decayed_confidence": 0.5,
+                "count": 1,
+            },
             {"source_id": "a", "target_id": "b", "decayed_confidence": 0.5, "count": 1},
         ]
         density = {"hub": 0.8, "x": 0.1, "a": 0.1, "b": 0.1}
@@ -272,11 +307,17 @@ class IntelSubgraphTests(unittest.TestCase):
         seed = self._seed_event("agg1", 13.75, 100.5)
         org = ftm_store.make_entity("Organization", ["org1"], {"name": ["Org 1"]})
         org_id = ftm_store.upsert(org, dataset="osint")
-        ftm_store.add_edge(seed, org_id, "relatedEvent", dataset="gdelt", confidence=0.8)
-        ftm_store.add_edge(seed, org_id, "relatedEvent", dataset="gdacs", confidence=0.9)
+        ftm_store.add_edge(
+            seed, org_id, "relatedEvent", dataset="gdelt", confidence=0.8
+        )
+        ftm_store.add_edge(
+            seed, org_id, "relatedEvent", dataset="gdacs", confidence=0.9
+        )
 
         bbox = [100.0, 13.0, 101.0, 14.5]
-        out = sg.build_subgraph(bbox=bbox, hops=2, window_hours=48, seed_limit=10, node_limit=20)
+        out = sg.build_subgraph(
+            bbox=bbox, hops=2, window_hours=48, seed_limit=10, node_limit=20
+        )
         self.assertTrue(out["available"])
         self.assertGreaterEqual(out["raw_edge_count"], 2)
         self.assertLessEqual(out["edge_count"], out["raw_edge_count"])
@@ -297,7 +338,9 @@ class IntelSubgraphTests(unittest.TestCase):
         ftm_store.add_edge(seed, o2, "linked", dataset="osint", confidence=0.9)
 
         bbox = [100.0, 13.0, 101.0, 14.5]
-        out = sg.build_subgraph(bbox=bbox, hops=2, window_hours=48, seed_limit=10, node_limit=20)
+        out = sg.build_subgraph(
+            bbox=bbox, hops=2, window_hours=48, seed_limit=10, node_limit=20
+        )
         self.assertTrue(out["available"])
         for node in out["nodes"]:
             self.assertIn("density_score", node)
@@ -310,13 +353,44 @@ class IntelSubgraphTests(unittest.TestCase):
                 "hops": 2,
                 "node_count": 3,
                 "nodes": [
-                    {"id": "a", "schema": "Event", "caption": "A", "hop": 0, "in_bbox": True, "datasets": ["gdacs"]},
-                    {"id": "b", "schema": "Organization", "caption": "B", "hop": 1, "datasets": ["osint"]},
-                    {"id": "c", "schema": "Event", "caption": "C", "hop": 1, "datasets": ["gdelt"]},
+                    {
+                        "id": "a",
+                        "schema": "Event",
+                        "caption": "A",
+                        "hop": 0,
+                        "in_bbox": True,
+                        "datasets": ["gdacs"],
+                    },
+                    {
+                        "id": "b",
+                        "schema": "Organization",
+                        "caption": "B",
+                        "hop": 1,
+                        "datasets": ["osint"],
+                    },
+                    {
+                        "id": "c",
+                        "schema": "Event",
+                        "caption": "C",
+                        "hop": 1,
+                        "datasets": ["gdelt"],
+                    },
                 ],
                 "edges": [
-                    {"source_id": "a", "target_id": "b", "kind": "linked", "dataset": "osint", "decay_weight": 0.8},
-                    {"source_id": "a", "target_id": "c", "kind": "linked", "dataset": "gdelt", "decay_weight": 0.05},
+                    {
+                        "source_id": "a",
+                        "target_id": "b",
+                        "kind": "linked",
+                        "dataset": "osint",
+                        "decay_weight": 0.8,
+                    },
+                    {
+                        "source_id": "a",
+                        "target_id": "c",
+                        "kind": "linked",
+                        "dataset": "gdelt",
+                        "decay_weight": 0.05,
+                    },
                 ],
             },
             lang="en",
@@ -340,11 +414,32 @@ class IntelSubgraphTests(unittest.TestCase):
                 "hops": 2,
                 "node_count": 2,
                 "nodes": [
-                    {"id": "a", "schema": "Event", "caption": "HubNode", "hop": 0, "in_bbox": True, "datasets": ["gdacs"], "hub": True},
-                    {"id": "b", "schema": "Organization", "caption": "Other", "hop": 1, "datasets": ["osint"], "hub": False},
+                    {
+                        "id": "a",
+                        "schema": "Event",
+                        "caption": "HubNode",
+                        "hop": 0,
+                        "in_bbox": True,
+                        "datasets": ["gdacs"],
+                        "hub": True,
+                    },
+                    {
+                        "id": "b",
+                        "schema": "Organization",
+                        "caption": "Other",
+                        "hop": 1,
+                        "datasets": ["osint"],
+                        "hub": False,
+                    },
                 ],
                 "edges": [
-                    {"source_id": "a", "target_id": "b", "kind": "linked", "dataset": "osint", "decay_weight": 0.9},
+                    {
+                        "source_id": "a",
+                        "target_id": "b",
+                        "kind": "linked",
+                        "dataset": "osint",
+                        "decay_weight": 0.9,
+                    },
                 ],
             },
             lang="en",
@@ -358,11 +453,31 @@ class IntelSubgraphTests(unittest.TestCase):
                 "hops": 2,
                 "node_count": 2,
                 "nodes": [
-                    {"id": "a", "schema": "Event", "caption": "A", "hop": 0, "in_bbox": True, "datasets": ["gdacs"]},
-                    {"id": "b", "schema": "Organization", "caption": "B", "hop": 1, "datasets": ["osint"]},
+                    {
+                        "id": "a",
+                        "schema": "Event",
+                        "caption": "A",
+                        "hop": 0,
+                        "in_bbox": True,
+                        "datasets": ["gdacs"],
+                    },
+                    {
+                        "id": "b",
+                        "schema": "Organization",
+                        "caption": "B",
+                        "hop": 1,
+                        "datasets": ["osint"],
+                    },
                 ],
                 "edges": [
-                    {"source_id": "a", "target_id": "b", "kind": "relatedEvent", "dataset": "gdelt", "decay_weight": 0.8, "count": 5},
+                    {
+                        "source_id": "a",
+                        "target_id": "b",
+                        "kind": "relatedEvent",
+                        "dataset": "gdelt",
+                        "decay_weight": 0.8,
+                        "count": 5,
+                    },
                 ],
             },
             lang="en",

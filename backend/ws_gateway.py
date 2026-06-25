@@ -16,7 +16,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from auth.security import API_KEY, lan_exposed
 
 router = APIRouter(tags=["websocket"])
@@ -28,7 +28,10 @@ _heartbeat_interval = 30.0  # seconds
 
 def ws_enabled() -> bool:
     return os.getenv("WORLDBASE_WEBSOCKET", "0").strip().lower() in {
-        "1", "true", "yes", "on"
+        "1",
+        "true",
+        "yes",
+        "on",
     }
 
 
@@ -133,8 +136,12 @@ async def broadcast_ais_delta(positions: list[dict[str, Any]]) -> int:
 
 
 async def broadcast_feed_event(
-    event_type: str, data: dict[str, Any], *, lat: float | None = None,
-    lon: float | None = None, layer: str | None = None,
+    event_type: str,
+    data: dict[str, Any],
+    *,
+    lat: float | None = None,
+    lon: float | None = None,
+    layer: str | None = None,
 ) -> int:
     """Broadcast a feed event (quake, GDACS, EONET, etc.) to clients."""
     return await broadcast_event(event_type, data, lat=lat, lon=lon, layer=layer)
@@ -213,7 +220,12 @@ async def websocket_endpoint(ws: WebSocket):
             await asyncio.sleep(_heartbeat_interval)
             try:
                 await ws.send_text(
-                    json.dumps({"type": "heartbeat", "ts": datetime.now(timezone.utc).isoformat()})
+                    json.dumps(
+                        {
+                            "type": "heartbeat",
+                            "ts": datetime.now(timezone.utc).isoformat(),
+                        }
+                    )
                 )
             except Exception:
                 break
@@ -265,9 +277,7 @@ async def websocket_endpoint(ws: WebSocket):
             elif cmd == "unsubscribe":
                 conn.layers.clear()
                 conn.bbox = None
-                await ws.send_text(
-                    json.dumps({"type": "unsubscribed"})
-                )
+                await ws.send_text(json.dumps({"type": "unsubscribed"}))
 
     except WebSocketDisconnect:
         pass

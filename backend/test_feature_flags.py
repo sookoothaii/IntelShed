@@ -96,6 +96,7 @@ class TestFeatureFlags(unittest.TestCase):
         os.environ["WORLDBASE_FLAG_OVERRIDE"] = "env"
         # Re-read the module-level variable
         import importlib
+
         importlib.reload(features)
         # Re-patch since reload re-imports
         patch.object(features, "DB_PATH", self._db_path).start()
@@ -186,7 +187,8 @@ class TestFeatureFlags(unittest.TestCase):
         # Tables already created in setUp, verify they exist
         conn = sqlite3.connect(self._db_path)
         tables = {
-            r[0] for r in conn.execute(
+            r[0]
+            for r in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             ).fetchall()
         }

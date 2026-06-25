@@ -168,6 +168,7 @@ async def api_get_entity(entity_id: str):
 
 # I6: Tiered storage — archive endpoints
 
+
 @router.post("/intel/archive/run")
 async def api_archive_run(dry_run: bool = Query(False)):
     """Trigger FtM archival of stale entities (zero-edge, older than archive_days)."""

@@ -12,22 +12,19 @@ import hmac
 import os
 import secrets
 import sqlite3
-import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
-from auth.jwt import decode_token, refresh_access_token, token_pair
+from auth.jwt import refresh_access_token, token_pair
 from auth.security import (
     API_KEY,
     INGEST_TOKEN,
-    _truthy_env,
-    lan_exposed,
     verify_lan_auth,
 )
-from middleware.rbac import rbac_enabled, _key_scope, _node_scope
+from middleware.rbac import rbac_enabled
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -88,7 +85,11 @@ async def exchange_token(req: TokenRequest):
         return token_pair("api-key", "operator")
 
     # Check node token → node role
-    if req.node_token and INGEST_TOKEN and hmac.compare_digest(INGEST_TOKEN, req.node_token):
+    if (
+        req.node_token
+        and INGEST_TOKEN
+        and hmac.compare_digest(INGEST_TOKEN, req.node_token)
+    ):
         return token_pair("node-token", "node")
 
     # Check rotated keys in grace period
@@ -136,7 +137,7 @@ async def rotate_api_key(_auth: str | None = Depends(verify_lan_auth)):
 
     new_key = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
-    grace_expires = (now.timestamp() + _GRACE_PERIOD_S)
+    grace_expires = now.timestamp() + _GRACE_PERIOD_S
 
     try:
         conn = sqlite3.connect(_ROTATION_DB)
@@ -192,7 +193,6 @@ def _check_rotated_keys(api_key: str, node_token: str) -> str | None:
     """Check if credentials match a rotated key in grace period."""
     try:
         conn = sqlite3.connect(_ROTATION_DB)
-        now = datetime.now(timezone.utc).isoformat()
         rows = conn.execute(
             "SELECT new_key, old_key_hash, grace_expires, revoked FROM key_rotation WHERE revoked = 0"
         ).fetchall()

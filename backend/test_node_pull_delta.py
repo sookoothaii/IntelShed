@@ -20,6 +20,7 @@ class BriefingHashTests(unittest.TestCase):
 
     def test_hash_stable(self):
         from node_sync import _briefing_hash
+
         self.assertEqual(
             _briefing_hash("hello world"),
             _briefing_hash("hello world"),
@@ -27,6 +28,7 @@ class BriefingHashTests(unittest.TestCase):
 
     def test_hash_differs(self):
         from node_sync import _briefing_hash
+
         self.assertNotEqual(
             _briefing_hash("version A"),
             _briefing_hash("version B"),
@@ -34,6 +36,7 @@ class BriefingHashTests(unittest.TestCase):
 
     def test_hash_none_empty(self):
         from node_sync import _briefing_hash
+
         self.assertEqual(_briefing_hash(None), _briefing_hash(""))
         self.assertEqual(_briefing_hash(""), _briefing_hash(""))
 
@@ -43,23 +46,29 @@ class NodePullDeltaEnabledTests(unittest.TestCase):
 
     def test_default_on(self):
         from config import get_config
+
         get_config.cache_clear()
         with patch.dict("os.environ", {}, clear=False):
             import importlib
             import config as cfg_mod
+
             importlib.reload(cfg_mod)
             from node_sync import _node_pull_delta_enabled
+
             # Default should be on (config default True)
             result = _node_pull_delta_enabled()
             self.assertTrue(result)
 
     def test_env_off(self):
         from config import get_config
+
         get_config.cache_clear()
         with patch.dict("os.environ", {"WORLDBASE_NODE_PULL_DELTA": "0"}):
             from config import get_config as gc
+
             gc.cache_clear()
             from node_sync import _node_pull_delta_enabled
+
             result = _node_pull_delta_enabled()
             self.assertFalse(result)
 
@@ -70,6 +79,7 @@ class CompactDeltaForPullTests(unittest.TestCase):
     def test_none_since_falls_back_to_full(self):
         """When since is None, should fall back to compact_for_pull."""
         from intel_graph_export import compact_delta_for_pull
+
         result = compact_delta_for_pull(None)
         # compact_for_pull returns available + nodes/edges or available=False
         self.assertIn("available", result)
@@ -80,6 +90,7 @@ class CompactDeltaForPullTests(unittest.TestCase):
     def test_old_since_falls_back_to_full(self):
         """When since > 7d old, should fall back to compact_for_pull."""
         from intel_graph_export import compact_delta_for_pull
+
         old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
         result = compact_delta_for_pull(old)
         self.assertIn("available", result)
@@ -88,6 +99,7 @@ class CompactDeltaForPullTests(unittest.TestCase):
     def test_invalid_since_falls_back_to_full(self):
         """When since is not parseable, should fall back to compact_for_pull."""
         from intel_graph_export import compact_delta_for_pull
+
         result = compact_delta_for_pull("not-a-date")
         self.assertIn("available", result)
         self.assertNotIn("delta", result)
@@ -95,6 +107,7 @@ class CompactDeltaForPullTests(unittest.TestCase):
     def test_recent_since_returns_delta_format(self):
         """When since is recent, should return delta format with nodes_added/edges_added."""
         from intel_graph_export import compact_delta_for_pull
+
         recent = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         # Mock the DuckDB connection to return empty results
         mock_conn = MagicMock()
@@ -118,17 +131,26 @@ class CompactDeltaForPullTests(unittest.TestCase):
     def test_recent_since_with_entities(self):
         """Delta query returns entities/edges from DuckDB."""
         from intel_graph_export import compact_delta_for_pull
+
         recent = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
 
         mock_conn = MagicMock()
         # Entity rows: id, schema, caption, datasets, lat, lon, last_seen
         mock_conn.execute.side_effect = [
-            MagicMock(fetchall=MagicMock(return_value=[
-                ("ent-1", "Person", "Alice", '["gdelt"]', 13.0, 100.0, recent),
-            ])),
-            MagicMock(fetchall=MagicMock(return_value=[
-                ("ent-1", "ent-2", "sameAs", "worldbase", 0.9, recent),
-            ])),
+            MagicMock(
+                fetchall=MagicMock(
+                    return_value=[
+                        ("ent-1", "Person", "Alice", '["gdelt"]', 13.0, 100.0, recent),
+                    ]
+                )
+            ),
+            MagicMock(
+                fetchall=MagicMock(
+                    return_value=[
+                        ("ent-1", "ent-2", "sameAs", "worldbase", 0.9, recent),
+                    ]
+                )
+            ),
         ]
         mock_lock = MagicMock()
         mock_lock.__enter__ = MagicMock(return_value=None)
@@ -150,6 +172,7 @@ class PullPayloadDigestV3Tests(unittest.TestCase):
 
     def test_v3_briefing_unchanged_digest_stable(self):
         from node_sync import _pull_payload_digest
+
         base = {
             "generated_at": "2026-06-25T15:00:00+00:00",
             "source": "worldbase-pc",
@@ -165,6 +188,7 @@ class PullPayloadDigestV3Tests(unittest.TestCase):
 
     def test_v3_full_payload_digest(self):
         from node_sync import _pull_payload_digest
+
         payload = {
             "generated_at": "2026-06-25T15:00:00+00:00",
             "source": "worldbase-pc",
@@ -186,6 +210,7 @@ class PullPayloadDigestV3Tests(unittest.TestCase):
 
     def test_v3_excludes_content_sha256(self):
         from node_sync import _pull_payload_digest
+
         payload = {
             "source": "worldbase-pc",
             "payload_version": 3,

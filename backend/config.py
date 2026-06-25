@@ -85,39 +85,19 @@ class WorldBaseConfig(BaseModel):
             )
             .strip()
             .lower(),
-            duckdb_queue_enabled=_truthy(
-                os.getenv("WORLDBASE_DUCKDB_QUEUE", "0")
-            ),
-            admin_flags_enabled=_truthy(
-                os.getenv("WORLDBASE_ADMIN_FLAGS", "1")
-            ),
-            node_pull_delta=_truthy(
-                os.getenv("WORLDBASE_NODE_PULL_DELTA", "1")
-            ),
-            feed_cache_ttl=int(
-                os.getenv("WORLDBASE_FEED_CACHE_TTL", "604800")
-            ),
-            ftm_archive_days=int(
-                os.getenv("WORLDBASE_FTM_ARCHIVE_DAYS", "0")
-            ),
-            rbac_enabled=_truthy(
-                os.getenv("WORLDBASE_RBAC", "0")
-            ),
-            websocket_enabled=_truthy(
-                os.getenv("WORLDBASE_WEBSOCKET", "0")
-            ),
+            duckdb_queue_enabled=_truthy(os.getenv("WORLDBASE_DUCKDB_QUEUE", "0")),
+            admin_flags_enabled=_truthy(os.getenv("WORLDBASE_ADMIN_FLAGS", "1")),
+            node_pull_delta=_truthy(os.getenv("WORLDBASE_NODE_PULL_DELTA", "1")),
+            feed_cache_ttl=int(os.getenv("WORLDBASE_FEED_CACHE_TTL", "604800")),
+            ftm_archive_days=int(os.getenv("WORLDBASE_FTM_ARCHIVE_DAYS", "0")),
+            rbac_enabled=_truthy(os.getenv("WORLDBASE_RBAC", "0")),
+            websocket_enabled=_truthy(os.getenv("WORLDBASE_WEBSOCKET", "0")),
             prompt_registry_enabled=_truthy(
                 os.getenv("WORLDBASE_PROMPT_REGISTRY", "0")
             ),
-            lineage_enabled=_truthy(
-                os.getenv("WORLDBASE_LINEAGE", "0")
-            ),
-            ftm_statements_enabled=_truthy(
-                os.getenv("WORLDBASE_FTM_STATEMENTS", "0")
-            ),
-            dynamic_graph_enabled=_truthy(
-                os.getenv("WORLDBASE_DYNAMIC_GRAPH", "0")
-            ),
+            lineage_enabled=_truthy(os.getenv("WORLDBASE_LINEAGE", "0")),
+            ftm_statements_enabled=_truthy(os.getenv("WORLDBASE_FTM_STATEMENTS", "0")),
+            dynamic_graph_enabled=_truthy(os.getenv("WORLDBASE_DYNAMIC_GRAPH", "0")),
             maritime_trajectory_enabled=_truthy(
                 os.getenv("WORLDBASE_MARITIME_TRAJECTORY", "0")
             ),

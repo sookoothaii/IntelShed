@@ -17,7 +17,12 @@ def _decay_floor() -> float:
     try:
         return max(
             0.0,
-            min(1.0, float(os.getenv("WORLDBASE_INTEL_SUBGRAPH_DECAY_FLOOR", "0.3") or "0.3")),
+            min(
+                1.0,
+                float(
+                    os.getenv("WORLDBASE_INTEL_SUBGRAPH_DECAY_FLOOR", "0.3") or "0.3"
+                ),
+            ),
         )
     except ValueError:
         return 0.3
@@ -436,7 +441,9 @@ def _aggregate_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if edge.get("dataset"):
                 agg["_datasets"].add(edge["dataset"])
             # Keep the most recent seen_at
-            if edge.get("seen_at") and (not agg.get("seen_at") or edge["seen_at"] > agg["seen_at"]):
+            if edge.get("seen_at") and (
+                not agg.get("seen_at") or edge["seen_at"] > agg["seen_at"]
+            ):
                 agg["seen_at"] = edge["seen_at"]
                 agg["age_days"] = edge.get("age_days")
                 agg["decay_weight"] = edge.get("decay_weight", 1.0)
@@ -454,7 +461,9 @@ def _aggregate_edges(edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
         agg["source_types"] = sorted(kinds)
         agg["datasets"] = sorted(datasets) if datasets else []
         # Use the primary kind (most common, or first alphabetically as tiebreaker)
-        agg["kind"] = sorted(kinds)[0] if len(kinds) == 1 else "|".join(sorted(kinds)[:3])
+        agg["kind"] = (
+            sorted(kinds)[0] if len(kinds) == 1 else "|".join(sorted(kinds)[:3])
+        )
         result.append(agg)
     return result
 
@@ -488,11 +497,7 @@ def _prune_stale_edges(
     threshold = floor if floor is not None else _decay_floor()
     if threshold <= 0:
         return edges
-    return [
-        e
-        for e in edges
-        if (e.get("decay_weight") or 1.0) >= threshold
-    ]
+    return [e for e in edges if (e.get("decay_weight") or 1.0) >= threshold]
 
 
 def _prioritize_edges(
@@ -504,6 +509,7 @@ def _prioritize_edges(
 
     Keeps the most relevant, well-corroborated, and structurally important edges.
     """
+
     def priority(e: dict[str, Any]) -> float:
         decayed = e.get("combined_weight") or e.get("decayed_confidence") or 0.0
         count = e.get("count", 1)
@@ -534,7 +540,9 @@ def _detect_communities(
         sid = edge.get("source_id")
         tid = edge.get("target_id")
         if sid and tid:
-            weight = edge.get("combined_weight") or edge.get("decayed_confidence") or 1.0
+            weight = (
+                edge.get("combined_weight") or edge.get("decayed_confidence") or 1.0
+            )
             g.add_edge(sid, tid, weight=weight)
 
     if g.number_of_edges() == 0:

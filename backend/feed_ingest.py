@@ -307,6 +307,7 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
                 if records:
                     try:
                         import mapping_validator
+
                         drift = mapping_validator.detect_payload_drift(
                             spec["mapping"], records
                         )
@@ -494,6 +495,7 @@ async def feeds_run(
 async def feeds_validate_mappings(_auth: str | None = Depends(verify_lan_auth)):
     """J8 — Validate all YAML mappings against JSON schemas. Returns drift report."""
     import mapping_validator
+
     return mapping_validator.validate_all_mappings()
 
 
@@ -501,4 +503,5 @@ async def feeds_validate_mappings(_auth: str | None = Depends(verify_lan_auth)):
 async def feeds_validate_mappings_get():
     """GET variant for trust panel / read-only access."""
     import mapping_validator
+
     return mapping_validator.validate_all_mappings()

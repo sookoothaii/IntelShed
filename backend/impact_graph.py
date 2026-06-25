@@ -40,10 +40,18 @@ def cascade_refresh(source_id: str, source_type: str = "entity") -> dict[str, An
         downstream = get_downstream(source_id, source_type)
         impact = {
             "entity_id": source_id,
-            "briefings": [d["target_id"] for d in downstream if d["target_type"] == "briefing"],
-            "insights": [d["target_id"] for d in downstream if d["target_type"] == "insight"],
-            "watch_items": [d["target_id"] for d in downstream if d["target_type"] == "watch_item"],
-            "fusion_cells": [d["target_id"] for d in downstream if d["target_type"] == "fusion_cell"],
+            "briefings": [
+                d["target_id"] for d in downstream if d["target_type"] == "briefing"
+            ],
+            "insights": [
+                d["target_id"] for d in downstream if d["target_type"] == "insight"
+            ],
+            "watch_items": [
+                d["target_id"] for d in downstream if d["target_type"] == "watch_item"
+            ],
+            "fusion_cells": [
+                d["target_id"] for d in downstream if d["target_type"] == "fusion_cell"
+            ],
             "feed_sources": [],
             "sibling_entities": [],
             "total_downstream": len(downstream),

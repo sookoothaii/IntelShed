@@ -16,8 +16,8 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from fastapi import HTTPException, Request, Security
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import HTTPException, Request
+from fastapi.security import HTTPBearer
 from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 from auth.jwt import decode_token
@@ -36,7 +36,12 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def rbac_enabled() -> bool:
-    return os.getenv("WORLDBASE_RBAC", "0").strip().lower() in {"1", "true", "yes", "on"}
+    return os.getenv("WORLDBASE_RBAC", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _key_scope(api_key: str) -> Role | None:

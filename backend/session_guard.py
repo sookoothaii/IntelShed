@@ -29,7 +29,10 @@ def _db_path() -> str:
 
 def _enabled() -> bool:
     return os.getenv("WORLDBASE_SESSION_GUARD", "1").strip().lower() not in {
-        "0", "false", "no", "off"
+        "0",
+        "false",
+        "no",
+        "off",
     }
 
 
@@ -42,11 +45,39 @@ class TurnSignal:
     instruction_count: int
 
 
-_ROLEPLAY_PATTERNS = ["act as", "pretend", "you are now", "you are a", "roleplay", "you're a"]
+_ROLEPLAY_PATTERNS = [
+    "act as",
+    "pretend",
+    "you are now",
+    "you are a",
+    "roleplay",
+    "you're a",
+]
 _GAME_PATTERNS = ["let's play", "game", "imagine", "different ai", "called", "freeai"]
-_AUTHORITY_PATTERNS = ["admin", "developer", "override", "maintenance mode", "command you", "administrator"]
-_EMOTIONAL_PATTERNS = ["desperate", "life depends", "please ignore", "just this once", "i beg", "urgent"]
-_INSTRUCTION_STARTS = ["ignore", "disregard", "override", "forget", "do not follow", "bypass"]
+_AUTHORITY_PATTERNS = [
+    "admin",
+    "developer",
+    "override",
+    "maintenance mode",
+    "command you",
+    "administrator",
+]
+_EMOTIONAL_PATTERNS = [
+    "desperate",
+    "life depends",
+    "please ignore",
+    "just this once",
+    "i beg",
+    "urgent",
+]
+_INSTRUCTION_STARTS = [
+    "ignore",
+    "disregard",
+    "override",
+    "forget",
+    "do not follow",
+    "bypass",
+]
 
 
 class SessionGuard:
@@ -87,7 +118,8 @@ class SessionGuard:
 
         sentences = msg_lower.split(".")
         instruction_count = sum(
-            1 for s in sentences
+            1
+            for s in sentences
             if any(s.strip().startswith(w) for w in _INSTRUCTION_STARTS)
         )
 
@@ -106,7 +138,13 @@ class SessionGuard:
         action ∈ {"pass", "warn", "block", "lock"}
         """
         if not _enabled():
-            return {"action": "pass", "session_score": 0, "turn_score": 0, "turn_count": 0, "signal": {}}
+            return {
+                "action": "pass",
+                "session_score": 0,
+                "turn_score": 0,
+                "turn_count": 0,
+                "signal": {},
+            }
 
         signal = self._analyze_turn(message)
         turn_score = (
@@ -147,7 +185,13 @@ class SessionGuard:
             conn.execute(
                 """INSERT OR REPLACE INTO session_guard_state
                    VALUES (?, ?, ?, ?, ?)""",
-                (session_id, total_score, turn_count, now, json.dumps({"action": action})),
+                (
+                    session_id,
+                    total_score,
+                    turn_count,
+                    now,
+                    json.dumps({"action": action}),
+                ),
             )
             conn.commit()
             conn.close()
@@ -155,7 +199,11 @@ class SessionGuard:
             log.debug("session_guard_db_error", error=str(exc))
             total_score = turn_score
             turn_count = 1
-            action = "block" if total_score >= 2.0 else ("warn" if total_score >= 1.0 else "pass")
+            action = (
+                "block"
+                if total_score >= 2.0
+                else ("warn" if total_score >= 1.0 else "pass")
+            )
 
         if action in ("warn", "block", "lock"):
             log.warning(
@@ -186,7 +234,9 @@ class SessionGuard:
         try:
             conn = sqlite3.connect(self._db_path, timeout=3.0)
             conn.execute("PRAGMA busy_timeout=3000")
-            conn.execute("DELETE FROM session_guard_state WHERE session_id = ?", (session_id,))
+            conn.execute(
+                "DELETE FROM session_guard_state WHERE session_id = ?", (session_id,)
+            )
             conn.commit()
             conn.close()
         except Exception:

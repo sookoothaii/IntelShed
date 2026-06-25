@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import os
 import sqlite3
-import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -150,19 +149,13 @@ def activate_prompt(prompt_id: int) -> bool:
     """Set a prompt as the default for its name. Returns True on success."""
     init_prompt_db()
     conn = _get_conn()
-    row = conn.execute(
-        "SELECT name FROM prompts WHERE id = ?", (prompt_id,)
-    ).fetchone()
+    row = conn.execute("SELECT name FROM prompts WHERE id = ?", (prompt_id,)).fetchone()
     if not row:
         conn.close()
         return False
     name = row["name"]
-    conn.execute(
-        "UPDATE prompts SET is_default = 0 WHERE name = ?", (name,)
-    )
-    conn.execute(
-        "UPDATE prompts SET is_default = 1 WHERE id = ?", (prompt_id,)
-    )
+    conn.execute("UPDATE prompts SET is_default = 0 WHERE name = ?", (name,))
+    conn.execute("UPDATE prompts SET is_default = 1 WHERE id = ?", (prompt_id,))
     conn.commit()
     conn.close()
     return True
@@ -261,7 +254,9 @@ def get_results(experiment_name: str) -> dict[str, list[float]]:
     return results
 
 
-def set_experiment_winner(experiment_name: str, variant: str, winner_prompt_id: int) -> None:
+def set_experiment_winner(
+    experiment_name: str, variant: str, winner_prompt_id: int
+) -> None:
     """Mark experiment as concluded with a winner."""
     init_prompt_db()
     conn = _get_conn()

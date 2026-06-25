@@ -47,9 +47,7 @@ def _duckdb_path() -> str:
     raw = os.getenv("WORLDBASE_DUCKDB_PATH", "").strip()
     if raw:
         return raw
-    return os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "worldbase.duckdb"
-    )
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldbase.duckdb")
 
 
 def archive_stale_entities(dry_run: bool = False) -> dict[str, Any]:
@@ -141,11 +139,21 @@ def archive_stale_entities(dry_run: bool = False) -> dict[str, Any]:
                     AS t(id, schema, caption, properties, datasets, first_seen, last_seen, lat, lon)
                 ) TO '{fpath.as_posix()}' (FORMAT PARQUET);
                 """,
-                [v for row in group for v in (
-                    row["id"], row["schema"], row["caption"], row["properties"],
-                    row["datasets"], row["first_seen"], row["last_seen"],
-                    row["lat"], row["lon"],
-                )],
+                [
+                    v
+                    for row in group
+                    for v in (
+                        row["id"],
+                        row["schema"],
+                        row["caption"],
+                        row["properties"],
+                        row["datasets"],
+                        row["first_seen"],
+                        row["last_seen"],
+                        row["lat"],
+                        row["lon"],
+                    )
+                ],
             )
             con_write.close()
             files_written.append(str(fpath))

@@ -35,7 +35,9 @@ _TRAJECTORY_DB = os.getenv(
     os.path.join(_DATA_DIR, "ais_trajectory.db"),
 )
 
-_RETENTION_SEC = int(os.getenv("WORLDBASE_MARITIME_TRAJECTORY_RETENTION_H", "24")) * 3600
+_RETENTION_SEC = (
+    int(os.getenv("WORLDBASE_MARITIME_TRAJECTORY_RETENTION_H", "24")) * 3600
+)
 _ANOMALY_THRESHOLD = float(os.getenv("WORLDBASE_MARITIME_ANOMALY_THRESHOLD", "0.6"))
 
 
@@ -114,30 +116,118 @@ def init_trajectory_db() -> None:
 
 # Known risk zones for proximity scoring
 _RISK_ZONES = [
-    {"id": "sumatra_piracy", "name": "Sumatra Piracy Zone", "lat": 4.5, "lon": 96.0, "radius_km": 200},
-    {"id": "scs_disputed", "name": "South China Sea Disputed", "lat": 12.0, "lon": 114.0, "radius_km": 150},
-    {"id": "bab_mandeb", "name": "Bab-el-Mandeb Conflict Zone", "lat": 15.5, "lon": 42.0, "radius_km": 200},
-    {"id": "gulf_aden", "name": "Gulf of Aden Piracy", "lat": 11.5, "lon": 43.0, "radius_km": 100},
-    {"id": "malacca_piracy", "name": "Malacca Strait Piracy", "lat": 3.5, "lon": 100.5, "radius_km": 100},
+    {
+        "id": "sumatra_piracy",
+        "name": "Sumatra Piracy Zone",
+        "lat": 4.5,
+        "lon": 96.0,
+        "radius_km": 200,
+    },
+    {
+        "id": "scs_disputed",
+        "name": "South China Sea Disputed",
+        "lat": 12.0,
+        "lon": 114.0,
+        "radius_km": 150,
+    },
+    {
+        "id": "bab_mandeb",
+        "name": "Bab-el-Mandeb Conflict Zone",
+        "lat": 15.5,
+        "lon": 42.0,
+        "radius_km": 200,
+    },
+    {
+        "id": "gulf_aden",
+        "name": "Gulf of Aden Piracy",
+        "lat": 11.5,
+        "lon": 43.0,
+        "radius_km": 100,
+    },
+    {
+        "id": "malacca_piracy",
+        "name": "Malacca Strait Piracy",
+        "lat": 3.5,
+        "lon": 100.5,
+        "radius_km": 100,
+    },
 ]
 
 # Major ports for anchorage detection
 _PORTS = [
-    {"id": "singapore", "name": "Singapore", "lat": 1.2643, "lon": 103.8408, "radius_km": 15, "type": "major"},
-    {"id": "laem_chabang", "name": "Laem Chabang", "lat": 13.0827, "lon": 100.8847, "radius_km": 15, "type": "major"},
-    {"id": "bangkok", "name": "Bangkok Port", "lat": 13.7434, "lon": 100.5690, "radius_km": 15, "type": "major"},
-    {"id": "phuket", "name": "Phuket", "lat": 7.8828, "lon": 98.3922, "radius_km": 15, "type": "regional"},
-    {"id": "penang", "name": "Penang", "lat": 5.4141, "lon": 100.3347, "radius_km": 15, "type": "regional"},
-    {"id": "port_klang", "name": "Port Klang", "lat": 3.0058, "lon": 101.4312, "radius_km": 15, "type": "major"},
+    {
+        "id": "singapore",
+        "name": "Singapore",
+        "lat": 1.2643,
+        "lon": 103.8408,
+        "radius_km": 15,
+        "type": "major",
+    },
+    {
+        "id": "laem_chabang",
+        "name": "Laem Chabang",
+        "lat": 13.0827,
+        "lon": 100.8847,
+        "radius_km": 15,
+        "type": "major",
+    },
+    {
+        "id": "bangkok",
+        "name": "Bangkok Port",
+        "lat": 13.7434,
+        "lon": 100.5690,
+        "radius_km": 15,
+        "type": "major",
+    },
+    {
+        "id": "phuket",
+        "name": "Phuket",
+        "lat": 7.8828,
+        "lon": 98.3922,
+        "radius_km": 15,
+        "type": "regional",
+    },
+    {
+        "id": "penang",
+        "name": "Penang",
+        "lat": 5.4141,
+        "lon": 100.3347,
+        "radius_km": 15,
+        "type": "regional",
+    },
+    {
+        "id": "port_klang",
+        "name": "Port Klang",
+        "lat": 3.0058,
+        "lon": 101.4312,
+        "radius_km": 15,
+        "type": "major",
+    },
 ]
 
 # Thailand maritime corridors (BBox: [west, south, east, north])
 _CORRIDORS = [
     {"id": "malacca", "name": "Malacca Strait", "bbox": [98.0, 1.0, 102.0, 8.0]},
-    {"id": "laem_chabang_approach", "name": "Laem Chabang Approach", "bbox": [100.5, 12.5, 101.5, 13.5]},
-    {"id": "bangkok_approach", "name": "Bangkok Port Approach", "bbox": [100.0, 13.0, 101.0, 14.0]},
-    {"id": "phuket_approach", "name": "Phuket Approach", "bbox": [97.5, 7.0, 99.0, 8.5]},
-    {"id": "singapore_strait", "name": "Singapore Strait", "bbox": [103.0, 0.5, 104.5, 1.5]},
+    {
+        "id": "laem_chabang_approach",
+        "name": "Laem Chabang Approach",
+        "bbox": [100.5, 12.5, 101.5, 13.5],
+    },
+    {
+        "id": "bangkok_approach",
+        "name": "Bangkok Port Approach",
+        "bbox": [100.0, 13.0, 101.0, 14.0],
+    },
+    {
+        "id": "phuket_approach",
+        "name": "Phuket Approach",
+        "bbox": [97.5, 7.0, 99.0, 8.5],
+    },
+    {
+        "id": "singapore_strait",
+        "name": "Singapore Strait",
+        "bbox": [103.0, 0.5, 104.5, 1.5],
+    },
 ]
 
 
@@ -159,7 +249,9 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlon = math.radians(lon2 - lon1)
     a = (
         math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
     )
     return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
@@ -185,10 +277,15 @@ def store_position(
     now = time.time()
 
     with _RINGBUFFER_LOCK:
-        _RINGBUFFER.append((str(mmsi), float(lat), float(lon), speed, course, ts, source, now))
+        _RINGBUFFER.append(
+            (str(mmsi), float(lat), float(lon), speed, course, ts, source, now)
+        )
 
         global _LAST_FLUSH
-        if len(_RINGBUFFER) >= _FLUSH_THRESHOLD or (now - _LAST_FLUSH) >= _FLUSH_INTERVAL:
+        if (
+            len(_RINGBUFFER) >= _FLUSH_THRESHOLD
+            or (now - _LAST_FLUSH) >= _FLUSH_INTERVAL
+        ):
             _flush_buffer_locked()
             _LAST_FLUSH = now
 
@@ -377,9 +474,13 @@ def compute_features(mmsi: str, now: float | None = None) -> dict[str, Any]:
     risk_zone_id = ""
 
     if last_pos:
-        nearest_port_nm, nearest_port_id = _nearest_port(last_pos["lat"], last_pos["lon"])
+        nearest_port_nm, nearest_port_id = _nearest_port(
+            last_pos["lat"], last_pos["lon"]
+        )
         in_corridor = _in_corridor(last_pos["lat"], last_pos["lon"])
-        risk_proximity, risk_zone_id = _proximity_to_risk_zones(last_pos["lat"], last_pos["lon"])
+        risk_proximity, risk_zone_id = _proximity_to_risk_zones(
+            last_pos["lat"], last_pos["lon"]
+        )
 
     # 5. Night-port visits: night samples AND within 2nm of port (Frontex indicator)
     night_port_visits = 0
@@ -444,11 +545,26 @@ def compute_features(mmsi: str, now: float | None = None) -> dict[str, Any]:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                mmsi, now, window_start, now, sample_count,
-                mean_speed, speed_variance, low_speed_samples, anchorage_hours,
-                night_samples, night_port_visits, ais_gap_max, course_changes,
-                nearest_port_nm, nearest_port_id, int(in_corridor), risk_proximity,
-                risk_zone_id, anomaly_score, int(is_anomaly),
+                mmsi,
+                now,
+                window_start,
+                now,
+                sample_count,
+                mean_speed,
+                speed_variance,
+                low_speed_samples,
+                anchorage_hours,
+                night_samples,
+                night_port_visits,
+                ais_gap_max,
+                course_changes,
+                nearest_port_nm,
+                nearest_port_id,
+                int(in_corridor),
+                risk_proximity,
+                risk_zone_id,
+                anomaly_score,
+                int(is_anomaly),
             ),
         )
         conn.commit()
@@ -499,7 +615,9 @@ def prune_old_positions() -> int:
         conn = _get_conn()
         cursor = conn.execute("DELETE FROM ais_position WHERE timestamp < ?", [cutoff])
         count = cursor.rowcount
-        conn.execute("DELETE FROM ais_features WHERE computed_at < ?", [time.time() - 7776000])
+        conn.execute(
+            "DELETE FROM ais_features WHERE computed_at < ?", [time.time() - 7776000]
+        )
         conn.commit()
         conn.close()
         return count
@@ -512,9 +630,15 @@ def trajectory_stats() -> dict[str, Any]:
     flush_buffer()
     init_trajectory_db()
     conn = _get_conn()
-    total_positions = conn.execute("SELECT COUNT(*) as c FROM ais_position").fetchone()["c"]
-    total_vessels = conn.execute("SELECT COUNT(DISTINCT mmsi) as c FROM ais_position").fetchone()["c"]
-    total_features = conn.execute("SELECT COUNT(*) as c FROM ais_features").fetchone()["c"]
+    total_positions = conn.execute("SELECT COUNT(*) as c FROM ais_position").fetchone()[
+        "c"
+    ]
+    total_vessels = conn.execute(
+        "SELECT COUNT(DISTINCT mmsi) as c FROM ais_position"
+    ).fetchone()["c"]
+    total_features = conn.execute("SELECT COUNT(*) as c FROM ais_features").fetchone()[
+        "c"
+    ]
     anomalies = conn.execute(
         "SELECT COUNT(*) as c FROM ais_features WHERE is_anomaly = 1",
     ).fetchone()["c"]
