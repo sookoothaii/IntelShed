@@ -1,0 +1,11 @@
+# Development dependencies for WorldBase backend.
+# Install with: pip install -r requirements.txt -r requirements-dev.txt
+
+# Linting and formatting
+ruff>=0.6.0
+
+# Static type checking
+mypy>=1.11.0
+
+# Test runner (also used by CI)
+pytest>=8.3.0

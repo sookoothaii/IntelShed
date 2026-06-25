@@ -1,0 +1,64 @@
+"""Centralized, read-only configuration for WorldBase.
+
+This module is the single source of truth for environment-variable defaults.
+It is intentionally lightweight (no heavy imports) so it can be imported by
+any backend module without side effects.
+"""
+
+from __future__ import annotations
+
+import os
+from functools import lru_cache
+from typing import Self
+
+from pydantic import BaseModel, ConfigDict
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+class WorldBaseConfig(BaseModel):
+    """Immutable runtime configuration.
+
+    Defaults are production-safe for a single-operator workstation. Values are
+    read from environment variables when ``from_env()`` is called; callers that
+    need deterministic settings in tests can instantiate the model directly.
+    """
+
+    model_config = ConfigDict(validate_assignment=True, frozen=True)
+
+    feed_ingest_interval: int = 600
+    operator_region: str = "thailand"
+    feed_ingest_autopilot: bool = True
+    entity_resolution_after_feeds: bool = False
+    rag_feed_ingest: bool = True
+
+    @classmethod
+    def from_env(cls) -> Self:
+        return cls(
+            feed_ingest_interval=int(
+                os.getenv("WORLDBASE_FEED_INGEST_INTERVAL", "600")
+            ),
+            operator_region=os.getenv(
+                "WORLDBASE_OPERATOR_REGION", "thailand"
+            ).strip().lower(),
+            feed_ingest_autopilot=_truthy(
+                os.getenv("WORLDBASE_FEED_INGEST_AUTOPILOT", "1")
+            ),
+            entity_resolution_after_feeds=_truthy(
+                os.getenv("WORLDBASE_ENTITY_RESOLUTION_AFTER_FEEDS", "0")
+            ),
+            rag_feed_ingest=_truthy(os.getenv("RAG_FEED_INGEST", "1")),
+        )
+
+
+@lru_cache(maxsize=1)
+def get_config() -> WorldBaseConfig:
+    """Return the process-wide configuration.
+
+    Cached so repeated lookups are cheap. Tests that need to change the active
+    config should clear the cache with ``get_config.cache_clear()`` before
+    calling it again.
+    """
+    return WorldBaseConfig.from_env()

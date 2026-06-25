@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import os
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -14,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 import httpx
 
+import config
 import ftm_store
 import intel_graph_export
 import intel_proximity
@@ -24,27 +24,22 @@ from ingest.mapping_runner import apply_mapping, iter_rag_chunk_entries, list_ma
 # Config
 # ---------------------------------------------------------------------------
 
-_AUTOPILOT_INTERVAL = int(os.getenv("WORLDBASE_FEED_INGEST_INTERVAL", "600"))
-_OPERATOR_REGION = os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower()
+_cfg = config.get_config
 
 _LAST_RUN: dict[str, Any] | None = None
 _LAST_ERROR: str | None = None
 
 
-def _truthy_env(name: str, default: str = "0") -> bool:
-    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
-
-
 def autopilot_on() -> bool:
-    return _truthy_env("WORLDBASE_FEED_INGEST_AUTOPILOT", "1")
+    return _cfg().feed_ingest_autopilot
 
 
 def resolve_after_feeds() -> bool:
-    return _truthy_env("WORLDBASE_ENTITY_RESOLUTION_AFTER_FEEDS", "0")
+    return _cfg().entity_resolution_after_feeds
 
 
 def rag_feed_ingest_on() -> bool:
-    return _truthy_env("RAG_FEED_INGEST", "1")
+    return _cfg().rag_feed_ingest
 
 
 def _now() -> str:
@@ -175,14 +170,14 @@ async def _fetch_gdacs_records() -> list[dict]:
 async def _fetch_gdelt_geo_records() -> list[dict]:
     import gdelt_bridge
 
-    data = await gdelt_bridge.gdelt_geo_local(region=_OPERATOR_REGION)
+    data = await gdelt_bridge.gdelt_geo_local(region=_cfg().operator_region)
     return [normalize_gdelt_geo(e, i) for i, e in enumerate(data.get("events") or [])]
 
 
 async def _fetch_gdelt_pulse_records() -> list[dict]:
     import gdelt_bridge
 
-    data = await gdelt_bridge.gdelt_pulse_local(region=_OPERATOR_REGION)
+    data = await gdelt_bridge.gdelt_pulse_local(region=_cfg().operator_region)
     return [normalize_gdelt_article(a) for a in data.get("articles") or []]
 
 
@@ -430,10 +425,11 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
 
 
 def status() -> dict:
+    cfg = _cfg()
     return {
         "autopilot": autopilot_on(),
-        "interval_sec": _AUTOPILOT_INTERVAL,
-        "operator_region": _OPERATOR_REGION,
+        "interval_sec": cfg.feed_ingest_interval,
+        "operator_region": cfg.operator_region,
         "sources": list(FEED_SOURCES.keys()) + ["anomalies"],
         "mappings": list_mappings(),
         "last_run": _LAST_RUN,
