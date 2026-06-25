@@ -1,7 +1,6 @@
 """Unit tests for async SQLite wrappers in feed_registry."""
 
 import asyncio
-import json
 import os
 import sqlite3
 import tempfile

@@ -167,7 +167,7 @@ def link_proximity_edges(
 
 from fastapi import APIRouter, Depends, HTTPException, Query  # noqa: E402
 
-from auth.security import verify_lan_auth
+from auth.security import verify_lan_auth  # noqa: E402
 
 router = APIRouter(prefix="/api/intel/spatial", tags=["intel"])
 

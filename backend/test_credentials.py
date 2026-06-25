@@ -5,7 +5,6 @@ import unittest
 from unittest.mock import patch
 
 from credentials.registry import (
-    FEED_PROVIDER_MAP,
     PROVIDERS,
     get_env,
     is_configured,

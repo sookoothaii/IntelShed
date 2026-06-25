@@ -73,7 +73,7 @@ async def get_satellites(limit: int = 400, group: str = "active"):
             else:
                 return {"count": 0, "group": group, "satellites": [], "error": str(e)}
 
-    lines = [l.strip() for l in tle_text.splitlines() if l.strip()]
+    lines = [ln.strip() for ln in tle_text.splitlines() if ln.strip()]
     satellites = []
     i = 0
     cap = max(0, min(limit, 2000))

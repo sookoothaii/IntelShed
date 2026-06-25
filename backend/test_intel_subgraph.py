@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone
 
 import ftm_connection
 import ftm_store

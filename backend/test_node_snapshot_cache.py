@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import node_sync
 

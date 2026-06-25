@@ -22,7 +22,6 @@ import logging
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Any, Iterator
 
 import sqlite3
 
@@ -425,7 +424,6 @@ def migrate_table(
     cur = sqlite_conn.execute(f"PRAGMA table_info({table})")
     columns = [row[1] for row in cur.fetchall()]
     column_str = ", ".join(columns)
-    placeholders = ", ".join(["%s"] * len(columns))
     
     # Build INSERT SQL with conflict handling
     conflict_col = CONFLICT_COLUMNS.get(table, "id")

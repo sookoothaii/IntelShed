@@ -153,6 +153,41 @@ class DualPipelineTest(unittest.TestCase):
                 or (p["source_id"] == "b" and p["target_id"] == "a")
             )
 
+    def test_ambiguous_route_runs_off_event_loop_thread(self):
+        """Regression: GET /api/intel/resolution/ambiguous must offload the
+        blocking ftm_connection._LOCK + DuckDB query via asyncio.to_thread,
+        not run it inline on the event loop thread. Running inline would freeze
+        all HTTP handling whenever run_resolution holds _LOCK concurrently."""
+        import asyncio
+        import threading
+
+        ftm_store.add_edge("a", "b", "sameAs",
+                           dataset=entity_resolution.RESOLUTION_DATASET,
+                           confidence=0.75,
+                           properties={"method": "splink", "schema": "Person"})
+
+        main_thread = threading.current_thread()
+        captured: dict = {}
+        orig = entity_resolution.list_ambiguous_pairs
+
+        def _spy(*args, **kwargs):
+            captured["thread"] = threading.current_thread()
+            return orig(*args, **kwargs)
+
+        entity_resolution.list_ambiguous_pairs = _spy  # type: ignore[assignment]
+        try:
+            result = asyncio.run(entity_resolution.resolution_ambiguous(limit=10))
+        finally:
+            entity_resolution.list_ambiguous_pairs = orig  # type: ignore[assignment]
+
+        self.assertEqual(len(result), 1)
+        self.assertIn("thread", captured)
+        self.assertIsNot(
+            captured["thread"],
+            main_thread,
+            "resolution_ambiguous must run list_ambiguous_pairs via asyncio.to_thread",
+        )
+
     def test_label_pair_confirmed_bumps_confidence(self):
         ftm_store.add_edge("x", "y", "sameAs",
                            dataset=entity_resolution.RESOLUTION_DATASET,
@@ -202,8 +237,8 @@ class DualPipelineTest(unittest.TestCase):
     def test_build_comparisons_and_blocking_adds_osint_when_data_present(self):
         """_build_comparisons_and_blocking should add email/username comparisons."""
         try:
-            import splink.comparison_library as cl
-            from splink import block_on
+            import splink.comparison_library as cl  # noqa: F401
+            from splink import block_on  # noqa: F401
         except ImportError:
             self.skipTest("splink not installed")
 
@@ -247,8 +282,8 @@ class DualPipelineTest(unittest.TestCase):
     def test_build_comparisons_and_blocking_no_osint_when_absent(self):
         """_build_comparisons_and_blocking should skip email/username when no data."""
         try:
-            import splink.comparison_library as cl
-            from splink import block_on
+            import splink.comparison_library as cl  # noqa: F401
+            from splink import block_on  # noqa: F401
         except ImportError:
             self.skipTest("splink not installed")
 

@@ -13,10 +13,10 @@ import asyncio
 from fastapi import APIRouter
 
 import aircraft_provider
+from runtime_cache import cache_get, cache_get_stale, cache_set
 from structured_log import get_logger
 
 log = get_logger(__name__)
-from runtime_cache import cache_get, cache_get_stale, cache_set
 
 router = APIRouter(tags=["aircraft"])
 

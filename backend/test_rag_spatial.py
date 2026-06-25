@@ -10,7 +10,6 @@ from rag_spatial import (
     enrich_meta_spatial,
     extract_coords,
     meta_passes_bbox,
-    point_in_bbox,
 )
 
 

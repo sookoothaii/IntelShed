@@ -18,13 +18,13 @@ import time
 from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Query, Request, Depends
+from fastapi import APIRouter, Header, Query, Request, Depends
 from fastapi.responses import JSONResponse, Response
 
 from auth.security import verify_api_key, verify_lan_auth
 from middleware.rate_limit import rate_limit_general, rate_limit_node_pull
 
-from node_ingest import _db, _verify_node_secret, DB_PATH
+from node_ingest import _db, _verify_node_secret
 
 router = APIRouter(prefix="/api", tags=["node-sync"])
 

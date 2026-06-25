@@ -15,7 +15,6 @@ from datetime import datetime, timezone
 import httpx
 from fastapi import APIRouter
 
-import opensky_client
 import aircraft_provider
 import adsb_client
 import geo_centroids
@@ -415,7 +414,6 @@ async def aircraft_anomalies():
         lon = s[5]
         lat = s[6]
         alt = s[7]       # barometric altitude (m)
-        geo_alt = s[13]  # geometric altitude (m)
         vel = s[9]       # velocity (m/s)
         vert = s[11]     # vertical rate (m/s)
         squawk = s[14]   # squawk code
@@ -467,7 +465,7 @@ async def aircraft_anomalies():
 # ---------------------------------------------------------------------------
 # Cross-feed correlation — detects developing situations from multiple sources
 # ---------------------------------------------------------------------------
-import math
+import math  # noqa: E402
 
 NUCLEAR_SITES = [
     # Format: (name, lon, lat, radius_km)

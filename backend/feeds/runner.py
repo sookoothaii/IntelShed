@@ -9,7 +9,7 @@ from typing import Any
 
 import feed_registry
 
-from feeds.envelope import FeedEnvelope, build_feed_envelope, utc_now_iso, validate_feed_payload
+from feeds.envelope import FeedEnvelope, utc_now_iso, validate_feed_payload
 
 
 def _warn_violations(cache_key: str, violations: list[str]) -> None:

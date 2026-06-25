@@ -480,7 +480,7 @@ def extract_document(filename: str, data: bytes) -> str:
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile  # noqa: E402
 
-from auth.security import verify_lan_auth
+from auth.security import verify_lan_auth  # noqa: E402
 
 router = APIRouter(prefix="/api/intel/ingest", tags=["intel"])
 
@@ -495,7 +495,7 @@ async def ingest_status(load: bool = False):
     if load:
         try:
             await _to_thread(_load)
-        except Exception as exc:
+        except Exception:
             logger.exception("model load failed")
             raise HTTPException(status_code=503, detail="model load failed")
     return status()
@@ -518,7 +518,7 @@ async def ingest_text_route(
             threshold=payload.get("threshold"),
             relation_threshold=payload.get("relation_threshold"),
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("text ingest failed")
         raise HTTPException(status_code=503, detail="ingest failed")
 
@@ -560,7 +560,7 @@ async def ingest_document_route(
         )
     try:
         text = await _to_thread(extract_document, file.filename or "", data)
-    except Exception as exc:
+    except Exception:
         logger.exception("document parse failed")
         raise HTTPException(status_code=415, detail="could not parse document")
     if not text.strip():
@@ -569,7 +569,7 @@ async def ingest_document_route(
         return await _to_thread(
             ingest_text, text, dataset=dataset, source_ref=file.filename
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("document ingest failed")
         raise HTTPException(status_code=503, detail="ingest failed")
 

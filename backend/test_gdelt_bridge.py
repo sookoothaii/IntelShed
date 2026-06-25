@@ -96,7 +96,6 @@ class TestGdeltLocalPulseFilter(unittest.TestCase):
 
     def test_load_pulse_local_registry_preserves_aged_articles(self):
         reg = "thailand"
-        key = f"gdelt_pulse_local:{reg}"
         payload = {
             "count": 2,
             "articles": [

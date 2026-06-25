@@ -103,14 +103,6 @@ def _parse_aisstream_message(msg: dict) -> tuple[str | None, dict | None, dict]:
             mtype = mtype or "PositionReport"
     return mtype or None, body, meta
 
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return default
-    try:
-        return float(raw)
-    except ValueError:
-        return default
-
 
 def _env_int(name: str, default: int) -> int:
     raw = os.getenv(name, "").strip()
@@ -388,7 +380,6 @@ async def _fetch_aisstream_snapshot(regions: dict[str, dict]) -> list[dict]:
 
     subscription = _aisstream_subscription(api_key, regions)
     collect_sec = _collect_sec()
-    wait_timeout = collect_sec + 5.0
     vessels: list[dict] = []
     seen: set[str] = set()
     try:

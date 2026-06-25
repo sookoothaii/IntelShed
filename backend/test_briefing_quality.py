@@ -186,7 +186,7 @@ class GdeltPipelineMetaTests(unittest.TestCase):
 
 class CorroborationTests(unittest.TestCase):
     def test_quake_gdacs_dual_source(self):
-        from briefing_quality import build_digest_line_meta, corroborate_digest_item
+        from briefing_quality import corroborate_digest_item
 
         lat, lon = 13.75, 100.5
         quake = {

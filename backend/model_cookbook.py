@@ -219,7 +219,7 @@ def recommend(
     if best["model"] != current_model:
         reasoning_parts.append(f"Current model is {current_model} — upgrade recommended")
     else:
-        reasoning_parts.append(f"Current model matches recommendation")
+        reasoning_parts.append("Current model matches recommendation")
 
     return {
         "gpu": gpu,

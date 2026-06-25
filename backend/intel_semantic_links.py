@@ -539,7 +539,7 @@ def link_semantic_edges(
 
 from fastapi import APIRouter, Depends, HTTPException, Query  # noqa: E402
 
-from auth.security import verify_lan_auth
+from auth.security import verify_lan_auth  # noqa: E402
 
 router = APIRouter(prefix="/api/intel/semantic", tags=["intel"])
 

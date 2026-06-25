@@ -133,7 +133,7 @@ class OperatorBriefingTests(unittest.TestCase):
         self.assertIn("News: US-Iran", combined)
         self.assertIn("News: Thailand", combined)
 
-        from briefing_quality import build_digest_line_meta, corroborate_digest_item
+        from briefing_quality import corroborate_digest_item
 
         all_items = [
             {

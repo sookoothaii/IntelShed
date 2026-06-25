@@ -116,7 +116,7 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
     except Exception:
         rag_block = ""
 
-    return (
+    prompt = (
         "You produce a 24-hour security & situational awareness protocol for one operator.\n"
         + _lang_instructions(lang)
         + "\n"
@@ -128,8 +128,8 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
         + "\n\n"
         f"{digest_header} (last {digest.get('window', '24h')}) ---\n"
         f"LOCAL signals:\n" + "\n".join(digest["local"]) + "\n\n"
-        f"REGION signals:\n" + "\n".join(digest["regional"]) + "\n\n"
-        f"GLOBAL signals:\n" + "\n".join(digest["global"]) + "\n\n"
+        "REGION signals:\n" + "\n".join(digest["regional"]) + "\n\n"
+        "GLOBAL signals:\n" + "\n".join(digest["global"]) + "\n\n"
         f"{intel_prompt}\n\n"
         f"{_prediction_calibration_line(lang=lang)}\n\n"
         f"WATCH ITEMS (monitor over stated horizon — do not invent more):\n"
@@ -137,8 +137,8 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
         f"{rag_block}"
         f"Fusion hotspots (spatial grid):\n{digest['fusion']}\n\n"
         f"Cyber (CISA KEV):\n" + "\n".join(digest["cyber"]) + "\n\n"
-        f"Infra:\n" + "\n".join(f"- {x}" for x in digest["infra"]) + "\n\n"
-        f"Edge nodes:\n" + "\n".join(digest["nodes"]) + "\n\n"
+        "Infra:\n" + "\n".join(f"- {x}" for x in digest["infra"]) + "\n\n"
+        "Edge nodes:\n" + "\n".join(digest["nodes"]) + "\n\n"
         + final_reminder + "\n\n"
         + protocol_label
     )

@@ -6,7 +6,6 @@ mesh networking, health monitoring, and briefing responses.
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Literal, Optional, Self
 
 from pydantic import (

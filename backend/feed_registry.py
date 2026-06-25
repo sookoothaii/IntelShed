@@ -150,7 +150,7 @@ def write_auto(key: str, payload: dict) -> None:
             
             try:
                 # Try to get existing event loop
-                loop = asyncio.get_running_loop()
+                asyncio.get_running_loop()
                 # Schedule in background if loop is running
                 asyncio.create_task(_write())
             except RuntimeError:

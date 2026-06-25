@@ -14,7 +14,6 @@ from fastapi.responses import JSONResponse
 from auth.security import verify_lan_auth
 from ftm_query import (
     entities_for_briefing,
-    get_entity,
     get_entity_full,
     graph_overview,
     graph_stats,

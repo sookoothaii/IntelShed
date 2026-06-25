@@ -9,7 +9,6 @@ from __future__ import annotations
 import csv
 import os
 
-from followthemoney import model
 
 from ftm_query import upsert, _proxy_with_id
 

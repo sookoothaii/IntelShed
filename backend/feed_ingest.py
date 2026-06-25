@@ -9,8 +9,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
 import httpx
 
 import config
@@ -19,6 +17,8 @@ import intel_graph_export
 import intel_proximity
 import intel_semantic_links
 from ingest.mapping_runner import apply_mapping, iter_rag_chunk_entries, list_mappings
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -449,7 +449,7 @@ def status() -> dict:
 
 from fastapi import APIRouter, Depends, HTTPException, Query  # noqa: E402
 
-from auth.security import verify_lan_auth
+from auth.security import verify_lan_auth  # noqa: E402
 
 router = APIRouter(prefix="/api/intel/feeds", tags=["intel"])
 

@@ -6,7 +6,6 @@ No API keys required where possible.
 """
 
 import os
-import json
 import ipaddress
 import socket
 import re

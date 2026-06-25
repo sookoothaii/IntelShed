@@ -77,7 +77,7 @@ def compact_for_pull(
             import intel_subgraph
 
             payload = intel_subgraph.build_subgraph(window_hours=window_hours)
-        except Exception as exc:
+        except Exception:
             return {"available": False, "reason": "subgraph build error"}
 
     if not payload.get("available"):
@@ -115,7 +115,7 @@ def compact_for_pull(
 
 from fastapi import APIRouter, Depends, HTTPException, Query  # noqa: E402
 
-from auth.security import verify_lan_auth
+from auth.security import verify_lan_auth  # noqa: E402
 
 router = APIRouter(prefix="/api/intel/subgraph", tags=["intel"])
 

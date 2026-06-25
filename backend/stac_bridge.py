@@ -20,7 +20,6 @@ JPG) is good enough to confirm scenes exist over Thailand or Germany.
 
 from __future__ import annotations
 
-import asyncio
 import os
 import time
 from datetime import datetime, timedelta, timezone

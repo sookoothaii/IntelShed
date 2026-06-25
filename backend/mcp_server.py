@@ -15,13 +15,13 @@ from typing import Any
 
 from structured_log import get_logger
 
-log = get_logger(__name__)
-
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from auth.security import API_KEY, lan_auth_required
 from mcp.server.fastmcp import FastMCP
+
+log = get_logger(__name__)
 
 # Feeds allowed for worldbase_feed_sample (cache key or live bridge id).
 FEED_SAMPLE_ALLOWLIST: frozenset[str] = frozenset({

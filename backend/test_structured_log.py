@@ -4,7 +4,6 @@ import json
 import unittest
 from io import StringIO
 from logging import StreamHandler
-import logging
 
 from structured_log import get_logger, StructuredLogger, JsonFormatter, _redact_value, _redact_dict
 

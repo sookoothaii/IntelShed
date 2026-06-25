@@ -16,8 +16,6 @@ import sqlite_vec
 
 from structured_log import get_logger
 
-log = get_logger(__name__)
-
 from rag_hybrid import (
     format_embed_text,
     format_prediction_watch_text,
@@ -40,6 +38,8 @@ from rag_spatial import (
     spatial_enabled,
     spatial_sql_clause,
 )
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
 
@@ -568,7 +568,6 @@ async def ingest_sanctions_hits(hits: list[dict]) -> dict:
         ent_id = h.get("entity_id") or h.get("id") or h.get("caption") or ""
         if not ent_id:
             continue
-        sid = f"sanctions:{ent_id}"
         record = {
             "entity_id": ent_id,
             "title": h.get("caption") or ent_id,
@@ -590,7 +589,6 @@ async def ingest_stac_items(items: list[dict]) -> dict:
     """Index recent STAC/Sentinel-2 scenes so the LLM can cite imagery coverage."""
     n = 0
     for it in items or []:
-        sid = f"stac:{it.get('id', '')}"
         if not it.get("id"):
             continue
         bbox = it.get("bbox") or []

@@ -2,7 +2,7 @@
 JSON API, no auth, 15min resolution for some series, daily for others.
 """
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter

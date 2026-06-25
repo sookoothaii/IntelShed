@@ -9,7 +9,6 @@ rows exist. Splink is lazy-imported (``pip install splink``).
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
@@ -18,9 +17,12 @@ from config import get_config as _get_cfg
 import threading
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import ftm_store
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -794,14 +796,14 @@ def label_pair(source_id: str, target_id: str, confirmed: bool, *, schema: str |
 
 from fastapi import APIRouter, Depends, HTTPException  # noqa: E402
 
-from auth.security import verify_lan_auth
+from auth.security import verify_lan_auth  # noqa: E402
 
 router = APIRouter(prefix="/api/intel/resolution", tags=["intel"])
 
 
 @router.get("/status")
 async def resolution_status():
-    return status()
+    return await asyncio.to_thread(status)
 
 
 @router.post("/run")
@@ -837,7 +839,9 @@ async def resolution_ambiguous(
     limit: int = 50,
 ):
     """List ambiguous pairs in the Grauzonen confidence band."""
-    return list_ambiguous_pairs(schema, min_prob=min, max_prob=max, limit=limit)
+    return await asyncio.to_thread(
+        list_ambiguous_pairs, schema, min_prob=min, max_prob=max, limit=limit
+    )
 
 
 @router.post("/label")
