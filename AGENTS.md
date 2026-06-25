@@ -61,7 +61,7 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | **Insight cards (Track A)** | `GET /api/insights?top=5` — fusion-ranked cards; narrated when Ollama up; in briefing + SITUATIONS — `backend/insights.py` |
 | Force generate | `POST /api/briefing/generate` — header `X-API-Key` when `WORLDBASE_API_KEY` is set; `?force=1` bypasses snapshot cache |
 | **Prediction ledger** | `quality.meta.prediction_accuracy_30d` / `prediction_pending` — watch outcomes after horizon; `backend/prediction_ledger.py` |
-| **FtM subgraph** | `GET /api/intel/subgraph?hops=2&bbox=` — 2-hop graph around operator bbox; briefing prompt `INTEL SUBGRAPH` block |
+| **FtM subgraph** | `GET /api/intel/subgraph?hops=2&bbox=` — 2-hop graph around operator bbox; briefing prompt `INTEL SUBGRAPH` block; **temporal edge decay** (`decayed_confidence`, `decay_weight`, `age_days` per edge; `WORLDBASE_INTEL_EDGE_DECAY_DAYS=30` half-life; stale edges tagged in prompt) |
 | **Spatial proximity edges** | `POST /api/intel/spatial/run` — rebuild `nearby` links after feed ingest (Track 3+) |
 | **Semantic intel edges** | `POST /api/intel/semantic/run` — colocated (`samePlace`), vessel-near-event (`nearEvent`), **cross-feed event correlation** (`relatedEvent`: text overlap + spatial proximity between Event/Thing from different feeds); sanctions screening; `WORLDBASE_INTEL_SEMANTIC_EDGES=1` (default on) |
 | FtM → digest bridge | `backend/intel_briefing.py` |
@@ -131,7 +131,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | MCP + Agent Bus | `backend/mcp_server.py`, `backend/agent_bus.py`, [`docs/MCP.md`](docs/MCP.md) |
 | Operator digest | `backend/operator_briefing.py` (compat), `backend/briefing_digest.py` (classification/watch items), `backend/briefing_prompt.py` (LLM prompt/fallback) |
 | FtM → 24h briefing | `backend/intel_briefing.py` |
-| FtM subgraph (Track 3) | `backend/intel_subgraph.py` — `GET /api/intel/subgraph` |
+| FtM subgraph (Track 3) | `backend/intel_subgraph.py` — `GET /api/intel/subgraph`; **temporal edge decay** (`decay_weight()`, `WORLDBASE_INTEL_EDGE_DECAY_DAYS=30`) |
 | Spatial proximity (Track 3+) | `backend/intel_proximity.py` — `POST /api/intel/spatial/run`; runs after feed ingest when `WORLDBASE_INTEL_SPATIAL_EDGES=1` |
 | Semantic intel edges (Track 3+) | `backend/intel_semantic_links.py` — colocated, vessel-near-event, **cross-feed event correlation** (`relatedEvent`), sanctions; `POST /api/intel/semantic/run`; `WORLDBASE_INTEL_SEMANTIC_EDGES=1` (default on) |
 | Prediction ledger (Track 4) | `backend/prediction_ledger.py` |
@@ -152,6 +152,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | **Query Router (P1)** | `backend/query_router.py` — 5 routes (vector/graph/spatial/hybrid/live), rule-based classification, 0 VRAM; `WORLDBASE_QUERY_ROUTER=1` (default on) |
 | **Provenance (P4)** | `backend/provenance.py` — source reliability table (30+ feeds), temporal decay (6h half-life), corroboration boost, conflict penalty, ingestion chain hash; `WORLDBASE_PROVENANCE=1` (default on) |
 | **Agentic Chat (P3)** | `backend/chat_agentic.py` — 3-phase chat loop (coverage → retrieve → corroboration); gap detection, targeted retrieval via query router, `[corroborated]`/`[uncorroborated]` tags; `WORLDBASE_CHAT_AGENTIC=1` (default off, opt-in) |
+| **Model Cookbook (5.2)** | `backend/model_cookbook.py` — `GET /api/models/cookbook` — scans nvidia-smi VRAM + Ollama models, recommends model + num_ctx; 0 VRAM |
 | FtM entity store | `backend/ftm_store.py` (compat), `backend/ftm_connection.py` (DuckDB conn + recovery), `backend/ftm_schema.py` (DDL + index drift), `backend/ftm_query.py` (CRUD/graph/briefing), `backend/ftm_sanctions.py` (OpenSanctions adapter), `backend/routes/ftm_api.py` (9 HTTP endpoints) |
 | Document intel ingest (GLiNER; GLiREL opt-in) | `backend/intel_ingest.py`, [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md), [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) |
 | Entity resolution (exact + subset + optional Splink) | `backend/entity_resolution.py` — `POST /api/intel/resolution/run` |
@@ -164,6 +165,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | Edge online/offline banner | `frontend/src/components/NodeHealthBanner.tsx` |
 | HAK_GAL firewall bridge (optional) | `backend/firewall_bridge.py`, `backend/prompt_guard.py`, `docs/FIREWALL.md` |
 | DB | `backend/worldbase.db`, `backend/data/entities.duckdb` — FtM: single writer (one API process); `reset_store()` on DuckDB FATAL (B-02 light) |
+| **Backup** | `scripts/backup.ps1` — SQLite VACUUM INTO + DuckDB file copy + fusion parquet + subgraph JSON + TLE; `docs/BACKUP.md` restore guide |
 
 ---
 

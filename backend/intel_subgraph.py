@@ -12,6 +12,43 @@ import ftm_store
 _DEFAULT_EXCLUDE = ("Airplane", "Thing")
 
 
+def _edge_decay_half_life_days() -> float:
+    """Half-life for temporal edge decay (days). Default 30."""
+    try:
+        return max(1.0, float(os.getenv("WORLDBASE_INTEL_EDGE_DECAY_DAYS", "30") or "30"))
+    except ValueError:
+        return 30.0
+
+
+def decay_weight(age_days: float, half_life_days: float | None = None) -> float:
+    """Exponential decay weight for an edge based on its age in days.
+
+    Returns a factor in (0, 1]:
+    - age=0 -> 1.0 (fresh)
+    - age=half_life -> 0.5
+    - age=2*half_life -> 0.25
+
+    Edges older than ~5 half-lives are effectively negligible (<0.03).
+    """
+    hl = half_life_days if half_life_days is not None else _edge_decay_half_life_days()
+    if age_days < 1.0:
+        return 1.0
+    return round(0.5 ** (age_days / max(1.0, hl)), 4)
+
+
+def _edge_age_days(seen_at: str | None) -> float | None:
+    """Parse seen_at ISO timestamp and return age in days, or None if unparseable."""
+    if not seen_at:
+        return None
+    try:
+        ts = datetime.fromisoformat(seen_at.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - ts).total_seconds() / 86400.0
+    except (ValueError, TypeError):
+        return None
+
+
 def subgraph_enabled() -> bool:
     return os.getenv("WORLDBASE_BRIEFING_INTEL_SUBGRAPH", "1").strip().lower() not in {
         "0",
@@ -165,11 +202,18 @@ def _expand_edges(
         key = (source_id, target_id, kind, dataset or "")
         if key not in edge_keys:
             edge_keys.add(key)
+            raw_conf = _json_num(confidence) or 1.0
+            age_days = _edge_age_days(seen_at)
+            decay = decay_weight(age_days) if age_days is not None else 1.0
+            decayed_conf = round(raw_conf * decay, 4)
             edges_out.append({
                 "source_id": source_id,
                 "target_id": target_id,
                 "kind": kind,
-                "confidence": _json_num(confidence),
+                "confidence": raw_conf,
+                "decayed_confidence": decayed_conf,
+                "decay_weight": decay,
+                "age_days": round(age_days, 1) if age_days is not None else None,
                 "dataset": dataset,
                 "seen_at": seen_at,
             })
@@ -324,6 +368,9 @@ def format_subgraph_prompt_block(subgraph: dict[str, Any], lang: str = "en") -> 
         tgt = id_to_label.get(edge["target_id"], edge["target_id"][:10])
         kind = edge.get("kind") or "linked"
         ds = edge.get("dataset") or "?"
+        decay = edge.get("decay_weight")
+        if decay is not None and decay < 0.5:
+            kind = f"{kind} (stale)"
         edge_lines.append(f"- {src} --{kind}--> {tgt} [{ds}]")
 
     hop_n = subgraph.get("hops", 2)

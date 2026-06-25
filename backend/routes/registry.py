@@ -47,6 +47,7 @@ def register_routers(app) -> None:
     import intel_proximity
     import intel_semantic_links
     import markets_bridge
+    import model_cookbook
     import nasa_firms
     import newsdata_bridge
     import node_sync
@@ -118,3 +119,4 @@ def register_routers(app) -> None:
     app.include_router(credentials_router.router)
     app.include_router(connectors_router.router)
     app.include_router(traffic_bridge.router)
+    app.include_router(model_cookbook.router)

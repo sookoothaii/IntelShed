@@ -43,6 +43,55 @@ class IntelSubgraphTests(unittest.TestCase):
         self.assertIsNone(sg.parse_bbox("bad"))
         self.assertIsNone(sg.parse_bbox("1,2,3"))
 
+    def test_decay_weight_fresh(self):
+        self.assertEqual(sg.decay_weight(0), 1.0)
+        self.assertEqual(sg.decay_weight(0.1), 1.0)
+
+    def test_decay_weight_half_life(self):
+        self.assertAlmostEqual(sg.decay_weight(30, 30), 0.5, places=2)
+        self.assertAlmostEqual(sg.decay_weight(60, 30), 0.25, places=2)
+
+    def test_decay_weight_custom_half_life(self):
+        self.assertAlmostEqual(sg.decay_weight(7, 7), 0.5, places=2)
+
+    def test_decay_weight_very_old(self):
+        w = sg.decay_weight(150, 30)  # 5 half-lives
+        self.assertLess(w, 0.04)
+
+    def test_subgraph_edge_has_decay_fields(self):
+        seed = self._seed_event("local", 13.75, 100.5)
+        org = ftm_store.make_entity("Organization", ["relief"], {"name": ["Relief Org"]})
+        org_id = ftm_store.upsert(org, dataset="osint")
+        ftm_store.add_edge(seed, org_id, "linked", dataset="osint", confidence=0.9)
+
+        bbox = [100.0, 13.0, 101.0, 14.5]
+        out = sg.build_subgraph(bbox=bbox, hops=2, window_hours=48, seed_limit=10, node_limit=20)
+        self.assertTrue(out["available"])
+        self.assertGreaterEqual(len(out["edges"]), 1)
+        edge = out["edges"][0]
+        self.assertIn("decayed_confidence", edge)
+        self.assertIn("decay_weight", edge)
+        self.assertIn("age_days", edge)
+        self.assertLessEqual(edge["decayed_confidence"], edge["confidence"])
+
+    def test_subgraph_stale_edge_in_prompt(self):
+        block = sg.format_subgraph_prompt_block(
+            {
+                "available": True,
+                "hops": 2,
+                "node_count": 2,
+                "nodes": [
+                    {"id": "a", "schema": "Event", "caption": "E1", "hop": 0, "in_bbox": True, "datasets": ["gdacs"]},
+                    {"id": "b", "schema": "Organization", "caption": "Org", "hop": 1, "datasets": ["osint"]},
+                ],
+                "edges": [
+                    {"source_id": "a", "target_id": "b", "kind": "linked", "dataset": "osint", "decay_weight": 0.3},
+                ],
+            },
+            lang="en",
+        )
+        self.assertIn("stale", block)
+
     def test_build_subgraph_two_hop(self):
         seed = self._seed_event("local", 13.75, 100.5)
         org = ftm_store.make_entity("Organization", ["relief"], {"name": ["Relief Org"]})
