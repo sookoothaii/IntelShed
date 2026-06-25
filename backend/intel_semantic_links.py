@@ -24,12 +24,49 @@ DATASET_CONTEXT = "spatial-context"
 DATASET_SANCTIONS = "sanctions"
 DATASET_EVENT_CORRELATION = "event-correlation"
 
-_STOP_WORDS = frozenset({
-    "the", "a", "an", "in", "of", "on", "at", "to", "for", "and", "or",
-    "is", "are", "was", "were", "be", "been", "by", "with", "from", "as",
-    "this", "that", "it", "its", "has", "have", "had", "not", "but",
-    "near", "off", "over", "into", "than", "then", "so", "if", "no",
-})
+_STOP_WORDS = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "in",
+        "of",
+        "on",
+        "at",
+        "to",
+        "for",
+        "and",
+        "or",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "by",
+        "with",
+        "from",
+        "as",
+        "this",
+        "that",
+        "it",
+        "its",
+        "has",
+        "have",
+        "had",
+        "not",
+        "but",
+        "near",
+        "off",
+        "over",
+        "into",
+        "than",
+        "then",
+        "so",
+        "if",
+        "no",
+    }
+)
 
 
 def enabled() -> bool:
@@ -59,7 +96,9 @@ def _max_km() -> float:
 
 def _entity_cap() -> int:
     try:
-        return max(20, min(300, int(os.getenv("WORLDBASE_INTEL_SEMANTIC_MAX_ENTITIES", "120"))))
+        return max(
+            20, min(300, int(os.getenv("WORLDBASE_INTEL_SEMANTIC_MAX_ENTITIES", "120")))
+        )
     except ValueError:
         return 120
 
@@ -97,7 +136,9 @@ def _fetch_bbox_entities(
     exclude_schemas: set[str],
 ) -> list[dict[str, Any]]:
     west, south, east, north = bbox
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))).isoformat()
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))
+    ).isoformat()
     clauses = [
         "e.lat IS NOT NULL",
         "e.lon IS NOT NULL",
@@ -128,14 +169,16 @@ def _fetch_bbox_entities(
             lat, lon = float(row[3]), float(row[4])
         except (TypeError, ValueError):
             continue
-        out.append({
-            "id": row[0],
-            "schema": row[1],
-            "caption": row[2],
-            "lat": lat,
-            "lon": lon,
-            "datasets": row[5],
-        })
+        out.append(
+            {
+                "id": row[0],
+                "schema": row[1],
+                "caption": row[2],
+                "lat": lat,
+                "lon": lon,
+                "datasets": row[5],
+            }
+        )
     return out
 
 
@@ -244,7 +287,9 @@ def link_vessels_near_events(
 
 def _sanction_entity_id(hit: dict) -> str:
     sanction = hit.get("sanction") or {}
-    raw = str(sanction.get("id") or sanction.get("caption") or hit.get("matched_term") or "")
+    raw = str(
+        sanction.get("id") or sanction.get("caption") or hit.get("matched_term") or ""
+    )
     digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
     return f"sanctions:{digest}"
 
@@ -295,7 +340,9 @@ async def link_sanction_edges(
     hits = await sanctions_bridge.screen_vessels(vessels, min_score=min_score)
     edges_added = 0
     seen_at = datetime.now(timezone.utc).isoformat()
-    id_by_name = {v.get("caption", "").lower(): v["_ftm_id"] for v in vessels if v.get("caption")}
+    id_by_name = {
+        v.get("caption", "").lower(): v["_ftm_id"] for v in vessels if v.get("caption")
+    }
 
     for hit in hits:
         vessel_info = hit.get("vessel") or {}
@@ -304,7 +351,9 @@ async def link_sanction_edges(
             continue
         sanction = hit.get("sanction") or {}
         sid = _sanction_entity_id(hit)
-        caption = str(sanction.get("caption") or sanction.get("name") or "Sanctioned target")[:200]
+        caption = str(
+            sanction.get("caption") or sanction.get("name") or "Sanctioned target"
+        )[:200]
         proxy = ftm_store._proxy_with_id(sid, "Organization", {"name": [caption]})
         ftm_store.upsert(proxy, dataset=DATASET_SANCTIONS)
         before = ftm_store.count_edges_for_dataset(DATASET_SANCTIONS)
@@ -314,7 +363,10 @@ async def link_sanction_edges(
             "sanctioned",
             dataset=DATASET_SANCTIONS,
             confidence=float(sanction.get("score") or min_score),
-            properties={"matched_term": hit.get("matched_term"), "source": sanction.get("dataset")},
+            properties={
+                "matched_term": hit.get("matched_term"),
+                "source": sanction.get("dataset"),
+            },
             seen_at=seen_at,
         )
         if ftm_store.count_edges_for_dataset(DATASET_SANCTIONS) > before:
@@ -332,6 +384,7 @@ async def link_sanction_edges(
 def _tokenize_caption(text: str) -> set[str]:
     """Extract significant lowercase word tokens from a caption."""
     import re
+
     raw = re.split(r"[^a-z0-9]+", (text or "").lower())
     return {w for w in raw if len(w) >= 3 and w not in _STOP_WORDS}
 
@@ -344,6 +397,7 @@ def _datasets_for_entity(ent: dict[str, Any]) -> set[str]:
     if isinstance(ds, str):
         try:
             import json
+
             parsed = json.loads(ds)
             if isinstance(parsed, list):
                 return {str(d) for d in parsed if d}
@@ -360,7 +414,9 @@ def _fetch_events_for_correlation(
     cap: int = 300,
 ) -> list[dict[str, Any]]:
     """Fetch Event/Thing entities in bbox (or worldwide if bbox is None)."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))).isoformat()
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))
+    ).isoformat()
     if bbox is None:
         rows = ftm_store.run_query(
             """
@@ -399,14 +455,16 @@ def _fetch_events_for_correlation(
             lon = float(row[4]) if row[4] is not None else None
         except (TypeError, ValueError):
             lat, lon = None, None
-        out.append({
-            "id": row[0],
-            "schema": row[1],
-            "caption": row[2],
-            "lat": lat,
-            "lon": lon,
-            "datasets": row[5],
-        })
+        out.append(
+            {
+                "id": row[0],
+                "schema": row[1],
+                "caption": row[2],
+                "lat": lat,
+                "lon": lon,
+                "datasets": row[5],
+            }
+        )
     return out
 
 
@@ -425,7 +483,11 @@ def link_related_events(
     limit_km = max_km if max_km is not None else _event_corr_max_km()
     if min_shared_words is None:
         min_shared_words = _event_corr_min_shared_words()
-    events = [e for e in entities if e.get("schema") in ("Event", "Thing") and e.get("caption")]
+    events = [
+        e
+        for e in entities
+        if e.get("schema") in ("Event", "Thing") and e.get("caption")
+    ]
     if refresh:
         ftm_store.delete_edges_for_dataset(DATASET_EVENT_CORRELATION)
 
@@ -440,7 +502,7 @@ def link_related_events(
     for i, left in enumerate(events):
         left_ds = _datasets_for_entity(left)
         left_has_geo = left.get("lat") is not None and left.get("lon") is not None
-        for right in events[i + 1:]:
+        for right in events[i + 1 :]:
             right_ds = _datasets_for_entity(right)
             # Skip if from same feed (we want cross-feed correlations only)
             if left_ds and right_ds and (left_ds & right_ds):
@@ -449,7 +511,9 @@ def link_related_events(
             shared = left["_tokens"] & right["_tokens"]
             if len(shared) < min_shared_words:
                 continue
-            right_has_geo = right.get("lat") is not None and right.get("lon") is not None
+            right_has_geo = (
+                right.get("lat") is not None and right.get("lon") is not None
+            )
             # Spatial proximity check (skip if either event lacks coordinates)
             km = None
             if left_has_geo and right_has_geo:
@@ -458,7 +522,9 @@ def link_related_events(
                     continue
             pairs_checked += 1
             # Confidence: base on word overlap + distance (text-only gets penalty)
-            overlap_ratio = len(shared) / max(1, min(len(left["_tokens"]), len(right["_tokens"])))
+            overlap_ratio = len(shared) / max(
+                1, min(len(left["_tokens"]), len(right["_tokens"]))
+            )
             if km is not None:
                 dist_factor = 1.0 - (km / max(1.0, limit_km)) * 0.3
                 conf = round(min(0.90, 0.55 + overlap_ratio * 0.3 * dist_factor), 3)
@@ -533,7 +599,9 @@ def link_semantic_edges(
         "colocated": colocated,
         "near_event": context,
         "related_events": related,
-        "edges_added": colocated.get("edges_added", 0) + context.get("edges_added", 0) + related.get("edges_added", 0),
+        "edges_added": colocated.get("edges_added", 0)
+        + context.get("edges_added", 0)
+        + related.get("edges_added", 0),
     }
 
 
@@ -550,7 +618,12 @@ async def semantic_status():
         "enabled": enabled(),
         "sanctions_enabled": sanctions_enabled(),
         "max_km": _max_km(),
-        "datasets": [DATASET_COLOCATED, DATASET_CONTEXT, DATASET_SANCTIONS, DATASET_EVENT_CORRELATION],
+        "datasets": [
+            DATASET_COLOCATED,
+            DATASET_CONTEXT,
+            DATASET_SANCTIONS,
+            DATASET_EVENT_CORRELATION,
+        ],
         "edges": {
             DATASET_COLOCATED: ftm_store.count_edges_for_dataset(DATASET_COLOCATED)
             if ftm_store.init_store()
@@ -561,7 +634,9 @@ async def semantic_status():
             DATASET_SANCTIONS: ftm_store.count_edges_for_dataset(DATASET_SANCTIONS)
             if ftm_store.init_store()
             else 0,
-            DATASET_EVENT_CORRELATION: ftm_store.count_edges_for_dataset(DATASET_EVENT_CORRELATION)
+            DATASET_EVENT_CORRELATION: ftm_store.count_edges_for_dataset(
+                DATASET_EVENT_CORRELATION
+            )
             if ftm_store.init_store()
             else 0,
         },
@@ -580,7 +655,9 @@ async def semantic_run(
         out = link_semantic_edges(window_hours=window_hours)
         if include_sanctions and sanctions_enabled():
             out["sanctions"] = await link_sanction_edges(window_hours=window_hours)
-            out["edges_added"] = out.get("edges_added", 0) + out["sanctions"].get("edges_added", 0)
+            out["edges_added"] = out.get("edges_added", 0) + out["sanctions"].get(
+                "edges_added", 0
+            )
         return out
     except Exception as exc:
         logger.exception("semantic link failed")

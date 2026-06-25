@@ -26,17 +26,27 @@ class ChunkProfile:
 
 # Built-in profiles for RAG ingest paths that do not use feed YAML mappings.
 SOURCE_DEFAULTS: dict[str, ChunkProfile] = {
-    "briefing": ChunkProfile(strategy="paragraph", max_chars=800, overlap=100, source_key="created_at"),
+    "briefing": ChunkProfile(
+        strategy="paragraph", max_chars=800, overlap=100, source_key="created_at"
+    ),
     "situations": ChunkProfile(strategy="record", max_chars=640, source_key="id"),
     "volcanoes": ChunkProfile(strategy="single", max_chars=420, source_key="id"),
     "hazards": ChunkProfile(strategy="single", max_chars=520, source_key="id"),
-    "prediction_watch": ChunkProfile(strategy="single", max_chars=720, source_key="watch_id"),
-    "newsdata": ChunkProfile(strategy="headline", max_chars=480, source_key="article_id"),
+    "prediction_watch": ChunkProfile(
+        strategy="single", max_chars=720, source_key="watch_id"
+    ),
+    "newsdata": ChunkProfile(
+        strategy="headline", max_chars=480, source_key="article_id"
+    ),
     "stac": ChunkProfile(strategy="single", max_chars=420, source_key="id"),
     "sanctions": ChunkProfile(strategy="single", max_chars=520, source_key="entity_id"),
     "gdelt_pulse": ChunkProfile(strategy="headline", max_chars=480, source_key="url"),
-    "gdelt_pulse_local": ChunkProfile(strategy="headline", max_chars=480, source_key="url"),
-    "gdelt_pulse_global": ChunkProfile(strategy="headline", max_chars=480, source_key="url"),
+    "gdelt_pulse_local": ChunkProfile(
+        strategy="headline", max_chars=480, source_key="url"
+    ),
+    "gdelt_pulse_global": ChunkProfile(
+        strategy="headline", max_chars=480, source_key="url"
+    ),
 }
 
 
@@ -84,7 +94,9 @@ def _field_line(record: dict[str, Any], spec: dict[str, Any]) -> str:
         prefix = spec.get("prefix") or ""
         return f"{prefix}{text}".strip()
     cols = spec.get("columns") or []
-    parts = [str(record.get(c)).strip() for c in cols if record.get(c) not in (None, "")]
+    parts = [
+        str(record.get(c)).strip() for c in cols if record.get(c) not in (None, "")
+    ]
     if not parts:
         return ""
     joiner = spec.get("join") or " | "
@@ -101,7 +113,9 @@ def format_record_body(record: dict[str, Any], profile: ChunkProfile) -> str:
             lines.append(line)
     if lines:
         return "\n".join(lines)
-    title = (record.get("title") or record.get("name") or record.get("text") or "").strip()
+    title = (
+        record.get("title") or record.get("name") or record.get("text") or ""
+    ).strip()
     return title
 
 
@@ -157,8 +171,18 @@ def chunk_record(
     return chunk_text(text, profile)
 
 
-def resolve_source_id(record: dict[str, Any], profile: ChunkProfile, fallback: str) -> str:
-    for key in (profile.source_key, "id", "eventid", "mmsi", "url", "article_id", "watch_id"):
+def resolve_source_id(
+    record: dict[str, Any], profile: ChunkProfile, fallback: str
+) -> str:
+    for key in (
+        profile.source_key,
+        "id",
+        "eventid",
+        "mmsi",
+        "url",
+        "article_id",
+        "watch_id",
+    ):
         val = record.get(key)
         if val not in (None, ""):
             return str(val)

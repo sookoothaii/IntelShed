@@ -27,9 +27,7 @@ router = APIRouter(prefix="/api/traffic", tags=["traffic"])
 _UA = {"User-Agent": "WorldBase/1.0 (private research; traffic cams)"}
 
 SGP_API = "https://api.data.gov.sg/v1/transport/traffic-images"
-OTCM_USA = (
-    "https://raw.githubusercontent.com/AidanWelch/OpenTrafficCamMap/master/cameras/USA.json"
-)
+OTCM_USA = "https://raw.githubusercontent.com/AidanWelch/OpenTrafficCamMap/master/cameras/USA.json"
 LTA_API = "https://datamall2.mytransport.sg/ltaodataservice/Traffic-Imagesv2"
 
 _CACHE: dict[str, tuple[float, dict]] = {}
@@ -100,7 +98,9 @@ def _normalize_cam(
         "format": fmt,
         "geo_coverage": geo_coverage,
         "refresh_ms": refresh_ms,
-        "license": "Singapore Open Data Licence" if source == "data.gov.sg" else "crowdsourced",
+        "license": "Singapore Open Data Licence"
+        if source == "data.gov.sg"
+        else "crowdsourced",
         "usage_policy": "private_research",
         **(extra or {}),
     }
@@ -142,7 +142,9 @@ async def _fetch_singapore() -> tuple[list[dict], str | None]:
     return cams, None
 
 
-def _parse_otcm_usa(raw: dict, *, limit: int, bbox: tuple[float, float, float, float] | None) -> list[dict]:
+def _parse_otcm_usa(
+    raw: dict, *, limit: int, bbox: tuple[float, float, float, float] | None
+) -> list[dict]:
     out: list[dict] = []
     for state, counties in (raw or {}).items():
         if not isinstance(counties, dict):
@@ -182,7 +184,9 @@ def _parse_otcm_usa(raw: dict, *, limit: int, bbox: tuple[float, float, float, f
     return out
 
 
-async def _fetch_usa(*, limit: int = 800, bbox: tuple[float, float, float, float] | None = None) -> tuple[list[dict], str | None]:
+async def _fetch_usa(
+    *, limit: int = 800, bbox: tuple[float, float, float, float] | None = None
+) -> tuple[list[dict], str | None]:
     try:
         async with httpx.AsyncClient(timeout=60.0, headers=_UA) as client:
             r = await client.get(OTCM_USA)
@@ -243,7 +247,11 @@ async def fetch_scope(
     """Load cameras for regional | global | all."""
     scope = (scope or "regional").strip().lower()
     cache_key = f"traffic_cams:{scope}"
-    ttl = MERGED_TTL if scope == "all" else (REGIONAL_TTL if scope == "regional" else GLOBAL_TTL)
+    ttl = (
+        MERGED_TTL
+        if scope == "all"
+        else (REGIONAL_TTL if scope == "regional" else GLOBAL_TTL)
+    )
     if not force:
         cached = _cache_get(cache_key, ttl)
         if cached is not None:
@@ -286,7 +294,11 @@ async def fetch_scope(
 
     stale = _cache_stale(cache_key)
     if not unique and stale:
-        stale = {**stale, "stale": True, "error": "; ".join(errors) if errors else "upstream empty"}
+        stale = {
+            **stale,
+            "stale": True,
+            "error": "; ".join(errors) if errors else "upstream empty",
+        }
         return stale
 
     out = {
@@ -297,7 +309,11 @@ async def fetch_scope(
         "cameras": unique,
         "updated": datetime.now(timezone.utc).isoformat(),
         "usage_policy": "private_research",
-        "operator": {"lat": _OPERATOR_LAT, "lon": _OPERATOR_LON, "region": os.getenv("WORLDBASE_OPERATOR_REGION", "thailand")},
+        "operator": {
+            "lat": _OPERATOR_LAT,
+            "lon": _OPERATOR_LON,
+            "region": os.getenv("WORLDBASE_OPERATOR_REGION", "thailand"),
+        },
         "hint": (
             "Thailand traffic cams (iTIC) require archive access — set ITIC_API_TOKEN when available."
             if scope == "regional"
@@ -323,7 +339,9 @@ async def warm_traffic_cams(*, force: bool = True) -> None:
 
 @router.get("/cams")
 async def traffic_cams(
-    scope: str = Query("regional", description="regional (ASEAN/SG) | global (USA OTCM) | all"),
+    scope: str = Query(
+        "regional", description="regional (ASEAN/SG) | global (USA OTCM) | all"
+    ),
     limit: int = Query(800, ge=1, le=5000),
     west: float | None = None,
     south: float | None = None,
@@ -344,10 +362,25 @@ async def traffic_cams_status():
 
     return {
         "sources": {
-            "data.gov.sg": {"configured": True, "tier": "free", "geo_coverage": "regional"},
-            "opentrafficcammap": {"configured": True, "tier": "free", "geo_coverage": "global"},
-            "lta_datamall": {"configured": is_configured("lta_datamall"), "tier": "optional"},
-            "itic_thailand": {"configured": is_configured("itic_thailand"), "tier": "optional", "geo_coverage": "local"},
+            "data.gov.sg": {
+                "configured": True,
+                "tier": "free",
+                "geo_coverage": "regional",
+            },
+            "opentrafficcammap": {
+                "configured": True,
+                "tier": "free",
+                "geo_coverage": "global",
+            },
+            "lta_datamall": {
+                "configured": is_configured("lta_datamall"),
+                "tier": "optional",
+            },
+            "itic_thailand": {
+                "configured": is_configured("itic_thailand"),
+                "tier": "optional",
+                "geo_coverage": "local",
+            },
         },
         "scopes": ["regional", "global", "all"],
         "operator_region": os.getenv("WORLDBASE_OPERATOR_REGION", "thailand"),
@@ -374,11 +407,14 @@ async def traffic_cam_frame(cam_id: str):
     if not url:
         raise HTTPException(status_code=404, detail="No image URL")
     try:
-        async with httpx.AsyncClient(timeout=20.0, headers=_UA, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=20.0, headers=_UA, follow_redirects=True
+        ) as client:
             r = await client.get(url)
             r.raise_for_status()
             ctype = r.headers.get("content-type") or "image/jpeg"
             from fastapi.responses import Response
+
             return Response(content=r.content, media_type=ctype)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)[:120]) from e

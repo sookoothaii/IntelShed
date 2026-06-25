@@ -101,7 +101,9 @@ def init_memory_db():
 
         if vec_count == 0 and chunk_count > 0:
             log.info("rag_vec_migration", chunks=chunk_count)
-            chunks = conn.execute("SELECT id, embedding_json FROM rag_chunks").fetchall()
+            chunks = conn.execute(
+                "SELECT id, embedding_json FROM rag_chunks"
+            ).fetchall()
             for chunk in chunks:
                 try:
                     emb = json.loads(chunk["embedding_json"])
@@ -131,23 +133,38 @@ async def embed_text(text: str) -> list[float]:
     url = f"http://{host}/api/embeddings"
     async with httpx.AsyncClient(timeout=60.0) as client:
         from ollama_config import keep_alive
+
         r = await client.post(
             url,
-            json={"model": _EMBED_MODEL, "prompt": text[:8000], "keep_alive": keep_alive()},
+            json={
+                "model": _EMBED_MODEL,
+                "prompt": text[:8000],
+                "keep_alive": keep_alive(),
+            },
         )
         r.raise_for_status()
         data = r.json()
         emb = data.get("embedding")
         if not emb:
-            raise RuntimeError("Ollama returned no embedding — run: ollama pull nomic-embed-text")
+            raise RuntimeError(
+                "Ollama returned no embedding — run: ollama pull nomic-embed-text"
+            )
         return [float(x) for x in emb]
 
 
-def upsert_chunk(source: str, source_id: str, text: str, embedding: list[float], meta: dict | None = None):
+def upsert_chunk(
+    source: str,
+    source_id: str,
+    text: str,
+    embedding: list[float],
+    meta: dict | None = None,
+):
     now = datetime.now(timezone.utc).isoformat()
     if len(embedding) != 768:
-        raise ValueError("sqlite-vec currently expects exactly 768 dimensions for nomic-embed-text")
-        
+        raise ValueError(
+            "sqlite-vec currently expects exactly 768 dimensions for nomic-embed-text"
+        )
+
     with _conn() as conn:
         conn.execute(
             """
@@ -168,8 +185,11 @@ def upsert_chunk(source: str, source_id: str, text: str, embedding: list[float],
                 now,
             ),
         )
-        row_id = conn.execute("SELECT id FROM rag_chunks WHERE source=? AND source_id=?", (source, source_id)).fetchone()[0]
-        
+        row_id = conn.execute(
+            "SELECT id FROM rag_chunks WHERE source=? AND source_id=?",
+            (source, source_id),
+        ).fetchone()[0]
+
         # Sync with high-performance vector index
         conn.execute(
             "INSERT OR REPLACE INTO rag_vec(id, embedding) VALUES (?, ?)",
@@ -181,7 +201,9 @@ def upsert_chunk(source: str, source_id: str, text: str, embedding: list[float],
             (row_id, text[:12000]),
         )
 
-        old_rows = conn.execute("SELECT id FROM rag_chunks ORDER BY id DESC LIMIT -1 OFFSET 2000").fetchall()
+        old_rows = conn.execute(
+            "SELECT id FROM rag_chunks ORDER BY id DESC LIMIT -1 OFFSET 2000"
+        ).fetchall()
         if old_rows:
             old_ids = [r[0] for r in old_rows]
             marks = ",".join("?" * len(old_ids))
@@ -192,7 +214,9 @@ def upsert_chunk(source: str, source_id: str, text: str, embedding: list[float],
         conn.commit()
 
 
-async def index_text(source: str, source_id: str, text: str, meta: dict | None = None) -> dict:
+async def index_text(
+    source: str, source_id: str, text: str, meta: dict | None = None
+) -> dict:
     meta = enrich_meta_spatial(dict(meta or {}))
     embed_text_body = format_embed_text(source, text, meta)
     emb = await embed_text(embed_text_body)
@@ -314,10 +338,16 @@ async def search(
 ) -> list[dict]:
     """Hybrid search: sqlite-vec cosine + FTS5 BM25 fused via reciprocal rank fusion."""
     k = k or _TOP_K
-    candidate_k = max(k * 2, _HYBRID_CANDIDATES, _RERANK_POOL if rerank_enabled() else 0)
+    candidate_k = max(
+        k * 2, _HYBRID_CANDIDATES, _RERANK_POOL if rerank_enabled() else 0
+    )
     if spatial_enabled():
         candidate_k = max(candidate_k, k * 4)
-    search_bbox = bbox if bbox is not None else (operator_search_bbox() if spatial_enabled() else None)
+    search_bbox = (
+        bbox
+        if bbox is not None
+        else (operator_search_bbox() if spatial_enabled() else None)
+    )
     q_emb = await embed_text(query)
     q_bin = serialize_f32(q_emb)
 
@@ -365,7 +395,9 @@ async def _ingest_gdelt_articles(
         if region:
             meta["region"] = region
         try:
-            out = await index_with_profile(source, record, mapping_name=mapping_name, meta=meta)
+            out = await index_with_profile(
+                source, record, mapping_name=mapping_name, meta=meta
+            )
             n += int(out.get("indexed") or 0)
         except Exception:
             pass
@@ -410,7 +442,9 @@ async def ingest_newsdata_headlines(*, limit: int = 25) -> dict:
 
     if not newsdata_bridge.api_key_configured():
         return {"indexed": 0, "source": "newsdata", "reason": "no_api_key"}
-    data = await newsdata_bridge.get_newsdata(limit=max(1, min(limit, 30)), refresh=False)
+    data = await newsdata_bridge.get_newsdata(
+        limit=max(1, min(limit, 30)), refresh=False
+    )
     n = 0
     for i, art in enumerate(data.get("articles") or []):
         title = (art.get("title") or "").strip()
@@ -451,7 +485,9 @@ async def ingest_news_sources() -> dict:
             parts[name] = await coro
         except Exception as e:
             parts[name] = {"indexed": 0, "error": str(e)}
-    total = sum(int(v.get("indexed") or 0) for v in parts.values() if isinstance(v, dict))
+    total = sum(
+        int(v.get("indexed") or 0) for v in parts.values() if isinstance(v, dict)
+    )
     return {"indexed": total, "sources": parts}
 
 
@@ -467,7 +503,11 @@ async def ingest_prediction_watches(*, limit: int = 150) -> dict:
         if not watch_id or not issued_at:
             continue
         sid = f"{watch_id}:{issued_at}"
-        status = "pending" if item.get("hit") is None else ("hit" if item.get("hit") else "miss")
+        status = (
+            "pending"
+            if item.get("hit") is None
+            else ("hit" if item.get("hit") else "miss")
+        )
         meta = {
             **item,
             "status": status,
@@ -490,6 +530,7 @@ async def ingest_prediction_watches(*, limit: int = 150) -> dict:
 
 async def ingest_hazards() -> dict:
     import cap_bridge
+
     data = await cap_bridge.hazards_active(limit=120)
     n = 0
     for a in data.get("alerts") or []:
@@ -503,7 +544,9 @@ async def ingest_hazards() -> dict:
             ),
         }
         try:
-            out = await index_with_profile("hazards", record, preformatted=record["text"], meta=a)
+            out = await index_with_profile(
+                "hazards", record, preformatted=record["text"], meta=a
+            )
             n += int(out.get("indexed") or 0)
         except Exception:
             pass
@@ -512,6 +555,7 @@ async def ingest_hazards() -> dict:
 
 async def ingest_volcanoes() -> dict:
     import volcano_bridge
+
     data = await volcano_bridge.holocene_volcanoes(active_only=True, limit=300)
     n = 0
     for v in data.get("volcanoes") or []:
@@ -525,7 +569,9 @@ async def ingest_volcanoes() -> dict:
             ),
         }
         try:
-            out = await index_with_profile("volcanoes", record, preformatted=record["text"], meta=v)
+            out = await index_with_profile(
+                "volcanoes", record, preformatted=record["text"], meta=v
+            )
             n += int(out.get("indexed") or 0)
         except Exception:
             pass
@@ -534,6 +580,7 @@ async def ingest_volcanoes() -> dict:
 
 async def ingest_situations() -> dict:
     import situations
+
     data = await situations.unified_situations()
     n = 0
     for s in data.get("items") or []:
@@ -554,7 +601,9 @@ async def ingest_situations() -> dict:
             record["lat"] = loc["lat"]
             record["lon"] = loc["lon"]
         try:
-            out = await index_with_profile("situations", record, preformatted=record["text"], meta=meta)
+            out = await index_with_profile(
+                "situations", record, preformatted=record["text"], meta=meta
+            )
             n += int(out.get("indexed") or 0)
         except Exception:
             pass
@@ -578,7 +627,9 @@ async def ingest_sanctions_hits(hits: list[dict]) -> dict:
             ),
         }
         try:
-            out = await index_with_profile("sanctions", record, preformatted=record["text"], meta=h)
+            out = await index_with_profile(
+                "sanctions", record, preformatted=record["text"], meta=h
+            )
             n += int(out.get("indexed") or 0)
         except Exception:
             pass
@@ -605,7 +656,17 @@ async def ingest_stac_items(items: list[dict]) -> dict:
                 "stac",
                 record,
                 preformatted=record["text"],
-                meta={k: it.get(k) for k in ("id", "collection", "datetime", "bbox", "cloud_cover", "thumbnail")},
+                meta={
+                    k: it.get(k)
+                    for k in (
+                        "id",
+                        "collection",
+                        "datetime",
+                        "bbox",
+                        "cloud_cover",
+                        "thumbnail",
+                    )
+                },
             )
             n += int(out.get("indexed") or 0)
         except Exception:
@@ -648,7 +709,12 @@ async def memory_search(q: str, k: int = 6, spatial: bool | None = None):
             "results": results,
         }
     except Exception as e:
-        return {"query": q, "results": [], "error": str(e), "hint": "ollama pull nomic-embed-text"}
+        return {
+            "query": q,
+            "results": [],
+            "error": str(e),
+            "hint": "ollama pull nomic-embed-text",
+        }
 
 
 @router.post("/index/pulse")

@@ -28,7 +28,9 @@ class FusionSnapshotTests(unittest.TestCase):
         except OSError:
             pass
 
-    def _insert_snapshot(self, cell_deg: float, recorded_at: str, cells: list[dict]) -> None:
+    def _insert_snapshot(
+        self, cell_deg: float, recorded_at: str, cells: list[dict]
+    ) -> None:
         payload = json.dumps({"cells": cells})
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
@@ -44,10 +46,20 @@ class FusionSnapshotTests(unittest.TestCase):
         self.assertIsNone(fh.parse_compare_hours("bad"))
 
     def test_record_snapshot_respects_interval(self):
-        cells = [{"lat": 13.0, "lon": 100.5, "score": 0.8, "intensity": 10.0, "sources": ["quake"]}]
+        cells = [
+            {
+                "lat": 13.0,
+                "lon": 100.5,
+                "score": 0.8,
+                "intensity": 10.0,
+                "sources": ["quake"],
+            }
+        ]
         now = datetime(2026, 6, 22, 12, 0, tzinfo=timezone.utc)
         self.assertTrue(fh.record_snapshot_if_due(2.0, cells, now=now))
-        self.assertFalse(fh.record_snapshot_if_due(2.0, cells, now=now + timedelta(hours=1)))
+        self.assertFalse(
+            fh.record_snapshot_if_due(2.0, cells, now=now + timedelta(hours=1))
+        )
 
     def test_apply_compare_delta(self):
         now = datetime.now(timezone.utc)
@@ -56,16 +68,27 @@ class FusionSnapshotTests(unittest.TestCase):
         self._insert_snapshot(
             2.0,
             baseline_at,
-            [{"cell_id": cid, "lat": 13.0, "lon": 100.5, "score": 0.4, "intensity": 8.0, "sources": ["quake"]}],
+            [
+                {
+                    "cell_id": cid,
+                    "lat": 13.0,
+                    "lon": 100.5,
+                    "score": 0.4,
+                    "intensity": 8.0,
+                    "sources": ["quake"],
+                }
+            ],
         )
-        current = [{
-            "lat": 13.0,
-            "lon": 100.5,
-            "score": 0.85,
-            "intensity": 17.0,
-            "sources": ["quake", "hazard"],
-            "samples": [{"label": "Flood watch"}],
-        }]
+        current = [
+            {
+                "lat": 13.0,
+                "lon": 100.5,
+                "score": 0.85,
+                "intensity": 17.0,
+                "sources": ["quake", "hazard"],
+                "samples": [{"label": "Flood watch"}],
+            }
+        ]
         meta = fh.apply_compare(current, 2.0, 24.0)
         self.assertTrue(meta["available"])
         self.assertAlmostEqual(current[0]["delta_score"], 0.45, places=4)
@@ -77,16 +100,26 @@ class FusionSnapshotTests(unittest.TestCase):
         from operator_briefing import build_watch_items
 
         snap: dict = {}
-        fusion = [{"lat": 13.0, "lon": 100.5, "score": 0.9, "sources": ["hazard"], "samples": [{"label": "Static"}]}]
-        deltas = [{
-            "cell_id": "13.00,100.50",
-            "lat": 13.0,
-            "lon": 100.5,
-            "score": 0.9,
-            "delta_score": 0.35,
-            "sources": ["hazard"],
-            "samples": [{"label": "Flood rising"}],
-        }]
+        fusion = [
+            {
+                "lat": 13.0,
+                "lon": 100.5,
+                "score": 0.9,
+                "sources": ["hazard"],
+                "samples": [{"label": "Static"}],
+            }
+        ]
+        deltas = [
+            {
+                "cell_id": "13.00,100.50",
+                "lat": 13.0,
+                "lon": 100.5,
+                "score": 0.9,
+                "delta_score": 0.35,
+                "sources": ["hazard"],
+                "samples": [{"label": "Flood rising"}],
+            }
+        ]
         items = build_watch_items(snap, [], fusion, fusion_deltas=deltas)
         self.assertGreaterEqual(len(items), 1)
         top = items[0]

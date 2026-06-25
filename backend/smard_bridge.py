@@ -1,6 +1,7 @@
 """SMARD — Bundesnetzagentur Strommarktdaten Deutschland.
 JSON API, no auth, 15min resolution for some series, daily for others.
 """
+
 import asyncio
 from datetime import datetime, timezone
 
@@ -73,7 +74,11 @@ async def _fetch_smard_series(series_id: int, region: str = "DE"):
                 raw = r2.json().get("series", [])
                 out = []
                 for item in raw:
-                    if isinstance(item, list) and len(item) == 2 and item[1] is not None:
+                    if (
+                        isinstance(item, list)
+                        and len(item) == 2
+                        and item[1] is not None
+                    ):
                         out.append({"timestamp": item[0], "value": float(item[1])})
                 if out:
                     return out
@@ -120,9 +125,15 @@ async def get_german_energy():
         factor = _CO2_FACTORS.get(key, 500)
         co2_total_g += info["latest_mw"] * factor
 
-    co2_per_kwh = round(co2_total_g / (total_gen_mw or 1) / 1000, 2) if total_gen_mw else None
+    co2_per_kwh = (
+        round(co2_total_g / (total_gen_mw or 1) / 1000, 2) if total_gen_mw else None
+    )
 
-    series_ok = sum(1 for s in gen_series if s) + (1 if load_series else 0) + (1 if price_series else 0)
+    series_ok = (
+        sum(1 for s in gen_series if s)
+        + (1 if load_series else 0)
+        + (1 if price_series else 0)
+    )
     error = None
     if series_ok == 0:
         error = "SMARD upstream returned no series"
@@ -163,16 +174,64 @@ async def get_german_energy():
 
 # Representative sites for globe visualization (not exact plant locations — regional proxies)
 _GLOBE_SITES = [
-    {"key": "wind_onshore", "label": "Wind Onshore", "lon": 9.2, "lat": 54.2, "color": "#7ee787"},
-    {"key": "wind_offshore", "label": "Wind Offshore", "lon": 7.8, "lat": 54.8, "color": "#56d364"},
+    {
+        "key": "wind_onshore",
+        "label": "Wind Onshore",
+        "lon": 9.2,
+        "lat": 54.2,
+        "color": "#7ee787",
+    },
+    {
+        "key": "wind_offshore",
+        "label": "Wind Offshore",
+        "lon": 7.8,
+        "lat": 54.8,
+        "color": "#56d364",
+    },
     {"key": "solar", "label": "Solar", "lon": 11.8, "lat": 49.1, "color": "#ffd23f"},
-    {"key": "biomass", "label": "Biomass", "lon": 12.1, "lat": 53.5, "color": "#8bc34a"},
+    {
+        "key": "biomass",
+        "label": "Biomass",
+        "lon": 12.1,
+        "lat": 53.5,
+        "color": "#8bc34a",
+    },
     {"key": "hydro", "label": "Hydro", "lon": 11.0, "lat": 47.7, "color": "#4fc3f7"},
-    {"key": "brown_coal", "label": "Brown Coal", "lon": 14.3, "lat": 51.5, "color": "#8b6914"},
-    {"key": "hard_coal", "label": "Hard Coal", "lon": 7.0, "lat": 51.4, "color": "#6f8c84"},
-    {"key": "natural_gas", "label": "Natural Gas", "lon": 9.9, "lat": 53.5, "color": "#ff9f43"},
-    {"key": "pumped_storage", "label": "Pumped Storage", "lon": 8.9, "lat": 47.6, "color": "#a78bfa"},
-    {"key": "other_conventional", "label": "Other", "lon": 10.0, "lat": 51.0, "color": "#b0c4b1"},
+    {
+        "key": "brown_coal",
+        "label": "Brown Coal",
+        "lon": 14.3,
+        "lat": 51.5,
+        "color": "#8b6914",
+    },
+    {
+        "key": "hard_coal",
+        "label": "Hard Coal",
+        "lon": 7.0,
+        "lat": 51.4,
+        "color": "#6f8c84",
+    },
+    {
+        "key": "natural_gas",
+        "label": "Natural Gas",
+        "lon": 9.9,
+        "lat": 53.5,
+        "color": "#ff9f43",
+    },
+    {
+        "key": "pumped_storage",
+        "label": "Pumped Storage",
+        "lon": 8.9,
+        "lat": 47.6,
+        "color": "#a78bfa",
+    },
+    {
+        "key": "other_conventional",
+        "label": "Other",
+        "lon": 10.0,
+        "lat": 51.0,
+        "color": "#b0c4b1",
+    },
 ]
 
 
@@ -197,17 +256,19 @@ async def get_german_energy_globe():
             continue
         # pixel radius 8–28 scaled by share of max
         scale = mw / max_mw
-        points.append({
-            "id": site["key"],
-            "label": site["label"],
-            "lon": site["lon"],
-            "lat": site["lat"],
-            "mw": round(mw, 1),
-            "color": site["color"],
-            "radius": round(8 + scale * 20, 1),
-            "co2_factor": _CO2_FACTORS.get(site["key"], 500),
-            "timestamp": info.get("timestamp"),
-        })
+        points.append(
+            {
+                "id": site["key"],
+                "label": site["label"],
+                "lon": site["lon"],
+                "lat": site["lat"],
+                "mw": round(mw, 1),
+                "color": site["color"],
+                "radius": round(8 + scale * 20, 1),
+                "co2_factor": _CO2_FACTORS.get(site["key"], 500),
+                "timestamp": info.get("timestamp"),
+            }
+        )
 
     return {
         "region": "DE",
@@ -221,7 +282,9 @@ async def get_german_energy_globe():
         "negative_price": price is not None and price < 0,
         "points": points,
         "count": len(points),
-        "active_sources": len([s for s in _GLOBE_SITES if (gen.get(s["key"]) or {}).get("latest_mw")]),
+        "active_sources": len(
+            [s for s in _GLOBE_SITES if (gen.get(s["key"]) or {}).get("latest_mw")]
+        ),
         "stale": data.get("stale"),
         "error": data.get("error"),
     }

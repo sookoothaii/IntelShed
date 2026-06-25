@@ -22,12 +22,42 @@ _CF_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "").strip()
 _CONNECTOR = FeedConnector("outages", ttl_sec=300.0)
 
 _ISO2_ISO3 = {
-    "US": "USA", "DE": "DEU", "GB": "GBR", "UK": "GBR", "FR": "FRA", "IT": "ITA",
-    "ES": "ESP", "UA": "UKR", "RU": "RUS", "CN": "CHN", "IN": "IND", "BR": "BRA",
-    "VE": "VEN", "SY": "SYR", "IR": "IRN", "IL": "ISR", "TR": "TUR", "MX": "MEX",
-    "CA": "CAN", "AU": "AUS", "JP": "JPN", "KR": "KOR", "EG": "EGY", "SD": "SDN",
-    "MM": "MMR", "YE": "YEM", "PK": "PAK", "AF": "AFG", "NG": "NGA", "ZA": "ZAF",
-    "NL": "NLD", "BE": "BEL", "PL": "POL", "SE": "SWE", "NO": "NOR", "FI": "FIN",
+    "US": "USA",
+    "DE": "DEU",
+    "GB": "GBR",
+    "UK": "GBR",
+    "FR": "FRA",
+    "IT": "ITA",
+    "ES": "ESP",
+    "UA": "UKR",
+    "RU": "RUS",
+    "CN": "CHN",
+    "IN": "IND",
+    "BR": "BRA",
+    "VE": "VEN",
+    "SY": "SYR",
+    "IR": "IRN",
+    "IL": "ISR",
+    "TR": "TUR",
+    "MX": "MEX",
+    "CA": "CAN",
+    "AU": "AUS",
+    "JP": "JPN",
+    "KR": "KOR",
+    "EG": "EGY",
+    "SD": "SDN",
+    "MM": "MMR",
+    "YE": "YEM",
+    "PK": "PAK",
+    "AF": "AFG",
+    "NG": "NGA",
+    "ZA": "ZAF",
+    "NL": "NLD",
+    "BE": "BEL",
+    "PL": "POL",
+    "SE": "SWE",
+    "NO": "NOR",
+    "FI": "FIN",
 }
 
 
@@ -45,7 +75,9 @@ def _iso2_from_entity(entity: dict, location: str = "") -> str | None:
     return None
 
 
-def _coords_for_entity(entity: dict, location: str = "", name: str = "") -> tuple[float | None, float | None]:
+def _coords_for_entity(
+    entity: dict, location: str = "", name: str = ""
+) -> tuple[float | None, float | None]:
     iso2 = _iso2_from_entity(entity, location)
     if iso2 and iso2 in _ISO2_ISO3:
         lat, lon = geo_centroids.resolve_lat_lon(iso3=_ISO2_ISO3[iso2])
@@ -65,18 +97,20 @@ def _parse_ioda_alerts(data: list) -> list[dict]:
         lat, lon = _coords_for_entity(ent, name=name)
         if lat is None:
             continue
-        out.append({
-            "source": "ioda",
-            "title": name[:120],
-            "level": row.get("level"),
-            "datasource": row.get("datasource"),
-            "condition": row.get("condition"),
-            "value": row.get("value"),
-            "time": row.get("time"),
-            "lat": lat,
-            "lon": lon,
-            "entity_type": ent.get("type"),
-        })
+        out.append(
+            {
+                "source": "ioda",
+                "title": name[:120],
+                "level": row.get("level"),
+                "datasource": row.get("datasource"),
+                "condition": row.get("condition"),
+                "value": row.get("value"),
+                "time": row.get("time"),
+                "lat": lat,
+                "lon": lon,
+                "entity_type": ent.get("type"),
+            }
+        )
     return out
 
 
@@ -91,22 +125,26 @@ def _parse_ioda_events(data: list, limit: int) -> list[dict]:
         if lat is None:
             continue
         dur = int(row.get("duration") or 0)
-        out.append({
-            "source": "ioda",
-            "kind": "event",
-            "title": name[:120],
-            "score": row.get("score"),
-            "duration_sec": dur,
-            "duration_h": round(dur / 3600, 1),
-            "start": row.get("start"),
-            "datasource": row.get("datasource"),
-            "lat": lat,
-            "lon": lon,
-        })
+        out.append(
+            {
+                "source": "ioda",
+                "kind": "event",
+                "title": name[:120],
+                "score": row.get("score"),
+                "duration_sec": dur,
+                "duration_h": round(dur / 3600, 1),
+                "start": row.get("start"),
+                "datasource": row.get("datasource"),
+                "lat": lat,
+                "lon": lon,
+            }
+        )
     return out
 
 
-async def _fetch_ioda(client: httpx.AsyncClient, hours: int, limit: int) -> tuple[list[dict], str | None]:
+async def _fetch_ioda(
+    client: httpx.AsyncClient, hours: int, limit: int
+) -> tuple[list[dict], str | None]:
     until = int(time.time())
     from_ts = until - hours * 3600
     alerts: list[dict] = []
@@ -144,7 +182,10 @@ async def _fetch_cloudflare(
     client: httpx.AsyncClient, limit: int, hours: int = 72
 ) -> tuple[list[dict], str | None]:
     if not _CF_TOKEN:
-        return [], "cloudflare: set CLOUDFLARE_API_TOKEN for Radar anomalies (free account)"
+        return (
+            [],
+            "cloudflare: set CLOUDFLARE_API_TOKEN for Radar anomalies (free account)",
+        )
     days = max(1, min(30, (hours + 23) // 24))
     try:
         r = await client.get(
@@ -161,7 +202,9 @@ async def _fetch_cloudflare(
         if not body.get("success"):
             return [], f"cloudflare: {body.get('errors')}"
         out = []
-        rows = body.get("result", {}).get("trafficAnomalies") or body.get("result") or []
+        rows = (
+            body.get("result", {}).get("trafficAnomalies") or body.get("result") or []
+        )
         for row in rows:
             if not isinstance(row, dict):
                 continue
@@ -185,16 +228,18 @@ async def _fetch_cloudflare(
                 lat, lon = geo_centroids.resolve_lat_lon(name=name)
             if lat is None:
                 continue
-            out.append({
-                "source": "cloudflare",
-                "title": str(name)[:120],
-                "status": row.get("status"),
-                "type": row.get("type"),
-                "start": row.get("startDate"),
-                "end": row.get("endDate"),
-                "lat": lat,
-                "lon": lon,
-            })
+            out.append(
+                {
+                    "source": "cloudflare",
+                    "title": str(name)[:120],
+                    "status": row.get("status"),
+                    "type": row.get("type"),
+                    "start": row.get("startDate"),
+                    "end": row.get("endDate"),
+                    "lat": lat,
+                    "lon": lon,
+                }
+            )
         return out[:limit], None
     except Exception as e:
         return [], f"cloudflare: {e}"
@@ -219,7 +264,8 @@ async def _fetch_outages(hours: int, limit: int) -> dict:
     return FeedEnvelope(
         count=len(items),
         sources=["ioda"] + (["cloudflare"] if _CF_TOKEN else []),
-        upstream=["ioda.inetintel.cc.gatech.edu"] + (["cloudflare.com/radar"] if _CF_TOKEN else []),
+        upstream=["ioda.inetintel.cc.gatech.edu"]
+        + (["cloudflare.com/radar"] if _CF_TOKEN else []),
         updated=now_iso,
         cached_at=now_iso,
         geocoded=geocoded,

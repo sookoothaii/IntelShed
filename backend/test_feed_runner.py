@@ -26,13 +26,19 @@ class FeedEnvelopeBuilderTests(unittest.TestCase):
 
 class FeedConnectorTests(unittest.TestCase):
     def setUp(self):
-        self.connector = FeedConnector("test_feed", ttl_sec=60, default_source="test-src")
+        self.connector = FeedConnector(
+            "test_feed", ttl_sec=60, default_source="test-src"
+        )
 
     def test_get_cached_miss(self):
         self.assertIsNone(self.connector.get_cached())
 
     def test_set_and_get_cached(self):
-        payload = {"count": 1, "source": "test-src", "updated": "2026-06-21T00:00:00+00:00"}
+        payload = {
+            "count": 1,
+            "source": "test-src",
+            "updated": "2026-06-21T00:00:00+00:00",
+        }
         self.connector.set_cached(payload)
         self.assertEqual(self.connector.get_cached(), payload)
 
@@ -61,10 +67,14 @@ class FeedConnectorTests(unittest.TestCase):
 
 class FeedConnectorRunTests(unittest.IsolatedAsyncioTestCase):
     async def test_run_applies_default_source(self):
-        connector = FeedConnector("pegel", ttl_sec=60, default_source="pegelonline.wsv.de")
+        connector = FeedConnector(
+            "pegel", ttl_sec=60, default_source="pegelonline.wsv.de"
+        )
 
         async def _fetch():
-            return FeedEnvelope(count=2, updated="2026-06-21T00:00:00+00:00").merge(gauges=[])
+            return FeedEnvelope(count=2, updated="2026-06-21T00:00:00+00:00").merge(
+                gauges=[]
+            )
 
         with patch("feeds.runner.feed_registry.write_auto"):
             out = await connector.run(_fetch, persist=False)

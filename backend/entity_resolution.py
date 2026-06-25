@@ -52,18 +52,58 @@ _PIPELINE_MODE = __cfg.entity_resolution_pipeline_mode
 # Generic head/tail tokens that must not, on their own, trigger a single-token
 # subset match (e.g. "authorities" sub of "local authorities"). Proper nouns
 # such as "erdogan" or "cavusoglu" are not in this list, so they still match.
-_GENERIC_TOKENS = frozenset({
-    "authorities", "authority", "government", "ministry", "commission",
-    "committee", "department", "agency", "council", "office", "forces",
-    "police", "army", "navy", "group", "states", "state", "union", "people",
-    "citizens", "students", "journalists", "researchers", "professionals",
-    "managers", "organisation", "organisations", "organization",
-    "organizations", "company", "limited", "ltd", "inc", "corp", "corporation",
-    "llc", "gmbh", "group", "team", "service", "services", "system", "systems",
-})
+_GENERIC_TOKENS = frozenset(
+    {
+        "authorities",
+        "authority",
+        "government",
+        "ministry",
+        "commission",
+        "committee",
+        "department",
+        "agency",
+        "council",
+        "office",
+        "forces",
+        "police",
+        "army",
+        "navy",
+        "group",
+        "states",
+        "state",
+        "union",
+        "people",
+        "citizens",
+        "students",
+        "journalists",
+        "researchers",
+        "professionals",
+        "managers",
+        "organisation",
+        "organisations",
+        "organization",
+        "organizations",
+        "company",
+        "limited",
+        "ltd",
+        "inc",
+        "corp",
+        "corporation",
+        "llc",
+        "gmbh",
+        "group",
+        "team",
+        "service",
+        "services",
+        "system",
+        "systems",
+    }
+)
 # Tokens shared by more than this many entities are too common to seed a
 # subset candidate pair (keeps candidate generation near-linear at scale).
-_SUBSET_TOKEN_FANOUT_CAP = int(os.getenv("WORLDBASE_ENTITY_RESOLUTION_SUBSET_FANOUT", "400"))
+_SUBSET_TOKEN_FANOUT_CAP = int(
+    os.getenv("WORLDBASE_ENTITY_RESOLUTION_SUBSET_FANOUT", "400")
+)
 
 _LOCK = threading.RLock()
 _LAST_RUN: dict[str, Any] | None = None
@@ -166,22 +206,28 @@ def _rows_for_schema(schema: str, entities: list[dict]) -> list[dict]:
         imo = _normalize_token(_first(props.get("imoNumber")))
         toks = _name_token_list(name)
         email = _normalize_token(_first(props.get("email")))
-        alias = _normalize_token(_first(props.get("alias")) or _first(props.get("weakAlias")))
-        rows.append({
-            "unique_id": ent["id"],
-            "entity_id": ent["id"],
-            "name": name,
-            "name_last": toks[-1] if toks else name,
-            "country": country or None,
-            "imo_number": imo or None,
-            "email": email or None,
-            "username": alias or None,
-            "schema": schema,
-        })
+        alias = _normalize_token(
+            _first(props.get("alias")) or _first(props.get("weakAlias"))
+        )
+        rows.append(
+            {
+                "unique_id": ent["id"],
+                "entity_id": ent["id"],
+                "name": name,
+                "name_last": toks[-1] if toks else name,
+                "country": country or None,
+                "imo_number": imo or None,
+                "email": email or None,
+                "username": alias or None,
+                "schema": schema,
+            }
+        )
     return rows
 
 
-def _run_exact_matches(schema: str, entities: list[dict], seen_pairs: set[tuple[str, str, str]]) -> int:
+def _run_exact_matches(
+    schema: str, entities: list[dict], seen_pairs: set[tuple[str, str, str]]
+) -> int:
     """High-confidence exact keys before fuzzy Splink."""
     groups: dict[tuple, list[str]] = defaultdict(list)
     for ent in entities:
@@ -204,11 +250,18 @@ def _run_exact_matches(schema: str, entities: list[dict], seen_pairs: set[tuple[
         if len(uniq) < 2:
             continue
         method = key[1]
-        conf = _EXACT_CONFIDENCE if method != "name_only" else min(_EXACT_CONFIDENCE, 0.92)
+        conf = (
+            _EXACT_CONFIDENCE if method != "name_only" else min(_EXACT_CONFIDENCE, 0.92)
+        )
         for i in range(len(uniq)):
             for j in range(i + 1, len(uniq)):
                 if _record_edge(
-                    uniq[i], uniq[j], confidence=conf, method=f"exact:{method}", schema=schema, seen_pairs=seen_pairs
+                    uniq[i],
+                    uniq[j],
+                    confidence=conf,
+                    method=f"exact:{method}",
+                    schema=schema,
+                    seen_pairs=seen_pairs,
                 ):
                     added += 1
     return added
@@ -230,12 +283,14 @@ def _contiguous_subseq(short: list[str], long_: list[str]) -> bool:
     if n == 0 or n > m:
         return False
     for i in range(m - n + 1):
-        if long_[i:i + n] == short:
+        if long_[i : i + n] == short:
             return True
     return False
 
 
-def _run_subset_matches(schema: str, entities: list[dict], seen_pairs: set[tuple[str, str, str]]) -> int:
+def _run_subset_matches(
+    schema: str, entities: list[dict], seen_pairs: set[tuple[str, str, str]]
+) -> int:
     """Deterministic token-subset matches for partial-name duplicates.
 
     Links entities whose name tokens form a contiguous run inside another's
@@ -282,14 +337,20 @@ def _run_subset_matches(schema: str, entities: list[dict], seen_pairs: set[tuple
                     if len(only) < 4 or only in _GENERIC_TOKENS:
                         continue
                 if _record_edge(
-                    short["id"], long_["id"], confidence=_SUBSET_CONFIDENCE,
-                    method="subset:token", schema=schema, seen_pairs=seen_pairs,
+                    short["id"],
+                    long_["id"],
+                    confidence=_SUBSET_CONFIDENCE,
+                    method="subset:token",
+                    schema=schema,
+                    seen_pairs=seen_pairs,
                 ):
                     added += 1
     return added
 
 
-def _build_comparisons_and_blocking(schema: str, df: "pd.DataFrame") -> tuple[list, list]:
+def _build_comparisons_and_blocking(
+    schema: str, df: "pd.DataFrame"
+) -> tuple[list, list]:
     """Build Splink comparisons and blocking rules for a schema.
 
     Extracted so both ``train_model`` and ``_run_splink_schema`` share the same
@@ -307,10 +368,18 @@ def _build_comparisons_and_blocking(schema: str, df: "pd.DataFrame") -> tuple[li
     if df["country"].notna().any() and (df["country"] != "").any():
         comparisons.append(cl.ExactMatch("country"))
         blocking.append(block_on("country"))
-    if "email" in df.columns and df["email"].notna().any() and (df["email"] != "").any():
+    if (
+        "email" in df.columns
+        and df["email"].notna().any()
+        and (df["email"] != "").any()
+    ):
         comparisons.append(cl.LevenshteinAtThresholds("email"))
         blocking.append(block_on("substr(email, 1, 4)"))
-    if "username" in df.columns and df["username"].notna().any() and (df["username"] != "").any():
+    if (
+        "username" in df.columns
+        and df["username"].notna().any()
+        and (df["username"] != "").any()
+    ):
         comparisons.append(cl.JaroWinklerAtThresholds("username"))
         blocking.append(block_on("substr(username, 1, 3)"))
     return comparisons, blocking
@@ -326,16 +395,23 @@ def train_model(schema: str) -> dict:
     entities = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA)
     rows = _rows_for_schema(schema, entities)
     if len(rows) < _MIN_ROWS_SPLINK:
-        return {"ok": False, "error": f"insufficient rows: {len(rows)} < {_MIN_ROWS_SPLINK}", "schema": schema}
+        return {
+            "ok": False,
+            "error": f"insufficient rows: {len(rows)} < {_MIN_ROWS_SPLINK}",
+            "schema": schema,
+        }
 
     try:
         import pandas as pd
         from splink import DuckDBAPI, Linker, SettingsCreator
     except ImportError as exc:
-        raise RuntimeError("splink not installed — pip install 'splink>=4.0,<5'") from exc
+        raise RuntimeError(
+            "splink not installed — pip install 'splink>=4.0,<5'"
+        ) from exc
 
     global _SPLINK_VERSION
     import splink as _splink_mod
+
     _SPLINK_VERSION = getattr(_splink_mod, "__version__", None)
 
     df = pd.DataFrame(rows)
@@ -358,7 +434,9 @@ def train_model(schema: str) -> dict:
                 blocking_rules_to_train_blocking=blocking,
             )
         except Exception:
-            logger.warning("EM training failed for %s — continuing with u-sampling only", schema)
+            logger.warning(
+                "EM training failed for %s — continuing with u-sampling only", schema
+            )
 
     path = _model_path(schema)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -373,14 +451,18 @@ def train_model(schema: str) -> dict:
     }
 
 
-def _run_splink_schema(schema: str, rows: list[dict], seen_pairs: set[tuple[str, str, str]]) -> int:
+def _run_splink_schema(
+    schema: str, rows: list[dict], seen_pairs: set[tuple[str, str, str]]
+) -> int:
     if len(rows) < _MIN_ROWS_SPLINK:
         return 0
     try:
         import pandas as pd
         from splink import DuckDBAPI, Linker, SettingsCreator
     except ImportError as exc:
-        raise RuntimeError("splink not installed — pip install 'splink>=4.0,<5'") from exc
+        raise RuntimeError(
+            "splink not installed — pip install 'splink>=4.0,<5'"
+        ) from exc
 
     global _SPLINK_VERSION
     import splink as _splink_mod
@@ -416,7 +498,12 @@ def _run_splink_schema(schema: str, rows: list[dict], seen_pairs: set[tuple[str,
         if prob < _THRESHOLD:
             continue
         if _record_edge(
-            left, right, confidence=prob, method="splink", schema=schema, seen_pairs=seen_pairs
+            left,
+            right,
+            confidence=prob,
+            method="splink",
+            schema=schema,
+            seen_pairs=seen_pairs,
         ):
             added += 1
     return added
@@ -441,10 +528,13 @@ def _run_splink_cross_dataset(
         from splink import DuckDBAPI, Linker, SettingsCreator, block_on
         import splink.comparison_library as cl
     except ImportError as exc:
-        raise RuntimeError("splink not installed — pip install 'splink>=4.0,<5'") from exc
+        raise RuntimeError(
+            "splink not installed — pip install 'splink>=4.0,<5'"
+        ) from exc
 
     global _SPLINK_VERSION
     import splink as _splink_mod
+
     _SPLINK_VERSION = getattr(_splink_mod, "__version__", None)
 
     df_a = pd.DataFrame(rows_a)
@@ -486,7 +576,12 @@ def _run_splink_cross_dataset(
         if prob < _THRESHOLD:
             continue
         if _record_edge(
-            left, right, confidence=prob, method="splink:cross", schema=schema, seen_pairs=seen_pairs,
+            left,
+            right,
+            confidence=prob,
+            method="splink:cross",
+            schema=schema,
+            seen_pairs=seen_pairs,
         ):
             added += 1
     return added
@@ -531,7 +626,9 @@ def _run_two_stage_schema(
     # Stage 1: per-dataset dedupe
     dataset_rows: dict[str, list[dict]] = {}
     for ds in datasets:
-        entities = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA, dataset=ds)
+        entities = ftm_store.list_entities_for_resolution(
+            [schema], _LIMIT_PER_SCHEMA, dataset=ds
+        )
         if not entities:
             continue
         rows = _rows_for_schema(schema, entities)
@@ -553,22 +650,31 @@ def _run_two_stage_schema(
     for i in range(len(viable)):
         for j in range(i + 1, len(viable)):
             ds_a, ds_b = viable[i], viable[j]
-            entities_a = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA, dataset=ds_a)
-            entities_b = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA, dataset=ds_b)
+            entities_a = ftm_store.list_entities_for_resolution(
+                [schema], _LIMIT_PER_SCHEMA, dataset=ds_a
+            )
+            entities_b = ftm_store.list_entities_for_resolution(
+                [schema], _LIMIT_PER_SCHEMA, dataset=ds_b
+            )
             combined = entities_a + entities_b
             total_exact += _run_exact_matches(schema, combined, seen_pairs)
             total_subset += _run_subset_matches(schema, combined, seen_pairs)
             if _should_run_splink(schema):
                 try:
                     total_cross += _run_splink_cross_dataset(
-                        schema, dataset_rows[ds_a], dataset_rows[ds_b], seen_pairs,
+                        schema,
+                        dataset_rows[ds_a],
+                        dataset_rows[ds_b],
+                        seen_pairs,
                     )
                 except Exception:
                     if len(errors) < 5:
                         errors.append(f"{schema}: cross {ds_a}↔{ds_b} failed")
                     logger.exception(
                         "splink cross-dataset failed for %s (%s ↔ %s)",
-                        schema, ds_a, ds_b,
+                        schema,
+                        ds_a,
+                        ds_b,
                     )
 
     return total_exact, total_subset, total_splink, total_cross
@@ -602,10 +708,14 @@ def run_resolution(
             for schema in schema_list:
                 if mode == "two_stage":
                     _exact, _subset, _splink, _cross = _run_two_stage_schema(
-                        schema, seen_pairs, errors,
+                        schema,
+                        seen_pairs,
+                        errors,
                     )
                 else:
-                    entities = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA)
+                    entities = ftm_store.list_entities_for_resolution(
+                        [schema], _LIMIT_PER_SCHEMA
+                    )
                     rows = _rows_for_schema(schema, entities)
                     _exact = _run_exact_matches(schema, entities, seen_pairs)
                     _subset = _run_subset_matches(schema, entities, seen_pairs)
@@ -616,7 +726,9 @@ def run_resolution(
                         except Exception:
                             if len(errors) < 5:
                                 errors.append(f"{schema}: resolution failed")
-                            logger.exception("splink resolution failed for schema %s", schema)
+                            logger.exception(
+                                "splink resolution failed for schema %s", schema
+                            )
                     _cross = 0
 
                 per_schema[schema] = {
@@ -648,7 +760,9 @@ def run_resolution(
                 "subset_edges": total_subset,
                 "splink_edges": total_splink,
                 "cross_edges": total_cross,
-                "resolution_edges_total": ftm_store.count_edges_for_dataset(RESOLUTION_DATASET),
+                "resolution_edges_total": ftm_store.count_edges_for_dataset(
+                    RESOLUTION_DATASET
+                ),
                 "splink_version": _SPLINK_VERSION,
                 "errors": errors,
             }
@@ -698,6 +812,7 @@ def status() -> dict:
 # Human-in-the-loop Grauzonen (P2+)
 # ---------------------------------------------------------------------------
 
+
 def list_ambiguous_pairs(
     schema: str | None = None,
     *,
@@ -713,6 +828,7 @@ def list_ambiguous_pairs(
     lo = min_prob if min_prob is not None else _AMBIGUOUS_MIN
     hi = max_prob if max_prob is not None else _AMBIGUOUS_MAX
     from ftm_connection import _LOCK, _conn
+
     schema_clause = ""
     params: list = [RESOLUTION_DATASET, lo, hi]
     if schema:
@@ -720,8 +836,10 @@ def list_ambiguous_pairs(
         params.append(schema)
     params.append(int(limit))
     with _LOCK:
-        rows = _conn().execute(
-            f"""
+        rows = (
+            _conn()
+            .execute(
+                f"""
             SELECT source_id, target_id, confidence,
                    json_extract_string(properties, '$.method') AS method,
                    json_extract_string(properties, '$.schema') AS schema
@@ -738,8 +856,10 @@ def list_ambiguous_pairs(
             ORDER BY confidence DESC
             LIMIT ?
             """,
-            params,
-        ).fetchall()
+                params,
+            )
+            .fetchall()
+        )
     return [
         {
             "source_id": r[0],
@@ -752,7 +872,9 @@ def list_ambiguous_pairs(
     ]
 
 
-def label_pair(source_id: str, target_id: str, confirmed: bool, *, schema: str | None = None) -> dict:
+def label_pair(
+    source_id: str, target_id: str, confirmed: bool, *, schema: str | None = None
+) -> dict:
     """Record a human label for an ambiguous pair.
 
     If ``confirmed`` is True, the edge is kept (and confidence bumped to
@@ -760,6 +882,7 @@ def label_pair(source_id: str, target_id: str, confirmed: bool, *, schema: str |
     """
     pair_id = f"{source_id}::{target_id}"
     from ftm_connection import _LOCK, _conn
+
     with _LOCK:
         _conn().execute(
             """
@@ -776,7 +899,9 @@ def label_pair(source_id: str, target_id: str, confirmed: bool, *, schema: str |
                 [source_id, target_id, RESOLUTION_DATASET],
             )
         ftm_store.add_edge(
-            source_id, target_id, RESOLUTION_KIND,
+            source_id,
+            target_id,
+            RESOLUTION_KIND,
             dataset=RESOLUTION_DATASET,
             confidence=_EXACT_CONFIDENCE,
             properties={"method": "human-confirmed", "schema": schema or ""},
@@ -854,7 +979,9 @@ async def resolution_label(
 ):
     """Record a human label for an ambiguous pair."""
     try:
-        return await asyncio.to_thread(label_pair, source_id, target_id, confirmed, schema=schema)
+        return await asyncio.to_thread(
+            label_pair, source_id, target_id, confirmed, schema=schema
+        )
     except Exception as exc:
         logger.exception("labeling failed")
         raise HTTPException(status_code=503, detail="labeling failed") from exc
@@ -864,7 +991,9 @@ async def resolution_label(
 async def resolution_reset(_auth: str | None = Depends(verify_lan_auth)):
     """Delete all sameAs edges produced by resolution (append-only reset)."""
     try:
-        deleted = await asyncio.to_thread(ftm_store.delete_edges_for_dataset, RESOLUTION_DATASET)
+        deleted = await asyncio.to_thread(
+            ftm_store.delete_edges_for_dataset, RESOLUTION_DATASET
+        )
         return {"ok": True, "deleted_edges": deleted, "dataset": RESOLUTION_DATASET}
     except Exception as exc:
         logger.exception("resolution reset failed")

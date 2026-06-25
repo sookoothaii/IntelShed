@@ -21,7 +21,11 @@ from typing import Optional
 
 from fastapi import HTTPException, Request, Security
 from fastapi.security import APIKeyHeader
-from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN, HTTP_503_SERVICE_UNAVAILABLE
+from starlette.status import (
+    HTTP_401_UNAUTHORIZED,
+    HTTP_403_FORBIDDEN,
+    HTTP_503_SERVICE_UNAVAILABLE,
+)
 
 _LOOPBACK_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
 
@@ -29,6 +33,7 @@ _LOOPBACK_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
 def _truthy_env(name: str) -> bool:
     """Check if an env var is set to a truthy value."""
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -95,7 +100,11 @@ async def verify_lan_auth(
         return "loopback"
     if API_KEY and api_key and hmac.compare_digest(API_KEY, api_key):
         return "api_key"
-    if INGEST_TOKEN and x_node_token and hmac.compare_digest(INGEST_TOKEN, x_node_token):
+    if (
+        INGEST_TOKEN
+        and x_node_token
+        and hmac.compare_digest(INGEST_TOKEN, x_node_token)
+    ):
         return "node_token"
     if not API_KEY and not INGEST_TOKEN:
         raise HTTPException(
@@ -111,6 +120,7 @@ async def verify_lan_auth(
 # ---------------------------------------------------------------------------
 # Replay Protection Cache
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _CacheEntry:
@@ -329,7 +339,8 @@ def check_replay_attack(
     # Check for replay (nonce already seen)
     if _nonce_cache.exists(nonce, timestamp):
         raise HTTPException(
-            status_code=HTTP_401_UNAUTHORIZED, detail="Replay attack detected (duplicate nonce)"
+            status_code=HTTP_401_UNAUTHORIZED,
+            detail="Replay attack detected (duplicate nonce)",
         )
 
     # Add nonce to cache to prevent future replays
@@ -524,7 +535,7 @@ def require_admin_token(request: Request, admin_header: str = "X-Admin-Token") -
         raise HTTPException(
             status_code=HTTP_503_SERVICE_UNAVAILABLE,
             detail="Admin operations require NODE_ADMIN_TOKEN to be set. "
-                   "Set WORLDBASE_INSECURE_DEV=1 for local development.",
+            "Set WORLDBASE_INSECURE_DEV=1 for local development.",
         )
 
     provided_token = request.headers.get(admin_header, "")
@@ -648,7 +659,9 @@ def verify_legacy_hmac(body: dict, signature: str, secret: str) -> bool:
             body_bytes = json.dumps(
                 body, separators=(",", ":"), ensure_ascii=ascii_only
             ).encode("utf-8")
-            expected = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
+            expected = hmac.new(
+                secret.encode("utf-8"), body_bytes, hashlib.sha256
+            ).hexdigest()
             if hmac.compare_digest(expected, signature):
                 return True
         return False
@@ -677,7 +690,9 @@ def verify_legacy_hmac_bytes(body_bytes: bytes, signature: str, secret: str) -> 
     if not signature:
         return False
     try:
-        expected = hmac.new(secret.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
+        expected = hmac.new(
+            secret.encode("utf-8"), body_bytes, hashlib.sha256
+        ).hexdigest()
         return hmac.compare_digest(expected, signature)
     except Exception:
         return False
@@ -713,7 +728,8 @@ def get_auth_config() -> dict:
         "cleanup_interval_seconds": CLEANUP_INTERVAL_SECONDS,
         "ingest_token_set": bool(os.getenv("NODE_INGEST_TOKEN")),
         "admin_token_set": bool(os.getenv("NODE_ADMIN_TOKEN")),
-        "admin_token_separate": bool(os.getenv("NODE_ADMIN_TOKEN")) and os.getenv("NODE_ADMIN_TOKEN") != os.getenv("NODE_INGEST_TOKEN"),
+        "admin_token_separate": bool(os.getenv("NODE_ADMIN_TOKEN"))
+        and os.getenv("NODE_ADMIN_TOKEN") != os.getenv("NODE_INGEST_TOKEN"),
     }
 
 

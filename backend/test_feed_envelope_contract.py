@@ -129,7 +129,9 @@ class FeedEnvelopeContractTests(unittest.TestCase):
         for cache_key, payload in REPRESENTATIVE_FEEDS.items():
             meta = extract_health_feed_meta(payload)
             row = {
-                "cached_at": payload.get("cached_at") or payload.get("updated") or "2026-06-21T10:00:00+00:00",
+                "cached_at": payload.get("cached_at")
+                or payload.get("updated")
+                or "2026-06-21T10:00:00+00:00",
                 "age_sec": 30.0,
                 "ttl_sec": 600,
                 "fresh": True,

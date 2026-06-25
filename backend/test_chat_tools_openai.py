@@ -60,7 +60,11 @@ class OpenAIToolLoopTests(unittest.IsolatedAsyncioTestCase):
                     }
                 ]
             },
-            {"choices": [{"message": {"role": "assistant", "content": "Focused on Bangkok."}}]},
+            {
+                "choices": [
+                    {"message": {"role": "assistant", "content": "Focused on Bangkok."}}
+                ]
+            },
         ]
         fake = _FakeClient(responses)
 
@@ -70,7 +74,11 @@ class OpenAIToolLoopTests(unittest.IsolatedAsyncioTestCase):
                 return_value={
                     "tool": "focus_globe",
                     "result": {"ok": True},
-                    "client_action": {"type": "focus_globe", "lat": 13.75, "lon": 100.5},
+                    "client_action": {
+                        "type": "focus_globe",
+                        "lat": 13.75,
+                        "lon": 100.5,
+                    },
                 }
             ),
         ) as exec_mock:
@@ -93,7 +101,9 @@ class OpenAIToolLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tool_msg[0]["tool_call_id"], "call_1")
 
     async def test_no_tool_calls_returns_direct(self):
-        fake = _FakeClient([{"choices": [{"message": {"role": "assistant", "content": "hi"}}]}])
+        fake = _FakeClient(
+            [{"choices": [{"message": {"role": "assistant", "content": "hi"}}]}]
+        )
         with patch("chat_tools.httpx.AsyncClient", return_value=fake), patch(
             "chat_tools.execute_tool", new=AsyncMock()
         ) as exec_mock:

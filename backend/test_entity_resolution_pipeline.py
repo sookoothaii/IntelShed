@@ -45,12 +45,17 @@ class TwoStagePipelineTest(unittest.TestCase):
 
     def test_two_stage_finds_within_dataset_duplicates(self):
         """Two-stage mode should still find exact duplicates within a single dataset."""
-        p1 = ftm_store.make_entity("Person", ["a1"], {"name": "John Smith", "country": "us"})
-        p2 = ftm_store.make_entity("Person", ["a2"], {"name": "john smith", "country": "US"})
+        p1 = ftm_store.make_entity(
+            "Person", ["a1"], {"name": "John Smith", "country": "us"}
+        )
+        p2 = ftm_store.make_entity(
+            "Person", ["a2"], {"name": "john smith", "country": "US"}
+        )
         ftm_store.upsert(p1, dataset="feedA")
         ftm_store.upsert(p2, dataset="feedA")
         result = entity_resolution.run_resolution(
-            schemas=("Person",), pipeline_mode="two_stage",
+            schemas=("Person",),
+            pipeline_mode="two_stage",
         )
         self.assertTrue(result["ok"])
         self.assertEqual(result["pipeline_mode"], "two_stage")
@@ -58,12 +63,17 @@ class TwoStagePipelineTest(unittest.TestCase):
 
     def test_two_stage_finds_cross_dataset_exact_matches(self):
         """Two-stage mode should find exact matches across different datasets."""
-        p1 = ftm_store.make_entity("Person", ["x1"], {"name": "Alice Wonder", "country": "uk"})
-        p2 = ftm_store.make_entity("Person", ["x2"], {"name": "alice wonder", "country": "UK"})
+        p1 = ftm_store.make_entity(
+            "Person", ["x1"], {"name": "Alice Wonder", "country": "uk"}
+        )
+        p2 = ftm_store.make_entity(
+            "Person", ["x2"], {"name": "alice wonder", "country": "UK"}
+        )
         ftm_store.upsert(p1, dataset="feedA")
         ftm_store.upsert(p2, dataset="feedB")
         result = entity_resolution.run_resolution(
-            schemas=("Person",), pipeline_mode="two_stage",
+            schemas=("Person",),
+            pipeline_mode="two_stage",
         )
         self.assertTrue(result["ok"])
         self.assertGreaterEqual(result["exact_edges"], 1)
@@ -73,10 +83,13 @@ class TwoStagePipelineTest(unittest.TestCase):
 
     def test_two_stage_reports_cross_edges_field(self):
         """Result should include cross_edges field (0 when Splink disabled)."""
-        p = ftm_store.make_entity("Person", ["p1"], {"name": "Test Person", "country": "de"})
+        p = ftm_store.make_entity(
+            "Person", ["p1"], {"name": "Test Person", "country": "de"}
+        )
         ftm_store.upsert(p, dataset="feedA")
         result = entity_resolution.run_resolution(
-            schemas=("Person",), pipeline_mode="two_stage",
+            schemas=("Person",),
+            pipeline_mode="two_stage",
         )
         self.assertIn("cross_edges", result)
         self.assertEqual(result["cross_edges"], 0)
@@ -86,7 +99,8 @@ class TwoStagePipelineTest(unittest.TestCase):
         p = ftm_store.make_entity("Person", ["p1"], {"name": "Solo Person"})
         ftm_store.upsert(p, dataset="feedA")
         result = entity_resolution.run_resolution(
-            schemas=("Person",), pipeline_mode="two_stage",
+            schemas=("Person",),
+            pipeline_mode="two_stage",
         )
         self.assertEqual(result["pipeline_mode"], "two_stage")
 
@@ -99,12 +113,17 @@ class TwoStagePipelineTest(unittest.TestCase):
 
     def test_two_stage_fallback_when_no_datasets(self):
         """Two-stage should fall back to single-mode when no dataset labels exist."""
-        p1 = ftm_store.make_entity("Person", ["n1"], {"name": "No Dataset", "country": "fr"})
-        p2 = ftm_store.make_entity("Person", ["n2"], {"name": "no dataset", "country": "FR"})
+        p1 = ftm_store.make_entity(
+            "Person", ["n1"], {"name": "No Dataset", "country": "fr"}
+        )
+        p2 = ftm_store.make_entity(
+            "Person", ["n2"], {"name": "no dataset", "country": "FR"}
+        )
         ftm_store.upsert(p1, dataset="feedA")
         ftm_store.upsert(p2, dataset="feedA")
         result = entity_resolution.run_resolution(
-            schemas=("Person",), pipeline_mode="two_stage",
+            schemas=("Person",),
+            pipeline_mode="two_stage",
         )
         self.assertTrue(result["ok"])
         self.assertGreaterEqual(result["exact_edges"], 1)
@@ -137,26 +156,38 @@ class TwoStagePipelineTest(unittest.TestCase):
 
     def test_two_stage_per_dataset_dedupe_separates_datasets(self):
         """Within-dataset dedupe in two-stage should not cross-link different names."""
-        p1 = ftm_store.make_entity("Person", ["s1"], {"name": "Unique Name One", "country": "th"})
-        p2 = ftm_store.make_entity("Person", ["s2"], {"name": "Unique Name Two", "country": "th"})
+        p1 = ftm_store.make_entity(
+            "Person", ["s1"], {"name": "Unique Name One", "country": "th"}
+        )
+        p2 = ftm_store.make_entity(
+            "Person", ["s2"], {"name": "Unique Name Two", "country": "th"}
+        )
         ftm_store.upsert(p1, dataset="feedA")
         ftm_store.upsert(p2, dataset="feedA")
         result = entity_resolution.run_resolution(
-            schemas=("Person",), pipeline_mode="two_stage",
+            schemas=("Person",),
+            pipeline_mode="two_stage",
         )
         self.assertTrue(result["ok"])
         self.assertEqual(result["exact_edges"], 0)
 
     def test_two_stage_with_multiple_datasets_and_splink_off(self):
         """Two-stage with Splink off should still do exact+subset per dataset."""
-        p1 = ftm_store.make_entity("Person", ["m1"], {"name": "Maria Garcia", "country": "es"})
-        p2 = ftm_store.make_entity("Person", ["m2"], {"name": "maria garcia", "country": "ES"})
-        p3 = ftm_store.make_entity("Person", ["m3"], {"name": "Maria Garcia Lopez", "country": "es"})
+        p1 = ftm_store.make_entity(
+            "Person", ["m1"], {"name": "Maria Garcia", "country": "es"}
+        )
+        p2 = ftm_store.make_entity(
+            "Person", ["m2"], {"name": "maria garcia", "country": "ES"}
+        )
+        p3 = ftm_store.make_entity(
+            "Person", ["m3"], {"name": "Maria Garcia Lopez", "country": "es"}
+        )
         ftm_store.upsert(p1, dataset="feedA")
         ftm_store.upsert(p2, dataset="feedA")
         ftm_store.upsert(p3, dataset="feedB")
         result = entity_resolution.run_resolution(
-            schemas=("Person",), pipeline_mode="two_stage",
+            schemas=("Person",),
+            pipeline_mode="two_stage",
         )
         self.assertTrue(result["ok"])
         # p1 and p2 are exact duplicates within feedA
@@ -165,10 +196,9 @@ class TwoStagePipelineTest(unittest.TestCase):
         # so this cross-dataset subset won't fire in two_stage without Splink)
         g = ftm_store.graph_view(p1.id, depth=1)
         same_edges = [e for e in g["edges"] if e["kind"] == "sameAs"]
-        self.assertTrue(any(
-            e["source_id"] == p2.id or e["target_id"] == p2.id
-            for e in same_edges
-        ))
+        self.assertTrue(
+            any(e["source_id"] == p2.id or e["target_id"] == p2.id for e in same_edges)
+        )
 
 
 if __name__ == "__main__":

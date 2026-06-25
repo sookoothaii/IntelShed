@@ -26,7 +26,10 @@ VALID_ROUTES = ("vector", "graph", "spatial", "hybrid", "live")
 
 def router_enabled() -> bool:
     return os.getenv("WORLDBASE_QUERY_ROUTER", "1").strip().lower() not in (
-        "0", "false", "no", "off",
+        "0",
+        "false",
+        "no",
+        "off",
     )
 
 
@@ -166,15 +169,19 @@ def _format_graph_block(subgraph: dict[str, Any]) -> list[str]:
     """Format subgraph results into prompt lines."""
     try:
         from intel_subgraph import format_subgraph_prompt_block
+
         block = format_subgraph_prompt_block(subgraph)
         return [block] if block else []
     except Exception:
         return []
 
 
-def _format_spatial_block(results: list[dict], proximity_edges: list[dict] | None = None) -> list[str]:
+def _format_spatial_block(
+    results: list[dict], proximity_edges: list[dict] | None = None
+) -> list[str]:
     """Format spatial search results + proximity edges."""
     from rag_crag import format_rag_hits
+
     lines: list[str] = ["=== RAG MEMORY (spatial-filtered) ==="]
     lines.extend(format_rag_hits(results))
     if proximity_edges:
@@ -209,6 +216,7 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
         # No RAG — live situations + fusion
         try:
             from situations import unified_situations
+
             sit = await unified_situations()
             items = (sit.get("items") or [])[:8]
             if items:
@@ -225,6 +233,7 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
         # Graph retrieval — subgraph BFS
         try:
             import intel_subgraph
+
             sg = await asyncio.to_thread(intel_subgraph.build_subgraph, hops=2)
             meta["node_count"] = sg.get("node_count", 0)
             meta["edge_count"] = sg.get("edge_count", 0)
@@ -239,6 +248,7 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
         try:
             import rag_memory
             from rag_spatial import operator_search_bbox
+
             bbox = operator_search_bbox()
             if bbox:
                 results = await rag_memory.search(query.strip(), k=6, bbox=bbox)
@@ -249,6 +259,7 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
                 hits = results
                 lines.append("=== RAG MEMORY (no bbox — spatial fallback) ===")
                 from rag_crag import format_rag_hits
+
                 lines.extend(format_rag_hits(results))
         except Exception:
             lines.append("=== SPATIAL RETRIEVAL (unavailable) ===")
@@ -258,10 +269,12 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
         # Hybrid — vector + graph in parallel, merge
         try:
             import rag_memory
+
             results = await rag_memory.search(query.strip(), k=6)
             hits = results
             if results:
                 from rag_crag import format_rag_hits
+
                 lines.append("=== RAG MEMORY (hybrid — vector) ===")
                 lines.extend(format_rag_hits(results))
         except Exception:
@@ -269,6 +282,7 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
 
         try:
             import intel_subgraph
+
             sg = await asyncio.to_thread(intel_subgraph.build_subgraph, hops=2)
             meta["node_count"] = sg.get("node_count", 0)
             meta["edge_count"] = sg.get("edge_count", 0)
@@ -284,10 +298,12 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
     # Default: vector
     try:
         import rag_memory
+
         results = await rag_memory.search(query.strip(), k=6)
         hits = results
         if results:
             from rag_crag import format_rag_hits
+
             lines.append("=== RAG MEMORY (vector search) ===")
             lines.extend(format_rag_hits(results))
     except Exception:

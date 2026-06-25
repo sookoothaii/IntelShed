@@ -10,7 +10,9 @@ router = APIRouter(prefix="/api/credentials", tags=["credentials"])
 
 
 @router.get("/status")
-async def credentials_status(category: str | None = Query(None, description="Filter by category")):
+async def credentials_status(
+    category: str | None = Query(None, description="Filter by category"),
+):
     """Provider configuration summary for the operator HUD."""
     return providers_status(category=category)
 

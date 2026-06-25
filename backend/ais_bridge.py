@@ -32,16 +32,76 @@ router = APIRouter(prefix="/api/maritime", tags=["maritime"])
 _THAI_REGIONS = ("malacca", "laem_chabang", "bangkok_port", "phuket", "singapore")
 
 PORT_REGIONS: dict[str, dict] = {
-    "hamburg": {"min_lat": 53.4, "max_lat": 53.6, "min_lon": 9.7, "max_lon": 10.2, "label": "Hamburg"},
-    "rotterdam": {"min_lat": 51.8, "max_lat": 52.1, "min_lon": 3.8, "max_lon": 4.4, "label": "Rotterdam"},
-    "singapore": {"min_lat": 1.1, "max_lat": 1.4, "min_lon": 103.7, "max_lon": 104.1, "label": "Singapore"},
-    "malacca": {"min_lat": 1.0, "max_lat": 6.5, "min_lon": 99.0, "max_lon": 104.5, "label": "Malacca Strait"},
-    "laem_chabang": {"min_lat": 12.8, "max_lat": 13.2, "min_lon": 100.7, "max_lon": 101.1, "label": "Laem Chabang"},
-    "bangkok_port": {"min_lat": 13.3, "max_lat": 13.8, "min_lon": 100.4, "max_lon": 100.9, "label": "Bangkok Port"},
-    "phuket": {"min_lat": 7.5, "max_lat": 8.2, "min_lon": 98.2, "max_lon": 98.6, "label": "Phuket"},
-    "suez": {"min_lat": 29.8, "max_lat": 30.2, "min_lon": 32.2, "max_lon": 32.6, "label": "Suez Canal"},
-    "panama": {"min_lat": 8.8, "max_lat": 9.2, "min_lon": -79.7, "max_lon": -79.4, "label": "Panama Canal"},
-    "malmoe": {"min_lat": 55.5, "max_lat": 55.7, "min_lon": 12.8, "max_lon": 13.1, "label": "Malmö / Øresund"},
+    "hamburg": {
+        "min_lat": 53.4,
+        "max_lat": 53.6,
+        "min_lon": 9.7,
+        "max_lon": 10.2,
+        "label": "Hamburg",
+    },
+    "rotterdam": {
+        "min_lat": 51.8,
+        "max_lat": 52.1,
+        "min_lon": 3.8,
+        "max_lon": 4.4,
+        "label": "Rotterdam",
+    },
+    "singapore": {
+        "min_lat": 1.1,
+        "max_lat": 1.4,
+        "min_lon": 103.7,
+        "max_lon": 104.1,
+        "label": "Singapore",
+    },
+    "malacca": {
+        "min_lat": 1.0,
+        "max_lat": 6.5,
+        "min_lon": 99.0,
+        "max_lon": 104.5,
+        "label": "Malacca Strait",
+    },
+    "laem_chabang": {
+        "min_lat": 12.8,
+        "max_lat": 13.2,
+        "min_lon": 100.7,
+        "max_lon": 101.1,
+        "label": "Laem Chabang",
+    },
+    "bangkok_port": {
+        "min_lat": 13.3,
+        "max_lat": 13.8,
+        "min_lon": 100.4,
+        "max_lon": 100.9,
+        "label": "Bangkok Port",
+    },
+    "phuket": {
+        "min_lat": 7.5,
+        "max_lat": 8.2,
+        "min_lon": 98.2,
+        "max_lon": 98.6,
+        "label": "Phuket",
+    },
+    "suez": {
+        "min_lat": 29.8,
+        "max_lat": 30.2,
+        "min_lon": 32.2,
+        "max_lon": 32.6,
+        "label": "Suez Canal",
+    },
+    "panama": {
+        "min_lat": 8.8,
+        "max_lat": 9.2,
+        "min_lon": -79.7,
+        "max_lon": -79.4,
+        "label": "Panama Canal",
+    },
+    "malmoe": {
+        "min_lat": 55.5,
+        "max_lat": 55.7,
+        "min_lon": 12.8,
+        "max_lon": 13.1,
+        "label": "Malmö / Øresund",
+    },
 }
 
 _CACHE: dict[str, tuple[float, dict]] = {}
@@ -256,7 +316,9 @@ def _vessel_from_aisstream(msg: dict, regions: dict[str, dict]) -> dict | None:
         "speed": pr.get("Sog"),
         "destination": meta.get("destination"),
         "flag": meta.get("Flag") or meta.get("CountryCode"),
-        "length": meta.get("Dimension", {}).get("A") if isinstance(meta.get("Dimension"), dict) else None,
+        "length": meta.get("Dimension", {}).get("A")
+        if isinstance(meta.get("Dimension"), dict)
+        else None,
         "region": _region_for_point(lat_f, lon_f, regions),
         "source": "aisstream",
     }
@@ -293,7 +355,11 @@ def _prune_stream_vessels() -> None:
     stale_after = _stream_stale_sec()
     now = time.time()
     vessels: dict[str, dict] = _STREAM["vessels"]
-    drop = [mmsi for mmsi, row in vessels.items() if now - float(row.get("_seen_at") or 0) > stale_after]
+    drop = [
+        mmsi
+        for mmsi, row in vessels.items()
+        if now - float(row.get("_seen_at") or 0) > stale_after
+    ]
     for mmsi in drop:
         vessels.pop(mmsi, None)
 
@@ -330,7 +396,9 @@ async def _fetch_myshiptracking(region: str, box: dict) -> list[dict]:
         f"&minLon={box['min_lon']}&maxLon={box['max_lon']}"
     )
     try:
-        async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=_FETCH_TIMEOUT, follow_redirects=True
+        ) as client:
             r = await client.get(url, headers={"User-Agent": "WorldBase/1.0"})
             r.raise_for_status()
             data = r.json()
@@ -338,7 +406,9 @@ async def _fetch_myshiptracking(region: str, box: dict) -> list[dict]:
         return []
 
     vessels: list[dict] = []
-    items = data if isinstance(data, list) else data.get("data", data.get("vessels", []))
+    items = (
+        data if isinstance(data, list) else data.get("data", data.get("vessels", []))
+    )
     for v in items:
         if not isinstance(v, dict):
             continue
@@ -351,20 +421,22 @@ async def _fetch_myshiptracking(region: str, box: dict) -> list[dict]:
             lon = float(lon)
         except (ValueError, TypeError):
             continue
-        vessels.append({
-            "mmsi": str(v.get("MMSI", v.get("mmsi", ""))),
-            "name": v.get("NAME", v.get("name", "Unknown")),
-            "type": _vessel_type_label(v.get("TYPE", v.get("type", None))),
-            "lat": round(lat, 5),
-            "lon": round(lon, 5),
-            "course": v.get("COURSE", v.get("course", None)),
-            "speed": v.get("SPEED", v.get("speed", None)),
-            "destination": v.get("DESTINATION", v.get("destination", None)),
-            "flag": v.get("FLAG", v.get("flag", None)),
-            "length": v.get("LENGTH", v.get("length", None)),
-            "region": region,
-            "source": "myshiptracking",
-        })
+        vessels.append(
+            {
+                "mmsi": str(v.get("MMSI", v.get("mmsi", ""))),
+                "name": v.get("NAME", v.get("name", "Unknown")),
+                "type": _vessel_type_label(v.get("TYPE", v.get("type", None))),
+                "lat": round(lat, 5),
+                "lon": round(lon, 5),
+                "course": v.get("COURSE", v.get("course", None)),
+                "speed": v.get("SPEED", v.get("speed", None)),
+                "destination": v.get("DESTINATION", v.get("destination", None)),
+                "flag": v.get("FLAG", v.get("flag", None)),
+                "length": v.get("LENGTH", v.get("length", None)),
+                "region": region,
+                "source": "myshiptracking",
+            }
+        )
     return vessels
 
 
@@ -412,7 +484,9 @@ async def _fetch_aishub() -> list[dict]:
     key = os.getenv("AISHUB_API_KEY")
     if not key:
         return []
-    url = f"https://data.aishub.net/ws.php?username={key}&format=1&output=json&compress=0"
+    url = (
+        f"https://data.aishub.net/ws.php?username={key}&format=1&output=json&compress=0"
+    )
     try:
         async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT) as client:
             r = await client.get(url)
@@ -429,20 +503,22 @@ async def _fetch_aishub() -> list[dict]:
         lon = v.get("LONGITUDE")
         if lat is None or lon is None:
             continue
-        vessels.append({
-            "mmsi": str(v.get("MMSI", "")),
-            "name": v.get("SHIPNAME", "Unknown"),
-            "type": _vessel_type_label(v.get("TYPE", None)),
-            "lat": round(float(lat), 5),
-            "lon": round(float(lon), 5),
-            "course": v.get("COURSE"),
-            "speed": v.get("SPEED"),
-            "destination": v.get("DESTINATION"),
-            "flag": v.get("FLAG"),
-            "length": v.get("LENGTH"),
-            "region": "global",
-            "source": "aishub",
-        })
+        vessels.append(
+            {
+                "mmsi": str(v.get("MMSI", "")),
+                "name": v.get("SHIPNAME", "Unknown"),
+                "type": _vessel_type_label(v.get("TYPE", None)),
+                "lat": round(float(lat), 5),
+                "lon": round(float(lon), 5),
+                "course": v.get("COURSE"),
+                "speed": v.get("SPEED"),
+                "destination": v.get("DESTINATION"),
+                "flag": v.get("FLAG"),
+                "length": v.get("LENGTH"),
+                "region": "global",
+                "source": "aishub",
+            }
+        )
     return vessels
 
 
@@ -607,7 +683,9 @@ async def _build_maritime_result() -> dict:
         collect_sec = _collect_sec()
         wait_timeout = collect_sec + 5.0
         try:
-            stream = await asyncio.wait_for(_fetch_aisstream_snapshot(regions), timeout=wait_timeout)
+            stream = await asyncio.wait_for(
+                _fetch_aisstream_snapshot(regions), timeout=wait_timeout
+            )
             all_vessels.extend(stream)
         except asyncio.TimeoutError:
             errors.append(f"aisstream: timeout after {wait_timeout:.0f}s")
@@ -615,7 +693,9 @@ async def _build_maritime_result() -> dict:
             errors.append(f"aisstream: {exc}")
 
     if len(all_vessels) < 5:
-        all_vessels = await _supplement_myshiptracking(all_vessels, regions, errors, min_count=999)
+        all_vessels = await _supplement_myshiptracking(
+            all_vessels, regions, errors, min_count=999
+        )
 
     try:
         hub = await _fetch_aishub()
@@ -695,7 +775,9 @@ async def get_maritime():
             if stale_payload:
                 out = dict(stale_payload)
                 out["stale"] = True
-                out["errors"] = (stale_payload.get("errors") or []) + ["build timeout — serving stale cache"]
+                out["errors"] = (stale_payload.get("errors") or []) + [
+                    "build timeout — serving stale cache"
+                ]
                 return out
             result = _build_result(
                 [],

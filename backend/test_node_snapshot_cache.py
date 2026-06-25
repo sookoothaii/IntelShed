@@ -19,7 +19,9 @@ class SnapshotCacheTests(unittest.IsolatedAsyncioTestCase):
             calls["n"] += 1
             return {"earthquakes": {"earthquakes": []}}
 
-        with patch.object(node_sync, "_gather_snapshot_uncached", side_effect=fake_uncached):
+        with patch.object(
+            node_sync, "_gather_snapshot_uncached", side_effect=fake_uncached
+        ):
             with patch.object(node_sync, "_snapshot_cache_ttl_sec", return_value=90.0):
                 first = await node_sync._gather_snapshot()
                 second = await node_sync._gather_snapshot()
@@ -34,7 +36,9 @@ class SnapshotCacheTests(unittest.IsolatedAsyncioTestCase):
             calls["n"] += 1
             return {"nodes": {"nodes": []}}
 
-        with patch.object(node_sync, "_gather_snapshot_uncached", side_effect=fake_uncached):
+        with patch.object(
+            node_sync, "_gather_snapshot_uncached", side_effect=fake_uncached
+        ):
             with patch.object(node_sync, "_snapshot_cache_ttl_sec", return_value=90.0):
                 await node_sync._gather_snapshot()
                 await node_sync._gather_snapshot(force=True)

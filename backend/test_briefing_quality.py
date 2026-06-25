@@ -13,7 +13,12 @@ class BriefingQualityTests(unittest.TestCase):
         now = datetime.now(timezone.utc).isoformat()
         text = "LOCAL (Thailand)\n- Bangkok flood watch\nINTEL: entity linked\nGDELT local news"
         sources = {
-            "digest": {"local_count": 2, "intel_count": 3, "regional_count": 1, "global_count": 2},
+            "digest": {
+                "local_count": 2,
+                "intel_count": 3,
+                "regional_count": 1,
+                "global_count": 2,
+            },
             "intel": {"count": 3},
         }
         q = score_briefing(text=text, sources=sources, created_at=now)
@@ -25,7 +30,9 @@ class BriefingQualityTests(unittest.TestCase):
 
     def test_low_score_stale_empty(self):
         old = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-        q = score_briefing(text="GLOBAL only", sources={"digest": {"local_count": 0}}, created_at=old)
+        q = score_briefing(
+            text="GLOBAL only", sources={"digest": {"local_count": 0}}, created_at=old
+        )
         self.assertLess(q["score"], 0.5)
         self.assertFalse(q["checks"]["fresh"])
 
@@ -87,7 +94,9 @@ class BriefingQualityTests(unittest.TestCase):
                 "pipeline_placed_ok": True,
             },
         }
-        q = score_briefing(text="LOCAL\n- Local news: test", sources=sources, created_at=now)
+        q = score_briefing(
+            text="LOCAL\n- Local news: test", sources=sources, created_at=now
+        )
         self.assertEqual(q["meta"]["gdelt_collected"], 4)
         self.assertEqual(q["meta"]["gdelt_digest_lines"], 2)
         self.assertEqual(q["meta"]["gdelt_pipeline_yield"], 0.4)
@@ -272,9 +281,13 @@ class CorroborationTests(unittest.TestCase):
             corroborate_digest_item,
         )
 
-        self.assertEqual(_infer_feed_sources({"text": "News: Thailand floods"}), ["newsdata"])
+        self.assertEqual(
+            _infer_feed_sources({"text": "News: Thailand floods"}), ["newsdata"]
+        )
         self.assertEqual(_source_family("newsdata"), "newsdata")
-        self.assertNotEqual(_source_family("newsdata"), _source_family("gdelt_pulse_local"))
+        self.assertNotEqual(
+            _source_family("newsdata"), _source_family("gdelt_pulse_local")
+        )
 
         news = {
             "severity": "low",

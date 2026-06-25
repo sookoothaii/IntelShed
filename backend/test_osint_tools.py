@@ -1,4 +1,5 @@
 """Unit tests for OSINT tool helpers (no network)."""
+
 import unittest
 
 import osint_tools as ot

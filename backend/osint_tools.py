@@ -29,7 +29,13 @@ def _is_private_or_reserved(ip_str: str) -> bool:
     """Check if an IP is private, loopback, link-local, or reserved."""
     try:
         addr = ipaddress.ip_address(ip_str)
-        return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved or addr.is_multicast
+        return (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_reserved
+            or addr.is_multicast
+        )
     except ValueError:
         return True
 
@@ -75,7 +81,10 @@ async def _hibp_breaches(email: str) -> tuple[list[dict] | None, str | None]:
         async with httpx.AsyncClient(timeout=12.0) as client:
             r = await client.get(
                 f"https://haveibeenpwned.com/api/v3/breachedaccount/{email}",
-                headers={"hibp-api-key": _HIBP_API_KEY, "User-Agent": "WorldBase-OSINT/1.0"},
+                headers={
+                    "hibp-api-key": _HIBP_API_KEY,
+                    "User-Agent": "WorldBase-OSINT/1.0",
+                },
                 params={"truncateResponse": "true"},
             )
             if r.status_code == 404:
@@ -88,6 +97,7 @@ async def _hibp_breaches(email: str) -> tuple[list[dict] | None, str | None]:
             return data if isinstance(data, list) else [], None
     except Exception as e:
         return None, str(e)
+
 
 # ---------------------------------------------------------------------------
 # IP geolocation + basic info (ip-api.com — free, no key, 45 req/min)
@@ -105,7 +115,9 @@ async def ip_lookup(request: Request, ip: str, api_key: str = Depends(verify_api
         return {"error": "Private or reserved IP addresses are not allowed"}
     try:
         async with httpx.AsyncClient(timeout=10.0, headers=_UA) as client:
-            r = await client.get(f"http://ip-api.com/json/{ip}?fields=status,message,country,regionName,city,zip,lat,lon,isp,org,as,mobile,proxy,hosting")
+            r = await client.get(
+                f"http://ip-api.com/json/{ip}?fields=status,message,country,regionName,city,zip,lat,lon,isp,org,as,mobile,proxy,hosting"
+            )
             d = r.json()
         if d.get("status") != "success":
             return {"error": d.get("message", "lookup failed")}
@@ -134,7 +146,9 @@ async def ip_lookup(request: Request, ip: str, api_key: str = Depends(verify_api
 # ---------------------------------------------------------------------------
 @router.get("/domain/{domain}")
 @rate_limit_general()
-async def domain_lookup(request: Request, domain: str, api_key: str = Depends(verify_api_key)):
+async def domain_lookup(
+    request: Request, domain: str, api_key: str = Depends(verify_api_key)
+):
     """Basic domain info: DNS resolution + IP. No key."""
     # Sanitize domain
     domain = re.sub(r"[^a-zA-Z0-9.-]", "", domain).lower()
@@ -142,6 +156,7 @@ async def domain_lookup(request: Request, domain: str, api_key: str = Depends(ve
         return {"error": "Invalid domain"}
     try:
         import dns.resolver
+
         answers = dns.resolver.resolve(domain, "A")
         ips = [str(r) for r in answers]
     except Exception:
@@ -155,6 +170,7 @@ async def domain_lookup(request: Request, domain: str, api_key: str = Depends(ve
         mx = []
     try:
         import socket
+
         host_ip = socket.gethostbyname(domain)
         if _is_private_or_reserved(host_ip):
             host_ip = None
@@ -179,7 +195,9 @@ async def domain_lookup(request: Request, domain: str, api_key: str = Depends(ve
 # ---------------------------------------------------------------------------
 @router.get("/username/{username}")
 @rate_limit_general()
-async def username_lookup(request: Request, username: str, api_key: str = Depends(verify_api_key)):
+async def username_lookup(
+    request: Request, username: str, api_key: str = Depends(verify_api_key)
+):
     """Check username availability on major platforms. No key. Passive only."""
     username = re.sub(r"[^a-zA-Z0-9_.-]", "", username)
     if not username:
@@ -189,13 +207,22 @@ async def username_lookup(request: Request, username: str, api_key: str = Depend
         # GitHub
         try:
             r = await client.get(f"https://api.github.com/users/{username}")
-            results["github"] = {"exists": r.status_code == 200, "url": f"https://github.com/{username}"}
+            results["github"] = {
+                "exists": r.status_code == 200,
+                "url": f"https://github.com/{username}",
+            }
         except Exception:
             results["github"] = {"exists": None}
         # Reddit (check user profile)
         try:
-            r = await client.get(f"https://www.reddit.com/user/{username}/about.json", headers={**_UA, "Accept": "application/json"})
-            results["reddit"] = {"exists": r.status_code == 200, "url": f"https://reddit.com/u/{username}"}
+            r = await client.get(
+                f"https://www.reddit.com/user/{username}/about.json",
+                headers={**_UA, "Accept": "application/json"},
+            )
+            results["reddit"] = {
+                "exists": r.status_code == 200,
+                "url": f"https://reddit.com/u/{username}",
+            }
         except Exception:
             results["reddit"] = {"exists": None}
     return {"username": username, "platforms": results}
@@ -205,13 +232,22 @@ async def username_lookup(request: Request, username: str, api_key: str = Depend
 # Email reputation (simple MX check + disposable domain check)
 # ---------------------------------------------------------------------------
 DISPOSABLE_DOMAINS = {
-    "tempmail.com", "10minutemail.com", "guerrillamail.com", "mailinator.com",
-    "throwawaymail.com", "yopmail.com", "getairmail.com", "sharklasers.com",
+    "tempmail.com",
+    "10minutemail.com",
+    "guerrillamail.com",
+    "mailinator.com",
+    "throwawaymail.com",
+    "yopmail.com",
+    "getairmail.com",
+    "sharklasers.com",
 }
+
 
 @router.get("/email/{email}")
 @rate_limit_general()
-async def email_check(request: Request, email: str, api_key: str = Depends(verify_api_key)):
+async def email_check(
+    request: Request, email: str, api_key: str = Depends(verify_api_key)
+):
     """Basic email validation + disposable domain detection. No key."""
     email = email.lower().strip()
     if "@" not in email:
@@ -222,12 +258,15 @@ async def email_check(request: Request, email: str, api_key: str = Depends(verif
     has_mx = False
     try:
         import dns.resolver
+
         answers = dns.resolver.resolve(domain, "MX")
         has_mx = len(answers) > 0
     except Exception:
         pass
     breaches, breach_error = await _hibp_breaches(email)
-    breach_names = [b.get("Name") for b in (breaches or []) if isinstance(b, dict) and b.get("Name")]
+    breach_names = [
+        b.get("Name") for b in (breaches or []) if isinstance(b, dict) and b.get("Name")
+    ]
     return {
         "email": email,
         "domain": domain,
@@ -248,7 +287,9 @@ async def email_check(request: Request, email: str, api_key: str = Depends(verif
 # ---------------------------------------------------------------------------
 @router.get("/reverse-geocode")
 @rate_limit_general()
-async def reverse_geocode(request: Request, lat: float, lon: float, api_key: str = Depends(verify_api_key)):
+async def reverse_geocode(
+    request: Request, lat: float, lon: float, api_key: str = Depends(verify_api_key)
+):
     """Reverse geocode coordinates to location name. No key."""
     try:
         async with httpx.AsyncClient(timeout=10.0, headers=_UA) as client:
@@ -274,7 +315,9 @@ async def reverse_geocode(request: Request, lat: float, lon: float, api_key: str
 # ---------------------------------------------------------------------------
 @router.post("/pins/import")
 @rate_limit_general()
-async def import_pins(request: Request, payload: dict, api_key: str = Depends(verify_api_key)):
+async def import_pins(
+    request: Request, payload: dict, api_key: str = Depends(verify_api_key)
+):
     """Normalize Flowsint or manual geo entities into OsintPin-shaped objects.
 
     Body: { "pins": [...], "investigation_id": "optional-default" }
@@ -283,7 +326,9 @@ async def import_pins(request: Request, payload: dict, api_key: str = Depends(ve
     raw_pins = payload.get("pins") or payload.get("entities") or []
     if isinstance(payload, dict) and payload.get("lat") is not None and not raw_pins:
         raw_pins = [payload]
-    default_inv = (payload.get("investigation_id") or payload.get("investigationId") or "").strip()
+    default_inv = (
+        payload.get("investigation_id") or payload.get("investigationId") or ""
+    ).strip()
     out = []
 
     for p in raw_pins:
@@ -297,7 +342,9 @@ async def import_pins(request: Request, payload: dict, api_key: str = Depends(ve
         label = (p.get("label") or p.get("title") or p.get("name") or "OSINT").strip()
         pin_type = (p.get("type") or p.get("pin_type") or "flowsint").strip()
         query = (p.get("query") or label or f"{lat},{lon}").strip()
-        inv = (p.get("investigation_id") or p.get("investigationId") or default_inv).strip()
+        inv = (
+            p.get("investigation_id") or p.get("investigationId") or default_inv
+        ).strip()
         tool = (p.get("tool") or "flowsint").strip()
         lines = p.get("lines") or []
         if isinstance(lines, str):
@@ -325,21 +372,25 @@ async def import_pins(request: Request, payload: dict, api_key: str = Depends(ve
         )
         if inv:
             inv_eid = f"investigation:{inv}"
-            entity_store.upsert_entity(inv_eid, "investigation", label=f"Investigation {inv}")
+            entity_store.upsert_entity(
+                inv_eid, "investigation", label=f"Investigation {inv}"
+            )
             entity_store.link_entities(inv_eid, eid, "contains")
 
-        out.append({
-            "id": pin_id,
-            "tool": tool,
-            "query": query,
-            "lat": lat,
-            "lon": lon,
-            "title": label,
-            "lines": lines[:12],
-            "pinType": pin_type,
-            "investigationId": inv or None,
-            "entityId": eid,
-            "ts": int(datetime.now(timezone.utc).timestamp() * 1000),
-        })
+        out.append(
+            {
+                "id": pin_id,
+                "tool": tool,
+                "query": query,
+                "lat": lat,
+                "lon": lon,
+                "title": label,
+                "lines": lines[:12],
+                "pinType": pin_type,
+                "investigationId": inv or None,
+                "entityId": eid,
+                "ts": int(datetime.now(timezone.utc).timestamp() * 1000),
+            }
+        )
 
     return {"count": len(out), "pins": out}

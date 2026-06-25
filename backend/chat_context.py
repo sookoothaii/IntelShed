@@ -52,7 +52,9 @@ _MODELS_CACHE_TTL = 60.0
 
 
 def _is_embed_model(name: str) -> bool:
-    embed_base = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text").split(":")[0].lower()
+    embed_base = (
+        os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text").split(":")[0].lower()
+    )
     n = (name or "").lower()
     return n.startswith(embed_base) or "embed" in n
 
@@ -116,7 +118,12 @@ async def build_chat_context() -> str:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 r = await client.get(
                     "https://api.reliefweb.int/v1/disasters",
-                    params={"appname": "worldbase", "profile": "list", "preset": "latest", "limit": 10},
+                    params={
+                        "appname": "worldbase",
+                        "profile": "list",
+                        "preset": "latest",
+                        "limit": 10,
+                    },
                 )
                 rw = r.json()
                 cache_set("reliefweb", rw)
@@ -125,7 +132,9 @@ async def build_chat_context() -> str:
             parts.append("\nACTIVE CRISES (ReliefWeb):")
             for d in disasters[:5]:
                 f = d.get("fields", {})
-                parts.append(f"  {f.get('name', 'Unknown')} — {f.get('status', 'unknown')}")
+                parts.append(
+                    f"  {f.get('name', 'Unknown')} — {f.get('status', 'unknown')}"
+                )
     except Exception:
         pass
 
@@ -136,18 +145,27 @@ async def build_chat_context() -> str:
             headlines = []
             feeds = [
                 ("BBC World", "http://feeds.bbci.co.uk/news/world/rss.xml"),
-                ("Reuters", "https://www.reutersagency.com/feed/?best-topics=business-finance"),
+                (
+                    "Reuters",
+                    "https://www.reutersagency.com/feed/?best-topics=business-finance",
+                ),
                 ("Tagesschau", "https://www.tagesschau.de/xml/rss2/"),
             ]
             async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
                 for name, url in feeds:
                     try:
-                        r = await client.get(url, headers={"User-Agent": "WorldBase/1.0"})
+                        r = await client.get(
+                            url, headers={"User-Agent": "WorldBase/1.0"}
+                        )
                         text = r.text
                         # Simple regex extraction for <title> inside <item>
-                        titles = re.findall(r'<item>.*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>.*?</item>', text, re.DOTALL)[:3]
+                        titles = re.findall(
+                            r"<item>.*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>.*?</item>",
+                            text,
+                            re.DOTALL,
+                        )[:3]
                         for t in titles:
-                            clean = re.sub(r'<[^>]+>', '', t).strip()
+                            clean = re.sub(r"<[^>]+>", "", t).strip()
                             if clean and clean not in [h["text"] for h in headlines]:
                                 headlines.append({"source": name, "text": clean})
                     except Exception:
@@ -186,7 +204,11 @@ async def build_chat_context() -> str:
             r = await client.get(f"{base}/api/pegel")
             if r.status_code == 200:
                 peg = r.json()
-                elevated = [g for g in (peg.get("gauges") or []) if g.get("severity") in ("critical", "high")]
+                elevated = [
+                    g
+                    for g in (peg.get("gauges") or [])
+                    if g.get("severity") in ("critical", "high")
+                ]
                 if elevated:
                     parts.append("\nRIVER GAUGES (elevated, DE):")
                     for g in elevated[:6]:
@@ -198,7 +220,11 @@ async def build_chat_context() -> str:
 
     # Fusion heatmap top-3 (spatial situational awareness)
     try:
-        fusion_hotspots, fusion_lines, _fusion_deltas = await fusion_heatmap.top_hotspots_for_llm(top=3)
+        (
+            fusion_hotspots,
+            fusion_lines,
+            _fusion_deltas,
+        ) = await fusion_heatmap.top_hotspots_for_llm(top=3)
         if fusion_hotspots:
             parts.append("\nFUSION HOTSPOTS (8-feed grid, top 3):")
             parts.append(fusion_lines)
@@ -211,7 +237,9 @@ async def build_chat_context() -> str:
 
         intel_ctx = await asyncio.to_thread(intel_briefing.gather_for_briefing)
         if intel_ctx.get("enabled") and intel_ctx.get("candidates"):
-            finalized = intel_briefing.finalize_intel_for_digest(intel_ctx, existing_text_keys=set())
+            finalized = intel_briefing.finalize_intel_for_digest(
+                intel_ctx, existing_text_keys=set()
+            )
             block = intel_briefing.format_intel_chat_context(finalized)
             if block:
                 parts.append(f"\n{block}")
@@ -228,6 +256,7 @@ async def search_web(q: str, n: int = 5):
     Returns top-n results with title, url, and snippet.
     """
     from bs4 import BeautifulSoup
+
     url = "https://html.duckduckgo.com/html/"
     try:
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
@@ -249,10 +278,12 @@ async def search_web(q: str, n: int = 5):
         a = row.select_one(".result__a")
         snippet = row.select_one(".result__snippet")
         if a:
-            results.append({
-                "title": a.get_text(strip=True),
-                "url": a.get("href", ""),
-                "snippet": snippet.get_text(strip=True) if snippet else "",
-            })
+            results.append(
+                {
+                    "title": a.get_text(strip=True),
+                    "url": a.get("href", ""),
+                    "snippet": snippet.get_text(strip=True) if snippet else "",
+                }
+            )
 
     return {"query": q, "count": len(results), "results": results}

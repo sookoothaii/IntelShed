@@ -49,10 +49,15 @@ async def health():
     db_type = "sqlite"
     db_connected = False
     if os.getenv("DATABASE_URL"):
-        db_type = "postgresql" if "postgresql" in os.getenv("DATABASE_URL", "").lower() else "other"
+        db_type = (
+            "postgresql"
+            if "postgresql" in os.getenv("DATABASE_URL", "").lower()
+            else "other"
+        )
         # Test connection
         try:
             from db.database import health_check as pg_health
+
             db_connected = await pg_health()
         except Exception:
             db_connected = False
@@ -66,6 +71,7 @@ async def health():
                 return True
             except Exception:
                 return False
+
         db_connected = await asyncio.to_thread(_test_sqlite)
 
     def _build():
@@ -91,7 +97,8 @@ async def health():
                     age = (now - datetime.fromisoformat(cached_at)).total_seconds()
                     ttl = _feed_ttl_sec(key)
                     status = classify_freshness(
-                        age, ttl,
+                        age,
+                        ttl,
                         error=meta.get("error"),
                         stale_flag=bool(meta.get("stale")),
                         vocab="health",
@@ -100,12 +107,20 @@ async def health():
                         "cached_at": cached_at,
                         "age_sec": round(age, 1),
                         "ttl_sec": ttl,
-                        "fresh": age < ttl and not meta.get("error") and not meta.get("stale"),
+                        "fresh": age < ttl
+                        and not meta.get("error")
+                        and not meta.get("stale"),
                         "status": status,
                         **meta,
                     }
                 except Exception:
-                    feeds[key] = {"cached_at": cached_at, "age_sec": None, "fresh": None, "status": "unknown", **meta}
+                    feeds[key] = {
+                        "cached_at": cached_at,
+                        "age_sec": None,
+                        "fresh": None,
+                        "status": "unknown",
+                        **meta,
+                    }
             conn.close()
         except Exception:
             pass
@@ -137,11 +152,13 @@ async def health():
     result["db_connected"] = db_connected
     try:
         import ftm_store
+
         result["ftm"] = ftm_store.store_status()
     except Exception:
         result["ftm"] = {"ready": False, "error": "unavailable"}
     try:
         from credentials.registry import providers_status
+
         result["credentials"] = {
             "configured": providers_status()["configured"],
             "total": providers_status()["count"],

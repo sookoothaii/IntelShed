@@ -36,7 +36,12 @@ class AgenticPhase(str, Enum):
 
 
 def agentic_loop_enabled() -> bool:
-    return os.getenv("BRIEFING_AGENTIC_LOOP", "1").strip().lower() in ("1", "true", "yes", "on")
+    return os.getenv("BRIEFING_AGENTIC_LOOP", "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
 
 
 def _is_placeholder_line(line: str) -> bool:
@@ -68,7 +73,9 @@ def _bucket_query(bucket: str, digest: dict[str, Any]) -> str:
     if bucket == "local":
         return f"{region} security hazard flood air quality local news last 24 hours"
     if bucket == "regional":
-        return f"ASEAN Southeast Asia {region} border conflict humanitarian regional news"
+        return (
+            f"ASEAN Southeast Asia {region} border conflict humanitarian regional news"
+        )
     return "global security conflict disaster cyber infrastructure news"
 
 
@@ -159,7 +166,9 @@ def _merge_recalls_into_digest(
         bucket = row.get("bucket") or "global"
         line = f"- {row.get('text', '')}"
         digest.setdefault(bucket, [])
-        if _is_placeholder_line((digest.get(bucket) or [""])[0] if digest.get(bucket) else ""):
+        if _is_placeholder_line(
+            (digest.get(bucket) or [""])[0] if digest.get(bucket) else ""
+        ):
             digest[bucket] = []
         if line not in digest[bucket]:
             digest[bucket].append(line)
@@ -174,9 +183,13 @@ def apply_corroboration_pass(digest: dict[str, Any]) -> dict[str, Any]:
             if _is_placeholder_line(line):
                 continue
             text = str(line).lstrip("- ").strip()
-            all_items.append({"text": text, "bucket": bucket, "severity": "low", "sources": []})
+            all_items.append(
+                {"text": text, "bucket": bucket, "severity": "low", "sources": []}
+            )
 
-    picked_by_bucket: dict[str, list[dict[str, Any]]] = {b: [] for b in ("local", "regional", "global")}
+    picked_by_bucket: dict[str, list[dict[str, Any]]] = {
+        b: [] for b in ("local", "regional", "global")
+    }
     for item in all_items:
         picked_by_bucket.setdefault(item["bucket"], []).append(item)
 
@@ -201,7 +214,8 @@ def apply_corroboration_pass(digest: dict[str, Any]) -> dict[str, Any]:
                 new_line = f"- {row['text']}"
                 bucket = row.get("bucket") or "local"
                 digest[bucket] = [
-                    new_line if ln == old_line else ln for ln in (digest.get(bucket) or [])
+                    new_line if ln == old_line else ln
+                    for ln in (digest.get(bucket) or [])
                 ]
                 corroborated_n += 1
                 break
@@ -263,7 +277,9 @@ async def run_briefing_agentic_loop(
     return digest, trace
 
 
-def format_rag_recall_block(recalls: list[dict[str, Any]] | None, lang: str | None = None) -> str:
+def format_rag_recall_block(
+    recalls: list[dict[str, Any]] | None, lang: str | None = None
+) -> str:
     """Plain-text block for the LLM prompt."""
     rows = recalls or []
     if not rows:

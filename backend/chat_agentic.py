@@ -44,7 +44,10 @@ _STRONG_MARKERS = (
 
 def chat_agentic_enabled() -> bool:
     return os.getenv("WORLDBASE_CHAT_AGENTIC", "0").strip().lower() in (
-        "1", "true", "yes", "on",
+        "1",
+        "true",
+        "yes",
+        "on",
     )
 
 
@@ -57,6 +60,7 @@ def max_rounds() -> int:
 
 # --- Phase 1: Coverage ---
 
+
 def assess_coverage(query: str, rag_block: str) -> dict[str, Any]:
     """Phase 1 -- assess whether the RAG block has sufficient content for the query."""
     block = (rag_block or "").strip()
@@ -68,7 +72,8 @@ def assess_coverage(query: str, rag_block: str) -> dict[str, Any]:
 
     source_lines = re.findall(r"\[([^\]]+)\]\s", block)
     unique_sources = set(
-        s.lower() for s in source_lines
+        s.lower()
+        for s in source_lines
         if s.lower() not in ("?", "memory")
         and not s.replace(".", "").replace("-", "").isdigit()
     )
@@ -96,8 +101,11 @@ def assess_coverage(query: str, rag_block: str) -> dict[str, Any]:
 
 # --- Phase 2: Retrieve ---
 
+
 async def _retrieve_augmented(
-    query: str, rag_block: str, gaps: list[str],
+    query: str,
+    rag_block: str,
+    gaps: list[str],
 ) -> tuple[str, dict[str, Any]]:
     """Phase 2 -- targeted RAG search to fill coverage gaps."""
     from query_router import classify_query, route_retrieval
@@ -240,6 +248,7 @@ def apply_corroboration_tags(rag_block: str) -> tuple[str, dict[str, Any]]:
 
 
 # --- Main entry point ---
+
 
 async def run_chat_agentic_loop(
     query: str,

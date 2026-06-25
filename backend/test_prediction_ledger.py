@@ -157,7 +157,9 @@ class PredictionLedgerTests(unittest.TestCase):
             },
             [],
         )
-        q = score_briefing(text="LOCAL\n- test", sources={"digest": {"local_count": 1}}, created_at=now)
+        q = score_briefing(
+            text="LOCAL\n- test", sources={"digest": {"local_count": 1}}, created_at=now
+        )
         self.assertEqual(q["meta"]["prediction_sample_30d"], 1)
         self.assertEqual(q["meta"]["prediction_accuracy_30d"], 1.0)
 
@@ -171,7 +173,13 @@ class PredictionLedgerTests(unittest.TestCase):
             cell_id="37.00,-97.00",
         )
         fusion_cells = [
-            {"cell_id": "37.00,-97.00", "lat": 37.0, "lon": -97.0, "score": 0.68, "delta_score": 0.1}
+            {
+                "cell_id": "37.00,-97.00",
+                "lat": 37.0,
+                "lon": -97.0,
+                "score": 0.68,
+                "delta_score": 0.1,
+            }
         ]
         result = pl.resolve_pending({}, fusion_cells)
         self.assertEqual(result["hits"], 1)
@@ -186,7 +194,13 @@ class PredictionLedgerTests(unittest.TestCase):
             cell_id="37.00,-97.00",
         )
         fusion_cells = [
-            {"cell_id": "37.00,-97.00", "lat": 37.0, "lon": -97.0, "score": 0.2, "delta_score": 0.05}
+            {
+                "cell_id": "37.00,-97.00",
+                "lat": 37.0,
+                "lon": -97.0,
+                "score": 0.2,
+                "delta_score": 0.05,
+            }
         ]
         result = pl.resolve_pending({}, fusion_cells)
         self.assertEqual(result["misses"], 1)

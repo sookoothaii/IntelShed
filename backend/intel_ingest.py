@@ -48,10 +48,21 @@ def _glirel_enabled() -> bool:
     """Opt-in only — GLiREL is CC BY-NC-SA (see THIRD_PARTY_NOTICES.md)."""
     return _truthy_env("WORLDBASE_INTEL_GLIREL", "0")
 
+
 # Zero-shot entity labels GLiNER searches for.
 ENTITY_LABELS = [
-    "person", "organization", "company", "government agency", "location",
-    "address", "vessel", "aircraft", "event", "facility", "email", "phone number",
+    "person",
+    "organization",
+    "company",
+    "government agency",
+    "location",
+    "address",
+    "vessel",
+    "aircraft",
+    "event",
+    "facility",
+    "email",
+    "phone number",
 ]
 
 # GLiNER label -> FtM schema.
@@ -136,14 +147,20 @@ def _load() -> tuple[Any, Any | None, str, str]:
     global _GLINER, _GLIREL, _DEVICE, _LOAD_ERROR, _GLIREL_SKIP_REASON
     want_glirel = _glirel_enabled()
     if _GLINER is not None:
-        mode = "glirel" if (_GLIREL is not None) else (
-            "unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled"
+        mode = (
+            "glirel"
+            if (_GLIREL is not None)
+            else ("unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled")
         )
         return _GLINER, _GLIREL, _DEVICE or "cpu", mode  # type: ignore[return-value]
     with _LOCK:
         if _GLINER is not None:
-            mode = "glirel" if (_GLIREL is not None) else (
-                "unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled"
+            mode = (
+                "glirel"
+                if (_GLIREL is not None)
+                else (
+                    "unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled"
+                )
             )
             return _GLINER, _GLIREL, _DEVICE or "cpu", mode  # type: ignore[return-value]
         try:
@@ -195,8 +212,10 @@ def _load() -> tuple[Any, Any | None, str, str]:
             _LOAD_ERROR = "model load failed"
             logger.exception("model load failed")
             raise
-    mode = "glirel" if (_GLIREL is not None) else (
-        "unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled"
+    mode = (
+        "glirel"
+        if (_GLIREL is not None)
+        else ("unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled")
     )
     return _GLINER, _GLIREL, _DEVICE or "cpu", mode  # type: ignore[return-value]
 
@@ -210,7 +229,8 @@ def status() -> dict:
         "glirel_enabled": want_glirel,
         "glirel_loaded": _GLIREL is not None,
         "relations_mode": (
-            "glirel" if _GLIREL is not None
+            "glirel"
+            if _GLIREL is not None
             else ("unavailable" if want_glirel and _GLIREL_SKIP_REASON else "disabled")
         ),
         "glirel_skip_reason": _GLIREL_SKIP_REASON,
@@ -248,7 +268,9 @@ def _tokenize(text: str) -> list[tuple[str, int, int]]:
     return [(m.group(0), m.start(), m.end()) for m in _TOKEN_RE.finditer(text)]
 
 
-def _char_span_to_tokens(tokens: list[tuple[str, int, int]], cs: int, ce: int) -> tuple[int, int] | None:
+def _char_span_to_tokens(
+    tokens: list[tuple[str, int, int]], cs: int, ce: int
+) -> tuple[int, int] | None:
     """Map a [cs, ce) char span to inclusive [first_tok, last_tok] indices."""
     first = last = None
     for i, (_t, ts, te) in enumerate(tokens):
@@ -272,7 +294,9 @@ def _norm_key(schema: str, surface: str) -> str:
 
 
 def _entity_id(schema: str, surface: str) -> str:
-    proxy = ftm_store.make_entity(schema, [schema, _norm_key(schema, surface)], {"name": [surface]})
+    proxy = ftm_store.make_entity(
+        schema, [schema, _norm_key(schema, surface)], {"name": [surface]}
+    )
     return proxy.id
 
 
@@ -319,7 +343,9 @@ def ingest_text(
 
     gliner, glirel, device, relations_mode = _load()
     ent_thr = _ENT_THRESHOLD if threshold is None else float(threshold)
-    rel_thr = _REL_THRESHOLD if relation_threshold is None else float(relation_threshold)
+    rel_thr = (
+        _REL_THRESHOLD if relation_threshold is None else float(relation_threshold)
+    )
     seen = _now()
 
     src_label = source_ref or f"Ingest {seen}"
@@ -343,8 +369,12 @@ def ingest_text(
         if src == tgt or key in edge_keys:
             return
         edge_keys.add(key)
-        ftm_store.add_edge(src, tgt, kind, dataset=dataset, confidence=conf, seen_at=seen)
-        edges.append({"source": src, "target": tgt, "kind": kind, "confidence": round(conf, 3)})
+        ftm_store.add_edge(
+            src, tgt, kind, dataset=dataset, confidence=conf, seen_at=seen
+        )
+        edges.append(
+            {"source": src, "target": tgt, "kind": kind, "confidence": round(conf, 3)}
+        )
 
     for chunk, _offset in _chunk_text(text, _CHUNK_CHARS):
         if not chunk.strip():
@@ -368,7 +398,9 @@ def ingest_text(
                 continue
             schema = _FTM_SCHEMA.get(label, "Thing")
             eid = _entity_id(schema, surface)
-            proxy = ftm_store.make_entity(schema, [schema, _norm_key(schema, surface)], {"name": [surface]})
+            proxy = ftm_store.make_entity(
+                schema, [schema, _norm_key(schema, surface)], {"name": [surface]}
+            )
             ftm_store.upsert(proxy, dataset=dataset, seen_at=seen)
             entities[eid] = {"schema": schema, "name": surface}
             _record_edge(doc_id, eid, "mentions", 1.0)
@@ -403,7 +435,10 @@ def ingest_text(
                 if h_idx is None or t_idx is None or h_idx == t_idx:
                     continue
                 allowed_head, allowed_tail = constraint
-                if ner_types[h_idx] not in allowed_head or ner_types[t_idx] not in allowed_tail:
+                if (
+                    ner_types[h_idx] not in allowed_head
+                    or ner_types[t_idx] not in allowed_tail
+                ):
                     continue
                 _record_edge(ner_ids[h_idx], ner_ids[t_idx], label, score)
 
@@ -446,11 +481,13 @@ def extract_text_from_email(data: bytes) -> str:
 
     mail = mailparser.parse_from_bytes(data)
     header = " ".join(
-        x for x in [
+        x
+        for x in [
             f"From: {mail.from_}" if mail.from_ else "",
             f"To: {mail.to}" if mail.to else "",
             f"Subject: {mail.subject}" if mail.subject else "",
-        ] if x
+        ]
+        if x
     )
     body = mail.text_plain[0] if mail.text_plain else (mail.body or "")
     return f"{header}\n\n{body}".strip()

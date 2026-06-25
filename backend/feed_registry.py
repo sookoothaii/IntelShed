@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
+
 # Legacy SQLite support (fallback)
 def db_path() -> str:
     custom = os.getenv("WORLDBASE_DB_PATH", "").strip()
@@ -63,7 +64,7 @@ def read(key: str) -> dict | None:
 # PostgreSQL async support (new)
 async def async_write(session: AsyncSession, key: str, payload: dict) -> None:
     """Async write feed cache using SQLAlchemy session.
-    
+
     Usage:
         async with get_db_context() as db:
             await async_write(db, "feed_name", data)
@@ -71,13 +72,11 @@ async def async_write(session: AsyncSession, key: str, payload: dict) -> None:
     try:
         from db.models import FeedCache
         from sqlalchemy import select
-        
+
         # Check if entry exists
-        result = await session.execute(
-            select(FeedCache).where(FeedCache.key == key)
-        )
+        result = await session.execute(select(FeedCache).where(FeedCache.key == key))
         existing = result.scalar_one_or_none()
-        
+
         if existing:
             existing.value_json = payload
             existing.cached_at = datetime.now(timezone.utc)
@@ -88,7 +87,7 @@ async def async_write(session: AsyncSession, key: str, payload: dict) -> None:
                 cached_at=datetime.now(timezone.utc),
             )
             session.add(new_cache)
-        
+
         await session.commit()
     except Exception:
         await session.rollback()
@@ -97,7 +96,7 @@ async def async_write(session: AsyncSession, key: str, payload: dict) -> None:
 
 async def async_read(session: AsyncSession, key: str) -> dict | None:
     """Async read feed cache using SQLAlchemy session.
-    
+
     Usage:
         async with get_db_context() as db:
             data = await async_read(db, "feed_name")
@@ -105,12 +104,10 @@ async def async_read(session: AsyncSession, key: str) -> dict | None:
     try:
         from db.models import FeedCache
         from sqlalchemy import select
-        
-        result = await session.execute(
-            select(FeedCache).where(FeedCache.key == key)
-        )
+
+        result = await session.execute(select(FeedCache).where(FeedCache.key == key))
         cache_entry = result.scalar_one_or_none()
-        
+
         if cache_entry:
             return cache_entry.value_json
     except Exception:
@@ -136,18 +133,18 @@ async def async_write_sqlite(key: str, payload: dict) -> None:
 # Unified write function (auto-detects database)
 def write_auto(key: str, payload: dict) -> None:
     """Write feed cache with automatic backend detection.
-    
+
     Uses PostgreSQL if DATABASE_URL is set, otherwise SQLite.
     Handles async PostgreSQL transparently in sync context.
     """
     if is_postgres_mode():
         try:
             from db.database import get_db_context
-            
+
             async def _write():
                 async with get_db_context() as db:
                     await async_write(db, key, payload)
-            
+
             try:
                 # Try to get existing event loop
                 asyncio.get_running_loop()
@@ -163,10 +160,10 @@ def write_auto(key: str, payload: dict) -> None:
         write(key, payload)
 
 
-# Unified read function (auto-detects database)  
+# Unified read function (auto-detects database)
 def read_auto(key: str) -> dict | None:
     """Read feed cache with automatic backend detection.
-    
+
     Uses PostgreSQL if DATABASE_URL is set, otherwise SQLite.
     Note: PostgreSQL reads in sync context will fallback to SQLite
     for performance (async read should be used directly in async code).

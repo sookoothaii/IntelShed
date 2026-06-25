@@ -18,12 +18,12 @@ _UA = {"User-Agent": "WorldBase/1.0 (civic situational awareness; ODbL)"}
 
 # (lat, lon, radius_nm) — up to 250 nm per API docs; keep count modest for latency
 _COVERAGE_NODES: list[tuple[float, float, int]] = [
-    (51.5, 10.5, 250),   # Europe
+    (51.5, 10.5, 250),  # Europe
     (40.0, -95.0, 250),  # North America
     (35.0, 139.0, 250),  # East Asia
-    (30.0, 30.0, 250),   # Middle East / N Africa
-    (-25.0, 135.0, 250), # Australia
-    (-15.0, -60.0, 250), # South America
+    (30.0, 30.0, 250),  # Middle East / N Africa
+    (-25.0, 135.0, 250),  # Australia
+    (-15.0, -60.0, 250),  # South America
 ]
 
 _DEFAULT_NODE_TIMEOUT = float(os.getenv("ADSB_NODE_TIMEOUT", "6"))
@@ -174,7 +174,9 @@ def _payload_from_merged(
     }
 
 
-async def fetch_global_states(max_aircraft: int = 4000, timeout: float = _DEFAULT_TOTAL_TIMEOUT) -> dict:
+async def fetch_global_states(
+    max_aircraft: int = 4000, timeout: float = _DEFAULT_TOTAL_TIMEOUT
+) -> dict:
     """Return OpenSky-shaped payload from merged regional queries (lol + fi fallback)."""
     node_timeout = min(_DEFAULT_NODE_TIMEOUT, max(3.0, timeout * 0.75))
     primary = os.getenv("ADSB_PRIMARY", "auto").strip().lower()
@@ -198,9 +200,7 @@ async def fetch_global_states(max_aircraft: int = 4000, timeout: float = _DEFAUL
     fi_budget = timeout
     lol_result, fi_result = await asyncio.gather(
         _merge_regional(_fetch_node, lol_budget, min(node_timeout, lol_budget)),
-        _merge_regional(
-            _fetch_node_fi, fi_budget, node_timeout, parallel=False
-        ),
+        _merge_regional(_fetch_node_fi, fi_budget, node_timeout, parallel=False),
         return_exceptions=True,
     )
 

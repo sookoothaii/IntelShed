@@ -40,7 +40,9 @@ class OperatorBriefingTests(unittest.TestCase):
     def test_digest_includes_local_air_quality(self):
         snap = {
             "airquality": {
-                "cities": [{"city": "Bangkok", "lat": 13.75, "lon": 100.5, "pm25": 42.0}],
+                "cities": [
+                    {"city": "Bangkok", "lat": 13.75, "lon": 100.5, "pm25": 42.0}
+                ],
             },
             "gdelt_pulse_local": {
                 "articles": [{"title": "Thailand tourism update"}],
@@ -55,8 +57,12 @@ class OperatorBriefingTests(unittest.TestCase):
     def test_digest_skips_stale_gdelt_tourism_headlines(self):
         from datetime import datetime, timedelta, timezone
 
-        recent = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y%m%dT%H%M%SZ")
-        stale_tourism = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y%m%dT%H%M%SZ")
+        recent = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime(
+            "%Y%m%dT%H%M%SZ"
+        )
+        stale_tourism = (datetime.now(timezone.utc) - timedelta(days=30)).strftime(
+            "%Y%m%dT%H%M%SZ"
+        )
         snap = {
             "gdelt_pulse_local": {
                 "articles": [
@@ -82,12 +88,16 @@ class OperatorBriefingTests(unittest.TestCase):
         snap = {
             "airquality": {
                 "updated": "2026-06-22T12:00:00+00:00",
-                "cities": [{"city": "Bangkok", "lat": 13.75, "lon": 100.5, "pm25": 42.0}],
+                "cities": [
+                    {"city": "Bangkok", "lat": 13.75, "lon": 100.5, "pm25": 42.0}
+                ],
             },
         }
         digest = format_digest_sections(snap, [], "none", [])
         self.assertTrue(any("[22 Jun" in line for line in digest["local"]))
-        self.assertTrue(any(row.get("observed_at") for row in digest.get("digest_line_meta") or []))
+        self.assertTrue(
+            any(row.get("observed_at") for row in digest.get("digest_line_meta") or [])
+        )
 
     def test_digest_includes_cams_haze_and_humanitarian(self):
         snap = {
@@ -105,7 +115,10 @@ class OperatorBriefingTests(unittest.TestCase):
             },
             "humanitarian": {
                 "datasets": [
-                    {"title": "Myanmar refugee response Thailand border", "organization": "UNHCR"},
+                    {
+                        "title": "Myanmar refugee response Thailand border",
+                        "organization": "UNHCR",
+                    },
                 ],
             },
         }
@@ -151,11 +164,16 @@ class OperatorBriefingTests(unittest.TestCase):
         snap = {
             "newsdata": {
                 "configured": True,
-                "articles": [{"title": "ASEAN security summit tensions rise in Singapore"}],
+                "articles": [
+                    {"title": "ASEAN security summit tensions rise in Singapore"}
+                ],
             },
             "humanitarian": {
                 "datasets": [
-                    {"title": f"Myanmar crisis dataset {i} Thailand border", "organization": "UNHCR"}
+                    {
+                        "title": f"Myanmar crisis dataset {i} Thailand border",
+                        "organization": "UNHCR",
+                    }
                     for i in range(8)
                 ],
             },
@@ -180,7 +198,10 @@ class OperatorBriefingTests(unittest.TestCase):
             "newsdata": {
                 "configured": True,
                 "articles": [
-                    {"title": "Liverpool win Premier League title on final day", "category": ["sports"]},
+                    {
+                        "title": "Liverpool win Premier League title on final day",
+                        "category": ["sports"],
+                    },
                     {"title": "Thailand flood relief expands in central provinces"},
                 ],
             },
@@ -258,7 +279,9 @@ class OperatorBriefingTests(unittest.TestCase):
             self.assertIn("confidence", item)
             self.assertIn("sources", item)
             self.assertIn("id", item)
-        with_coords = [i for i in items if i.get("lat") is not None and i.get("lon") is not None]
+        with_coords = [
+            i for i in items if i.get("lat") is not None and i.get("lon") is not None
+        ]
         self.assertGreaterEqual(len(with_coords), 1)
 
     def test_enrich_watch_items_coords_from_cell_id(self):
@@ -273,12 +296,26 @@ class OperatorBriefingTests(unittest.TestCase):
         snap = {
             "cams_haze": {
                 "cities": [
-                    {"city": "Bangkok", "lat": 13.75, "lon": 100.5, "pm25": 80.0, "severity": "high"},
+                    {
+                        "city": "Bangkok",
+                        "lat": 13.75,
+                        "lon": 100.5,
+                        "pm25": 80.0,
+                        "severity": "high",
+                    },
                 ],
             },
             "gdelt_pulse_local": {"articles": [{"title": "Thailand alert"}] * 5},
         }
-        fusion = [{"lat": 14.0, "lon": 101.0, "score": 0.9, "sources": ["hazards"], "samples": [{"label": "Flood watch"}]}]
+        fusion = [
+            {
+                "lat": 14.0,
+                "lon": 101.0,
+                "score": 0.9,
+                "sources": ["hazards"],
+                "samples": [{"label": "Flood watch"}],
+            }
+        ]
         digest = format_digest_sections(snap, [], "none", fusion)
         self.assertGreaterEqual(len(digest.get("watch_items") or []), 2)
         block = format_watch_items_block(digest["watch_items"])

@@ -64,14 +64,20 @@ def fusion_sample(limit: int = 20):
             rows = conn.execute(
                 "SELECT * FROM read_parquet(?) LIMIT ?", [_GEOPARQUET, min(limit, 100)]
             ).fetchdf()
-            return {"mode": "geoparquet", "count": len(rows), "columns": list(rows.columns), "preview": rows.head(5).to_dict(orient="records")}
+            return {
+                "mode": "geoparquet",
+                "count": len(rows),
+                "columns": list(rows.columns),
+                "preview": rows.head(5).to_dict(orient="records"),
+            }
         # Built-in demo: H3-style grid from entity_store lat/lon
         db = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
         )
         if Path(db).exists():
             n = conn.execute(
-                "SELECT COUNT(*) FROM sqlite_scan(?, 'entities') WHERE lat IS NOT NULL", [db]
+                "SELECT COUNT(*) FROM sqlite_scan(?, 'entities') WHERE lat IS NOT NULL",
+                [db],
             ).fetchone()[0]
             sample = conn.execute(
                 """
@@ -82,8 +88,16 @@ def fusion_sample(limit: int = 20):
                 """,
                 [db, min(limit, 50)],
             ).fetchdf()
-            return {"mode": "entities", "count": int(n), "preview": sample.to_dict(orient="records")}
-        return {"mode": "empty", "count": 0, "hint": "Set FUSION_GEOPARQUET or populate entities"}
+            return {
+                "mode": "entities",
+                "count": int(n),
+                "preview": sample.to_dict(orient="records"),
+            }
+        return {
+            "mode": "empty",
+            "count": 0,
+            "hint": "Set FUSION_GEOPARQUET or populate entities",
+        }
     finally:
         conn.close()
 
@@ -105,7 +119,9 @@ def fusion_stage_run(_auth: str | None = Depends(verify_lan_auth)):
         return fss.stage_to_parquet()
     except RuntimeError as exc:
         logger.exception("fusion stage run failed")
-        raise HTTPException(503, "staging failed — check FUSION_GEOPARQUET and feed data") from exc
+        raise HTTPException(
+            503, "staging failed — check FUSION_GEOPARQUET and feed data"
+        ) from exc
     except Exception as exc:
         logger.exception("fusion stage run failed")
         raise HTTPException(500, "internal error during staging") from exc
@@ -126,4 +142,6 @@ def fusion_stage_query(
         return fss.query_bbox(min_lat, min_lon, max_lat, max_lon, limit=limit)
     except Exception as exc:
         logger.exception("fusion bbox query failed")
-        raise HTTPException(503, "query failed — staged data may be unavailable") from exc
+        raise HTTPException(
+            503, "query failed — staged data may be unavailable"
+        ) from exc

@@ -11,7 +11,9 @@ from fastapi import HTTPException, Request
 
 class LanExposureTests(unittest.TestCase):
     def test_localhost_bind_not_exposed(self):
-        with patch.dict("os.environ", {"WORLDBASE_BIND_HOST": "127.0.0.1"}, clear=False):
+        with patch.dict(
+            "os.environ", {"WORLDBASE_BIND_HOST": "127.0.0.1"}, clear=False
+        ):
             self.assertFalse(lan_exposed())
 
     def test_lan_bind_exposed(self):
@@ -50,7 +52,9 @@ class VerifyLanAuthTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict("os.environ", {"WORLDBASE_BIND_HOST": "0.0.0.0"}, clear=False):
             with patch("auth.security.API_KEY", "secret"):
                 with patch("auth.security.INGEST_TOKEN", "node-secret"):
-                    auth = await verify_lan_auth(request, api_key=None, x_node_token=None)
+                    auth = await verify_lan_auth(
+                        request, api_key=None, x_node_token=None
+                    )
         self.assertEqual(auth, "loopback")
 
     async def test_remote_client_requires_credentials_when_lan_exposed(self):

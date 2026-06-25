@@ -20,16 +20,18 @@ def _map_vulnerabilities(data: dict, limit: int) -> list[dict]:
     vulns = data.get("vulnerabilities", []) or []
     items = []
     for v in vulns[: max(1, min(limit, 100))]:
-        items.append({
-            "cve_id": v.get("cveID"),
-            "vendor": v.get("vendorProject"),
-            "product": v.get("product"),
-            "vulnerability": v.get("vulnerabilityName"),
-            "date_added": v.get("dateAdded"),
-            "due_date": v.get("dueDate"),
-            "ransomware": v.get("knownRansomwareCampaignUse", "Unknown"),
-            "notes": (v.get("shortDescription") or "")[:240],
-        })
+        items.append(
+            {
+                "cve_id": v.get("cveID"),
+                "vendor": v.get("vendorProject"),
+                "product": v.get("product"),
+                "vulnerability": v.get("vulnerabilityName"),
+                "date_added": v.get("dateAdded"),
+                "due_date": v.get("dueDate"),
+                "ransomware": v.get("knownRansomwareCampaignUse", "Unknown"),
+                "notes": (v.get("shortDescription") or "")[:240],
+            }
+        )
     return items
 
 

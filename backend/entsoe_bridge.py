@@ -24,6 +24,7 @@ NS_URI = "urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3"
 def _q(name: str) -> str:
     return f"{{{NS_URI}}}{name}"
 
+
 # EIC bidding-zone codes (ENTSO-E EIC list — DE-LU merged zone)
 AREA_CODES: dict[str, str] = {
     "de": "10Y1001A1001A82H",
@@ -43,8 +44,8 @@ AREA_CODES: dict[str, str] = {
 }
 
 # DocumentType / ProcessType codes
-DOC_PRICE = "A44"    # Price document
-DOC_GEN = "A75"      # Generation per type
+DOC_PRICE = "A44"  # Price document
+DOC_GEN = "A75"  # Generation per type
 PROCESS_DAY_AHEAD = "A01"
 PROCESS_REALISED = "A16"
 
@@ -92,7 +93,9 @@ def _parse_price_xml(xml_text: str) -> list[dict]:
             if res_text not in ("PT60M", "PT15M"):
                 continue
             time_interval = period.find(_q("timeInterval"))
-            start_el = time_interval.find(_q("start")) if time_interval is not None else None
+            start_el = (
+                time_interval.find(_q("start")) if time_interval is not None else None
+            )
             start_time = start_el.text if start_el is not None else None
             for pt in period.findall(_q("Point")):
                 pos_el = pt.find(_q("position"))
@@ -101,11 +104,15 @@ def _parse_price_xml(xml_text: str) -> list[dict]:
                     position = int(pos_el.text)
                     if res_text == "PT15M" and (position - 1) % 4 != 0:
                         continue  # hourly sample from 15-min resolution
-                    points.append({
-                        "position": (position - 1) // 4 + 1 if res_text == "PT15M" else position,
-                        "price_eur_mwh": round(float(price_el.text), 2),
-                        "start_time": start_time,
-                    })
+                    points.append(
+                        {
+                            "position": (position - 1) // 4 + 1
+                            if res_text == "PT15M"
+                            else position,
+                            "price_eur_mwh": round(float(price_el.text), 2),
+                            "start_time": start_time,
+                        }
+                    )
     return points
 
 
@@ -125,22 +132,40 @@ def _parse_generation_xml(xml_text: str) -> list[dict]:
                 pos_el = pt.find(_q("position"))
                 qty_el = pt.find(_q("quantity"))
                 if pos_el is not None and qty_el is not None:
-                    points.append({
-                        "position": int(pos_el.text),
-                        "source": psr_type,
-                        "mw": int(qty_el.text),
-                    })
+                    points.append(
+                        {
+                            "position": int(pos_el.text),
+                            "source": psr_type,
+                            "mw": int(qty_el.text),
+                        }
+                    )
     return points
 
 
 _PSR_LABELS: dict[str, str] = {
-    "B01": "Biomass", "B02": "Fossil Brown coal/Lignite", "B03": "Fossil Coal-derived gas",
-    "B04": "Fossil Gas", "B05": "Fossil Hard coal", "B06": "Fossil Oil",
-    "B07": "Fossil Oil shale", "B08": "Fossil Peat", "B09": "Geothermal",
-    "B10": "Hydro Pumped Storage", "B11": "Hydro Run-of-river", "B12": "Hydro Water Reservoir",
-    "B13": "Marine", "B14": "Nuclear", "B15": "Other renewable",
-    "B16": "Solar", "B17": "Waste", "B18": "Wind Offshore", "B19": "Wind Onshore",
-    "B20": "Other", "B21": "AC Link", "B22": "DC Link", "B23": "Substation",
+    "B01": "Biomass",
+    "B02": "Fossil Brown coal/Lignite",
+    "B03": "Fossil Coal-derived gas",
+    "B04": "Fossil Gas",
+    "B05": "Fossil Hard coal",
+    "B06": "Fossil Oil",
+    "B07": "Fossil Oil shale",
+    "B08": "Fossil Peat",
+    "B09": "Geothermal",
+    "B10": "Hydro Pumped Storage",
+    "B11": "Hydro Run-of-river",
+    "B12": "Hydro Water Reservoir",
+    "B13": "Marine",
+    "B14": "Nuclear",
+    "B15": "Other renewable",
+    "B16": "Solar",
+    "B17": "Waste",
+    "B18": "Wind Offshore",
+    "B19": "Wind Onshore",
+    "B20": "Other",
+    "B21": "AC Link",
+    "B22": "DC Link",
+    "B23": "Substation",
     "B24": "Transformer",
 }
 
@@ -148,7 +173,22 @@ _PSR_LABELS: dict[str, str] = {
 def _demo_prices(country: str) -> list[dict]:
     """Return synthetic demo day-ahead prices."""
     now = datetime.now(timezone.utc)
-    base = {"de": 85, "fr": 78, "nl": 82, "at": 88, "pl": 95, "es": 70, "it": 90, "se": 45, "dk": 50, "no": 40, "be": 80, "ch": 75, "cz": 92, "fi": 55}.get(country, 80)
+    base = {
+        "de": 85,
+        "fr": 78,
+        "nl": 82,
+        "at": 88,
+        "pl": 95,
+        "es": 70,
+        "it": 90,
+        "se": 45,
+        "dk": 50,
+        "no": 40,
+        "be": 80,
+        "ch": 75,
+        "cz": 92,
+        "fi": 55,
+    }.get(country, 80)
     points = []
     for h in range(24):
         hour = (now + timedelta(hours=h)).hour
@@ -156,11 +196,13 @@ def _demo_prices(country: str) -> list[dict]:
         mult = 1.3 if 8 <= hour <= 20 else 0.7
         noise = (hash(f"{country}{h}") % 20 - 10) / 10
         price = round(base * mult * (1 + noise * 0.1), 2)
-        points.append({
-            "position": h + 1,
-            "price_eur_mwh": price,
-            "start_time": (now + timedelta(hours=h)).isoformat(),
-        })
+        points.append(
+            {
+                "position": h + 1,
+                "price_eur_mwh": price,
+                "start_time": (now + timedelta(hours=h)).isoformat(),
+            }
+        )
     return points
 
 
@@ -180,7 +222,10 @@ async def get_day_ahead_price(country: str):
     """Fetch day-ahead price for a country."""
     country = country.lower().strip()
     if country not in AREA_CODES:
-        return {"error": f"Unknown country '{country}'", "available": sorted(AREA_CODES.keys())}
+        return {
+            "error": f"Unknown country '{country}'",
+            "available": sorted(AREA_CODES.keys()),
+        }
 
     cache_key = f"entsoe:price:{country}"
     cached = _CACHE.get(cache_key)
@@ -218,7 +263,10 @@ async def get_day_ahead_price(country: str):
         if stale:
             stale[1]["stale"] = True
             return stale[1]
-        return {"error": f"ENTSO-E fetch failed: {_scrub_token(str(exc))}", "country": country}
+        return {
+            "error": f"ENTSO-E fetch failed: {_scrub_token(str(exc))}",
+            "country": country,
+        }
 
     prices = _parse_price_xml(xml)
     if not prices:
@@ -244,7 +292,10 @@ async def get_generation(country: str):
     """Fetch generation by source for a country."""
     country = country.lower().strip()
     if country not in AREA_CODES:
-        return {"error": f"Unknown country '{country}'", "available": sorted(AREA_CODES.keys())}
+        return {
+            "error": f"Unknown country '{country}'",
+            "available": sorted(AREA_CODES.keys()),
+        }
 
     cache_key = f"entsoe:gen:{country}"
     cached = _CACHE.get(cache_key)
@@ -282,7 +333,10 @@ async def get_generation(country: str):
         if stale:
             stale[1]["stale"] = True
             return stale[1]
-        return {"error": f"ENTSO-E fetch failed: {_scrub_token(str(exc))}", "country": country}
+        return {
+            "error": f"ENTSO-E fetch failed: {_scrub_token(str(exc))}",
+            "country": country,
+        }
 
     points = _parse_generation_xml(xml)
     if not points:

@@ -32,16 +32,18 @@ def _list_archives() -> list[dict]:
         return []
     out = []
     for f in sorted(d.glob("*.pmtiles"), key=lambda p: -p.stat().st_size):
-        out.append({
-            "name": f.stem,
-            "path": str(f),
-            "size_mb": round(f.stat().st_size / 1_048_576, 1),
-            # MapLibre via pmtiles:// protocol, Range-served by FastAPI
-            "pmtiles_url": f"/api/pmtiles/file/{f.stem}.pmtiles",
-            # Optional ZXY/MVT endpoint when `pmtiles serve` is running
-            "tilejson": f"{_SERVE}/{f.stem}.json",
-            "tiles": f"{_SERVE}/{f.stem}/{{z}}/{{x}}/{{y}}.mvt",
-        })
+        out.append(
+            {
+                "name": f.stem,
+                "path": str(f),
+                "size_mb": round(f.stat().st_size / 1_048_576, 1),
+                # MapLibre via pmtiles:// protocol, Range-served by FastAPI
+                "pmtiles_url": f"/api/pmtiles/file/{f.stem}.pmtiles",
+                # Optional ZXY/MVT endpoint when `pmtiles serve` is running
+                "tilejson": f"{_SERVE}/{f.stem}.json",
+                "tiles": f"{_SERVE}/{f.stem}/{{z}}/{{x}}/{{y}}.mvt",
+            }
+        )
     return out
 
 

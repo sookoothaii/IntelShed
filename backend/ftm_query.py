@@ -25,6 +25,7 @@ from ftm_schema import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -44,6 +45,7 @@ def _first_float(values: Any) -> float | None:
 # ---------------------------------------------------------------------------
 # FtM proxy helpers
 # ---------------------------------------------------------------------------
+
 
 def make_entity(schema: str, id_parts: Any, properties: dict | None = None):
     """Build an FtM entity with a content-derived id (hash of id_parts)."""
@@ -92,8 +94,15 @@ def _merge_props(existing: dict, incoming: dict) -> dict:
 # Core write/read
 # ---------------------------------------------------------------------------
 
-def upsert(proxy, dataset: str, *, seen_at: str | None = None,
-           lat: float | None = None, lon: float | None = None) -> str | None:
+
+def upsert(
+    proxy,
+    dataset: str,
+    *,
+    seen_at: str | None = None,
+    lat: float | None = None,
+    lon: float | None = None,
+) -> str | None:
     """Merge an FtM entity into the store and record per-value provenance."""
     eid = proxy.id
     if not eid:
@@ -171,10 +180,17 @@ def upsert(proxy, dataset: str, *, seen_at: str | None = None,
     return _run_with_recovery(_do)
 
 
-def upsert_legacy(entity_id: str, entity_type: str, *, label: str | None = None,
-                  lat: float | None = None, lon: float | None = None,
-                  source_feed: str | None = None, external_id: str | None = None,
-                  meta: dict | None = None) -> str | None:
+def upsert_legacy(
+    entity_id: str,
+    entity_type: str,
+    *,
+    label: str | None = None,
+    lat: float | None = None,
+    lon: float | None = None,
+    source_feed: str | None = None,
+    external_id: str | None = None,
+    meta: dict | None = None,
+) -> str | None:
     """Mirror a legacy entity_store node into the FtM graph (best-effort)."""
     from ftm_sanctions import _LEGACY_SCHEMA
 
@@ -199,9 +215,16 @@ def upsert_legacy(entity_id: str, entity_type: str, *, label: str | None = None,
     return upsert(proxy, dataset=source_feed or "worldbase", lat=lat, lon=lon)
 
 
-def add_edge(source_id: str, target_id: str, kind: str, dataset: str = "worldbase",
-             *, confidence: float = 1.0, properties: dict | None = None,
-             seen_at: str | None = None) -> None:
+def add_edge(
+    source_id: str,
+    target_id: str,
+    kind: str,
+    dataset: str = "worldbase",
+    *,
+    confidence: float = 1.0,
+    properties: dict | None = None,
+    seen_at: str | None = None,
+) -> None:
     if not source_id or not target_id:
         return
 
@@ -228,13 +251,17 @@ def add_edge(source_id: str, target_id: str, kind: str, dataset: str = "worldbas
 
 def get_entity(entity_id: str) -> dict | None:
     with _LOCK:
-        row = _conn().execute(
-            """
+        row = (
+            _conn()
+            .execute(
+                """
             SELECT id, schema, caption, properties, datasets, first_seen, last_seen, lat, lon
             FROM entities WHERE id = ?
             """,
-            [entity_id],
-        ).fetchone()
+                [entity_id],
+            )
+            .fetchone()
+        )
     if not row:
         return None
     return {
@@ -277,15 +304,17 @@ def get_entity_full(entity_id: str) -> dict | None:
     edges = []
     neighbour_ids: set[str] = set()
     for e in edge_rows:
-        edges.append({
-            "source_id": e[0],
-            "target_id": e[1],
-            "kind": e[2],
-            "properties": json.loads(e[3] or "{}"),
-            "confidence": e[4],
-            "dataset": e[5],
-            "seen_at": e[6],
-        })
+        edges.append(
+            {
+                "source_id": e[0],
+                "target_id": e[1],
+                "kind": e[2],
+                "properties": json.loads(e[3] or "{}"),
+                "confidence": e[4],
+                "dataset": e[5],
+                "seen_at": e[6],
+            }
+        )
         other = e[1] if e[0] == entity_id else e[0]
         if other != entity_id:
             neighbour_ids.add(other)
@@ -324,10 +353,16 @@ def graph_view(entity_id: str, depth: int = 1, limit: int = 200) -> dict:
                     key = (e[0], e[1], e[2], e[4])
                     if key not in edge_keys:
                         edge_keys.add(key)
-                        seen_edges.append({
-                            "source_id": e[0], "target_id": e[1], "kind": e[2],
-                            "confidence": e[3], "dataset": e[4], "seen_at": e[5],
-                        })
+                        seen_edges.append(
+                            {
+                                "source_id": e[0],
+                                "target_id": e[1],
+                                "kind": e[2],
+                                "confidence": e[3],
+                                "dataset": e[4],
+                                "seen_at": e[5],
+                            }
+                        )
                     for other in (e[0], e[1]):
                         if other not in visited:
                             next_frontier.add(other)
@@ -398,19 +433,29 @@ def graph_overview(
     if len(id_set) > 1:
         placeholders = ", ".join("?" * len(node_ids))
         with _LOCK:
-            rows = _conn().execute(
-                f"""
+            rows = (
+                _conn()
+                .execute(
+                    f"""
                 SELECT source_id, target_id, kind, confidence, dataset, seen_at
                 FROM edges
                 WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders})
                 """,
-                node_ids + node_ids,
-            ).fetchall()
+                    node_ids + node_ids,
+                )
+                .fetchall()
+            )
         for e in rows:
-            edges.append({
-                "source_id": e[0], "target_id": e[1], "kind": e[2],
-                "confidence": e[3], "dataset": e[4], "seen_at": e[5],
-            })
+            edges.append(
+                {
+                    "source_id": e[0],
+                    "target_id": e[1],
+                    "kind": e[2],
+                    "confidence": e[3],
+                    "dataset": e[4],
+                    "seen_at": e[5],
+                }
+            )
 
     return {
         "root": None,
@@ -421,8 +466,9 @@ def graph_overview(
     }
 
 
-def import_entities(dicts: Iterable[dict], dataset: str,
-                    seen_at: str | None = None) -> dict:
+def import_entities(
+    dicts: Iterable[dict], dataset: str, seen_at: str | None = None
+) -> dict:
     imported = 0
     ids: list[str] = []
     errors: list[str] = []
@@ -490,16 +536,20 @@ def list_entities_for_resolution(
         params.append(dataset)
     params.append(int(limit))
     with _LOCK:
-        rows = _conn().execute(
-            f"""
+        rows = (
+            _conn()
+            .execute(
+                f"""
             SELECT id, schema, caption, properties, datasets
             FROM entities
             WHERE schema IN ({placeholders}){dataset_clause}
             ORDER BY last_seen DESC
             LIMIT ?
             """,
-            params,
-        ).fetchall()
+                params,
+            )
+            .fetchall()
+        )
     return [
         {
             "id": r[0],
@@ -519,25 +569,33 @@ def list_datasets_for_schema(schemas: Iterable[str]) -> list[str]:
         return []
     placeholders = ", ".join("?" * len(schema_list))
     with _LOCK:
-        rows = _conn().execute(
-            f"""
+        rows = (
+            _conn()
+            .execute(
+                f"""
             SELECT DISTINCT TRIM(je.value::VARCHAR, '"') AS ds
             FROM entities, json_each(datasets) AS je
             WHERE schema IN ({placeholders})
               AND datasets != '[]'
             ORDER BY ds
             """,
-            schema_list,
-        ).fetchall()
+                schema_list,
+            )
+            .fetchall()
+        )
     return [r[0] for r in rows if r[0]]
 
 
 def count_edges_for_dataset(dataset: str) -> int:
     with _LOCK:
-        row = _conn().execute(
-            "SELECT count(*) FROM edges WHERE dataset = ?",
-            [dataset],
-        ).fetchone()
+        row = (
+            _conn()
+            .execute(
+                "SELECT count(*) FROM edges WHERE dataset = ?",
+                [dataset],
+            )
+            .fetchone()
+        )
     return int(row[0] if row else 0)
 
 
@@ -550,6 +608,7 @@ def delete_edges_for_dataset(dataset: str) -> int:
     DuckDB 1.5.x can FATAL on bulk DELETE when secondary edge indexes drift;
     drop indexes first, then rebuild (same class of bug as upsert schema change).
     """
+
     def _do(con) -> int:
         before = con.execute(
             "SELECT count(*) FROM edges WHERE dataset = ?", [dataset]
@@ -631,16 +690,20 @@ def _same_as_neighbour_map(
     placeholders = ", ".join("?" * len(entity_ids))
     params = [*entity_ids, *entity_ids]
     with _LOCK:
-        rows = _conn().execute(
-            f"""
+        rows = (
+            _conn()
+            .execute(
+                f"""
             SELECT source_id, target_id, confidence
             FROM edges
             WHERE kind = 'sameAs'
               AND (source_id IN ({placeholders}) OR target_id IN ({placeholders}))
             ORDER BY confidence DESC NULLS LAST
             """,
-            params,
-        ).fetchall()
+                params,
+            )
+            .fetchall()
+        )
     seen_pairs: dict[str, set[str]] = {eid: set() for eid in entity_ids}
     for source_id, target_id, confidence in rows:
         for eid, other in ((source_id, target_id), (target_id, source_id)):
@@ -652,12 +715,14 @@ def _same_as_neighbour_map(
             if not neighbour:
                 continue
             seen_pairs[eid].add(other)
-            out[eid].append({
-                "id": neighbour["id"],
-                "schema": neighbour["schema"],
-                "caption": neighbour.get("caption") or neighbour["id"][:12],
-                "confidence": confidence,
-            })
+            out[eid].append(
+                {
+                    "id": neighbour["id"],
+                    "schema": neighbour["schema"],
+                    "caption": neighbour.get("caption") or neighbour["id"][:12],
+                    "confidence": confidence,
+                }
+            )
     return out
 
 
@@ -704,15 +769,17 @@ def entities_for_briefing(
     entities: list[dict] = []
     for row in rows:
         datasets = json.loads(row[5] or "[]")
-        entities.append({
-            "id": row[0],
-            "schema": row[1],
-            "caption": row[2] or row[0][:12],
-            "lat": row[3],
-            "lon": row[4],
-            "datasets": datasets,
-            "last_seen": row[6],
-        })
+        entities.append(
+            {
+                "id": row[0],
+                "schema": row[1],
+                "caption": row[2] or row[0][:12],
+                "lat": row[3],
+                "lon": row[4],
+                "datasets": datasets,
+                "last_seen": row[6],
+            }
+        )
 
     if include_same_as and entities:
         neighbour_map = _same_as_neighbour_map(

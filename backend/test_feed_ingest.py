@@ -33,7 +33,12 @@ class MappingRunnerTest(unittest.TestCase):
 
     def test_gdelt_events_mapping_writes_event(self):
         record = feed_ingest.normalize_gdelt_geo(
-            {"name": "Flood near Bangkok", "url": "http://example.com/a", "lat": 13.7, "lon": 100.5},
+            {
+                "name": "Flood near Bangkok",
+                "url": "http://example.com/a",
+                "lat": 13.7,
+                "lon": 100.5,
+            },
             0,
         )
         result = apply_mapping([record], "gdelt_events", dataset="gdelt-geo")
@@ -51,7 +56,13 @@ class MappingRunnerTest(unittest.TestCase):
 
     def test_gdacs_with_coords_writes_place_link(self):
         record = feed_ingest.normalize_gdacs_alert(
-            {"title": "EQ Alert", "published": "2026-06-17", "lat": 1.0, "lon": 2.0, "eventtype": "EQ"},
+            {
+                "title": "EQ Alert",
+                "published": "2026-06-17",
+                "lat": 1.0,
+                "lon": 2.0,
+                "eventtype": "EQ",
+            },
             0,
         )
         result = apply_mapping([record], "gdacs_alerts", dataset="gdacs")
@@ -63,13 +74,23 @@ class MappingRunnerTest(unittest.TestCase):
     def test_mapping_aliases_get_distinct_entity_ids(self):
         """Event + place must not share one id (DuckDB INSERT OR REPLACE schema clash)."""
         record = feed_ingest.normalize_gdacs_alert(
-            {"title": "Flood", "published": "2026-06-17", "lat": 10.0, "lon": 20.0, "eventtype": "FL"},
+            {
+                "title": "Flood",
+                "published": "2026-06-17",
+                "lat": 10.0,
+                "lon": 20.0,
+                "eventtype": "FL",
+            },
             0,
         )
         apply_mapping([record], "gdacs_alerts", dataset="gdacs")
-        rows = ftm_store._conn().execute(
-            "SELECT id, schema FROM entities WHERE id LIKE 'gdacs:%' ORDER BY id"
-        ).fetchall()
+        rows = (
+            ftm_store._conn()
+            .execute(
+                "SELECT id, schema FROM entities WHERE id LIKE 'gdacs:%' ORDER BY id"
+            )
+            .fetchall()
+        )
         schemas = {r[1] for r in rows}
         self.assertIn("Event", schemas)
         self.assertIn("Address", schemas)
@@ -87,16 +108,30 @@ class MappingRunnerTest(unittest.TestCase):
         from ingest.mapping_runner import iter_rag_chunk_entries
 
         record = feed_ingest.normalize_gdelt_geo(
-            {"name": "Flood near Bangkok", "url": "http://example.com/a", "lat": 13.7, "lon": 100.5},
+            {
+                "name": "Flood near Bangkok",
+                "url": "http://example.com/a",
+                "lat": 13.7,
+                "lon": 100.5,
+            },
             0,
         )
-        entries = iter_rag_chunk_entries([record], "gdelt_events", rag_source="gdelt_geo")
+        entries = iter_rag_chunk_entries(
+            [record], "gdelt_events", rag_source="gdelt_geo"
+        )
         self.assertEqual(len(entries), 1)
         self.assertIn("Bangkok", entries[0][2])
 
     def test_ais_vessel_mapping(self):
         record = feed_ingest.normalize_ais_vessel(
-            {"mmsi": "123456789", "name": "Test Ship", "flag": "DE", "type": "Cargo", "lat": 53.5, "lon": 9.9}
+            {
+                "mmsi": "123456789",
+                "name": "Test Ship",
+                "flag": "DE",
+                "type": "Cargo",
+                "lat": 53.5,
+                "lon": 9.9,
+            }
         )
         result = apply_mapping([record], "ais_vessels", dataset="ais")
         self.assertEqual(result["entities_written"], 3)

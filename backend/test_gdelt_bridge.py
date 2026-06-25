@@ -72,8 +72,14 @@ class TestGdeltLocalPulseFilter(unittest.TestCase):
             {
                 "count": 2,
                 "articles": [
-                    {"title": "Songkran festival deals", "seendate": _gdelt_seendate(6)},
-                    {"title": "M5.2 earthquake near Chiang Rai", "seendate": _gdelt_seendate(2)},
+                    {
+                        "title": "Songkran festival deals",
+                        "seendate": _gdelt_seendate(6),
+                    },
+                    {
+                        "title": "M5.2 earthquake near Chiang Rai",
+                        "seendate": _gdelt_seendate(2),
+                    },
                 ],
             }
         )

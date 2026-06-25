@@ -12,7 +12,10 @@ from typing import Any
 
 # Obvious jailbreak / tool-abuse phrases — keep small; extend from HAK_GAL ideas, not imports.
 _SLIM_PATTERNS: tuple[tuple[str, str], ...] = (
-    (r"(?i)ignore\s+(all\s+)?(previous|prior)\s+instructions", "jailbreak_ignore_prior"),
+    (
+        r"(?i)ignore\s+(all\s+)?(previous|prior)\s+instructions",
+        "jailbreak_ignore_prior",
+    ),
     (r"(?i)developer\s+mode\s+(enabled|on)", "jailbreak_dev_mode"),
     (r"(?i)you\s+are\s+now\s+DAN\b", "jailbreak_dan"),
     (r"(?i)disregard\s+(your\s+)?(system|safety)", "jailbreak_disregard_safety"),
@@ -36,13 +39,21 @@ _BASE64_BLOB = re.compile(r"[A-Za-z0-9+/]{120,}={0,2}")
 
 
 def slim_guard_enabled() -> bool:
-    return os.getenv("WORLDBASE_SLIM_GUARD", "1").strip().lower() in ("1", "true", "yes")
+    return os.getenv("WORLDBASE_SLIM_GUARD", "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
 
 def slim_guard_mcp_enabled() -> bool:
     if not slim_guard_enabled():
         return False
-    return os.getenv("WORLDBASE_SLIM_GUARD_MCP", "1").strip().lower() in ("1", "true", "yes")
+    return os.getenv("WORLDBASE_SLIM_GUARD_MCP", "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
 
 def slim_pattern_count(*, mcp: bool = False) -> int:
@@ -65,7 +76,12 @@ def _looks_like_base64_blob(text: str) -> bool:
 def slim_prompt_scan(text: str, *, mcp: bool = False) -> dict[str, Any]:
     """Return {blocked, matched, label, engine} — no network, no GPU."""
     if not text or not text.strip():
-        return {"blocked": False, "matched": None, "label": None, "engine": "worldbase_slim"}
+        return {
+            "blocked": False,
+            "matched": None,
+            "label": None,
+            "engine": "worldbase_slim",
+        }
     for rx, label in _COMPILED:
         m = rx.search(text)
         if m:
@@ -92,4 +108,9 @@ def slim_prompt_scan(text: str, *, mcp: bool = False) -> dict[str, Any]:
                 "label": "mcp_base64_blob",
                 "engine": "worldbase_slim",
             }
-    return {"blocked": False, "matched": None, "label": None, "engine": "worldbase_slim"}
+    return {
+        "blocked": False,
+        "matched": None,
+        "label": None,
+        "engine": "worldbase_slim",
+    }

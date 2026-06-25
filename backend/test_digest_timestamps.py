@@ -19,7 +19,9 @@ class TestDigestTimestamps(unittest.TestCase):
         self.assertEqual(dt.format_digest_date_tag(when), "[22 Jun 12:00 UTC]")
 
     def test_apply_observed_at_prefixes_text(self):
-        body, iso = dt.apply_observed_at("Local news: flood warning", "20260622T120000Z")
+        body, iso = dt.apply_observed_at(
+            "Local news: flood warning", "20260622T120000Z"
+        )
         self.assertIn("[22 Jun", body)
         self.assertIn("flood warning", body)
         self.assertIsNotNone(iso)

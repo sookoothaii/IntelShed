@@ -43,7 +43,9 @@ class TestSqliteSchemaConsistency(unittest.TestCase):
         sqlite_bootstrap.DB_PATH = self.db_path
         sqlite_bootstrap.init_db()
         conn = sqlite3.connect(self.db_path)
-        indexes = [r[1] for r in conn.execute("PRAGMA index_list(feed_cache)").fetchall()]
+        indexes = [
+            r[1] for r in conn.execute("PRAGMA index_list(feed_cache)").fetchall()
+        ]
         conn.close()
         self.assertIn("idx_feed_cache_cached_at", indexes)
         self.assertIn("idx_feed_cache_ttl", indexes)
@@ -69,7 +71,9 @@ class TestSqliteSchemaConsistency(unittest.TestCase):
         cols = [r[1] for r in conn.execute("PRAGMA table_info(feed_cache)").fetchall()]
         self.assertIn("ttl_seconds", cols)
         # Existing data preserved
-        row = conn.execute("SELECT key, value FROM feed_cache WHERE key = 'test'").fetchone()
+        row = conn.execute(
+            "SELECT key, value FROM feed_cache WHERE key = 'test'"
+        ).fetchone()
         self.assertIsNotNone(row)
         conn.close()
 

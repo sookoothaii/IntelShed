@@ -13,6 +13,7 @@ from fastapi import APIRouter
 
 try:
     from google.transit import gtfs_realtime_pb2
+
     HAS_PB = True
 except Exception:
     HAS_PB = False
@@ -52,23 +53,30 @@ CITY_CONFIG: dict[str, dict] = {
         "bbox": CITY_BBOX["munich"],
     },
     "helsinki": {
-        "url": os.getenv("GTFS_HELSINKI_URL", "https://cdn.hsl.fi/gtfs-realtime/vehicle-positions"),
+        "url": os.getenv(
+            "GTFS_HELSINKI_URL", "https://cdn.hsl.fi/gtfs-realtime/vehicle-positions"
+        ),
         "ttl": 30,
         "bbox": None,
     },
     "boston": {
-        "url": os.getenv("GTFS_BOSTON_URL", "https://cdn.mbta.com/realtime/VehiclePositions.pb"),
+        "url": os.getenv(
+            "GTFS_BOSTON_URL", "https://cdn.mbta.com/realtime/VehiclePositions.pb"
+        ),
         "ttl": 30,
         "bbox": None,
     },
 }
 
 
-def _in_bbox(lat: float, lon: float, bbox: tuple[float, float, float, float] | None) -> bool:
+def _in_bbox(
+    lat: float, lon: float, bbox: tuple[float, float, float, float] | None
+) -> bool:
     if not bbox:
         return True
     min_lat, max_lat, min_lon, max_lon = bbox
     return min_lat <= lat <= max_lat and min_lon <= lon <= max_lon
+
 
 _CACHE: dict[str, tuple[float, dict]] = {}
 
@@ -81,7 +89,9 @@ def list_cities():
             {
                 "id": k,
                 "configured": bool(v["url"]),
-                "url_preview": v["url"][:60] + "..." if v["url"] and len(v["url"]) > 60 else v["url"],
+                "url_preview": v["url"][:60] + "..."
+                if v["url"] and len(v["url"]) > 60
+                else v["url"],
             }
             for k, v in CITY_CONFIG.items()
         ]
@@ -163,24 +173,28 @@ async def get_vehicles(city: str):
             continue
         if not _in_bbox(lat, lon, cfg.get("bbox")):
             continue
-        vehicles.append({
-            "id": entity.id,
-            "route_id": v.trip.route_id if v.trip else None,
-            "trip_id": v.trip.trip_id if v.trip else None,
-            "lat": round(lat, 5),
-            "lon": round(lon, 5),
-            "bearing": round(bearing, 1) if bearing else None,
-            "speed": round(speed, 1) if speed else None,
-            "timestamp": v.timestamp if v.timestamp else None,
-            "label": label,
-        })
+        vehicles.append(
+            {
+                "id": entity.id,
+                "route_id": v.trip.route_id if v.trip else None,
+                "trip_id": v.trip.trip_id if v.trip else None,
+                "lat": round(lat, 5),
+                "lon": round(lon, 5),
+                "bearing": round(bearing, 1) if bearing else None,
+                "speed": round(speed, 1) if speed else None,
+                "timestamp": v.timestamp if v.timestamp else None,
+                "label": label,
+            }
+        )
 
     result = {
         "city": city,
         "count": len(vehicles),
         "vehicles": vehicles,
         "trip_updates": trip_updates,
-        "feed_mode": "vehicle_positions" if vehicles else ("trip_updates_only" if trip_updates else "empty"),
+        "feed_mode": "vehicle_positions"
+        if vehicles
+        else ("trip_updates_only" if trip_updates else "empty"),
         "feed_timestamp": feed.header.timestamp if feed.header else None,
         "cached_at": datetime.now(timezone.utc).isoformat(),
     }

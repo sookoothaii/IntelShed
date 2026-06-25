@@ -34,7 +34,9 @@ class PromptAbCase:
     subgraph_env: str | None = None
 
 
-def _caption_overlap(flat_items: list[dict[str, Any]], nodes: list[dict[str, Any]]) -> float:
+def _caption_overlap(
+    flat_items: list[dict[str, Any]], nodes: list[dict[str, Any]]
+) -> float:
     """Share of flat item captions found in subgraph node captions (case-insensitive)."""
     flat_caps: list[str] = []
     for item in flat_items:
@@ -47,9 +49,7 @@ def _caption_overlap(flat_items: list[dict[str, Any]], nodes: list[dict[str, Any
         return 1.0
     node_caps = {(n.get("caption") or "").lower() for n in nodes}
     hits = sum(
-        1
-        for cap in flat_caps
-        if any(cap in nc or nc in cap for nc in node_caps if nc)
+        1 for cap in flat_caps if any(cap in nc or nc in cap for nc in node_caps if nc)
     )
     return hits / len(flat_caps)
 
@@ -59,7 +59,10 @@ def compare_prompt_ab(intel_meta: dict[str, Any], lang: str = "en") -> dict[str,
     intel_meta = intel_meta or {}
     flat_block = ib._format_flat_intel_block(intel_meta, lang=lang)
     metrics = ib.intel_prompt_metrics(intel_meta, lang=lang)
-    window = int(intel_meta.get("window_hours") or ib._env_int("WORLDBASE_BRIEFING_INTEL_WINDOW_HOURS", 24))
+    window = int(
+        intel_meta.get("window_hours")
+        or ib._env_int("WORLDBASE_BRIEFING_INTEL_WINDOW_HOURS", 24)
+    )
     subgraph_raw = sg.build_subgraph(window_hours=window)
     subgraph_block = ""
     if subgraph_raw.get("available") and subgraph_raw.get("nodes"):
@@ -68,7 +71,9 @@ def compare_prompt_ab(intel_meta: dict[str, Any], lang: str = "en") -> dict[str,
     flat_chars = len(flat_block)
     subgraph_chars = len(subgraph_block)
     compression = round(subgraph_chars / flat_chars, 3) if flat_chars > 0 else None
-    overlap = _caption_overlap(intel_meta.get("items") or [], subgraph_raw.get("nodes") or [])
+    overlap = _caption_overlap(
+        intel_meta.get("items") or [], subgraph_raw.get("nodes") or []
+    )
 
     return {
         "active_mode": metrics.get("prompt_mode"),
@@ -90,9 +95,13 @@ def _seed_graph(path: str) -> dict[str, str]:
     ftm_store.set_db_path(path)
     ftm_store.init_store()
 
-    event = ftm_store.make_entity("Event", ["flood-bkk"], {"name": ["Bangkok flooding alert"]})
+    event = ftm_store.make_entity(
+        "Event", ["flood-bkk"], {"name": ["Bangkok flooding alert"]}
+    )
     event_id = ftm_store.upsert(event, dataset="gdacs", lat=13.75, lon=100.5)
-    org = ftm_store.make_entity("Organization", ["relief-th"], {"name": ["Thai Relief Org"]})
+    org = ftm_store.make_entity(
+        "Organization", ["relief-th"], {"name": ["Thai Relief Org"]}
+    )
     org_id = ftm_store.upsert(org, dataset="osint")
     ftm_store.add_edge(event_id, org_id, "linked", dataset="osint", confidence=0.9)
     return {"event_id": event_id, "org_id": org_id}
@@ -119,7 +128,10 @@ def evaluate_case(case: PromptAbCase, db_path: str | None = None) -> dict[str, A
     try:
         ab = compare_prompt_ab(case.intel_meta, lang="en")
         ok = ab["active_mode"] == case.expect_mode
-        if case.min_overlap_pct is not None and ab["caption_overlap_pct"] < case.min_overlap_pct:
+        if (
+            case.min_overlap_pct is not None
+            and ab["caption_overlap_pct"] < case.min_overlap_pct
+        ):
             ok = False
         return {
             "case_id": case.case_id,
@@ -268,7 +280,9 @@ def compare_prompt_ab_from_api(
 
     return {
         "active_mode": active_mode,
-        "subgraph_available": bool(pm.get("subgraph_available") or subgraph.get("available")),
+        "subgraph_available": bool(
+            pm.get("subgraph_available") or subgraph.get("available")
+        ),
         "flat_chars": flat_chars,
         "subgraph_chars": subgraph_chars,
         "subgraph_block_chars_live": subgraph_block_chars,
@@ -278,7 +292,8 @@ def compare_prompt_ab_from_api(
         "caption_overlap_pct": round(overlap * 100, 1),
         "flat_item_count": len(intel.get("items") or []),
         "subgraph_node_count": subgraph.get("node_count") or len(nodes),
-        "subgraph_edge_count": subgraph.get("edge_count") or len(subgraph.get("edges") or []),
+        "subgraph_edge_count": subgraph.get("edge_count")
+        or len(subgraph.get("edges") or []),
     }
 
 
@@ -332,7 +347,9 @@ def _live_recommendation(ab: dict[str, Any]) -> str:
 
 def _print_report(report: dict[str, Any]) -> None:
     if report.get("mode") == "fixtures":
-        print(f"Subgraph prompt A/B fixtures: {report['passed']}/{report['total']} PASS")
+        print(
+            f"Subgraph prompt A/B fixtures: {report['passed']}/{report['total']} PASS"
+        )
         for row in report.get("results") or []:
             mark = "PASS" if row["ok"] else "FAIL"
             print(

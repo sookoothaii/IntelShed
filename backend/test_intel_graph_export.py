@@ -36,8 +36,24 @@ class IntelGraphExportTests(unittest.TestCase):
             "node_count": 12,
             "edge_count": 9,
             "hops": 2,
-            "nodes": [{"id": f"n{i}", "caption": f"Node {i}", "schema": "Event", "datasets": ["gdacs"]} for i in range(12)],
-            "edges": [{"kind": "nearby", "dataset": "spatial-proximity", "source_id": "a", "target_id": "b"} for _ in range(9)],
+            "nodes": [
+                {
+                    "id": f"n{i}",
+                    "caption": f"Node {i}",
+                    "schema": "Event",
+                    "datasets": ["gdacs"],
+                }
+                for i in range(12)
+            ],
+            "edges": [
+                {
+                    "kind": "nearby",
+                    "dataset": "spatial-proximity",
+                    "source_id": "a",
+                    "target_id": "b",
+                }
+                for _ in range(9)
+            ],
         }
         out = igx.compact_for_pull(fake, max_nodes=3, max_edges=2)
         self.assertTrue(out["available"])

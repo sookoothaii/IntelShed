@@ -15,7 +15,9 @@ _DEFAULT_EXCLUDE = ("Airplane", "Thing")
 def _edge_decay_half_life_days() -> float:
     """Half-life for temporal edge decay (days). Default 30."""
     try:
-        return max(1.0, float(os.getenv("WORLDBASE_INTEL_EDGE_DECAY_DAYS", "30") or "30"))
+        return max(
+            1.0, float(os.getenv("WORLDBASE_INTEL_EDGE_DECAY_DAYS", "30") or "30")
+        )
     except ValueError:
         return 30.0
 
@@ -60,21 +62,33 @@ def subgraph_enabled() -> bool:
 
 def default_hops() -> int:
     try:
-        return max(1, min(3, int(os.getenv("WORLDBASE_INTEL_SUBGRAPH_HOPS", "2") or "2")))
+        return max(
+            1, min(3, int(os.getenv("WORLDBASE_INTEL_SUBGRAPH_HOPS", "2") or "2"))
+        )
     except ValueError:
         return 2
 
 
 def default_seed_limit() -> int:
     try:
-        return max(5, min(80, int(os.getenv("WORLDBASE_INTEL_SUBGRAPH_SEED_LIMIT", "30") or "30")))
+        return max(
+            5,
+            min(
+                80, int(os.getenv("WORLDBASE_INTEL_SUBGRAPH_SEED_LIMIT", "30") or "30")
+            ),
+        )
     except ValueError:
         return 30
 
 
 def default_node_limit() -> int:
     try:
-        return max(10, min(200, int(os.getenv("WORLDBASE_INTEL_SUBGRAPH_NODE_LIMIT", "80") or "80")))
+        return max(
+            10,
+            min(
+                200, int(os.getenv("WORLDBASE_INTEL_SUBGRAPH_NODE_LIMIT", "80") or "80")
+            ),
+        )
     except ValueError:
         return 80
 
@@ -138,7 +152,9 @@ def _seed_entities_in_bbox(
     exclude_schemas: set[str],
 ) -> list[dict[str, Any]]:
     west, south, east, north = bbox
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))).isoformat()
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))
+    ).isoformat()
     clauses = [
         "e.lat IS NOT NULL",
         "e.lon IS NOT NULL",
@@ -163,17 +179,19 @@ def _seed_entities_in_bbox(
     rows = ftm_store.run_query(sql, params)
     seeds: list[dict[str, Any]] = []
     for row in rows:
-        seeds.append({
-            "id": row[0],
-            "schema": row[1],
-            "caption": row[2] or row[0][:12],
-            "lat": _json_num(row[3]),
-            "lon": _json_num(row[4]),
-            "datasets": json.loads(row[5] or "[]"),
-            "last_seen": row[6],
-            "in_bbox": True,
-            "hop": 0,
-        })
+        seeds.append(
+            {
+                "id": row[0],
+                "schema": row[1],
+                "caption": row[2] or row[0][:12],
+                "lat": _json_num(row[3]),
+                "lon": _json_num(row[4]),
+                "datasets": json.loads(row[5] or "[]"),
+                "last_seen": row[6],
+                "in_bbox": True,
+                "hop": 0,
+            }
+        )
     return seeds
 
 
@@ -206,17 +224,19 @@ def _expand_edges(
             age_days = _edge_age_days(seen_at)
             decay = decay_weight(age_days) if age_days is not None else 1.0
             decayed_conf = round(raw_conf * decay, 4)
-            edges_out.append({
-                "source_id": source_id,
-                "target_id": target_id,
-                "kind": kind,
-                "confidence": raw_conf,
-                "decayed_confidence": decayed_conf,
-                "decay_weight": decay,
-                "age_days": round(age_days, 1) if age_days is not None else None,
-                "dataset": dataset,
-                "seen_at": seen_at,
-            })
+            edges_out.append(
+                {
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "kind": kind,
+                    "confidence": raw_conf,
+                    "decayed_confidence": decayed_conf,
+                    "decay_weight": decay,
+                    "age_days": round(age_days, 1) if age_days is not None else None,
+                    "dataset": dataset,
+                    "seen_at": seen_at,
+                }
+            )
         for other in (source_id, target_id):
             if other in visited or len(visited) + len(next_frontier) >= node_limit:
                 continue
@@ -300,21 +320,22 @@ def build_subgraph(
         ent = ftm_store.get_entity(nid)
         if not ent:
             continue
-        nodes.append({
-            "id": ent["id"],
-            "schema": ent.get("schema"),
-            "caption": ent.get("caption") or ent["id"][:12],
-            "lat": _json_num(ent.get("lat")),
-            "lon": _json_num(ent.get("lon")),
-            "datasets": ent.get("datasets") or [],
-            "in_bbox": _in_bbox(ent.get("lat"), ent.get("lon"), target_bbox),
-            "hop": hop_depth.get(nid, 99),
-        })
+        nodes.append(
+            {
+                "id": ent["id"],
+                "schema": ent.get("schema"),
+                "caption": ent.get("caption") or ent["id"][:12],
+                "lat": _json_num(ent.get("lat")),
+                "lon": _json_num(ent.get("lon")),
+                "datasets": ent.get("datasets") or [],
+                "in_bbox": _in_bbox(ent.get("lat"), ent.get("lon"), target_bbox),
+                "hop": hop_depth.get(nid, 99),
+            }
+        )
 
     node_ids = {n["id"] for n in nodes}
     pruned_edges = [
-        e for e in edges
-        if e["source_id"] in node_ids and e["target_id"] in node_ids
+        e for e in edges if e["source_id"] in node_ids and e["target_id"] in node_ids
     ]
 
     return {

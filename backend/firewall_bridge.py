@@ -27,11 +27,27 @@ FIREWALL_HOST = os.getenv("FIREWALL_HOST", "localhost:8001").strip()
 FIREWALL_URL = f"http://{FIREWALL_HOST}/v1/detect" if FIREWALL_HOST else ""
 TIMEOUT = 30.0  # HAK_GAL may need time for lazy ONNX loading on first request
 RISK_THRESHOLD = float(os.getenv("WORLDBASE_FIREWALL_RISK_THRESHOLD", "0.7"))
-FIREWALL_USER_ID = os.getenv("WORLDBASE_FIREWALL_USER_ID", "operator").strip() or "operator"
-FIREWALL_TRACE = os.getenv("WORLDBASE_FIREWALL_TRACE", "0").strip().lower() in ("1", "true", "yes")
-FIREWALL_SHADOW = os.getenv("WORLDBASE_FIREWALL_SHADOW", "0").strip().lower() in ("1", "true", "yes")
-FIREWALL_MCP = os.getenv("WORLDBASE_FIREWALL_MCP", "0").strip().lower() in ("1", "true", "yes")
-FIREWALL_MCP_FAIL_CLOSED = os.getenv("WORLDBASE_FIREWALL_MCP_FAIL_CLOSED", "0").strip().lower() in (
+FIREWALL_USER_ID = (
+    os.getenv("WORLDBASE_FIREWALL_USER_ID", "operator").strip() or "operator"
+)
+FIREWALL_TRACE = os.getenv("WORLDBASE_FIREWALL_TRACE", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+FIREWALL_SHADOW = os.getenv("WORLDBASE_FIREWALL_SHADOW", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+FIREWALL_MCP = os.getenv("WORLDBASE_FIREWALL_MCP", "0").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+FIREWALL_MCP_FAIL_CLOSED = os.getenv(
+    "WORLDBASE_FIREWALL_MCP_FAIL_CLOSED", "0"
+).strip().lower() in (
     "1",
     "true",
     "yes",
@@ -187,7 +203,10 @@ async def guard_chat_user_text(
                 source_tool="worldbase_chat",
                 session_id=sid,
                 text_preview=text,
-                scan={"_available": True, "data": {"blocked": True, "category": slim.get("label")}},
+                scan={
+                    "_available": True,
+                    "data": {"blocked": True, "category": slim.get("label")},
+                },
                 blocked=True,
             )
             meta = _slim_meta_for_ui(slim)
@@ -259,7 +278,10 @@ async def firewall_scan(
         async with httpx.AsyncClient(timeout=TIMEOUT) as client:
             r = await client.post(FIREWALL_URL, json=body, headers=headers)
             if r.status_code != 200:
-                out = {"_error": f"firewall returned {r.status_code}", "_available": False}
+                out = {
+                    "_error": f"firewall returned {r.status_code}",
+                    "_available": False,
+                }
                 if record:
                     record_firewall_decision(
                         source="scan",
@@ -333,7 +355,10 @@ async def ensure_mcp_tool_allowed(
                 source_tool="worldbase_mcp",
                 session_id=session_id or "worldbase-mcp",
                 text_preview=text,
-                scan={"_available": True, "data": {"blocked": True, "category": slim.get("label")}},
+                scan={
+                    "_available": True,
+                    "data": {"blocked": True, "category": slim.get("label")},
+                },
                 blocked=True,
             )
             raise FirewallBlockedError(
@@ -390,7 +415,11 @@ async def firewall_status():
         source_tool="worldbase_status",
     )
     available = result.get("_available", False)
-    from prompt_guard import slim_guard_enabled, slim_guard_mcp_enabled, slim_pattern_count
+    from prompt_guard import (
+        slim_guard_enabled,
+        slim_guard_mcp_enabled,
+        slim_pattern_count,
+    )
 
     phase = "B" if (firewall_mcp_enabled() or slim_guard_mcp_enabled()) else "A"
 
@@ -445,7 +474,10 @@ async def firewall_test(
                 source_tool=str(payload.get("source_tool") or "worldbase_test"),
                 session_id=str(session_id) if session_id else None,
                 text_preview=query,
-                scan={"_available": True, "data": {"blocked": True, "category": slim.get("label")}},
+                scan={
+                    "_available": True,
+                    "data": {"blocked": True, "category": slim.get("label")},
+                },
                 blocked=True,
             )
             return {**meta, "would_block": True, "query": query}
@@ -464,7 +496,9 @@ async def firewall_test(
         session_id=session_id,
         source_tool=str(payload.get("source_tool") or "worldbase_test"),
         user_id=payload.get("user_id"),
-        context=payload.get("context") if isinstance(payload.get("context"), dict) else None,
+        context=payload.get("context")
+        if isinstance(payload.get("context"), dict)
+        else None,
         record=True,
     )
     if not result.get("_available"):

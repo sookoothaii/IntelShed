@@ -21,7 +21,10 @@ from typing import Any
 
 def provenance_enabled() -> bool:
     return os.getenv("WORLDBASE_PROVENANCE", "1").strip().lower() not in (
-        "0", "false", "no", "off",
+        "0",
+        "false",
+        "no",
+        "off",
     )
 
 
@@ -104,6 +107,7 @@ def temporal_consistency(age_sec: float | None) -> float:
 
 # --- Ingestion chain hash (stub for future P5 per-statement provenance) ---
 
+
 def ingestion_chain_hash(source: str, source_id: str, text: str) -> str:
     """Deterministic hash of the feed → mapping → ftm → rag chain.
 
@@ -115,6 +119,7 @@ def ingestion_chain_hash(source: str, source_id: str, text: str) -> str:
 
 
 # --- Core scoring ---
+
 
 def score_provenance(
     source: str,
@@ -185,6 +190,7 @@ def score_from_meta(item: dict[str, Any]) -> float:
     if observed:
         try:
             from datetime import datetime, timezone
+
             ts = datetime.fromisoformat(str(observed).replace("Z", "+00:00"))
             if ts.tzinfo is None:
                 ts = ts.replace(tzinfo=timezone.utc)
@@ -201,6 +207,7 @@ def score_from_meta(item: dict[str, Any]) -> float:
 
 
 # --- Feed fusion score (for fusion_heatmap cell weighting) ---
+
 
 def feed_fusion_weight(source: str, base_weight: float) -> float:
     """Apply source reliability as a multiplier on fusion cell contributions.

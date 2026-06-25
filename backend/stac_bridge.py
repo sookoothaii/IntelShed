@@ -31,8 +31,12 @@ from fastapi.responses import Response
 
 router = APIRouter(prefix="/api/stac", tags=["stac"])
 
-_STAC_URL = os.getenv("STAC_API_URL", "https://earth-search.aws.element84.com/v1").rstrip("/")
-_TITILER = os.getenv("TITILER_URL", "").rstrip("/")  # optional; e.g. http://127.0.0.1:8001
+_STAC_URL = os.getenv(
+    "STAC_API_URL", "https://earth-search.aws.element84.com/v1"
+).rstrip("/")
+_TITILER = os.getenv("TITILER_URL", "").rstrip(
+    "/"
+)  # optional; e.g. http://127.0.0.1:8001
 _UA = {"User-Agent": "WorldBase/1.0 (research dashboard; +https://github.com/local)"}
 
 # Curated bounding boxes for the operator's main areas of interest.
@@ -80,10 +84,14 @@ def _bbox_param(bbox: str | None, region: str | None) -> list[float]:
     if region:
         preset = REGION_PRESETS.get(region.lower())
         if not preset:
-            raise HTTPException(400, f"unknown region '{region}' — known: {sorted(REGION_PRESETS)}")
+            raise HTTPException(
+                400, f"unknown region '{region}' — known: {sorted(REGION_PRESETS)}"
+            )
         return list(preset["bbox"])
     if not bbox:
-        raise HTTPException(400, "supply bbox=minLon,minLat,maxLon,maxLat or region=<preset>")
+        raise HTTPException(
+            400, "supply bbox=minLon,minLat,maxLon,maxLat or region=<preset>"
+        )
     parts = [p.strip() for p in bbox.split(",") if p.strip()]
     if len(parts) != 4:
         raise HTTPException(400, "bbox must be 4 comma-separated floats")
@@ -91,7 +99,12 @@ def _bbox_param(bbox: str | None, region: str | None) -> list[float]:
         nums = [float(p) for p in parts]
     except ValueError as e:
         raise HTTPException(400, f"bbox must be floats: {e}") from e
-    if not (-180 <= nums[0] <= 180 and -90 <= nums[1] <= 90 and -180 <= nums[2] <= 180 and -90 <= nums[3] <= 90):
+    if not (
+        -180 <= nums[0] <= 180
+        and -90 <= nums[1] <= 90
+        and -180 <= nums[2] <= 180
+        and -90 <= nums[3] <= 90
+    ):
         raise HTTPException(400, "bbox out of range")
     return nums
 
@@ -265,10 +278,15 @@ async def _fetch_thumbnail_bytes(url: str) -> tuple[bytes, str]:
     cached = _THUMB_CACHE.get(url)
     if cached and (time.time() - cached[0]) < _THUMB_TTL:
         return cached[1], cached[2]
-    async with httpx.AsyncClient(timeout=20.0, headers=_UA, follow_redirects=True) as client:
+    async with httpx.AsyncClient(
+        timeout=20.0, headers=_UA, follow_redirects=True
+    ) as client:
         r = await client.get(url)
         r.raise_for_status()
-        ctype = r.headers.get("content-type", "image/jpeg").split(";")[0].strip() or "image/jpeg"
+        ctype = (
+            r.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+            or "image/jpeg"
+        )
         blob = r.content
         if len(blob) > 8_000_000:
             raise HTTPException(413, "thumbnail too large")
@@ -333,8 +351,18 @@ _REGION_TAG_PRESETS: dict[str, dict[str, str]] = {
 
 # Keys inside feed_cache JSON payloads that may hold geolocated rows.
 _GEO_LIST_KEYS = (
-    "vessels", "events", "quakes", "volcanoes", "aircraft", "nodes",
-    "cities", "items", "alerts", "features", "hotspots", "datasets",
+    "vessels",
+    "events",
+    "quakes",
+    "volcanoes",
+    "aircraft",
+    "nodes",
+    "cities",
+    "items",
+    "alerts",
+    "features",
+    "hotspots",
+    "datasets",
 )
 
 
@@ -351,13 +379,15 @@ def _bbox_to_polygon(bbox: list[float]) -> dict[str, Any]:
     minx, miny, maxx, maxy = bbox
     return {
         "type": "Polygon",
-        "coordinates": [[
-            [minx, miny],
-            [maxx, miny],
-            [maxx, maxy],
-            [minx, maxy],
-            [minx, miny],
-        ]],
+        "coordinates": [
+            [
+                [minx, miny],
+                [maxx, miny],
+                [maxx, maxy],
+                [minx, maxy],
+                [minx, miny],
+            ]
+        ],
     }
 
 
@@ -399,7 +429,9 @@ def _connector_bbox(spec) -> list[float] | None:
     return _union_bbox(bboxes)
 
 
-def _extract_payload_centroid(payload: dict[str, Any] | None) -> tuple[float, float] | None:
+def _extract_payload_centroid(
+    payload: dict[str, Any] | None,
+) -> tuple[float, float] | None:
     """Best-effort centroid from a cached feed JSON payload."""
     if not payload or not isinstance(payload, dict):
         return None
@@ -469,12 +501,14 @@ def _connector_registry_links(spec) -> list[dict[str, Any]]:
             for cid in spec.credential_ids:
                 provider = PROVIDERS.get(cid)
                 if provider and provider.docs_url:
-                    links.append({
-                        "rel": "license",
-                        "href": provider.docs_url,
-                        "type": "text/html",
-                        "title": provider.name,
-                    })
+                    links.append(
+                        {
+                            "rel": "license",
+                            "href": provider.docs_url,
+                            "type": "text/html",
+                            "title": provider.name,
+                        }
+                    )
         except Exception:
             pass
     return links
@@ -542,9 +576,22 @@ def _feed_stac_item(
             "worldbase:operator_region": _OPERATOR_REGION,
         },
         "links": [
-            {"rel": "self", "href": f"{_SELF}/api/stac/feeds/items/{spec.id}", "type": "application/geo+json"},
-            {"rel": "collection", "href": f"{_SELF}/api/stac/feeds/collection", "type": "application/json"},
-            {"rel": "via", "href": f"{_SELF}{endpoint}", "type": "application/json", "title": "Live feed JSON"},
+            {
+                "rel": "self",
+                "href": f"{_SELF}/api/stac/feeds/items/{spec.id}",
+                "type": "application/geo+json",
+            },
+            {
+                "rel": "collection",
+                "href": f"{_SELF}/api/stac/feeds/collection",
+                "type": "application/json",
+            },
+            {
+                "rel": "via",
+                "href": f"{_SELF}{endpoint}",
+                "type": "application/json",
+                "title": "Live feed JSON",
+            },
             *_connector_registry_links(spec),
         ],
         "assets": {
@@ -595,8 +642,16 @@ def build_feed_stac_items(*, connector_id: str | None = None) -> dict[str, Any]:
         "numberReturned": len(items),
         "features": items,
         "links": [
-            {"rel": "self", "href": f"{_SELF}/api/stac/feeds/items", "type": "application/geo+json"},
-            {"rel": "collection", "href": f"{_SELF}/api/stac/feeds/collection", "type": "application/json"},
+            {
+                "rel": "self",
+                "href": f"{_SELF}/api/stac/feeds/items",
+                "type": "application/geo+json",
+            },
+            {
+                "rel": "collection",
+                "href": f"{_SELF}/api/stac/feeds/collection",
+                "type": "application/json",
+            },
         ],
     }
 
@@ -617,15 +672,29 @@ def stac_feeds_collection():
             "temporal": {"interval": [[None, now]]},
         },
         "links": [
-            {"rel": "self", "href": f"{_SELF}/api/stac/feeds/collection", "type": "application/json"},
-            {"rel": "items", "href": f"{_SELF}/api/stac/feeds/items", "type": "application/geo+json"},
-            {"rel": "root", "href": f"{_SELF}/api/stac/collections", "type": "application/json"},
+            {
+                "rel": "self",
+                "href": f"{_SELF}/api/stac/feeds/collection",
+                "type": "application/json",
+            },
+            {
+                "rel": "items",
+                "href": f"{_SELF}/api/stac/feeds/items",
+                "type": "application/geo+json",
+            },
+            {
+                "rel": "root",
+                "href": f"{_SELF}/api/stac/collections",
+                "type": "application/json",
+            },
         ],
     }
 
 
 @router.get("/feeds/items")
-def stac_feeds_items(connector_id: str | None = Query(None, description="Filter to one connector id")):
+def stac_feeds_items(
+    connector_id: str | None = Query(None, description="Filter to one connector id"),
+):
     """STAC ItemCollection for connector feeds that use feed_cache."""
     return build_feed_stac_items(connector_id=connector_id)
 

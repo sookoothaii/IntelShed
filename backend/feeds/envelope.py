@@ -12,25 +12,29 @@ from datetime import datetime, timezone
 from typing import Any
 
 # Fields /api/health extracts from feed_cache JSON (see main.py health builder).
-HEALTH_META_KEYS = frozenset({
-    "count",
-    "source",
-    "sources",
-    "updated",
-    "error",
-    "stale",
-    "demo_mode",
-    "geocoded",
-})
+HEALTH_META_KEYS = frozenset(
+    {
+        "count",
+        "source",
+        "sources",
+        "updated",
+        "error",
+        "stale",
+        "demo_mode",
+        "geocoded",
+    }
+)
 
 # Rows returned under /api/health → feeds[key]
-HEALTH_ROW_KEYS = frozenset({
-    "cached_at",
-    "age_sec",
-    "ttl_sec",
-    "fresh",
-    "status",
-})
+HEALTH_ROW_KEYS = frozenset(
+    {
+        "cached_at",
+        "age_sec",
+        "ttl_sec",
+        "fresh",
+        "status",
+    }
+)
 
 
 def extract_health_feed_meta(val: dict[str, Any]) -> dict[str, Any]:
@@ -91,10 +95,18 @@ def validate_feed_payload(payload: Any, *, endpoint: str = "") -> list[str]:
     if "stale" in payload and not isinstance(payload["stale"], bool):
         violations.append(f"{prefix}stale must be bool when present")
 
-    if "error" in payload and payload["error"] is not None and not isinstance(payload["error"], str):
+    if (
+        "error" in payload
+        and payload["error"] is not None
+        and not isinstance(payload["error"], str)
+    ):
         violations.append(f"{prefix}error must be str or null when present")
 
-    if "updated" in payload and payload["updated"] is not None and not isinstance(payload["updated"], str):
+    if (
+        "updated" in payload
+        and payload["updated"] is not None
+        and not isinstance(payload["updated"], str)
+    ):
         violations.append(f"{prefix}updated must be str when present")
 
     return violations
@@ -168,10 +180,20 @@ def validate_health_feed_row(row: Any, *, cache_key: str = "") -> list[str]:
         if key not in row:
             violations.append(f"{prefix}missing {key}")
 
-    if "fresh" in row and row["fresh"] is not None and not isinstance(row["fresh"], bool):
+    if (
+        "fresh" in row
+        and row["fresh"] is not None
+        and not isinstance(row["fresh"], bool)
+    ):
         violations.append(f"{prefix}fresh must be bool or null")
 
-    if "status" in row and row["status"] not in (None, "fresh", "warn", "stale", "unknown"):
+    if "status" in row and row["status"] not in (
+        None,
+        "fresh",
+        "warn",
+        "stale",
+        "unknown",
+    ):
         violations.append(f"{prefix}unexpected status {row['status']!r}")
 
     return violations

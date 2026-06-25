@@ -117,9 +117,14 @@ def _extract_metric(feed_key: str, data: dict) -> float | None:
     if feed_key == "gdacs_count":
         return float(data.get("count") or len(data.get("alerts") or []))
     if feed_key == "pegel_alerts":
-        return float(data.get("alerts") or sum(
-            1 for g in (data.get("gauges") or []) if g.get("severity") in ("high", "critical")
-        ))
+        return float(
+            data.get("alerts")
+            or sum(
+                1
+                for g in (data.get("gauges") or [])
+                if g.get("severity") in ("high", "critical")
+            )
+        )
     if feed_key == "hazard_count":
         return float(data.get("count") or len(data.get("alerts") or []))
     return None
@@ -176,13 +181,15 @@ async def scan_feeds() -> dict:
                     )
                     conn.commit()
 
-                results.append({
-                    "feed": feed_key,
-                    "value": value,
-                    "score": round(score, 4),
-                    "anomaly": is_anom,
-                    "samples": n + 1,
-                })
+                results.append(
+                    {
+                        "feed": feed_key,
+                        "value": value,
+                        "score": round(score, 4),
+                        "anomaly": is_anom,
+                        "samples": n + 1,
+                    }
+                )
             except Exception as e:
                 errors.append(f"{feed_key}: {e}")
 

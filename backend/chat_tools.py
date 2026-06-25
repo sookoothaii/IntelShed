@@ -99,7 +99,10 @@ OLLAMA_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Natural language search query"},
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language search query",
+                    },
                     "k": {"type": "integer", "description": "Max results (default 6)"},
                 },
                 "required": ["query"],
@@ -119,8 +122,14 @@ async def execute_tool(name: str, arguments: dict) -> dict[str, Any]:
         if result.get("lat") is not None:
             eid = entity_store.entity_id_for_pin("ip", ip)
             entity_store.upsert_entity(
-                eid, "osint_ip", label=f"IP {ip}", lat=result["lat"], lon=result["lon"],
-                source_feed="osint", external_id=ip, meta=result,
+                eid,
+                "osint_ip",
+                label=f"IP {ip}",
+                lat=result["lat"],
+                lon=result["lon"],
+                source_feed="osint",
+                external_id=ip,
+                meta=result,
             )
             result["entity_id"] = eid
         return {"tool": name, "result": result}
@@ -136,8 +145,15 @@ async def execute_tool(name: str, arguments: dict) -> dict[str, Any]:
 
     if name == "list_situations":
         from situations import unified_situations
+
         result = await unified_situations()
-        return {"tool": name, "result": {"count": result.get("count"), "items": (result.get("items") or [])[:20]}}
+        return {
+            "tool": name,
+            "result": {
+                "count": result.get("count"),
+                "items": (result.get("items") or [])[:20],
+            },
+        }
 
     if name == "entity_context":
         eid = str(args.get("entity_id", "")).strip()
@@ -157,12 +173,23 @@ async def execute_tool(name: str, arguments: dict) -> dict[str, Any]:
             "lines": lines,
             "kind": "ai_focus",
         }
-        return {"tool": name, "result": {"ok": True, "lat": lat, "lon": lon}, "client_action": client_action}
+        return {
+            "tool": name,
+            "result": {"ok": True, "lat": lat, "lon": lon},
+            "client_action": client_action,
+        }
 
     if name == "generate_briefing":
         import node_sync
+
         result = await node_sync.generate_briefing_internal()
-        return {"tool": name, "result": {"created_at": result.get("created_at"), "preview": (result.get("text") or "")[:500]}}
+        return {
+            "tool": name,
+            "result": {
+                "created_at": result.get("created_at"),
+                "preview": (result.get("text") or "")[:500],
+            },
+        }
 
     if name == "search_memory":
         import rag_memory
@@ -196,7 +223,9 @@ def parse_tool_arguments(raw: Any) -> dict:
     return {}
 
 
-def _ollama_chat_body(model: str, messages: list, *, stream: bool, with_tools: bool) -> dict:
+def _ollama_chat_body(
+    model: str, messages: list, *, stream: bool, with_tools: bool
+) -> dict:
     body: dict = {
         "model": model,
         "messages": messages,
@@ -252,11 +281,13 @@ async def stream_ollama_with_tools(
                         yield {"token": chunk}
 
             if tool_calls_final:
-                working.append({
-                    "role": "assistant",
-                    "content": content_final,
-                    "tool_calls": tool_calls_final,
-                })
+                working.append(
+                    {
+                        "role": "assistant",
+                        "content": content_final,
+                        "tool_calls": tool_calls_final,
+                    }
+                )
                 for tc in tool_calls_final:
                     fn = tc.get("function") or {}
                     tname = fn.get("name", "")
@@ -265,10 +296,14 @@ async def stream_ollama_with_tools(
                     out = await execute_tool(tname, targs)
                     if out.get("client_action"):
                         yield {"client_action": out["client_action"]}
-                    working.append({
-                        "role": "tool",
-                        "content": json.dumps(out.get("result", out), default=str)[:8000],
-                    })
+                    working.append(
+                        {
+                            "role": "tool",
+                            "content": json.dumps(out.get("result", out), default=str)[
+                                :8000
+                            ],
+                        }
+                    )
                 continue
 
             yield {"done": True}
@@ -312,12 +347,19 @@ async def run_ollama_with_tools(
                 out = await execute_tool(tname, targs)
                 if out.get("client_action"):
                     client_actions.append(out["client_action"])
-                working.append({
-                    "role": "tool",
-                    "content": json.dumps(out.get("result", out), default=str)[:8000],
-                })
+                working.append(
+                    {
+                        "role": "tool",
+                        "content": json.dumps(out.get("result", out), default=str)[
+                            :8000
+                        ],
+                    }
+                )
 
-    return ([{"role": "assistant", "content": "Tool loop limit reached."}], client_actions)
+    return (
+        [{"role": "assistant", "content": "Tool loop limit reached."}],
+        client_actions,
+    )
 
 
 # ----------------------------------------------------------------------
@@ -325,7 +367,10 @@ async def run_ollama_with_tools(
 # Reuses OLLAMA_TOOLS (already OpenAI function-calling schema) + execute_tool.
 # ----------------------------------------------------------------------
 
-def _openai_chat_body(model: str, messages: list, *, stream: bool, with_tools: bool) -> dict:
+
+def _openai_chat_body(
+    model: str, messages: list, *, stream: bool, with_tools: bool
+) -> dict:
     body: dict = {
         "model": model,
         "messages": messages,
@@ -356,11 +401,13 @@ def _ordered_tool_calls(acc: dict) -> list[dict]:
     out: list[dict] = []
     for i, key in enumerate(sorted(acc)):
         slot = acc[key]
-        out.append({
-            "id": slot["id"] or f"call_{i}",
-            "name": slot["name"],
-            "args": slot["args"] or "{}",
-        })
+        out.append(
+            {
+                "id": slot["id"] or f"call_{i}",
+                "name": slot["name"],
+                "args": slot["args"] or "{}",
+            }
+        )
     return out
 
 
@@ -414,29 +461,35 @@ async def stream_openai_with_tools(
 
             if acc:
                 ordered = _ordered_tool_calls(acc)
-                working.append({
-                    "role": "assistant",
-                    "content": content_final or None,
-                    "tool_calls": [
-                        {
-                            "id": c["id"],
-                            "type": "function",
-                            "function": {"name": c["name"], "arguments": c["args"]},
-                        }
-                        for c in ordered
-                    ],
-                })
+                working.append(
+                    {
+                        "role": "assistant",
+                        "content": content_final or None,
+                        "tool_calls": [
+                            {
+                                "id": c["id"],
+                                "type": "function",
+                                "function": {"name": c["name"], "arguments": c["args"]},
+                            }
+                            for c in ordered
+                        ],
+                    }
+                )
                 for c in ordered:
                     targs = parse_tool_arguments(c["args"])
                     yield {"status": "tool", "tool": c["name"]}
                     out = await execute_tool(c["name"], targs)
                     if out.get("client_action"):
                         yield {"client_action": out["client_action"]}
-                    working.append({
-                        "role": "tool",
-                        "tool_call_id": c["id"],
-                        "content": json.dumps(out.get("result", out), default=str)[:8000],
-                    })
+                    working.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": c["id"],
+                            "content": json.dumps(out.get("result", out), default=str)[
+                                :8000
+                            ],
+                        }
+                    )
                 continue
 
             yield {"done": True}
@@ -473,18 +526,30 @@ async def run_openai_with_tools(
             tool_calls = msg.get("tool_calls") or []
 
             if not tool_calls:
-                return ([{"role": "assistant", "content": msg.get("content") or ""}], client_actions)
+                return (
+                    [{"role": "assistant", "content": msg.get("content") or ""}],
+                    client_actions,
+                )
 
             working.append(msg)
             for tc in tool_calls:
                 fn = tc.get("function") or {}
-                out = await execute_tool(fn.get("name", ""), parse_tool_arguments(fn.get("arguments")))
+                out = await execute_tool(
+                    fn.get("name", ""), parse_tool_arguments(fn.get("arguments"))
+                )
                 if out.get("client_action"):
                     client_actions.append(out["client_action"])
-                working.append({
-                    "role": "tool",
-                    "tool_call_id": tc.get("id"),
-                    "content": json.dumps(out.get("result", out), default=str)[:8000],
-                })
+                working.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.get("id"),
+                        "content": json.dumps(out.get("result", out), default=str)[
+                            :8000
+                        ],
+                    }
+                )
 
-    return ([{"role": "assistant", "content": "Tool loop limit reached."}], client_actions)
+    return (
+        [{"role": "assistant", "content": "Tool loop limit reached."}],
+        client_actions,
+    )

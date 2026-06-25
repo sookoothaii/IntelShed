@@ -91,11 +91,15 @@ def upsert_entity(
             ),
         )
         conn.commit()
-    _mirror_entity(entity_id, entity_type, label, lat, lon, source_feed, external_id, meta)
+    _mirror_entity(
+        entity_id, entity_type, label, lat, lon, source_feed, external_id, meta
+    )
     return entity_id
 
 
-def _mirror_entity(entity_id, entity_type, label, lat, lon, source_feed, external_id, meta):
+def _mirror_entity(
+    entity_id, entity_type, label, lat, lon, source_feed, external_id, meta
+):
     """Dual-write into the FtM canonical store (best-effort, never raises)."""
     try:
         import ftm_store
@@ -128,14 +132,18 @@ def link_entities(from_id: str, to_id: str, relation: str, meta: dict | None = N
     try:
         import ftm_store
 
-        ftm_store.add_edge(from_id, to_id, relation, dataset="worldbase", properties=meta)
+        ftm_store.add_edge(
+            from_id, to_id, relation, dataset="worldbase", properties=meta
+        )
     except Exception:
         pass
 
 
 def get_entity(entity_id: str) -> dict | None:
     with _conn() as conn:
-        row = conn.execute("SELECT * FROM entities WHERE id = ?", (entity_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM entities WHERE id = ?", (entity_id,)
+        ).fetchone()
     if not row:
         return None
     return _row_entity(row)
@@ -158,12 +166,14 @@ def get_entity_context(entity_id: str) -> dict:
         other = r["to_id"] if r["from_id"] == entity_id else r["from_id"]
         if other != entity_id:
             related_ids.add(other)
-        links.append({
-            "from_id": r["from_id"],
-            "to_id": r["to_id"],
-            "relation": r["relation"],
-            "meta": json.loads(r["meta_json"] or "{}"),
-        })
+        links.append(
+            {
+                "from_id": r["from_id"],
+                "to_id": r["to_id"],
+                "relation": r["relation"],
+                "meta": json.loads(r["meta_json"] or "{}"),
+            }
+        )
 
     related = []
     for rid in related_ids:

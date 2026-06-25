@@ -9,3 +9,6 @@ mypy>=1.11.0
 
 # Test runner (also used by CI)
 pytest>=8.3.0
+
+# Git pre-commit hooks (cross-platform)
+pre-commit>=3.8.0

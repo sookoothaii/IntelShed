@@ -157,7 +157,11 @@ class FeedDriftTests(unittest.TestCase):
         with fd._conn() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO feed_cache (key, value, cached_at) VALUES (?, ?, ?)",
-                ("gdacs_v3", json.dumps({"count": 5, "error": "timeout"}), now.isoformat()),
+                (
+                    "gdacs_v3",
+                    json.dumps({"count": 5, "error": "timeout"}),
+                    now.isoformat(),
+                ),
             )
             conn.commit()
         # stale by age

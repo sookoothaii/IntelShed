@@ -56,18 +56,20 @@ async def holocene_volcanoes(active_only: bool = False, limit: int = 400):
         is_active = (last_y is not None and last_y >= 2020) or "observed" in evidence
         if active_only and not is_active:
             continue
-        volcanoes.append({
-            "name": p.get("Volcano_Name"),
-            "number": p.get("Volcano_Number"),
-            "country": p.get("Country"),
-            "type": p.get("Primary_Volcano_Type"),
-            "last_eruption": last_y,
-            "elevation_m": p.get("Elevation"),
-            "evidence": p.get("Evidence_Category"),
-            "active": is_active,
-            "lat": float(lat),
-            "lon": float(lon),
-        })
+        volcanoes.append(
+            {
+                "name": p.get("Volcano_Name"),
+                "number": p.get("Volcano_Number"),
+                "country": p.get("Country"),
+                "type": p.get("Primary_Volcano_Type"),
+                "last_eruption": last_y,
+                "elevation_m": p.get("Elevation"),
+                "evidence": p.get("Evidence_Category"),
+                "active": is_active,
+                "lat": float(lat),
+                "lon": float(lon),
+            }
+        )
 
     out = {
         "count": len(volcanoes),

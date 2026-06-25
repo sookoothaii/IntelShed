@@ -49,9 +49,15 @@ def log_security_startup() -> None:
         log.info("security_node_token_set")
 
     if not api_key and not ingest and not dev_mode:
-        log.warning("security_no_auth", detail="No WORLDBASE_API_KEY or NODE_INGEST_TOKEN set. All endpoints unauthenticated. Set WORLDBASE_INSECURE_DEV=1 to acknowledge.")
+        log.warning(
+            "security_no_auth",
+            detail="No WORLDBASE_API_KEY or NODE_INGEST_TOKEN set. All endpoints unauthenticated. Set WORLDBASE_INSECURE_DEV=1 to acknowledge.",
+        )
     elif dev_mode and not api_key and not ingest:
-        log.warning("security_insecure_dev", detail="Running in INSECURE DEV MODE. All endpoints unauthenticated. Do NOT use in production.")
+        log.warning(
+            "security_insecure_dev",
+            detail="Running in INSECURE DEV MODE. All endpoints unauthenticated. Do NOT use in production.",
+        )
     else:
         if api_key:
             log.info("security_api_key_set")
@@ -59,4 +65,7 @@ def log_security_startup() -> None:
     if admin and admin != ingest:
         log.info("security_admin_token_separate")
     elif ingest and not admin:
-        log.info("security_admin_token_not_set", detail="NODE_ADMIN_TOKEN not set — admin endpoints fall back to NODE_INGEST_TOKEN. Set NODE_ADMIN_TOKEN separately for privilege separation.")
+        log.info(
+            "security_admin_token_not_set",
+            detail="NODE_ADMIN_TOKEN not set — admin endpoints fall back to NODE_INGEST_TOKEN. Set NODE_ADMIN_TOKEN separately for privilege separation.",
+        )

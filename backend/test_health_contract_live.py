@@ -62,7 +62,9 @@ class HealthContractLiveTests(unittest.TestCase):
                 # Upstream-down responses are fail-soft (count:0 + error) and
                 # still satisfy the envelope; only assert when not errored out.
                 violations = validate_feed_payload(payload, endpoint=path)
-                self.assertEqual(violations, [], msg=f"{path} envelope drift: {violations}")
+                self.assertEqual(
+                    violations, [], msg=f"{path} envelope drift: {violations}"
+                )
 
 
 if __name__ == "__main__":

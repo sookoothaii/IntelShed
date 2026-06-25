@@ -21,12 +21,34 @@ from auth.security import API_KEY, verify_api_key, verify_lan_auth
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
 # Globe layer keys (must match frontend GlobeLayers in Globe.tsx).
-GLOBE_LAYER_KEYS: frozenset[str] = frozenset({
-    "aircraft", "satellites", "orbits", "quakes", "events", "nodes", "military",
-    "spaceweather", "geopolitics", "wildfires", "lightning", "transit", "trafficCams",
-    "maritime", "gdacs", "hazards", "outages", "volcanoes", "airquality", "weather",
-    "pegel", "energy", "osint", "intelFt",
-})
+GLOBE_LAYER_KEYS: frozenset[str] = frozenset(
+    {
+        "aircraft",
+        "satellites",
+        "orbits",
+        "quakes",
+        "events",
+        "nodes",
+        "military",
+        "spaceweather",
+        "geopolitics",
+        "wildfires",
+        "lightning",
+        "transit",
+        "trafficCams",
+        "maritime",
+        "gdacs",
+        "hazards",
+        "outages",
+        "volcanoes",
+        "airquality",
+        "weather",
+        "pegel",
+        "energy",
+        "osint",
+        "intelFt",
+    }
+)
 
 _subscribers: set[asyncio.Queue[str]] = set()
 _last_camera: dict[str, Any] | None = None
@@ -84,9 +106,14 @@ def _validate_publish(body: AgentPublishBody) -> None:
         layer = (body.layer or "").strip()
         if layer not in GLOBE_LAYER_KEYS:
             allowed = ", ".join(sorted(GLOBE_LAYER_KEYS))
-            raise HTTPException(status_code=422, detail=f"Unknown layer {layer!r}. Allowed: {allowed}")
+            raise HTTPException(
+                status_code=422, detail=f"Unknown layer {layer!r}. Allowed: {allowed}"
+            )
         return
-    raise HTTPException(status_code=422, detail=f"Unknown action {body.action!r}. Use fly_to or toggle_layer.")
+    raise HTTPException(
+        status_code=422,
+        detail=f"Unknown action {body.action!r}. Use fly_to or toggle_layer.",
+    )
 
 
 async def publish_action(body: AgentPublishBody) -> dict[str, Any]:
@@ -110,22 +137,28 @@ async def publish_fly_to(
     title: str | None = None,
     lines: list[str] | None = None,
 ) -> dict[str, Any]:
-    return await publish_action(AgentPublishBody(
-        action="fly_to",
-        lat=lat,
-        lon=lon,
-        height=height,
-        title=title or "Agent focus",
-        lines=lines or [],
-    ))
+    return await publish_action(
+        AgentPublishBody(
+            action="fly_to",
+            lat=lat,
+            lon=lon,
+            height=height,
+            title=title or "Agent focus",
+            lines=lines or [],
+        )
+    )
 
 
-async def publish_toggle_layer(*, layer: str, enabled: bool | None = None) -> dict[str, Any]:
-    return await publish_action(AgentPublishBody(
-        action="toggle_layer",
-        layer=layer.strip(),
-        enabled=enabled,
-    ))
+async def publish_toggle_layer(
+    *, layer: str, enabled: bool | None = None
+) -> dict[str, Any]:
+    return await publish_action(
+        AgentPublishBody(
+            action="toggle_layer",
+            layer=layer.strip(),
+            enabled=enabled,
+        )
+    )
 
 
 async def _broadcast(message: dict[str, Any]) -> int:
@@ -150,7 +183,9 @@ def _verify_stream_auth(request: Request, token: str | None = None) -> None:
         return
     if token == API_KEY:
         return
-    raise HTTPException(status_code=401, detail="Invalid or missing API key for Agent Bus stream")
+    raise HTTPException(
+        status_code=401, detail="Invalid or missing API key for Agent Bus stream"
+    )
 
 
 @router.get("/status")

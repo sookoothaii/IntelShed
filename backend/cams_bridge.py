@@ -115,7 +115,9 @@ async def fetch_haze_data() -> dict:
     return out
 
 
-def _wrap_haze_payload(raw: dict, *, stale: bool = False, error: str | None = None) -> dict:
+def _wrap_haze_payload(
+    raw: dict, *, stale: bool = False, error: str | None = None
+) -> dict:
     elevated = raw.get("elevated_count")
     if elevated is None and raw.get("cities"):
         elevated = sum(
@@ -150,7 +152,11 @@ async def get_haze(*, refresh: bool = False) -> dict:
             raw = await asyncio.wait_for(fetch_haze_data(), timeout=_FETCH_TIMEOUT + 4)
         except asyncio.TimeoutError:
             if stale_hit:
-                return _wrap_haze_payload(stale_hit, stale=True, error="upstream timeout — serving stale cache")
+                return _wrap_haze_payload(
+                    stale_hit,
+                    stale=True,
+                    error="upstream timeout — serving stale cache",
+                )
             return _CONNECTOR.build(
                 FeedEnvelope(count=0, error="upstream timeout"),
                 persist=False,

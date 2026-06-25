@@ -22,6 +22,7 @@ from pydantic import (
 # Sensor Models
 # =============================================================================
 
+
 class SensorData(BaseModel):
     """Environmental sensor readings from edge nodes.
 
@@ -89,8 +90,8 @@ class SensorData(BaseModel):
 class HealthData(BaseModel):
     """System health metrics from the edge node.
 
-    Monitors CPU temperature, memory usage, and disk utilization
-to ensure the Pi is operating within safe parameters.
+        Monitors CPU temperature, memory usage, and disk utilization
+    to ensure the Pi is operating within safe parameters.
     """
 
     model_config = ConfigDict(
@@ -166,16 +167,13 @@ to ensure the Pi is operating within safe parameters.
     @property
     def has_issues(self) -> bool:
         """Check if any health metric is in warning or critical state."""
-        return (
-            self.cpu_temp_c >= 55.0
-            or self.ram_pct >= 88.0
-            or self.disk_pct >= 85.0
-        )
+        return self.cpu_temp_c >= 55.0 or self.ram_pct >= 88.0 or self.disk_pct >= 85.0
 
 
 # =============================================================================
 # Network Models
 # =============================================================================
+
 
 class MeshNode(BaseModel):
     """A single node in the Meshtastic mesh network.
@@ -325,6 +323,7 @@ class PiholeStats(BaseModel):
 # Location Models
 # =============================================================================
 
+
 class GPSData(BaseModel):
     """GPS/GNSS positioning data.
 
@@ -336,7 +335,12 @@ class GPSData(BaseModel):
         json_schema_extra={
             "examples": [
                 {"lat": 52.5200, "lon": 13.4050, "altitude_m": 34.0, "accuracy_m": 5.2},
-                {"lat": -33.8688, "lon": 151.2093, "altitude_m": 58.5, "accuracy_m": 12.0},
+                {
+                    "lat": -33.8688,
+                    "lon": 151.2093,
+                    "altitude_m": 58.5,
+                    "accuracy_m": 12.0,
+                },
             ]
         },
     )
@@ -400,7 +404,9 @@ class GPSData(BaseModel):
 
     @computed_field(description="Approximate location accuracy quality")
     @property
-    def accuracy_quality(self) -> Literal["excellent", "good", "fair", "poor", "unknown"]:
+    def accuracy_quality(
+        self,
+    ) -> Literal["excellent", "good", "fair", "poor", "unknown"]:
         """Classify GPS accuracy quality based on HDOP."""
         if self.accuracy_m is None:
             return "unknown"
@@ -416,6 +422,7 @@ class GPSData(BaseModel):
 # =============================================================================
 # Ingestion Models
 # =============================================================================
+
 
 class NodeIngestPayload(BaseModel):
     """Main payload for node telemetry ingestion (Pi -> PC).
@@ -553,6 +560,7 @@ class NodeIngestPayload(BaseModel):
 # Response Models
 # =============================================================================
 
+
 class NodeBriefing(BaseModel):
     """Situation briefing returned to the node (PC -> Pi).
 
@@ -613,14 +621,14 @@ class NodeBriefing(BaseModel):
 
     @computed_field(description="Highest severity level among alerts")
     @property
-    def highest_severity(self) -> Optional[Literal["critical", "high", "medium", "low"]]:
+    def highest_severity(
+        self,
+    ) -> Optional[Literal["critical", "high", "medium", "low"]]:
         """Determine highest severity among active alerts."""
         if not self.alerts:
             return None
         severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-        min_severity = min(
-            self.alerts, key=lambda a: severity_order.get(a.severity, 9)
-        )
+        min_severity = min(self.alerts, key=lambda a: severity_order.get(a.severity, 9))
         return min_severity.severity
 
 
@@ -739,6 +747,7 @@ class NodeAlert(BaseModel):
 # Additional Response/Utility Models
 # =============================================================================
 
+
 class NodeStatus(BaseModel):
     """Node status response from list endpoints."""
 
@@ -803,7 +812,9 @@ class CommandPayload(BaseModel):
         },
     )
 
-    command: Literal["reboot", "shutdown", "restart_service", "update_config", "exec"] = Field(
+    command: Literal[
+        "reboot", "shutdown", "restart_service", "update_config", "exec"
+    ] = Field(
         ...,
         description="Command type to execute on the node",
         examples=["reboot", "restart_service"],

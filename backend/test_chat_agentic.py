@@ -147,12 +147,17 @@ class RunChatAgenticLoopTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(
                 chat_agentic_mod,
                 "_retrieve_augmented",
-                new=AsyncMock(return_value=("augmented block", {
-                    "phase": "retrieve",
-                    "route": "vector",
-                    "retrieved": 2,
-                    "errors": [],
-                })),
+                new=AsyncMock(
+                    return_value=(
+                        "augmented block",
+                        {
+                            "phase": "retrieve",
+                            "route": "vector",
+                            "retrieved": 2,
+                            "errors": [],
+                        },
+                    )
+                ),
             ):
                 block, trace = await run_chat_agentic_loop(
                     "what is happening in Bangkok?",
@@ -176,10 +181,13 @@ class RunChatAgenticLoopTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("corroboration", phases)
 
     async def test_max_rounds_respected(self):
-        with patch.dict(os.environ, {
-            "WORLDBASE_CHAT_AGENTIC": "1",
-            "WORLDBASE_CHAT_AGENTIC_MAX_ROUNDS": "1",
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "WORLDBASE_CHAT_AGENTIC": "1",
+                "WORLDBASE_CHAT_AGENTIC_MAX_ROUNDS": "1",
+            },
+        ):
             block, trace = await run_chat_agentic_loop("query", "short")
         self.assertLessEqual(trace.get("rounds"), 1)
         phases = [p.get("phase") for p in trace.get("phases") or []]
@@ -190,15 +198,17 @@ class RunChatAgenticLoopTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(
                 chat_agentic_mod,
                 "_retrieve_augmented",
-                new=AsyncMock(return_value=(
-                    "original\n\n=== AGENTIC RETRIEVAL (coverage gap fill) ===\n[gdelt] New finding",
-                    {
-                        "phase": "retrieve",
-                        "route": "vector",
-                        "retrieved": 1,
-                        "errors": [],
-                    },
-                )),
+                new=AsyncMock(
+                    return_value=(
+                        "original\n\n=== AGENTIC RETRIEVAL (coverage gap fill) ===\n[gdelt] New finding",
+                        {
+                            "phase": "retrieve",
+                            "route": "vector",
+                            "retrieved": 1,
+                            "errors": [],
+                        },
+                    )
+                ),
             ):
                 block, trace = await run_chat_agentic_loop("query", "short")
         self.assertIn("AGENTIC RETRIEVAL", block)
@@ -221,7 +231,9 @@ class RetrieveAugmentedTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=mock_result),
             ):
                 block, meta = await _retrieve_augmented(
-                    "what is happening", "original", ["block_too_short"],
+                    "what is happening",
+                    "original",
+                    ["block_too_short"],
                 )
         self.assertIn("New data found", block)
         self.assertEqual(meta["retrieved"], 1)
@@ -236,7 +248,9 @@ class RetrieveAugmentedTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(side_effect=Exception("network error")),
             ):
                 block, meta = await _retrieve_augmented(
-                    "query", "original", ["empty_block"],
+                    "query",
+                    "original",
+                    ["empty_block"],
                 )
         self.assertEqual(block, "original")
         self.assertTrue(len(meta["errors"]) > 0)
@@ -257,7 +271,9 @@ class RetrieveAugmentedTests(unittest.IsolatedAsyncioTestCase):
                 new=AsyncMock(return_value=mock_result),
             ):
                 block, meta = await _retrieve_augmented(
-                    "query", existing, ["block_too_short"],
+                    "query",
+                    existing,
+                    ["block_too_short"],
                 )
         self.assertIn("New finding", block)
         # Should not duplicate the existing line

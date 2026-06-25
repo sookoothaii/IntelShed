@@ -38,7 +38,9 @@ def max_distance_km() -> float:
 
 def max_entities() -> int:
     try:
-        return max(10, min(200, int(os.getenv("WORLDBASE_INTEL_SPATIAL_MAX_ENTITIES", "80"))))
+        return max(
+            10, min(200, int(os.getenv("WORLDBASE_INTEL_SPATIAL_MAX_ENTITIES", "80")))
+        )
     except ValueError:
         return 80
 
@@ -65,7 +67,9 @@ def _fetch_geolocated_entities(
     exclude_schemas: set[str],
 ) -> list[dict[str, Any]]:
     west, south, east, north = bbox
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))).isoformat()
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))
+    ).isoformat()
     clauses = [
         "e.lat IS NOT NULL",
         "e.lon IS NOT NULL",
@@ -113,7 +117,11 @@ def link_proximity_edges(
     from intel_subgraph import _exclude_schemas, operator_bbox
 
     if not ftm_store.init_store():
-        return {"ok": False, "edges_added": 0, "error": ftm_store.store_status().get("error")}
+        return {
+            "ok": False,
+            "edges_added": 0,
+            "error": ftm_store.store_status().get("error"),
+        }
 
     target_bbox = list(bbox) if bbox else operator_bbox(region)
     limit_km = max_km if max_km is not None else max_distance_km()
@@ -179,7 +187,9 @@ async def spatial_status():
         "dataset": DATASET,
         "max_km": max_distance_km(),
         "max_entities": max_entities(),
-        "edges": ftm_store.count_edges_for_dataset(DATASET) if ftm_store.init_store() else 0,
+        "edges": ftm_store.count_edges_for_dataset(DATASET)
+        if ftm_store.init_store()
+        else 0,
     }
 
 

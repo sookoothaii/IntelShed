@@ -40,6 +40,7 @@ _LEGACY_SCHEMA = {
 # OpenSanctions adapter (targets.simple.csv -> FtM). Explicit / bounded only.
 # ---------------------------------------------------------------------------
 
+
 def _sanctions_csv_path() -> str:
     base = os.getenv("WORLDBASE_SANCTIONS_DIR") or os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "sanctions"
@@ -88,8 +89,9 @@ def ftm_from_sanctions_row(row: dict):
     return _proxy_with_id(rid, schema, props)
 
 
-def import_sanctions_csv(limit: int = 5000, schema_filter: str | None = None,
-                         csv_path: str | None = None) -> dict:
+def import_sanctions_csv(
+    limit: int = 5000, schema_filter: str | None = None, csv_path: str | None = None
+) -> dict:
     from ftm_connection import _LOCK
 
     path = csv_path or _sanctions_csv_path()
@@ -106,9 +108,17 @@ def import_sanctions_csv(limit: int = 5000, schema_filter: str | None = None,
             if proxy is None:
                 skipped += 1
                 continue
-            upsert(proxy, dataset="opensanctions", seen_at=(raw.get("last_seen") or None))
+            upsert(
+                proxy, dataset="opensanctions", seen_at=(raw.get("last_seen") or None)
+            )
             imported += 1
             if limit and imported >= limit:
                 break
-    return {"ok": True, "imported": imported, "skipped": skipped,
-            "limit": limit, "schema": schema_filter, "dataset": "opensanctions"}
+    return {
+        "ok": True,
+        "imported": imported,
+        "skipped": skipped,
+        "limit": limit,
+        "schema": schema_filter,
+        "dataset": "opensanctions",
+    }

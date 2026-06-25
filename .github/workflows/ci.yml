@@ -87,6 +87,18 @@ jobs:
       - name: MyPy type check
         run: mypy --ignore-missing-imports --explicit-package-bases .
 
+  pre-commit:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pre-commit
+      - name: Run pre-commit
+        run: pre-commit run --all-files
+
   backend-tests:
     name: Backend (unit tests)
     runs-on: ubuntu-latest

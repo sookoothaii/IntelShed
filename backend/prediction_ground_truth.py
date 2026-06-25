@@ -228,7 +228,10 @@ GROUND_TRUTH_CASES: tuple[GroundTruthCase, ...] = (
         None,
         {
             "maritime": {
-                "vessels": [{"region": r} for r in ("malacca", "laem_chabang", "bangkok_port")] * 5
+                "vessels": [
+                    {"region": r} for r in ("malacca", "laem_chabang", "bangkok_port")
+                ]
+                * 5
             }
         },
         None,
@@ -294,7 +297,9 @@ async def run_live_pilot(*, force_snapshot: bool = False) -> dict[str, Any]:
     snap = await node_sync.warm_snapshot_cache(force=force_snapshot)
     fusion_cells: list[dict] = []
     try:
-        grid = await fusion_heatmap.fusion_heatmap(cell_deg=2.0, top=60, include_geojson=0)
+        grid = await fusion_heatmap.fusion_heatmap(
+            cell_deg=2.0, top=60, include_geojson=0
+        )
         fusion_cells = list(grid.get("cells") or [])
     except Exception:
         fusion_cells = []
@@ -341,11 +346,15 @@ def _print_report(report: dict[str, Any]) -> None:
         print("  recent outcomes:")
         for row in recent[:5]:
             hit = "HIT" if row.get("hit") else "MISS"
-            print(f"    [{hit}] {row.get('prefix')} — {(row.get('outcome') or '')[:70]}")
+            print(
+                f"    [{hit}] {row.get('prefix')} — {(row.get('outcome') or '')[:70]}"
+            )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Prediction ledger ground-truth pilot (B-03)")
+    parser = argparse.ArgumentParser(
+        description="Prediction ledger ground-truth pilot (B-03)"
+    )
     parser.add_argument(
         "--fixtures",
         action="store_true",
@@ -361,7 +370,9 @@ def main() -> None:
         action="store_true",
         help="Refresh feed snapshot before live resolve",
     )
-    parser.add_argument("--json", action="store_true", help="Print JSON instead of text")
+    parser.add_argument(
+        "--json", action="store_true", help="Print JSON instead of text"
+    )
     args = parser.parse_args()
 
     if args.live:

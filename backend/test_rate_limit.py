@@ -8,7 +8,9 @@ from middleware import rate_limit as rl
 
 class RateLimitBackendTests(unittest.TestCase):
     def test_memory_backend_uses_key_prefix_and_fallback(self):
-        with patch.object(rl, "RATE_LIMIT_STORAGE", "memory"), patch.object(rl, "REDIS_URL", None):
+        with patch.object(rl, "RATE_LIMIT_STORAGE", "memory"), patch.object(
+            rl, "REDIS_URL", None
+        ):
             limiter = rl.create_limiter()
         self.assertEqual(limiter._key_prefix, "worldbase:ratelimit:")
         self.assertTrue(limiter._in_memory_fallback_enabled)

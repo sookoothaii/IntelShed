@@ -78,7 +78,9 @@ def _cache_set(key: str, val: dict) -> None:
     _CACHE[key] = (time.time(), val)
 
 
-def _wind_from_uv(u: float | None, v: float | None) -> tuple[float | None, float | None]:
+def _wind_from_uv(
+    u: float | None, v: float | None
+) -> tuple[float | None, float | None]:
     if u is None or v is None:
         return None, None
     speed = math.sqrt(u * u + v * v)
@@ -101,7 +103,9 @@ def _normalize_point(lat: float, lon: float, data: dict, model: str) -> dict:
 
     temp_c = round(temp_k - 273.15, 1) if temp_k is not None else None
     precip_mm = round(float(precip_m) * 1000.0, 2) if precip_m is not None else None
-    pressure_hpa = round(float(pressure_pa) / 100.0, 1) if pressure_pa is not None else None
+    pressure_hpa = (
+        round(float(pressure_pa) / 100.0, 1) if pressure_pa is not None else None
+    )
 
     hourly = []
     temps = data.get("temp-surface") or []
@@ -109,13 +113,17 @@ def _normalize_point(lat: float, lon: float, data: dict, model: str) -> dict:
     vs = data.get("wind_v-surface") or []
     for i, t in enumerate(ts[:24]):
         tk = temps[i] if i < len(temps) else None
-        sp, dg = _wind_from_uv(us[i] if i < len(us) else None, vs[i] if i < len(vs) else None)
-        hourly.append({
-            "time": _ts_to_iso(t),
-            "temperature_c": round(tk - 273.15, 1) if tk is not None else None,
-            "wind_speed_ms": sp,
-            "wind_direction_deg": dg,
-        })
+        sp, dg = _wind_from_uv(
+            us[i] if i < len(us) else None, vs[i] if i < len(vs) else None
+        )
+        hourly.append(
+            {
+                "time": _ts_to_iso(t),
+                "temperature_c": round(tk - 273.15, 1) if tk is not None else None,
+                "wind_speed_ms": sp,
+                "wind_direction_deg": dg,
+            }
+        )
 
     return {
         "lat": lat,
@@ -202,19 +210,29 @@ async def fetch_open_meteo_point(lat: float, lon: float) -> dict:
             r.raise_for_status()
             data = r.json()
     except Exception as e:
-        return {"lat": lat, "lon": lon, "source": "open-meteo", "current": {}, "error": str(e)}
+        return {
+            "lat": lat,
+            "lon": lon,
+            "source": "open-meteo",
+            "current": {},
+            "error": str(e),
+        }
 
     cur = data.get("current") or {}
     hourly_raw = data.get("hourly") or {}
     hourly = []
     ht = hourly_raw.get("time") or []
     for i, t in enumerate(ht[:24]):
-        hourly.append({
-            "time": t,
-            "temperature_c": (hourly_raw.get("temperature_2m") or [None])[i],
-            "wind_speed_ms": (hourly_raw.get("wind_speed_10m") or [None])[i],
-            "precip_prob_pct": (hourly_raw.get("precipitation_probability") or [None])[i],
-        })
+        hourly.append(
+            {
+                "time": t,
+                "temperature_c": (hourly_raw.get("temperature_2m") or [None])[i],
+                "wind_speed_ms": (hourly_raw.get("wind_speed_10m") or [None])[i],
+                "precip_prob_pct": (
+                    hourly_raw.get("precipitation_probability") or [None]
+                )[i],
+            }
+        )
 
     out = {
         "lat": lat,
@@ -239,7 +257,9 @@ async def fetch_open_meteo_point(lat: float, lon: float) -> dict:
     return out
 
 
-async def fetch_point_weather(lat: float, lon: float, *, model: str | None = None) -> dict:
+async def fetch_point_weather(
+    lat: float, lon: float, *, model: str | None = None
+) -> dict:
     windy = await fetch_windy_point(lat, lon, model=model)
     if windy and windy.get("current", {}).get("temperature_c") is not None:
         return windy
@@ -249,7 +269,9 @@ async def fetch_point_weather(lat: float, lon: float, *, model: str | None = Non
     return fallback
 
 
-def _grid_points(west: float, south: float, east: float, north: float, step: float) -> list[tuple[float, float]]:
+def _grid_points(
+    west: float, south: float, east: float, north: float, step: float
+) -> list[tuple[float, float]]:
     pts: list[tuple[float, float]] = []
     lat = south
     while lat <= north + 1e-9:
@@ -288,7 +310,9 @@ async def windy_point(
 ):
     out = await fetch_point_weather(lat, lon, model=model or None)
     if not out.get("current"):
-        raise HTTPException(status_code=503, detail=out.get("error") or "Forecast unavailable")
+        raise HTTPException(
+            status_code=503, detail=out.get("error") or "Forecast unavailable"
+        )
     return out
 
 
@@ -303,12 +327,16 @@ async def windy_grid(
 ):
     """Sample grid of surface temp/wind for globe labels (max 36 points)."""
     if not _point_key():
-        raise HTTPException(status_code=503, detail="WINDY_POINT_API_KEY not configured")
+        raise HTTPException(
+            status_code=503, detail="WINDY_POINT_API_KEY not configured"
+        )
 
     if west is None and region in REGION_BBOX:
         west, south, east, north, step = REGION_BBOX[region]
     if west is None or south is None or east is None or north is None:
-        raise HTTPException(status_code=400, detail="Provide region or bbox (west,south,east,north)")
+        raise HTTPException(
+            status_code=400, detail="Provide region or bbox (west,south,east,north)"
+        )
     step = step or 2.5
 
     cache_key = f"grid:{region}:{west}:{south}:{east}:{north}:{step}"
@@ -340,7 +368,13 @@ async def windy_grid(
     cells = [c for c in results if c and c.get("temperature_c") is not None]
     out = {
         "region": region,
-        "bbox": {"west": west, "south": south, "east": east, "north": north, "step": step},
+        "bbox": {
+            "west": west,
+            "south": south,
+            "east": east,
+            "north": north,
+            "step": step,
+        },
         "count": len(cells),
         "model": _default_model(),
         "cells": cells,

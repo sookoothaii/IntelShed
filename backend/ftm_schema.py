@@ -15,6 +15,7 @@ from ftm_connection import _is_invalidated_error
 # Schema
 # ---------------------------------------------------------------------------
 
+
 def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(
         """
@@ -68,6 +69,7 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
 # Edge indexes
 # ---------------------------------------------------------------------------
 
+
 def _ensure_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
     con.execute(
         """
@@ -85,6 +87,7 @@ def _drop_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 # Entity schema index (DuckDB 1.5.x index drift workaround)
 # ---------------------------------------------------------------------------
+
 
 def _drop_entity_schema_index(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("DROP INDEX IF EXISTS idx_entities_schema")

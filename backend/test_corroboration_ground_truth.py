@@ -15,7 +15,9 @@ class CorroborationGroundTruthTests(unittest.TestCase):
         self.assertEqual(report["accuracy"], 1.0)
 
     def test_quake_gdacs_case(self):
-        case = next(c for c in cg.GROUND_TRUTH_CASES if c.case_id == "gt-quake-gdacs-dual")
+        case = next(
+            c for c in cg.GROUND_TRUTH_CASES if c.case_id == "gt-quake-gdacs-dual"
+        )
         row = cg.evaluate_case(case)
         self.assertTrue(row["ok"])
         self.assertGreaterEqual(row["corroboration"], 0.8)

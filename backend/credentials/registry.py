@@ -110,7 +110,9 @@ def providers_status(*, category: str | None = None) -> dict[str, Any]:
     return {
         "time": datetime.now(timezone.utc).isoformat(),
         "usage_policy_default": "private_research",
-        "operator_region": os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower(),
+        "operator_region": os.getenv("WORLDBASE_OPERATOR_REGION", "thailand")
+        .strip()
+        .lower(),
         "count": len(items),
         "configured": configured_n,
         "optional_total": optional_n,

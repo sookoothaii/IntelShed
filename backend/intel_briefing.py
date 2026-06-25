@@ -61,7 +61,9 @@ def briefing_intel_enabled() -> bool:
 
 
 def _exclude_schemas() -> set[str]:
-    raw = os.getenv("WORLDBASE_BRIEFING_INTEL_EXCLUDE_SCHEMAS", ",".join(_DEFAULT_EXCLUDE))
+    raw = os.getenv(
+        "WORLDBASE_BRIEFING_INTEL_EXCLUDE_SCHEMAS", ",".join(_DEFAULT_EXCLUDE)
+    )
     return {s.strip() for s in raw.split(",") if s.strip()}
 
 
@@ -117,8 +119,7 @@ def format_entity_line(entity: dict) -> str:
     links = entity.get("same_as") or []
     if links:
         linked = ", ".join(
-            f"{n.get('caption', '?')} ({n.get('schema', '?')})"
-            for n in links[:2]
+            f"{n.get('caption', '?')} ({n.get('schema', '?')})" for n in links[:2]
         )
         parts.append(f"linked: {linked}")
     return " — ".join(parts)
@@ -164,30 +165,34 @@ def entities_to_digest_items(
 
         primary = _primary_dataset(entity.get("datasets") or [])
         body, iso = apply_observed_at(line_text, entity.get("last_seen"))
-        items.append({
-            "severity": _entity_severity(entity),
-            "text": body,
-            "bucket": bucket,
-            "source": "ftm",
-            "sources": ["ftm", primary],
-            "entity_id": entity.get("id"),
-            "schema": entity.get("schema"),
-            "datasets": entity.get("datasets") or [],
-            "observed_at": iso,
-        })
+        items.append(
+            {
+                "severity": _entity_severity(entity),
+                "text": body,
+                "bucket": bucket,
+                "source": "ftm",
+                "sources": ["ftm", primary],
+                "entity_id": entity.get("id"),
+                "schema": entity.get("schema"),
+                "datasets": entity.get("datasets") or [],
+                "observed_at": iso,
+            }
+        )
         bucket_counts[bucket] = bucket_counts.get(bucket, 0) + 1
         if caption_key:
             seen_captions.add(caption_key)
-        slim.append({
-            "id": entity.get("id"),
-            "schema": entity.get("schema"),
-            "caption": entity.get("caption"),
-            "bucket": bucket,
-            "lat": lat,
-            "lon": lon,
-            "datasets": entity.get("datasets") or [],
-            "same_as_count": len(entity.get("same_as") or []),
-        })
+        slim.append(
+            {
+                "id": entity.get("id"),
+                "schema": entity.get("schema"),
+                "caption": entity.get("caption"),
+                "bucket": bucket,
+                "lat": lat,
+                "lon": lon,
+                "datasets": entity.get("datasets") or [],
+                "same_as_count": len(entity.get("same_as") or []),
+            }
+        )
 
     meta = {
         "enabled": True,
@@ -252,12 +257,21 @@ def finalize_intel_for_digest(
 ) -> dict[str, Any]:
     """Rank/classify FtM candidates after feed items are known (dedup against feeds)."""
     if not intel_meta or not intel_meta.get("enabled"):
-        return {"enabled": False, "count": 0, "by_bucket": {}, "entities": [], "items": []}
+        return {
+            "enabled": False,
+            "count": 0,
+            "by_bucket": {},
+            "entities": [],
+            "items": [],
+        }
     if intel_meta.get("error"):
         return intel_meta
 
     candidates = intel_meta.get("candidates") or []
-    per_bucket = int(intel_meta.get("per_bucket") or _env_int("WORLDBASE_BRIEFING_INTEL_PER_BUCKET", 4))
+    per_bucket = int(
+        intel_meta.get("per_bucket")
+        or _env_int("WORLDBASE_BRIEFING_INTEL_PER_BUCKET", 4)
+    )
     items, slim = entities_to_digest_items(
         candidates,
         per_bucket=per_bucket,
@@ -308,7 +322,9 @@ def _format_flat_intel_block(intel_meta: dict[str, Any], lang: str = "en") -> st
     return "\n\n".join(parts)
 
 
-def intel_prompt_metrics(intel_meta: dict[str, Any] | None, lang: str = "en") -> dict[str, Any]:
+def intel_prompt_metrics(
+    intel_meta: dict[str, Any] | None, lang: str = "en"
+) -> dict[str, Any]:
     """Token proxy for flat vs subgraph intel blocks (Track 3+ Sprint 3)."""
     intel_meta = intel_meta or {}
     flat_block = _format_flat_intel_block(intel_meta, lang=lang)
@@ -319,10 +335,15 @@ def intel_prompt_metrics(intel_meta: dict[str, Any] | None, lang: str = "en") ->
         import intel_subgraph
 
         if intel_subgraph.subgraph_enabled() and briefing_intel_enabled():
-            window = int(intel_meta.get("window_hours") or _env_int("WORLDBASE_BRIEFING_INTEL_WINDOW_HOURS", 24))
+            window = int(
+                intel_meta.get("window_hours")
+                or _env_int("WORLDBASE_BRIEFING_INTEL_WINDOW_HOURS", 24)
+            )
             sg = intel_subgraph.build_subgraph(window_hours=window)
             if sg.get("available") and sg.get("nodes"):
-                subgraph_block = intel_subgraph.format_subgraph_prompt_block(sg, lang=lang)
+                subgraph_block = intel_subgraph.format_subgraph_prompt_block(
+                    sg, lang=lang
+                )
                 subgraph_available = True
                 mode = "subgraph"
     except Exception:
@@ -345,7 +366,10 @@ def format_intel_prompt_block(intel_meta: dict[str, Any], lang: str = "en") -> s
         try:
             import intel_subgraph
 
-            window = int(intel_meta.get("window_hours") or _env_int("WORLDBASE_BRIEFING_INTEL_WINDOW_HOURS", 24))
+            window = int(
+                intel_meta.get("window_hours")
+                or _env_int("WORLDBASE_BRIEFING_INTEL_WINDOW_HOURS", 24)
+            )
             sg = intel_subgraph.build_subgraph(window_hours=window)
             if sg.get("available") and sg.get("nodes"):
                 return intel_subgraph.format_subgraph_prompt_block(sg, lang=lang)

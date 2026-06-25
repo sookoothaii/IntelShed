@@ -33,8 +33,12 @@ class EntityResolutionTest(unittest.TestCase):
                 pass
 
     def test_exact_name_country_creates_same_as_edge(self):
-        p1 = ftm_store.make_entity("Person", ["a"], {"name": "Alice Example", "country": "th"})
-        p2 = ftm_store.make_entity("Person", ["b"], {"name": "alice example", "country": "TH"})
+        p1 = ftm_store.make_entity(
+            "Person", ["a"], {"name": "Alice Example", "country": "th"}
+        )
+        p2 = ftm_store.make_entity(
+            "Person", ["b"], {"name": "alice example", "country": "TH"}
+        )
         ftm_store.upsert(p1, dataset="feedA")
         ftm_store.upsert(p2, dataset="feedB")
         result = entity_resolution.run_resolution(schemas=("Person",))
@@ -65,8 +69,12 @@ class EntityResolutionTest(unittest.TestCase):
         self.assertIn("sameAs", {e["kind"] for e in g["edges"]})
 
     def test_multi_token_subset_links_org_variants(self):
-        o1 = ftm_store.make_entity("Organization", ["u1"], {"name": "University of Alaska"})
-        o2 = ftm_store.make_entity("Organization", ["u2"], {"name": "University of Alaska Fairbanks"})
+        o1 = ftm_store.make_entity(
+            "Organization", ["u1"], {"name": "University of Alaska"}
+        )
+        o2 = ftm_store.make_entity(
+            "Organization", ["u2"], {"name": "University of Alaska Fairbanks"}
+        )
         ftm_store.upsert(o1, dataset="docA")
         ftm_store.upsert(o2, dataset="docB")
         result = entity_resolution.run_resolution(schemas=("Organization",))
@@ -74,7 +82,9 @@ class EntityResolutionTest(unittest.TestCase):
 
     def test_generic_single_token_not_subset_matched(self):
         o1 = ftm_store.make_entity("Organization", ["g1"], {"name": "Authorities"})
-        o2 = ftm_store.make_entity("Organization", ["g2"], {"name": "Local Authorities"})
+        o2 = ftm_store.make_entity(
+            "Organization", ["g2"], {"name": "Local Authorities"}
+        )
         ftm_store.upsert(o1, dataset="docA")
         ftm_store.upsert(o2, dataset="docB")
         result = entity_resolution.run_resolution(schemas=("Organization",))
@@ -92,7 +102,9 @@ class EntityResolutionTest(unittest.TestCase):
         # "Jose Hernandez" shares only the 1st + last token of "Ricardo Jose
         # Moron Hernandez" (scattered, not contiguous) -> different people.
         p1 = ftm_store.make_entity("Person", ["h1"], {"name": "Jose Hernandez"})
-        p2 = ftm_store.make_entity("Person", ["h2"], {"name": "Ricardo Jose Moron Hernandez"})
+        p2 = ftm_store.make_entity(
+            "Person", ["h2"], {"name": "Ricardo Jose Moron Hernandez"}
+        )
         ftm_store.upsert(p1, dataset="sanA")
         ftm_store.upsert(p2, dataset="sanB")
         result = entity_resolution.run_resolution(schemas=("Person",))
@@ -104,7 +116,9 @@ class EntityResolutionTest(unittest.TestCase):
         # >= _EM_MIN_ROWS distinct persons with no country must run clean.
         n = entity_resolution._EM_MIN_ROWS + 5
         for i in range(n):
-            p = ftm_store.make_entity("Person", [f"u{i}"], {"name": f"Unique{i} Distinct{i}"})
+            p = ftm_store.make_entity(
+                "Person", [f"u{i}"], {"name": f"Unique{i} Distinct{i}"}
+            )
             ftm_store.upsert(p, dataset="bulk")
         prev = entity_resolution._SPLINK_ENABLED
         entity_resolution._SPLINK_ENABLED = True
@@ -116,7 +130,13 @@ class EntityResolutionTest(unittest.TestCase):
         self.assertEqual(result["errors"], [])
 
     def test_status_reports_resolution_dataset_count(self):
-        ftm_store.add_edge("a", "b", "sameAs", dataset=entity_resolution.RESOLUTION_DATASET, confidence=0.9)
+        ftm_store.add_edge(
+            "a",
+            "b",
+            "sameAs",
+            dataset=entity_resolution.RESOLUTION_DATASET,
+            confidence=0.9,
+        )
         st = entity_resolution.status()
         self.assertGreaterEqual(st["resolution_edges"], 1)
 

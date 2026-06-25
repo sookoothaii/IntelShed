@@ -5,11 +5,16 @@ import unittest
 from io import StringIO
 from logging import StreamHandler
 
-from structured_log import get_logger, StructuredLogger, JsonFormatter, _redact_value, _redact_dict
+from structured_log import (
+    get_logger,
+    StructuredLogger,
+    JsonFormatter,
+    _redact_value,
+    _redact_dict,
+)
 
 
 class TestStructuredLog(unittest.TestCase):
-
     def test_redact_sensitive_key(self):
         result = _redact_value("secret123", "api_key")
         self.assertEqual(result, "[REDACTED]")

@@ -35,7 +35,9 @@ _OPENAI_COMPATIBLE = frozenset({"openai", "groq", "openrouter"})
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
-def resolve_chat_options(payload: dict[str, Any], *, default_model: str) -> dict[str, Any]:
+def resolve_chat_options(
+    payload: dict[str, Any], *, default_model: str
+) -> dict[str, Any]:
     """Mirror /api/chat provider + tool flags (no I/O)."""
     provider = payload.get("provider", "ollama")
     model = payload.get("model", default_model)
@@ -63,7 +65,9 @@ def provider_supports_tools(provider: str) -> bool:
     return provider == "ollama" or provider in _OPENAI_COMPATIBLE
 
 
-def select_api_key(provider: str, api_keys: dict[str, Any] | None, env_key: str | None) -> str | None:
+def select_api_key(
+    provider: str, api_keys: dict[str, Any] | None, env_key: str | None
+) -> str | None:
     """Prefer a UI-supplied key for this provider, else the .env key.
 
     ``api_keys`` is an optional ``{provider: key}`` map from the request body so
@@ -115,7 +119,9 @@ def allowed_hosts_for_provider(provider: str, env_base: str | None) -> set[str]:
     return hosts
 
 
-def assert_safe_provider_base_url(provider: str, url: str, *, env_base: str | None = None) -> str:
+def assert_safe_provider_base_url(
+    provider: str, url: str, *, env_base: str | None = None
+) -> str:
     """Reject HUD-supplied base URLs that would SSRF or exfiltrate server keys."""
     u = normalize_base_url(url)
     parsed = urlparse(u)
@@ -173,6 +179,7 @@ def build_ollama_chat_body(
         options["temperature"] = 0.4
     try:
         from ollama_config import context_length_for
+
         ctx = context_length_for(model_name)
         if ctx is not None:
             options["num_ctx"] = ctx

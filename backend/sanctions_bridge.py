@@ -45,7 +45,10 @@ router = APIRouter(prefix="/api/sanctions", tags=["sanctions"])
 _SCREEN_CACHE: dict[str, tuple[float, dict]] = {}
 _SCREEN_TTL = 120.0
 
-_DATA_DIR = Path(os.getenv("WORLDBASE_SANCTIONS_DIR") or (Path(__file__).resolve().parent.parent / "data" / "sanctions"))
+_DATA_DIR = Path(
+    os.getenv("WORLDBASE_SANCTIONS_DIR")
+    or (Path(__file__).resolve().parent.parent / "data" / "sanctions")
+)
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 _CSV_PATH = _DATA_DIR / "targets.simple.csv"
 _META_PATH = _DATA_DIR / "targets.meta.json"
@@ -61,13 +64,20 @@ _REFRESH_INTERVAL = 24 * 3600
 
 _YENTE_URL = os.getenv("OPENSANCTIONS_YENTE_URL", "").rstrip("/")
 _API_KEY = os.getenv("OPENSANCTIONS_API_KEY", "")
-_API_URL = os.getenv("OPENSANCTIONS_API_URL", "https://api.opensanctions.org").rstrip("/")
+_API_URL = os.getenv("OPENSANCTIONS_API_URL", "https://api.opensanctions.org").rstrip(
+    "/"
+)
 
 _UA = {"User-Agent": "WorldBase/1.0 (sanctions screener; CC-BY default dataset)"}
 
 # In-memory index:
 #   {"by_name": {normalized: [row,...]}, "by_id_token": {identifier: row}, "rows": [...]}
-_INDEX: dict[str, Any] = {"by_name": {}, "by_id_token": {}, "rows": [], "loaded_at": 0.0}
+_INDEX: dict[str, Any] = {
+    "by_name": {},
+    "by_id_token": {},
+    "rows": [],
+    "loaded_at": 0.0,
+}
 _INDEX_LOCK = asyncio.Lock()
 
 
@@ -93,7 +103,13 @@ def _row_names(row: dict) -> list[str]:
 
 def _row_identifiers(row: dict) -> list[str]:
     out: list[str] = []
-    for field in ("identifiers", "registration_number", "tax_number", "imo_number", "mmsi"):
+    for field in (
+        "identifiers",
+        "registration_number",
+        "tax_number",
+        "imo_number",
+        "mmsi",
+    ):
         v = (row.get(field) or "").strip()
         if not v:
             continue
@@ -111,7 +127,9 @@ async def _download_csv() -> dict:
     """Download the OpenSanctions default targets CSV (best-effort)."""
     started = time.time()
     try:
-        async with httpx.AsyncClient(timeout=_DOWNLOAD_TIMEOUT, headers=_UA, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=_DOWNLOAD_TIMEOUT, headers=_UA, follow_redirects=True
+        ) as client:
             r = await client.get(_DEFAULT_CSV)
             r.raise_for_status()
             blob = r.content
@@ -186,20 +204,40 @@ async def _ensure_index(refresh: bool = False) -> dict:
     return _INDEX
 
 
-def _serialize_row(row: dict, score: float | None = None, reasons: list[str] | None = None) -> dict:
+def _serialize_row(
+    row: dict, score: float | None = None, reasons: list[str] | None = None
+) -> dict:
     out = {
         "entity_id": row.get("id"),
         "schema": row.get("schema"),
         "caption": row.get("name"),
-        "aliases": [a.strip() for a in re.split(r";\s*|\|\s*", row.get("aliases") or "") if a.strip()],
-        "countries": [c.strip() for c in re.split(r";\s*|,\s*", row.get("countries") or "") if c.strip()],
-        "topics": [t.strip() for t in re.split(r";\s*|,\s*", row.get("topics") or "") if t.strip()],
-        "datasets": [d.strip() for d in re.split(r";\s*|,\s*", row.get("datasets") or "") if d.strip()],
+        "aliases": [
+            a.strip()
+            for a in re.split(r";\s*|\|\s*", row.get("aliases") or "")
+            if a.strip()
+        ],
+        "countries": [
+            c.strip()
+            for c in re.split(r";\s*|,\s*", row.get("countries") or "")
+            if c.strip()
+        ],
+        "topics": [
+            t.strip()
+            for t in re.split(r";\s*|,\s*", row.get("topics") or "")
+            if t.strip()
+        ],
+        "datasets": [
+            d.strip()
+            for d in re.split(r";\s*|,\s*", row.get("datasets") or "")
+            if d.strip()
+        ],
         "sanctions": row.get("sanctions"),
         "identifiers": _row_identifiers(row),
         "first_seen": row.get("first_seen"),
         "last_seen": row.get("last_seen"),
-        "url": f"https://www.opensanctions.org/entities/{row.get('id', '')}/" if row.get("id") else None,
+        "url": f"https://www.opensanctions.org/entities/{row.get('id', '')}/"
+        if row.get("id")
+        else None,
     }
     if score is not None:
         out["score"] = round(float(score), 4)
@@ -222,7 +260,9 @@ def _fuzzy_score(query_norm: str, candidate_norm: str) -> float:
     if not inter:
         return 0.0
     jacc = len(inter) / len(qt | ct)
-    boost = 0.15 if query_norm in candidate_norm or candidate_norm in query_norm else 0.0
+    boost = (
+        0.15 if query_norm in candidate_norm or candidate_norm in query_norm else 0.0
+    )
     # Require that at least one significant token overlaps to keep precision
     if all(len(t) < 4 for t in inter):
         return min(0.55, jacc + boost)
@@ -308,8 +348,10 @@ async def sanctions_refresh(
     _auth: str | None = Depends(verify_lan_auth),
 ):
     """Trigger a (background) re-download of the default CSV."""
+
     async def _do():
         await _ensure_index(refresh=True)
+
     background_tasks.add_task(_do)
     return {"queued": True, "url": _DEFAULT_CSV}
 
@@ -317,7 +359,9 @@ async def sanctions_refresh(
 @router.get("/search")
 async def sanctions_search(
     q: str = Query(..., min_length=2, description="name, alias, IMO or MMSI"),
-    schema: str | None = Query(None, description="filter: Person, Company, Vessel, Organization, Address"),
+    schema: str | None = Query(
+        None, description="filter: Person, Company, Vessel, Organization, Address"
+    ),
     limit: int = Query(10, ge=1, le=50),
 ):
     """Local-first sanctions search. Falls back to yente if configured."""
@@ -334,9 +378,21 @@ async def sanctions_search(
         except Exception as e:
             # graceful fallback to local
             local = await _local_search(q, schema, limit)
-            return {"backend": "yente->local", "error": str(e), "query": q, "count": len(local), "results": local}
+            return {
+                "backend": "yente->local",
+                "error": str(e),
+                "query": q,
+                "count": len(local),
+                "results": local,
+            }
     results = await _local_search(q, schema, limit)
-    return {"backend": "local-csv", "query": q, "schema": schema, "count": len(results), "results": results}
+    return {
+        "backend": "local-csv",
+        "query": q,
+        "schema": schema,
+        "count": len(results),
+        "results": results,
+    }
 
 
 def _vessel_query_terms(vessel: dict) -> list[str]:
@@ -367,36 +423,42 @@ async def screen_vessels(vessels: list[dict], min_score: float = 0.75) -> list[d
             # Use the public router method which handles the Yente/Local fallback automatically
             search_res = await sanctions_search(q=term, schema="Vessel", limit=3)
             results = search_res.get("results") or []
-            
+
             best = None
             for r in results:
                 score = r.get("score", 0.0)
-                if score >= min_score and (best is None or score > best.get("score", 0.0)):
+                if score >= min_score and (
+                    best is None or score > best.get("score", 0.0)
+                ):
                     best = r
-                    
+
             if not best:
                 # also try without schema filter to catch Organization-shaped ship operators
                 search_res = await sanctions_search(q=term, schema=None, limit=3)
                 results = search_res.get("results") or []
                 for r in results:
                     score = r.get("score", 0.0)
-                    if score >= min_score and (best is None or score > best.get("score", 0.0)):
+                    if score >= min_score and (
+                        best is None or score > best.get("score", 0.0)
+                    ):
                         best = r
-                        
+
             if best:
-                hits.append({
-                    "vessel": {
-                        "mmsi": v.get("mmsi"),
-                        "name": v.get("name"),
-                        "flag": v.get("flag"),
-                        "type": v.get("type"),
-                        "lat": v.get("lat"),
-                        "lon": v.get("lon"),
-                        "destination": v.get("destination"),
-                    },
-                    "matched_term": term,
-                    "sanction": best,
-                })
+                hits.append(
+                    {
+                        "vessel": {
+                            "mmsi": v.get("mmsi"),
+                            "name": v.get("name"),
+                            "flag": v.get("flag"),
+                            "type": v.get("type"),
+                            "lat": v.get("lat"),
+                            "lon": v.get("lon"),
+                            "destination": v.get("destination"),
+                        },
+                        "matched_term": term,
+                        "sanction": best,
+                    }
+                )
                 break  # one hit per vessel is enough
     return hits
 

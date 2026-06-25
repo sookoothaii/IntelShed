@@ -41,7 +41,10 @@ _SNAPSHOT_CACHE_LOCK = asyncio.Lock()
 
 def _snapshot_cache_ttl_sec() -> float:
     try:
-        return max(30.0, min(300.0, float(os.getenv("WORLDBASE_SNAPSHOT_CACHE_SEC", "90") or "90")))
+        return max(
+            30.0,
+            min(300.0, float(os.getenv("WORLDBASE_SNAPSHOT_CACHE_SEC", "90") or "90")),
+        )
     except ValueError:
         return 90.0
 
@@ -119,6 +122,7 @@ async def _gather_snapshot_uncached() -> dict:
     )
 
     async with httpx.AsyncClient(timeout=45.0) as client:
+
         async def grab(name: str, path: str) -> tuple[str, dict | None]:
             try:
                 r = await client.get(f"{SELF_URL}{path}")
@@ -160,131 +164,166 @@ def _compile_alerts(snap: dict) -> list:
 
     sw = snap.get("spaceweather", {})
     if sw.get("kp_index") is not None and sw["kp_index"] >= 5:
-        alerts.append({
-            "severity": "high" if sw["kp_index"] >= 7 else "medium",
-            "kind": "space_weather",
-            "text": f"Geomagnetic {sw.get('scale','storm')} (Kp={sw['kp_index']}). "
-                    f"HF radio/GPS may degrade.",
-        })
+        alerts.append(
+            {
+                "severity": "high" if sw["kp_index"] >= 7 else "medium",
+                "kind": "space_weather",
+                "text": f"Geomagnetic {sw.get('scale','storm')} (Kp={sw['kp_index']}). "
+                f"HF radio/GPS may degrade.",
+            }
+        )
 
     try:
         import markets_bridge
+
         stress = markets_bridge.summarize_market_stress(
             snap.get("markets_crypto"), snap.get("markets_stocks")
         )
-        if stress and markets_bridge._LEVEL_ORDER.get(stress.get("overall_level"), 0) >= 2:
+        if (
+            stress
+            and markets_bridge._LEVEL_ORDER.get(stress.get("overall_level"), 0) >= 2
+        ):
             line = markets_bridge.format_market_stress_line(stress)
             if line:
-                alerts.append({
-                    "severity": markets_bridge.market_stress_severity(stress["overall_level"]),
-                    "kind": "market_stress",
-                    "text": line,
-                })
+                alerts.append(
+                    {
+                        "severity": markets_bridge.market_stress_severity(
+                            stress["overall_level"]
+                        ),
+                        "kind": "market_stress",
+                        "text": line,
+                    }
+                )
     except Exception:
         pass
 
     quakes = (snap.get("earthquakes", {}) or {}).get("earthquakes", [])
     big = sorted(
         [q for q in quakes if (q.get("mag") or 0) >= 5.5],
-        key=lambda q: q.get("mag") or 0, reverse=True,
+        key=lambda q: q.get("mag") or 0,
+        reverse=True,
     )[:5]
     for q in big:
-        alerts.append({
-            "severity": "high" if (q.get("mag") or 0) >= 6.5 else "medium",
-            "kind": "earthquake",
-            "text": f"M{q.get('mag')} earthquake — {q.get('place')}",
-            "lat": q.get("lat"), "lon": q.get("lon"),
-        })
+        alerts.append(
+            {
+                "severity": "high" if (q.get("mag") or 0) >= 6.5 else "medium",
+                "kind": "earthquake",
+                "text": f"M{q.get('mag')} earthquake — {q.get('place')}",
+                "lat": q.get("lat"),
+                "lon": q.get("lon"),
+            }
+        )
 
     events = (snap.get("events", {}) or {}).get("events", [])
     for ev in events[:6]:
-        alerts.append({
-            "severity": "low",
-            "kind": "natural_event",
-            "text": f"{ev.get('category')}: {ev.get('title')}",
-            "lat": ev.get("lat"), "lon": ev.get("lon"),
-        })
+        alerts.append(
+            {
+                "severity": "low",
+                "kind": "natural_event",
+                "text": f"{ev.get('category')}: {ev.get('title')}",
+                "lat": ev.get("lat"),
+                "lon": ev.get("lon"),
+            }
+        )
 
     mil = (snap.get("military", {}) or {}).get("count")
     if mil:
-        alerts.append({
-            "severity": "low",
-            "kind": "military_air",
-            "text": f"{mil} military/interesting aircraft currently tracked.",
-        })
+        alerts.append(
+            {
+                "severity": "low",
+                "kind": "military_air",
+                "text": f"{mil} military/interesting aircraft currently tracked.",
+            }
+        )
 
     gdacs_n = (snap.get("gdacs", {}) or {}).get("count") or 0
     if gdacs_n:
-        alerts.append({
-            "severity": "medium",
-            "kind": "gdacs",
-            "text": f"{gdacs_n} GDACS humanitarian alerts active.",
-        })
+        alerts.append(
+            {
+                "severity": "medium",
+                "kind": "gdacs",
+                "text": f"{gdacs_n} GDACS humanitarian alerts active.",
+            }
+        )
 
     haz_n = (snap.get("hazards", {}) or {}).get("count") or 0
     if haz_n:
         top = ((snap.get("hazards", {}) or {}).get("alerts") or [])[:3]
         sample = "; ".join((a.get("event") or "")[:50] for a in top if a.get("event"))
-        alerts.append({
-            "severity": "medium",
-            "kind": "weather_hazard",
-            "text": f"{haz_n} NWS/Meteoalarm alerts active. {sample}".strip(),
-        })
+        alerts.append(
+            {
+                "severity": "medium",
+                "kind": "weather_hazard",
+                "text": f"{haz_n} NWS/Meteoalarm alerts active. {sample}".strip(),
+            }
+        )
 
     for sig in (snap.get("river", {}) or {}).get("anomalies") or []:
-        alerts.append({
-            "severity": "high",
-            "kind": "feed_anomaly",
-            "text": f"River anomaly: {sig.get('feed')} value={sig.get('value')} score={sig.get('score')}",
-        })
+        alerts.append(
+            {
+                "severity": "high",
+                "kind": "feed_anomaly",
+                "text": f"River anomaly: {sig.get('feed')} value={sig.get('value')} score={sig.get('score')}",
+            }
+        )
 
     out_n = (snap.get("outages", {}) or {}).get("count") or 0
     if out_n:
         top = ((snap.get("outages", {}) or {}).get("items") or [])[:2]
         sample = "; ".join((i.get("title") or "")[:40] for i in top)
-        alerts.append({
-            "severity": "medium",
-            "kind": "internet_outage",
-            "text": f"{out_n} IODA/CF outage signals. {sample}".strip(),
-        })
+        alerts.append(
+            {
+                "severity": "medium",
+                "kind": "internet_outage",
+                "text": f"{out_n} IODA/CF outage signals. {sample}".strip(),
+            }
+        )
 
     act_v = (snap.get("volcanoes", {}) or {}).get("active_count") or 0
     if act_v:
-        alerts.append({
-            "severity": "low",
-            "kind": "volcano",
-            "text": f"{act_v} volcanoes with recent/observed activity (Smithsonian GVP).",
-        })
+        alerts.append(
+            {
+                "severity": "low",
+                "kind": "volcano",
+                "text": f"{act_v} volcanoes with recent/observed activity (Smithsonian GVP).",
+            }
+        )
 
     cve_items = (snap.get("cve", {}) or {}).get("vulnerabilities", [])[:5]
     for v in cve_items:
         sev = "high" if v.get("ransomware") == "Known" else "medium"
-        alerts.append({
-            "severity": sev,
-            "kind": "cve",
-            "text": f"KEV {v.get('cve_id')}: {v.get('vendor')} {v.get('product')}",
-        })
+        alerts.append(
+            {
+                "severity": sev,
+                "kind": "cve",
+                "text": f"KEV {v.get('cve_id')}: {v.get('vendor')} {v.get('product')}",
+            }
+        )
 
     nodes = (snap.get("nodes", {}) or {}).get("nodes", [])
     for n in nodes:
         disk = (n.get("health") or {}).get("disk_pct")
         if disk is not None and disk >= 85:
-            alerts.append({
-                "severity": "critical" if disk >= 92 else "warning",
-                "kind": "disk_space",
-                "text": f"{n.get('name', n.get('node_id'))}: root disk {disk}% full — run pi-disk-maintenance.sh on Pi",
-                "lat": n.get("lat"),
-                "lon": n.get("lon"),
-            })
+            alerts.append(
+                {
+                    "severity": "critical" if disk >= 92 else "warning",
+                    "kind": "disk_space",
+                    "text": f"{n.get('name', n.get('node_id'))}: root disk {disk}% full — run pi-disk-maintenance.sh on Pi",
+                    "lat": n.get("lat"),
+                    "lon": n.get("lon"),
+                }
+            )
     offline = [n for n in nodes if not n.get("online")]
     for n in offline[:2]:
-        alerts.append({
-            "severity": "medium",
-            "kind": "node_offline",
-            "text": f"Edge node {n.get('name', n.get('node_id'))} offline ({int(n.get('age_seconds') or 0)}s stale).",
-            "lat": n.get("lat"),
-            "lon": n.get("lon"),
-        })
+        alerts.append(
+            {
+                "severity": "medium",
+                "kind": "node_offline",
+                "text": f"Edge node {n.get('name', n.get('node_id'))} offline ({int(n.get('age_seconds') or 0)}s stale).",
+                "lat": n.get("lat"),
+                "lon": n.get("lon"),
+            }
+        )
 
     return alerts
 
@@ -297,6 +336,7 @@ async def _ollama_briefing(prompt: str) -> str:
     options: dict = {"num_predict": 420, "temperature": 0.35}
     try:
         from ollama_config import context_length_for
+
         ctx = context_length_for(OLLAMA_MODEL)
         if ctx is not None:
             options["num_ctx"] = ctx
@@ -338,17 +378,27 @@ async def generate_briefing(
     Open on the LAN — local Ollama only; destructive node commands stay admin-gated.
     Set ``force=1`` to bypass the snapshot cache (default uses TTL cache).
     """
-    force_snap = request.query_params.get("force", "").strip().lower() in ("1", "true", "yes")
+    force_snap = request.query_params.get("force", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     return await generate_briefing_internal(lang=lang, force_snapshot=force_snap)
 
 
-async def generate_briefing_internal(lang: str | None = None, *, force_snapshot: bool = False):
+async def generate_briefing_internal(
+    lang: str | None = None, *, force_snapshot: bool = False
+):
     """Actual briefing generation logic (no auth). Used by route + autopilot."""
     async with _BRIEFING_LOCK:
-        return await _generate_briefing_unlocked(lang=lang, force_snapshot=force_snapshot)
+        return await _generate_briefing_unlocked(
+            lang=lang, force_snapshot=force_snapshot
+        )
 
 
-async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot: bool = False):
+async def _generate_briefing_unlocked(
+    lang: str | None = None, *, force_snapshot: bool = False
+):
     import fusion_heatmap
     import intel_briefing
     from operator_briefing import (
@@ -359,7 +409,11 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
 
     snap = await _gather_snapshot(force=force_snapshot)
     alerts = _compile_alerts(snap)
-    fusion_hotspots, fusion_lines, fusion_deltas = await fusion_heatmap.top_hotspots_for_llm(top=3)
+    (
+        fusion_hotspots,
+        fusion_lines,
+        fusion_deltas,
+    ) = await fusion_heatmap.top_hotspots_for_llm(top=3)
     intel_meta = await asyncio.to_thread(intel_briefing.gather_for_briefing)
     digest = format_digest_sections(
         snap,
@@ -433,7 +487,9 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
     }
     from briefing_quality import attach_quality_to_sources
 
-    sources_payload = attach_quality_to_sources(sources_payload, text=text, created_at=now)
+    sources_payload = attach_quality_to_sources(
+        sources_payload, text=text, created_at=now
+    )
     with _db() as conn:
         conn.execute(
             "INSERT INTO briefings (created_at, text, sources) VALUES (?,?,?)",
@@ -442,6 +498,7 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         conn.commit()
     try:
         import rag_memory
+
         await rag_memory.ingest_briefing(text, now)
     except Exception:
         pass
@@ -471,7 +528,9 @@ async def _generate_briefing_unlocked(lang: str | None = None, *, force_snapshot
         "digest": sources_payload.get("digest"),
         "quality": sources_payload.get("quality"),
         "watch_items": digest.get("watch_items") or [],
-        "digest_line_meta": digest.get("digest_line_meta") or sources_payload.get("digest_line_meta") or [],
+        "digest_line_meta": digest.get("digest_line_meta")
+        or sources_payload.get("digest_line_meta")
+        or [],
         "agentic": agentic_meta,
         "insights": sources_payload.get("insights") or [],
     }
@@ -485,7 +544,11 @@ async def latest_briefing(_auth: str | None = Depends(verify_lan_auth)):
             "SELECT created_at, text, sources FROM briefings ORDER BY id DESC LIMIT 1"
         ).fetchone()
     if not row:
-        return {"created_at": None, "text": "No briefing yet. POST /api/briefing/generate.", "alerts": []}
+        return {
+            "created_at": None,
+            "text": "No briefing yet. POST /api/briefing/generate.",
+            "alerts": [],
+        }
     sources = {}
     try:
         sources = json.loads(row["sources"]) if row["sources"] else {}
@@ -564,7 +627,7 @@ def _compress_briefing(text: str, alerts: list) -> str:
         parts.append(f"[{sev}]{txt}")
     alert_str = "|".join(parts)
     remaining = 230 - len(alert_str) - 2
-    brief_snippet = text[:max(remaining, 60)] if remaining > 0 else ""
+    brief_snippet = text[: max(remaining, 60)] if remaining > 0 else ""
     return f"{alert_str}|{brief_snippet}" if brief_snippet else alert_str
 
 
@@ -572,13 +635,17 @@ def _pull_payload_digest(payload: dict) -> str:
     """SHA-256 of canonical JSON — excludes volatile keys and content_sha256."""
     skip = frozenset({"content_sha256", "generated_at"})
     base = {k: v for k, v in payload.items() if k not in skip}
-    canonical = json.dumps(base, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    canonical = json.dumps(
+        base, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 @router.get("/node/pull")
 @rate_limit_node_pull()
-async def node_pull(request: Request, mesh: bool = False, x_node_token: str = Header(default="")):
+async def node_pull(
+    request: Request, mesh: bool = False, x_node_token: str = Header(default="")
+):
     """Single payload the Pi pulls: latest briefing + live critical alerts.
 
     Designed so the off-grid portal can show global situational awareness even
@@ -618,7 +685,9 @@ async def node_pull(request: Request, mesh: bool = False, x_node_token: str = He
         import intel_graph_export
 
         if intel_graph_export.enabled():
-            payload["intel_subgraph"] = await asyncio.to_thread(intel_graph_export.compact_for_pull)
+            payload["intel_subgraph"] = await asyncio.to_thread(
+                intel_graph_export.compact_for_pull
+            )
     except Exception:
         payload["intel_subgraph"] = {"available": False}
     digest = _pull_payload_digest(payload)
@@ -626,7 +695,9 @@ async def node_pull(request: Request, mesh: bool = False, x_node_token: str = He
 
     inm = request.headers.get("if-none-match", "").strip().strip('"')
     if inm and inm == digest:
-        return Response(status_code=304, headers={"ETag": f'"{digest}"', "X-Content-SHA256": digest})
+        return Response(
+            status_code=304, headers={"ETag": f'"{digest}"', "X-Content-SHA256": digest}
+        )
 
     return JSONResponse(
         payload,

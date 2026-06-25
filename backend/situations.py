@@ -29,10 +29,28 @@ def _loc(item: dict) -> dict | None:
     return {"lat": float(lat), "lon": float(lon), "place": loc.get("place", "")}
 
 
-def _append_entity_item(items: list, *, eid: str, entity_type: str, label: str, lat, lon, source_feed: str, external_id: str, meta: dict, row: dict):
+def _append_entity_item(
+    items: list,
+    *,
+    eid: str,
+    entity_type: str,
+    label: str,
+    lat,
+    lon,
+    source_feed: str,
+    external_id: str,
+    meta: dict,
+    row: dict,
+):
     entity_store.upsert_entity(
-        eid, entity_type, label=label, lat=lat, lon=lon,
-        source_feed=source_feed, external_id=external_id, meta=meta,
+        eid,
+        entity_type,
+        label=label,
+        lat=lat,
+        lon=lon,
+        source_feed=source_feed,
+        external_id=external_id,
+        meta=meta,
     )
     items.append(row)
 
@@ -53,7 +71,11 @@ async def _items_correlations() -> list[dict]:
                 lon=loc["lon"] if loc else None,
                 source_feed="correlations",
                 external_id=str(i),
-                meta={"severity": s.get("severity"), "type": s.get("type"), "details": s.get("details")},
+                meta={
+                    "severity": s.get("severity"),
+                    "type": s.get("type"),
+                    "details": s.get("details"),
+                },
                 row={
                     "id": f"corr:{i}",
                     "entity_id": eid,
@@ -95,7 +117,9 @@ async def _items_anomalies() -> list[dict]:
                     "id": f"anom:{icao}:{i}",
                     "entity_id": eid,
                     "category": "anomaly",
-                    "severity": "high" if "emergency_squawk" in str(a.get("reasons")) else "medium",
+                    "severity": "high"
+                    if "emergency_squawk" in str(a.get("reasons"))
+                    else "medium",
                     "type": "aircraft_anomaly",
                     "title": f"Anomaly {a.get('callsign') or icao}",
                     "source": "anomalies",
@@ -174,7 +198,11 @@ async def _items_pegel() -> list[dict]:
                     "type": "river_gauge",
                     "title": f"Pegel {st.get('name')}: {st.get('value')}{st.get('unit', '')}",
                     "source": "pegel",
-                    "location": {"lat": st["lat"], "lon": st["lon"], "place": st.get("water", "")},
+                    "location": {
+                        "lat": st["lat"],
+                        "lon": st["lon"],
+                        "place": st.get("water", ""),
+                    },
                     "details": st,
                 },
             )
@@ -189,18 +217,22 @@ async def _items_sensors() -> list[dict]:
         alerts = await node_sync.list_sensor_alerts(limit=30)
         for a in alerts.get("alerts") or []:
             node_id = a.get("node_id", "pi")
-            eid = entity_store.entity_id_for_situation("sensor", f"{node_id}:{a.get('id', a.get('sensor'))}")
-            items.append({
-                "id": f"sensor:{node_id}:{a.get('sensor')}:{a.get('created_at', '')}",
-                "entity_id": eid,
-                "category": "sensor",
-                "severity": a.get("severity", "warn"),
-                "type": "pi_sensor",
-                "title": f"{node_id}: {a.get('sensor')} {a.get('value')}",
-                "source": "node_sync",
-                "location": None,
-                "details": a,
-            })
+            eid = entity_store.entity_id_for_situation(
+                "sensor", f"{node_id}:{a.get('id', a.get('sensor'))}"
+            )
+            items.append(
+                {
+                    "id": f"sensor:{node_id}:{a.get('sensor')}:{a.get('created_at', '')}",
+                    "entity_id": eid,
+                    "category": "sensor",
+                    "severity": a.get("severity", "warn"),
+                    "type": "pi_sensor",
+                    "title": f"{node_id}: {a.get('sensor')} {a.get('value')}",
+                    "source": "node_sync",
+                    "location": None,
+                    "details": a,
+                }
+            )
     except Exception:
         pass
     return items
@@ -213,17 +245,19 @@ async def _items_river() -> list[dict]:
         for i, sig in enumerate(scan.get("anomalies") or []):
             feed = sig.get("feed", "feed")
             eid = entity_store.entity_id_for_situation("river", feed)
-            items.append({
-                "id": f"river:{feed}:{i}",
-                "entity_id": eid,
-                "category": "anomaly",
-                "severity": "high" if sig.get("score", 0) >= 0.8 else "medium",
-                "type": "feed_anomaly",
-                "title": f"Unusual {feed.replace('_', ' ')} (score {sig.get('score')})",
-                "source": "river",
-                "location": None,
-                "details": sig,
-            })
+            items.append(
+                {
+                    "id": f"river:{feed}:{i}",
+                    "entity_id": eid,
+                    "category": "anomaly",
+                    "severity": "high" if sig.get("score", 0) >= 0.8 else "medium",
+                    "type": "feed_anomaly",
+                    "title": f"Unusual {feed.replace('_', ' ')} (score {sig.get('score')})",
+                    "source": "river",
+                    "location": None,
+                    "details": sig,
+                }
+            )
     except Exception:
         pass
     return items
@@ -246,7 +280,14 @@ async def unified_situations():
     )
     items = corr + anom + gdacs + pegel + sensors + river
 
-    sev_order = {"critical": 0, "high": 1, "medium": 2, "warn": 3, "low": 4, "normal": 5}
+    sev_order = {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "warn": 3,
+        "low": 4,
+        "normal": 5,
+    }
     items.sort(key=lambda x: sev_order.get(x.get("severity", "medium"), 3))
 
     payload = {

@@ -72,7 +72,7 @@ async def probe_ollama() -> dict[str, Any]:
             r = await client.get(f"{_OLLAMA}/api/tags")
             if r.status_code != 200:
                 return _probe_result("ollama", False, f"HTTP {r.status_code}")
-            models = (r.json().get("models") or [])
+            models = r.json().get("models") or []
             if not models:
                 return _probe_result("ollama", False, "no models")
             return _probe_result("ollama", True, f"{len(models)} model(s)")
@@ -130,7 +130,12 @@ async def run_trust_probes() -> dict[str, Any]:
 
         feed_drift = await asyncio.to_thread(_feed_drift.check_feed_drift)
     except Exception as exc:
-        feed_drift = {"ok": False, "detail": str(exc)[:120], "drifting": [], "freshness": []}
+        feed_drift = {
+            "ok": False,
+            "detail": str(exc)[:120],
+            "drifting": [],
+            "freshness": [],
+        }
 
     briefing_pipeline: dict[str, Any] = {}
     try:
@@ -143,7 +148,8 @@ async def run_trust_probes() -> dict[str, Any]:
             "gdelt_digest_lines": meta.get("gdelt_digest_lines"),
             "pipeline_ok": meta.get("gdelt_pipeline_ok"),
             "pipeline_placed_ok": meta.get("gdelt_pipeline_placed_ok"),
-            "pipeline_blocker": meta.get("gdelt_pipeline_blocker") or meta.get("corroboration_blocker"),
+            "pipeline_blocker": meta.get("gdelt_pipeline_blocker")
+            or meta.get("corroboration_blocker"),
             "pipeline_yield": meta.get("gdelt_pipeline_yield"),
             "watch_count": meta.get("watch_count"),
             "corroboration_avg_local": meta.get("corroboration_avg_local"),
@@ -159,7 +165,9 @@ async def run_trust_probes() -> dict[str, Any]:
     try:
         import fusion_heatmap as _fusion
 
-        fusion_compare = await asyncio.to_thread(_fusion.fusion_compare_summary, 2.0, 24.0)
+        fusion_compare = await asyncio.to_thread(
+            _fusion.fusion_compare_summary, 2.0, 24.0
+        )
     except Exception as exc:
         fusion_compare = {"available": False, "detail": str(exc)[:120]}
 

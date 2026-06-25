@@ -31,6 +31,7 @@ _INIT_ERROR: str | None = None
 # Path configuration
 # ---------------------------------------------------------------------------
 
+
 def _default_db_path() -> str:
     here = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(here, "data", "entities.duckdb")
@@ -45,6 +46,7 @@ def set_db_path(path: str | None = None) -> None:
 # ---------------------------------------------------------------------------
 # Connection lifecycle
 # ---------------------------------------------------------------------------
+
 
 def _configure_connection(con: duckdb.DuckDBPyConnection) -> None:
     """Tune the embedded store. Single-writer: one in-process connection + _LOCK.
@@ -70,6 +72,7 @@ def _conn() -> duckdb.DuckDBPyConnection:
         _configure_connection(_CONN)
         # Defer schema creation to ftm_schema to avoid circular import
         from ftm_schema import _create_schema
+
         _create_schema(_CONN)
         _INIT_ERROR = None
     except Exception as exc:
@@ -155,6 +158,7 @@ def reset_store() -> bool:
 # Error classification + recovery wrapper
 # ---------------------------------------------------------------------------
 
+
 def _is_invalidated_error(exc: BaseException) -> bool:
     msg = str(exc).lower()
     return (
@@ -170,7 +174,9 @@ def _run_with_recovery(fn):
     for attempt in range(2):
         try:
             if _CONN is None and not init_store():
-                raise RuntimeError(store_status(_recover=False).get("error") or "ftm store unavailable")
+                raise RuntimeError(
+                    store_status(_recover=False).get("error") or "ftm store unavailable"
+                )
             with _LOCK:
                 return fn(_conn())
         except Exception as exc:

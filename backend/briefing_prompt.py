@@ -38,7 +38,9 @@ def _prediction_calibration_line(lang: str | None = None) -> str:
         return "Forecast calibration: unavailable."
 
 
-def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = None) -> str:
+def build_security_advisor_prompt(
+    digest: dict[str, Any], lang: str | None = None
+) -> str:
     region = digest.get("region_label", "Thailand")
     lang = _resolve_lang(lang or digest.get("lang"))
     is_de = lang.startswith("de")
@@ -91,9 +93,7 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
         )
         digest_header = "--- DIGEST"
         protocol_label = "Protocol:"
-        final_reminder = (
-            "Reminder: write the entire protocol body in English."
-        )
+        final_reminder = "Reminder: write the entire protocol body in English."
 
     intel_prompt = ""
     try:
@@ -138,14 +138,20 @@ def build_security_advisor_prompt(digest: dict[str, Any], lang: str | None = Non
         f"Fusion hotspots (spatial grid):\n{digest['fusion']}\n\n"
         f"Cyber (CISA KEV):\n" + "\n".join(digest["cyber"]) + "\n\n"
         "Infra:\n" + "\n".join(f"- {x}" for x in digest["infra"]) + "\n\n"
-        "Edge nodes:\n" + "\n".join(digest["nodes"]) + "\n\n"
-        + final_reminder + "\n\n"
+        "Edge nodes:\n"
+        + "\n".join(digest["nodes"])
+        + "\n\n"
+        + final_reminder
+        + "\n\n"
         + protocol_label
     )
     _approx_tokens = len(prompt) // 4
     logger.info(
         "briefing prompt: %d chars, ~%d tokens (lang=%s, region=%s)",
-        len(prompt), _approx_tokens, lang, region,
+        len(prompt),
+        _approx_tokens,
+        lang,
+        region,
     )
     return prompt
 

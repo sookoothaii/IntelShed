@@ -88,7 +88,9 @@ def _rows_from_payload(feed_key: str, payload: dict[str, Any]) -> list[dict[str,
                     "source": str(item.get("source") or feed_key.split(":")[0])[:64],
                     "lat": ll[0],
                     "lon": ll[1],
-                    "label": _label(item, "title", "place", "name", "headline", "event", "caption"),
+                    "label": _label(
+                        item, "title", "place", "name", "headline", "event", "caption"
+                    ),
                     "cached_at": cached_at,
                 }
             )
@@ -99,7 +101,9 @@ def collect_staging_rows() -> list[dict[str, Any]]:
     """Read all feed_cache payloads and extract geolocated rows."""
     rows: list[dict[str, Any]] = []
     with _conn() as conn:
-        for row in conn.execute("SELECT key, value, cached_at FROM feed_cache ORDER BY key"):
+        for row in conn.execute(
+            "SELECT key, value, cached_at FROM feed_cache ORDER BY key"
+        ):
             try:
                 payload = json.loads(row["value"] or "{}")
             except Exception:
@@ -226,8 +230,17 @@ def stage_status() -> dict[str, Any]:
         }
     conn = _duck_conn()
     try:
-        count = int(conn.execute("SELECT COUNT(*) FROM read_parquet(?)", [str(path)]).fetchone()[0])
-        cols = [r[0] for r in conn.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(path)]).fetchall()]
+        count = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM read_parquet(?)", [str(path)]
+            ).fetchone()[0]
+        )
+        cols = [
+            r[0]
+            for r in conn.execute(
+                "DESCRIBE SELECT * FROM read_parquet(?)", [str(path)]
+            ).fetchall()
+        ]
     finally:
         conn.close()
     mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
@@ -271,4 +284,9 @@ def query_bbox(
         rows = df.to_dict(orient="records")
     finally:
         conn.close()
-    return {"ok": True, "count": len(rows), "rows": rows, "bbox": [min_lat, min_lon, max_lat, max_lon]}
+    return {
+        "ok": True,
+        "count": len(rows),
+        "rows": rows,
+        "bbox": [min_lat, min_lon, max_lat, max_lon],
+    }

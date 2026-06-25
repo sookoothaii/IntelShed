@@ -22,9 +22,15 @@ REDIS_URL = os.getenv("RATE_LIMIT_REDIS_URL", None)
 RATE_LIMIT_STORAGE = os.getenv("RATE_LIMIT_STORAGE", "memory")  # "memory" or "redis"
 # Consistent key namespace (worldbase:ratelimit:…) — avoids collisions if Redis is shared.
 RATE_LIMIT_KEY_PREFIX = os.getenv("RATE_LIMIT_KEY_PREFIX", "worldbase:ratelimit")
-RATE_LIMIT_REDIS_CONNECT_TIMEOUT = float(os.getenv("RATE_LIMIT_REDIS_CONNECT_TIMEOUT", "2"))
-RATE_LIMIT_REDIS_SOCKET_TIMEOUT = float(os.getenv("RATE_LIMIT_REDIS_SOCKET_TIMEOUT", "2"))
-RATE_LIMIT_REDIS_MAX_CONNECTIONS = int(os.getenv("RATE_LIMIT_REDIS_MAX_CONNECTIONS", "10"))
+RATE_LIMIT_REDIS_CONNECT_TIMEOUT = float(
+    os.getenv("RATE_LIMIT_REDIS_CONNECT_TIMEOUT", "2")
+)
+RATE_LIMIT_REDIS_SOCKET_TIMEOUT = float(
+    os.getenv("RATE_LIMIT_REDIS_SOCKET_TIMEOUT", "2")
+)
+RATE_LIMIT_REDIS_MAX_CONNECTIONS = int(
+    os.getenv("RATE_LIMIT_REDIS_MAX_CONNECTIONS", "10")
+)
 
 # Rate limit strings (format: "count/per unit")
 RATE_LIMIT_NODE_INGEST = os.getenv("RATE_LIMIT_NODE_INGEST", "100/minute")
@@ -36,6 +42,7 @@ RATE_LIMIT_GENERAL = os.getenv("RATE_LIMIT_GENERAL", "1000/hour")
 # =============================================================================
 # Custom Key Functions
 # =============================================================================
+
 
 def get_node_id_from_payload(request: Request) -> str:
     """
@@ -130,6 +137,7 @@ def get_combined_key(request: Request) -> str:
 # Limiter Setup
 # =============================================================================
 
+
 def _redis_storage_options() -> dict:
     """Redis client options: short timeouts + pooled connections (fail fast, no blocking)."""
     return {
@@ -183,7 +191,10 @@ limiter = create_limiter()
 # Custom Exception Handler
 # =============================================================================
 
-def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+
+def custom_rate_limit_exceeded_handler(
+    request: Request, exc: RateLimitExceeded
+) -> JSONResponse:
     """
     Custom handler for rate limit exceeded errors.
 
@@ -224,6 +235,7 @@ def custom_rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded)
 # =============================================================================
 # Rate Limit Decorators
 # =============================================================================
+
 
 def rate_limit_node_ingest() -> Callable:
     """
@@ -289,7 +301,9 @@ def rate_limit_general() -> Callable:
     return limiter.limit(RATE_LIMIT_GENERAL, key_func=get_ip_with_forwarding)
 
 
-def rate_limit_custom(limit_string: str, key_func: Optional[Callable] = None) -> Callable:
+def rate_limit_custom(
+    limit_string: str, key_func: Optional[Callable] = None
+) -> Callable:
     """
     Create a custom rate limit decorator with specified parameters.
 
@@ -310,6 +324,7 @@ def rate_limit_custom(limit_string: str, key_func: Optional[Callable] = None) ->
 # =============================================================================
 # Integration Helper for main.py
 # =============================================================================
+
 
 def setup_rate_limiting(app) -> None:
     """
@@ -349,7 +364,9 @@ def setup_rate_limiting(app) -> None:
             limit_info = request.state.view_rate_limit
             if isinstance(limit_info, dict):
                 response.headers["X-RateLimit-Limit"] = str(limit_info.get("limit", ""))
-                response.headers["X-RateLimit-Remaining"] = str(limit_info.get("remaining", ""))
+                response.headers["X-RateLimit-Remaining"] = str(
+                    limit_info.get("remaining", "")
+                )
                 response.headers["X-RateLimit-Reset"] = str(limit_info.get("reset", ""))
 
         return response
@@ -358,6 +375,7 @@ def setup_rate_limiting(app) -> None:
 # =============================================================================
 # Additional Utility Functions
 # =============================================================================
+
 
 def get_limiter_instance() -> Limiter:
     """
@@ -416,7 +434,9 @@ def reset_rate_limit(key: str) -> bool:
         return False
 
 
-def check_rate_limit_status(request: Request, limit: str, key_func: Optional[Callable] = None) -> dict:
+def check_rate_limit_status(
+    request: Request, limit: str, key_func: Optional[Callable] = None
+) -> dict:
     """
     Check current rate limit status for a request without consuming a limit.
 

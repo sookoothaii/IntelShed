@@ -46,7 +46,9 @@ def export_operator_subgraph(
     if write_disk and enabled():
         path = export_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         payload["export_path"] = str(path)
     return payload
 
@@ -88,20 +90,24 @@ def compact_for_pull(
 
     nodes = []
     for node in (payload.get("nodes") or [])[:max_nodes]:
-        nodes.append({
-            "id": node.get("id"),
-            "caption": str(node.get("caption") or "")[:80],
-            "schema": node.get("schema"),
-            "datasets": (node.get("datasets") or [])[:3],
-        })
+        nodes.append(
+            {
+                "id": node.get("id"),
+                "caption": str(node.get("caption") or "")[:80],
+                "schema": node.get("schema"),
+                "datasets": (node.get("datasets") or [])[:3],
+            }
+        )
     edges = []
     for edge in (payload.get("edges") or [])[:max_edges]:
-        edges.append({
-            "kind": edge.get("kind"),
-            "dataset": edge.get("dataset"),
-            "source_id": edge.get("source_id"),
-            "target_id": edge.get("target_id"),
-        })
+        edges.append(
+            {
+                "kind": edge.get("kind"),
+                "dataset": edge.get("dataset"),
+                "source_id": edge.get("source_id"),
+                "target_id": edge.get("target_id"),
+            }
+        )
     return {
         "available": True,
         "node_count": int(payload.get("node_count") or len(payload.get("nodes") or [])),
@@ -129,7 +135,9 @@ async def subgraph_export(
     if not enabled():
         raise HTTPException(status_code=503, detail="subgraph export disabled")
     try:
-        return export_operator_subgraph(hops=hops, window_hours=window_hours, write_disk=True)
+        return export_operator_subgraph(
+            hops=hops, window_hours=window_hours, write_disk=True
+        )
     except Exception as exc:
         logger.exception("subgraph export failed")
         raise HTTPException(status_code=503, detail="subgraph export failed") from exc

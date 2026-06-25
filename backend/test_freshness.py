@@ -31,7 +31,9 @@ class ClassifyFreshnessDriftTests(unittest.TestCase):
 
     def test_error_overrides_stale_flag(self):
         self.assertEqual(
-            classify_freshness(10, 300, error="timeout", stale_flag=True, vocab="drift"),
+            classify_freshness(
+                10, 300, error="timeout", stale_flag=True, vocab="drift"
+            ),
             "error",
         )
 

@@ -56,18 +56,20 @@ async def export_investigation(
     for i, p in enumerate(pins):
         if p.get("lat") is None or p.get("lon") is None:
             continue
-        nodes.append({
-            "id": p.get("id") or f"wb-{i}",
-            "type": p.get("type") or "location",
-            "label": p.get("label") or p.get("title") or f"Pin {i}",
-            "lat": p["lat"],
-            "lon": p["lon"],
-            "meta": {
-                "tool": p.get("tool"),
-                "query": p.get("query"),
-                "source": "worldbase",
-            },
-        })
+        nodes.append(
+            {
+                "id": p.get("id") or f"wb-{i}",
+                "type": p.get("type") or "location",
+                "label": p.get("label") or p.get("title") or f"Pin {i}",
+                "lat": p["lat"],
+                "lon": p["lon"],
+                "meta": {
+                    "tool": p.get("tool"),
+                    "query": p.get("query"),
+                    "source": "worldbase",
+                },
+            }
+        )
     return {
         "title": title,
         "node_count": len(nodes),

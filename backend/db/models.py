@@ -28,18 +28,22 @@ from sqlalchemy.ext.asyncio import AsyncAttrs
 
 class Base(AsyncAttrs, DeclarativeBase):
     """Base class for all async SQLAlchemy models."""
+
     pass
 
 
 class NodeState(Base):
     """Represents the current state of a mesh network node."""
+
     __tablename__ = "node_state"
 
     node_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     lon: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    last_seen: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow
+    )
     sensors_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     health_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     mesh_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -75,6 +79,7 @@ class NodeState(Base):
 
 class Briefing(Base):
     """AI-generated briefings for nodes."""
+
     __tablename__ = "briefings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -106,6 +111,7 @@ class Briefing(Base):
 
 class SensorAlert(Base):
     """Sensor-based alerts from nodes."""
+
     __tablename__ = "sensor_alerts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -138,6 +144,7 @@ class SensorAlert(Base):
 
 class NodeCommand(Base):
     """Commands issued to nodes."""
+
     __tablename__ = "node_commands"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -171,6 +178,7 @@ class NodeCommand(Base):
 
 class SensorHistory(Base):
     """Historical sensor data from nodes."""
+
     __tablename__ = "sensor_history"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -201,6 +209,7 @@ class SensorHistory(Base):
 
 class FeedCache(Base):
     """Cache for external feed data."""
+
     __tablename__ = "feed_cache"
 
     key: Mapped[str] = mapped_column(String(256), primary_key=True)
@@ -220,6 +229,7 @@ class FeedCache(Base):
 
 class Aircraft(Base):
     """ADS-B aircraft tracking data."""
+
     __tablename__ = "aircraft"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -247,6 +257,7 @@ class Aircraft(Base):
 
 class Satellite(Base):
     """Satellite TLE (Two-Line Element) data."""
+
     __tablename__ = "satellites"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

@@ -36,11 +36,17 @@ class FtmStoreTest(unittest.TestCase):
                 pass
 
     def test_ndjson_roundtrip_preserves_id_and_props(self):
-        line = json.dumps({
-            "id": "ext-vessel-1",
-            "schema": "Vessel",
-            "properties": {"name": ["MV Test"], "imoNumber": ["1234567"], "flag": ["ru"]},
-        })
+        line = json.dumps(
+            {
+                "id": "ext-vessel-1",
+                "schema": "Vessel",
+                "properties": {
+                    "name": ["MV Test"],
+                    "imoNumber": ["1234567"],
+                    "flag": ["ru"],
+                },
+            }
+        )
         res = ftm_store.import_ndjson(line, dataset="manual")
         self.assertEqual(res["imported"], 1)
         self.assertEqual(res["errors"], [])
@@ -72,7 +78,11 @@ class FtmStoreTest(unittest.TestCase):
         """Feed mappings must not fatal DuckDB when alias ids diverge but legacy ids collide."""
         shared = "gdacs:collision-test"
         event = ftm_store._proxy_with_id(shared, "Event", {"name": ["Flood"]})
-        place = ftm_store._proxy_with_id(shared, "Address", {"full": ["Flood site"], "latitude": ["1.0"], "longitude": ["2.0"]})
+        place = ftm_store._proxy_with_id(
+            shared,
+            "Address",
+            {"full": ["Flood site"], "latitude": ["1.0"], "longitude": ["2.0"]},
+        )
         ftm_store.upsert(event, dataset="gdacs", lat=1.0, lon=2.0)
         ftm_store.upsert(place, dataset="gdacs", lat=1.0, lon=2.0)
         ent = ftm_store.get_entity(shared)
@@ -80,8 +90,13 @@ class FtmStoreTest(unittest.TestCase):
         self.assertEqual(ent["schema"], "Address")
 
     def test_legacy_mirror_maps_schema_and_keeps_id(self):
-        ftm_store.upsert_legacy("aircraft:abc", "aircraft", label="FL1",
-                                source_feed="opensky", external_id="abc")
+        ftm_store.upsert_legacy(
+            "aircraft:abc",
+            "aircraft",
+            label="FL1",
+            source_feed="opensky",
+            external_id="abc",
+        )
         ent = ftm_store.get_entity("aircraft:abc")
         self.assertIsNotNone(ent)
         self.assertEqual(ent["schema"], "Airplane")
@@ -89,9 +104,15 @@ class FtmStoreTest(unittest.TestCase):
         self.assertIn("opensky", ent["datasets"])
 
     def test_edges_and_graph(self):
-        ftm_store.upsert_legacy("inv:1", "investigation", label="Op", source_feed="osint")
-        ftm_store.upsert_legacy("aircraft:xyz", "aircraft", label="FL2", source_feed="opensky")
-        ftm_store.add_edge("inv:1", "aircraft:xyz", "contains", dataset="osint", confidence=0.9)
+        ftm_store.upsert_legacy(
+            "inv:1", "investigation", label="Op", source_feed="osint"
+        )
+        ftm_store.upsert_legacy(
+            "aircraft:xyz", "aircraft", label="FL2", source_feed="opensky"
+        )
+        ftm_store.add_edge(
+            "inv:1", "aircraft:xyz", "contains", dataset="osint", confidence=0.9
+        )
         g = ftm_store.graph_view("inv:1", depth=2)
         node_ids = {n["id"] for n in g["nodes"]}
         self.assertIn("aircraft:xyz", node_ids)
@@ -125,7 +146,9 @@ class FtmStoreTest(unittest.TestCase):
 
         ev = ftm_store.make_entity("Event", ["geo"], {"name": ["Mapped Event"]})
         ftm_store.upsert(ev, dataset="eonet", lat=14.0, lon=101.0)
-        rows = ftm_store.entities_for_briefing(window_hours=48, exclude_schemas={"Airplane"})
+        rows = ftm_store.entities_for_briefing(
+            window_hours=48, exclude_schemas={"Airplane"}
+        )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["schema"], "Event")
 
@@ -186,7 +209,9 @@ class FtmStoreTest(unittest.TestCase):
 
     def test_reset_store_reopens_cleanly(self):
         """B-02 light: reset after writes must reopen without losing readiness."""
-        ftm_store.upsert_legacy("aircraft:reset1", "aircraft", label="R1", source_feed="test")
+        ftm_store.upsert_legacy(
+            "aircraft:reset1", "aircraft", label="R1", source_feed="test"
+        )
         self.assertTrue(ftm_store.store_status()["ready"])
         self.assertTrue(ftm_store.reset_store())
         st = ftm_store.store_status()
@@ -197,9 +222,14 @@ class FtmStoreTest(unittest.TestCase):
 
     def test_sanctions_adapter_maps_fields(self):
         row = {
-            "id": "ofac-1", "schema": "Person", "name": "Bad Actor",
-            "aliases": "B. Actor; Actor, Bad", "countries": "ru;ir",
-            "birth_date": "1970", "identifiers": "PASS1", "sanctions": "OFAC SDN",
+            "id": "ofac-1",
+            "schema": "Person",
+            "name": "Bad Actor",
+            "aliases": "B. Actor; Actor, Bad",
+            "countries": "ru;ir",
+            "birth_date": "1970",
+            "identifiers": "PASS1",
+            "sanctions": "OFAC SDN",
         }
         proxy = ftm_store.ftm_from_sanctions_row(row)
         self.assertEqual(proxy.id, "ofac-1")

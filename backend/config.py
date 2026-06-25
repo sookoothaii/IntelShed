@@ -46,9 +46,9 @@ class WorldBaseConfig(BaseModel):
             feed_ingest_interval=int(
                 os.getenv("WORLDBASE_FEED_INGEST_INTERVAL", "600")
             ),
-            operator_region=os.getenv(
-                "WORLDBASE_OPERATOR_REGION", "thailand"
-            ).strip().lower(),
+            operator_region=os.getenv("WORLDBASE_OPERATOR_REGION", "thailand")
+            .strip()
+            .lower(),
             feed_ingest_autopilot=_truthy(
                 os.getenv("WORLDBASE_FEED_INGEST_AUTOPILOT", "1")
             ),
@@ -56,12 +56,8 @@ class WorldBaseConfig(BaseModel):
                 os.getenv("WORLDBASE_ENTITY_RESOLUTION_AFTER_FEEDS", "0")
             ),
             rag_feed_ingest=_truthy(os.getenv("RAG_FEED_INGEST", "1")),
-            briefing_interval=int(
-                os.getenv("WORLDBASE_BRIEFING_INTERVAL", "21600")
-            ),
-            briefing_lang=os.getenv(
-                "WORLDBASE_BRIEFING_LANG", "en"
-            ).strip().lower(),
+            briefing_interval=int(os.getenv("WORLDBASE_BRIEFING_INTERVAL", "21600")),
+            briefing_lang=os.getenv("WORLDBASE_BRIEFING_LANG", "en").strip().lower(),
             entity_resolution_interval=int(
                 os.getenv("WORLDBASE_ENTITY_RESOLUTION_INTERVAL", "86400")
             ),
@@ -73,7 +69,9 @@ class WorldBaseConfig(BaseModel):
             ),
             entity_resolution_pipeline_mode=os.getenv(
                 "WORLDBASE_ENTITY_RESOLUTION_PIPELINE", "single"
-            ).strip().lower(),
+            )
+            .strip()
+            .lower(),
         )
 
 

@@ -35,7 +35,9 @@ _SOURCES_TTL = float(os.getenv("WORLDBASE_NEWSDATA_SOURCES_CACHE_SEC", "86400"))
 _REFRESH_LOCK = asyncio.Lock()
 _SOURCES_LOCK = asyncio.Lock()
 _CONNECTOR = FeedConnector("newsdata", ttl_sec=_TTL, default_source="newsdata.io")
-_SOURCES_CONNECTOR = FeedConnector("newsdata_sources", ttl_sec=_SOURCES_TTL, default_source="newsdata.io")
+_SOURCES_CONNECTOR = FeedConnector(
+    "newsdata_sources", ttl_sec=_SOURCES_TTL, default_source="newsdata.io"
+)
 
 _OPERATOR_COUNTRY: dict[str, str] = {
     "thailand": "th",
@@ -100,13 +102,20 @@ def _filter_params(
     q: str | None = None,
 ) -> dict[str, str]:
     params: dict[str, str] = {
-        "country": country or _env_csv("WORLDBASE_NEWSDATA_COUNTRIES", _DEFAULT_COUNTRIES),
-        "language": language or _env_csv("WORLDBASE_NEWSDATA_LANGUAGE", _DEFAULT_LANGUAGES),
-        "category": category or _env_csv("WORLDBASE_NEWSDATA_CATEGORY", _DEFAULT_CATEGORY),
+        "country": country
+        or _env_csv("WORLDBASE_NEWSDATA_COUNTRIES", _DEFAULT_COUNTRIES),
+        "language": language
+        or _env_csv("WORLDBASE_NEWSDATA_LANGUAGE", _DEFAULT_LANGUAGES),
+        "category": category
+        or _env_csv("WORLDBASE_NEWSDATA_CATEGORY", _DEFAULT_CATEGORY),
         "prioritydomain": prioritydomain
         or _env_csv("WORLDBASE_NEWSDATA_PRIORITYDOMAIN", _DEFAULT_PRIORITYDOMAIN),
     }
-    domain = (domainurl if domainurl is not None else os.getenv("WORLDBASE_NEWSDATA_DOMAINURL", "")).strip()
+    domain = (
+        domainurl
+        if domainurl is not None
+        else os.getenv("WORLDBASE_NEWSDATA_DOMAINURL", "")
+    ).strip()
     if domain:
         params["domainurl"] = domain
     query = (q or os.getenv("WORLDBASE_NEWSDATA_QUERY", "")).strip()
@@ -197,7 +206,9 @@ def _is_briefing_article(article: dict[str, Any]) -> bool:
     return True
 
 
-def _filter_articles(articles: list[dict[str, Any]], limit: int) -> tuple[list[dict[str, Any]], int]:
+def _filter_articles(
+    articles: list[dict[str, Any]], limit: int
+) -> tuple[list[dict[str, Any]], int]:
     kept: list[dict[str, Any]] = []
     seen_titles: set[str] = set()
     skipped = 0
@@ -253,7 +264,9 @@ def _unconfigured() -> dict[str, Any]:
     }
 
 
-async def _request_newsdata(url: str, params: dict[str, Any]) -> tuple[int, dict[str, Any] | None, str | None]:
+async def _request_newsdata(
+    url: str, params: dict[str, Any]
+) -> tuple[int, dict[str, Any] | None, str | None]:
     api_key = os.getenv("NEWSDATA_API_KEY", "").strip()
     if not api_key:
         return 0, None, "NEWSDATA_API_KEY not set"
@@ -477,7 +490,11 @@ async def get_newsdata(
         if raw.get("error") and not raw.get("articles"):
             if stale_hit:
                 return _CONNECTOR.build(
-                    FeedEnvelope(count=stale_hit.get("count", 0), stale=True, error=raw.get("error")),
+                    FeedEnvelope(
+                        count=stale_hit.get("count", 0),
+                        stale=True,
+                        error=raw.get("error"),
+                    ),
                     persist=False,
                     subkey=subkey,
                     articles=stale_hit.get("articles") or [],
@@ -565,7 +582,11 @@ async def get_newsdata_sources(
         if raw.get("error") and not raw.get("sources"):
             if stale_hit:
                 return _SOURCES_CONNECTOR.build(
-                    FeedEnvelope(count=stale_hit.get("count", 0), stale=True, error=raw.get("error")),
+                    FeedEnvelope(
+                        count=stale_hit.get("count", 0),
+                        stale=True,
+                        error=raw.get("error"),
+                    ),
                     persist=False,
                     subkey=subkey,
                     sources=stale_hit.get("sources") or [],
@@ -601,11 +622,15 @@ async def get_newsdata_sources(
 
 @router.get("")
 async def newsdata_latest(
-    country: str | None = Query(None, description="ISO countries CSV — default WORLDBASE_NEWSDATA_COUNTRIES"),
+    country: str | None = Query(
+        None, description="ISO countries CSV — default WORLDBASE_NEWSDATA_COUNTRIES"
+    ),
     language: str | None = Query(None, description="Languages CSV — default de,en"),
     category: str | None = Query(None, description="Categories CSV"),
     prioritydomain: str | None = Query(None, description="top | medium | low"),
-    domainurl: str | None = Query(None, description="Optional domain filter (must exist in NewsData DB)"),
+    domainurl: str | None = Query(
+        None, description="Optional domain filter (must exist in NewsData DB)"
+    ),
     q: str | None = Query(None, description="Optional search query"),
     limit: int = Query(10, ge=1, le=30),
     refresh: bool = False,
@@ -625,7 +650,9 @@ async def newsdata_latest(
 
 @router.get("/sources")
 async def newsdata_sources(
-    country: str | None = Query(None, description="ISO countries CSV — default WORLDBASE_NEWSDATA_COUNTRIES"),
+    country: str | None = Query(
+        None, description="ISO countries CSV — default WORLDBASE_NEWSDATA_COUNTRIES"
+    ),
     language: str | None = Query(None, description="Languages CSV — default de,en"),
     category: str | None = Query(None, description="Categories CSV"),
     prioritydomain: str | None = Query(None, description="top | medium | low"),

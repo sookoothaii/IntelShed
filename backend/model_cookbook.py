@@ -69,9 +69,14 @@ def _run_nvidia_smi() -> dict[str, Any] | None:
     """Query nvidia-smi for GPU info. Returns None if unavailable."""
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=name,memory.total,memory.used,memory.free",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,memory.used,memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode != 0 or not result.stdout.strip():
             return None
@@ -145,7 +150,9 @@ def recommend(
         - reasoning: explanation string
         - alternatives: list of other viable models with ctx
     """
-    ollama_host = (host or os.getenv("OLLAMA_HOST", "127.0.0.1:11434")).split(",")[0].strip()
+    ollama_host = (
+        (host or os.getenv("OLLAMA_HOST", "127.0.0.1:11434")).split(",")[0].strip()
+    )
     current_model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 
     gpu = _run_nvidia_smi()
@@ -190,7 +197,9 @@ def recommend(
                 "model": model["model"],
                 "num_ctx": ctx,
                 "tier": model["tier"],
-                "estimated_vram_gb": round(_estimate_vram_for_ctx(model["file_size_gb"], ctx), 1),
+                "estimated_vram_gb": round(
+                    _estimate_vram_for_ctx(model["file_size_gb"], ctx), 1
+                ),
                 "notes": model["notes"],
             }
             if best is None:
@@ -217,7 +226,9 @@ def recommend(
         f"Best fit: {best['model']} at ctx={best_ctx} (~{_estimate_vram_for_ctx(best['file_size_gb'], best_ctx):.1f} GB estimated)",
     ]
     if best["model"] != current_model:
-        reasoning_parts.append(f"Current model is {current_model} — upgrade recommended")
+        reasoning_parts.append(
+            f"Current model is {current_model} — upgrade recommended"
+        )
     else:
         reasoning_parts.append("Current model matches recommendation")
 

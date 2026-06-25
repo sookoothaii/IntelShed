@@ -30,7 +30,9 @@ class TestCredentialRegistry(unittest.TestCase):
         self.assertTrue(is_configured("ollama"))
 
     def test_status_never_includes_secret_values(self):
-        with patch.dict(os.environ, {"WINDY_POINT_API_KEY": "super-secret-key-12345"}, clear=False):
+        with patch.dict(
+            os.environ, {"WINDY_POINT_API_KEY": "super-secret-key-12345"}, clear=False
+        ):
             st = provider_status("windy_point")
         self.assertIsNotNone(st)
         assert st is not None
@@ -39,7 +41,9 @@ class TestCredentialRegistry(unittest.TestCase):
         self.assertNotIn("super-secret-key", blob)
 
     def test_placeholder_not_configured(self):
-        with patch.dict(os.environ, {"WINDY_POINT_API_KEY": "your-point-forecast-key"}, clear=False):
+        with patch.dict(
+            os.environ, {"WINDY_POINT_API_KEY": "your-point-forecast-key"}, clear=False
+        ):
             self.assertFalse(is_configured("windy_point"))
 
     def test_providers_status_shape(self):
@@ -78,7 +82,11 @@ class TestCredentialRegistry(unittest.TestCase):
             self.assertTrue(is_configured("ais_maritime"))
         with patch.dict(
             os.environ,
-            {"AISHUB_API_KEY": "", "AISSTREAM_API_KEY": "", "MYSHIPTRACKING_API_KEY": ""},
+            {
+                "AISHUB_API_KEY": "",
+                "AISSTREAM_API_KEY": "",
+                "MYSHIPTRACKING_API_KEY": "",
+            },
             clear=False,
         ):
             self.assertFalse(is_configured("ais_maritime"))

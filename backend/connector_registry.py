@@ -540,10 +540,15 @@ def _credentials_status(credential_ids: tuple[str, ...]) -> list[dict[str, Any]]
                 rows.append({"id": cid, "configured": False, "tier": "unknown"})
         return rows
     except Exception:
-        return [{"id": cid, "configured": False, "tier": "unknown"} for cid in credential_ids]
+        return [
+            {"id": cid, "configured": False, "tier": "unknown"}
+            for cid in credential_ids
+        ]
 
 
-def _match_cache(spec: ConnectorManifest, cache: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+def _match_cache(
+    spec: ConnectorManifest, cache: dict[str, dict[str, Any]]
+) -> dict[str, Any] | None:
     ck = spec.cache_key
     if not ck:
         return None
@@ -590,7 +595,9 @@ def ingest_mapping_report() -> dict[str, Any]:
     return {"linked": linked, "unmapped": unmapped, "yaml_total": len(yaml_names)}
 
 
-def connector_runtime_row(spec: ConnectorManifest, cache: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def connector_runtime_row(
+    spec: ConnectorManifest, cache: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
     creds = _credentials_status(spec.credential_ids)
     cache_hit = _match_cache(spec, cache)
     row = spec.to_dict()
@@ -603,7 +610,9 @@ def connector_runtime_row(spec: ConnectorManifest, cache: dict[str, dict[str, An
 
 def connectors_snapshot(*, include_unlisted: bool = True) -> dict[str, Any]:
     cache = _read_feed_cache_keys()
-    catalog_keys = {spec.cache_key for spec in CONNECTOR_CATALOG.values() if spec.cache_key}
+    catalog_keys = {
+        spec.cache_key for spec in CONNECTOR_CATALOG.values() if spec.cache_key
+    }
     pattern_prefixes = ("weather:", "quakes:")
 
     connectors = [
@@ -653,7 +662,10 @@ def export_manifest(*, include_runtime: bool = False) -> dict[str, Any]:
             "version": 1,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "operator_region": _cfg().operator_region,
-            "connectors": [spec.to_dict() for spec in sorted(CONNECTOR_CATALOG.values(), key=lambda s: s.id)],
+            "connectors": [
+                spec.to_dict()
+                for spec in sorted(CONNECTOR_CATALOG.values(), key=lambda s: s.id)
+            ],
         }
     snap = connectors_snapshot()
     return {
@@ -668,11 +680,19 @@ def export_manifest(*, include_runtime: bool = False) -> dict[str, Any]:
 def export_manifest_yaml(*, include_runtime: bool = False) -> str:
     import yaml
 
-    return yaml.safe_dump(export_manifest(include_runtime=include_runtime), sort_keys=False, allow_unicode=True)
+    return yaml.safe_dump(
+        export_manifest(include_runtime=include_runtime),
+        sort_keys=False,
+        allow_unicode=True,
+    )
 
 
 def export_manifest_json(*, include_runtime: bool = False, indent: int = 2) -> str:
-    return json.dumps(export_manifest(include_runtime=include_runtime), indent=indent, ensure_ascii=False)
+    return json.dumps(
+        export_manifest(include_runtime=include_runtime),
+        indent=indent,
+        ensure_ascii=False,
+    )
 
 
 def catalog_ids() -> list[str]:

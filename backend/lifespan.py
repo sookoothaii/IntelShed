@@ -46,13 +46,13 @@ async def _phase1_background_tasks() -> None:
         if rag_autopilot_on():
             try:
                 news = await rag_memory.ingest_news_sources()
-                log.info("rag_news_indexed", chunks=news.get('indexed', 0))
+                log.info("rag_news_indexed", chunks=news.get("indexed", 0))
                 await rag_memory.ingest_hazards()
                 await rag_memory.ingest_situations()
                 await rag_memory.ingest_volcanoes()
                 watches = await rag_memory.ingest_prediction_watches()
                 if watches.get("indexed"):
-                    log.info("rag_watches_indexed", indexed=watches.get('indexed'))
+                    log.info("rag_watches_indexed", indexed=watches.get("indexed"))
             except Exception as e:
                 log.warning("rag_index_failed", error=str(e))
         try:
@@ -61,8 +61,14 @@ async def _phase1_background_tasks() -> None:
         except Exception as e:
             log.warning("stac_ingest_failed", error=str(e))
         try:
-            screen = await sanctions_bridge.sanctions_screen_vessels(min_score=0.85, limit=200)
-            hits = [m.get("sanction") for m in (screen.get("matches") or []) if m.get("sanction")]
+            screen = await sanctions_bridge.sanctions_screen_vessels(
+                min_score=0.85, limit=200
+            )
+            hits = [
+                m.get("sanction")
+                for m in (screen.get("matches") or [])
+                if m.get("sanction")
+            ]
             if hits:
                 await rag_memory.ingest_sanctions_hits(hits)
         except Exception as e:
@@ -71,7 +77,11 @@ async def _phase1_background_tasks() -> None:
             try:
                 result = await feed_ingest.run_feed_ingest()
                 t = result.get("totals") or {}
-                log.info("feed_ingest_done", entities=t.get('entities', 0), records=t.get('records', 0))
+                log.info(
+                    "feed_ingest_done",
+                    entities=t.get("entities", 0),
+                    records=t.get("records", 0),
+                )
             except Exception as e:
                 log.warning("feed_ingest_failed", error=str(e))
         await asyncio.sleep(600)
@@ -130,14 +140,14 @@ async def _stack_warmup() -> None:
 
         m = await ais_bridge.warm_maritime()
         if m:
-            log.info("warmup_maritime", vessels=m.get('count'))
+            log.info("warmup_maritime", vessels=m.get("count"))
     except Exception as e:
         log.warning("warmup_maritime_failed", error=str(e))
     try:
         import cams_bridge
 
         h = await cams_bridge.get_haze(refresh=True)
-        log.info("warmup_cams_haze", cities=h.get('count'))
+        log.info("warmup_cams_haze", cities=h.get("count"))
     except Exception as e:
         log.warning("warmup_cams_haze_failed", error=str(e))
     try:
@@ -154,7 +164,7 @@ async def _stack_warmup() -> None:
         pt = await fetch_point_weather(13.75, 100.5)
         if pt.get("current"):
             feed_registry.write_auto("weather:13.75:100.5", pt)
-            log.info("warmup_weather", source=pt.get('source'))
+            log.info("warmup_weather", source=pt.get("source"))
     except Exception as e:
         log.warning("warmup_weather_failed", error=str(e))
     try:
@@ -173,9 +183,9 @@ async def _entity_resolution_autopilot() -> None:
             result = await asyncio.to_thread(entity_resolution.run_resolution)
             log.info(
                 "entity_resolution_done",
-                edges_added=result.get('edges_added', 0),
-                exact_edges=result.get('exact_edges', 0),
-                splink_edges=result.get('splink_edges', 0),
+                edges_added=result.get("edges_added", 0),
+                exact_edges=result.get("exact_edges", 0),
+                splink_edges=result.get("splink_edges", 0),
             )
         except Exception as e:
             log.warning("entity_resolution_failed", error=str(e))
@@ -191,7 +201,9 @@ async def _prediction_ledger_autopilot() -> None:
             snap = await node_sync.warm_snapshot_cache()
             fusion_cells: list[dict] = []
             try:
-                grid = await fusion_heatmap.fusion_heatmap(cell_deg=2.0, top=60, include_geojson=0)
+                grid = await fusion_heatmap.fusion_heatmap(
+                    cell_deg=2.0, top=60, include_geojson=0
+                )
                 fusion_cells = list(grid.get("cells") or [])
             except Exception:
                 fusion_cells = []
@@ -204,11 +216,11 @@ async def _prediction_ledger_autopilot() -> None:
                 stats = prediction_ledger.accuracy_30d()
                 log.info(
                     "prediction_ledger_resolved",
-                    resolved=result.get('resolved'),
-                    hits=result.get('hits'),
-                    misses=result.get('misses'),
-                    accuracy_30d=stats.get('accuracy'),
-                    sample_size=stats.get('sample_size'),
+                    resolved=result.get("resolved"),
+                    hits=result.get("hits"),
+                    misses=result.get("misses"),
+                    accuracy_30d=stats.get("accuracy"),
+                    sample_size=stats.get("sample_size"),
                 )
         except Exception as e:
             log.warning("prediction_ledger_failed", error=str(e))
@@ -220,7 +232,9 @@ async def _feed_cache_autopilot() -> None:
     await asyncio.sleep(45)
     maritime_interval = float(os.getenv("WORLDBASE_MARITIME_TOUCH_INTERVAL_S", "30"))
     gdelt_interval = float(os.getenv("WORLDBASE_GDELT_TOUCH_INTERVAL_S", "600"))
-    airquality_interval = float(os.getenv("WORLDBASE_AIRQUALITY_TOUCH_INTERVAL_S", "2700"))
+    airquality_interval = float(
+        os.getenv("WORLDBASE_AIRQUALITY_TOUCH_INTERVAL_S", "2700")
+    )
     next_gdelt = 0.0
     next_airquality = 0.0
     while True:

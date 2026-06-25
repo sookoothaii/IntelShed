@@ -34,7 +34,11 @@ _CACHE_TTL = 120.0
 _LLM_ENABLED = os.getenv("INSIGHTS_LLM", "1").strip().lower() in ("1", "true", "yes")
 _LLM_TOP = int(os.getenv("INSIGHTS_LLM_TOP", "5"))
 _LLM_TIMEOUT = float(os.getenv("INSIGHTS_LLM_TIMEOUT", "25"))
-_OLLAMA_HOSTS = [h.strip() for h in os.getenv("OLLAMA_HOST", "127.0.0.1:11434").split(",") if h.strip()]
+_OLLAMA_HOSTS = [
+    h.strip()
+    for h in os.getenv("OLLAMA_HOST", "127.0.0.1:11434").split(",")
+    if h.strip()
+]
 _OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 # Narrative cache keyed by insight id + rounded score/delta — survives rebuilds.
 _NARRATIVE_CACHE: dict[str, tuple[str, str]] = {}
@@ -58,6 +62,7 @@ def _confidence(sources: list[str], delta: float, score: float) -> tuple[float, 
     # P4: provenance boost from source reliability
     try:
         from provenance import provenance_enabled, source_reliability
+
         if provenance_enabled() and sources:
             avg_reliability = sum(source_reliability(s) for s in sources) / len(sources)
             conf += (avg_reliability - 0.5) * 0.10  # ±0.05 around neutral
@@ -73,13 +78,20 @@ def _confidence(sources: list[str], delta: float, score: float) -> tuple[float, 
 
 def _bbox_around(lat: float, lon: float, deg: float = _CELL_DEG) -> list[float]:
     half = deg / 2.0
-    return [round(lon - half, 3), round(lat - half, 3), round(lon + half, 3), round(lat + half, 3)]
+    return [
+        round(lon - half, 3),
+        round(lat - half, 3),
+        round(lon + half, 3),
+        round(lat + half, 3),
+    ]
 
 
 def _entities_for(bbox: list[float]) -> list[dict[str, Any]]:
     """Top linked FtM entities inside the hotspot bbox (fail-soft to empty)."""
     try:
-        sg = intel_subgraph.build_subgraph(bbox=bbox, hops=1, node_limit=12, window_hours=24)
+        sg = intel_subgraph.build_subgraph(
+            bbox=bbox, hops=1, node_limit=12, window_hours=24
+        )
     except Exception:
         return []
     if not sg.get("available"):
@@ -110,7 +122,9 @@ def _headline(rising: bool, place: str, sources: list[str], sample: str) -> str:
     return f"{state} {fam_label} cluster — {place}"
 
 
-def _so_what(rising: bool, families: int, delta: float, score: float, entity_names: list[str]) -> str:
+def _so_what(
+    rising: bool, families: int, delta: float, score: float, entity_names: list[str]
+) -> str:
     bits: list[str] = []
     if families >= 2:
         bits.append(f"{families} independent feed families converge here")
@@ -165,13 +179,16 @@ def synthesize_insights(
         conf, basis = _confidence(sources, delta, score)
         sample = _first_sample(cell)
         since = (
-            (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat() if rising else None
+            (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+            if rising
+            else None
         )
 
         # P4: provenance score per insight
         provenance_score: float | None = None
         try:
             from provenance import provenance_enabled, score_provenance
+
             if provenance_enabled():
                 provenance_score = score_provenance(
                     source=sources[0] if sources else "unknown",
@@ -180,29 +197,31 @@ def synthesize_insights(
         except Exception:
             pass
 
-        insights.append({
-            "id": f"insight:{cid}",
-            "cell_id": cid,
-            "center": {"lat": lat, "lon": lon, "place": place},
-            "bbox": bbox,
-            "score": round(score, 3),
-            "delta_score": round(delta, 3),
-            "rising": rising,
-            "since": since,
-            "sources": sources,
-            "entities": entities,
-            "confidence": conf,
-            "confidence_basis": basis,
-            "provenance": provenance_score,
-            "headline": _headline(rising, place, sources, sample),
-            "so_what": _so_what(rising, families, delta, score, entity_names),
-            "narrative_source": "template",
-            "samples": [
-                str(s.get("label"))[:80]
-                for s in (cell.get("samples") or [])
-                if s.get("label")
-            ][:2],
-        })
+        insights.append(
+            {
+                "id": f"insight:{cid}",
+                "cell_id": cid,
+                "center": {"lat": lat, "lon": lon, "place": place},
+                "bbox": bbox,
+                "score": round(score, 3),
+                "delta_score": round(delta, 3),
+                "rising": rising,
+                "since": since,
+                "sources": sources,
+                "entities": entities,
+                "confidence": conf,
+                "confidence_basis": basis,
+                "provenance": provenance_score,
+                "headline": _headline(rising, place, sources, sample),
+                "so_what": _so_what(rising, families, delta, score, entity_names),
+                "narrative_source": "template",
+                "samples": [
+                    str(s.get("label"))[:80]
+                    for s in (cell.get("samples") or [])
+                    if s.get("label")
+                ][:2],
+            }
+        )
 
     # Rising cells first, then by descending score.
     insights.sort(key=lambda x: (0 if x["rising"] else 1, -x["score"]))
@@ -216,19 +235,21 @@ def slim_insights(insights: list[dict[str, Any]], top: int = 5) -> list[dict[str
     """Compact insight rows for briefing JSON + Pi pull (drops bbox/entities/samples)."""
     out: list[dict[str, Any]] = []
     for ins in (insights or [])[:top]:
-        out.append({
-            "id": ins.get("id"),
-            "rank": ins.get("rank"),
-            "headline": ins.get("headline"),
-            "so_what": ins.get("so_what"),
-            "center": ins.get("center"),
-            "score": ins.get("score"),
-            "delta_score": ins.get("delta_score"),
-            "rising": ins.get("rising"),
-            "confidence": ins.get("confidence"),
-            "provenance": ins.get("provenance"),
-            "sources": ins.get("sources") or [],
-        })
+        out.append(
+            {
+                "id": ins.get("id"),
+                "rank": ins.get("rank"),
+                "headline": ins.get("headline"),
+                "so_what": ins.get("so_what"),
+                "center": ins.get("center"),
+                "score": ins.get("score"),
+                "delta_score": ins.get("delta_score"),
+                "rising": ins.get("rising"),
+                "confidence": ins.get("confidence"),
+                "provenance": ins.get("provenance"),
+                "sources": ins.get("sources") or [],
+            }
+        )
     return out
 
 
@@ -237,7 +258,9 @@ def format_insights_prompt_block(insights: list[dict[str, Any]], top: int = 5) -
     items = (insights or [])[:top]
     if not items:
         return ""
-    lines = ["INSIGHTS (ranked cross-source synthesis — place, escalation, why it matters):"]
+    lines = [
+        "INSIGHTS (ranked cross-source synthesis — place, escalation, why it matters):"
+    ]
     for ins in items:
         place = (ins.get("center") or {}).get("place", "")
         delta = float(ins.get("delta_score") or 0)
@@ -257,10 +280,20 @@ async def build_insights(top: int = 10, *, narrate: bool = True) -> dict[str, An
             cell_deg=_CELL_DEG, top=top, compare_hours=24.0
         )
     except Exception as exc:
-        return {"count": 0, "insights": [], "error": str(exc)[:200], "generated_at": _now_iso()}
+        return {
+            "count": 0,
+            "insights": [],
+            "error": str(exc)[:200],
+            "generated_at": _now_iso(),
+        }
 
     if not hotspots:
-        return {"count": 0, "insights": [], "generated_at": _now_iso(), "cell_deg": _CELL_DEG}
+        return {
+            "count": 0,
+            "insights": [],
+            "generated_at": _now_iso(),
+            "cell_deg": _CELL_DEG,
+        }
 
     insights = synthesize_insights(hotspots, deltas, top=top)
     if narrate:
@@ -284,7 +317,7 @@ def _narrative_key(ins: dict[str, Any]) -> str:
 def _narration_prompt(items: list[dict[str, Any]]) -> str:
     lines = [
         "You are an OSINT analyst writing for a solo operator. For each numbered",
-        "hotspot, write a short headline (max 10 words) and a one-sentence \"so what\"",
+        'hotspot, write a short headline (max 10 words) and a one-sentence "so what"',
         "(max 25 words, plain, decision-relevant). Use ONLY the given signals; do not",
         "invent facts or place names. Output EXACTLY one line per hotspot, nothing",
         "else, in this format:",

@@ -4,6 +4,7 @@ Public GeoJSON endpoint was retired (404). Use operator credentials:
   BLITZORTUNG_USER / BLITZORTUNG_PASSWORD in .env
 Get access via https://www.blitzortung.org/ (active station operator).
 """
+
 import json
 import os
 from datetime import datetime, timezone

@@ -88,11 +88,15 @@ class ChatRoutingTests(unittest.TestCase):
     def test_select_api_key_falls_back_to_env(self):
         self.assertEqual(cr.select_api_key("openai", {}, "sk-env"), "sk-env")
         self.assertEqual(cr.select_api_key("openai", None, "sk-env"), "sk-env")
-        self.assertEqual(cr.select_api_key("openai", {"openai": "   "}, "sk-env"), "sk-env")
+        self.assertEqual(
+            cr.select_api_key("openai", {"openai": "   "}, "sk-env"), "sk-env"
+        )
 
     def test_select_api_key_no_cross_provider_leak(self):
         # An OpenAI key in the map must not be used for anthropic.
-        self.assertEqual(cr.select_api_key("anthropic", {"openai": "sk-ui"}, None), None)
+        self.assertEqual(
+            cr.select_api_key("anthropic", {"openai": "sk-ui"}, None), None
+        )
 
     def test_select_api_key_strips_whitespace(self):
         self.assertEqual(cr.select_api_key("groq", {"groq": "  gk-1 "}, None), "gk-1")
@@ -108,7 +112,9 @@ class ChatRoutingTests(unittest.TestCase):
 
     def test_select_base_url_falls_back_to_env_then_default(self):
         self.assertEqual(
-            cr.select_base_url("openai", {}, "https://proxy.local/v1", cr.DEFAULT_BASE_URLS["openai"]),
+            cr.select_base_url(
+                "openai", {}, "https://proxy.local/v1", cr.DEFAULT_BASE_URLS["openai"]
+            ),
             "https://proxy.local/v1",
         )
         self.assertEqual(

@@ -15,9 +15,15 @@ _DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
 )
 _DRIFT_RATIO = float(os.getenv("WORLDBASE_FEED_DRIFT_RATIO", "0.1"))
 _MIN_BASELINE = int(os.getenv("WORLDBASE_FEED_DRIFT_MIN_COUNT", "5"))
-_SNAPSHOT_INTERVAL_S = float(os.getenv("WORLDBASE_FEED_DRIFT_SNAPSHOT_INTERVAL_S", "3600"))
-_BASELINE_MIN_AGE_S = float(os.getenv("WORLDBASE_FEED_DRIFT_BASELINE_MIN_AGE_S", "6")) * 3600.0
-_BASELINE_MAX_AGE_S = float(os.getenv("WORLDBASE_FEED_DRIFT_BASELINE_MAX_AGE_S", "48")) * 3600.0
+_SNAPSHOT_INTERVAL_S = float(
+    os.getenv("WORLDBASE_FEED_DRIFT_SNAPSHOT_INTERVAL_S", "3600")
+)
+_BASELINE_MIN_AGE_S = (
+    float(os.getenv("WORLDBASE_FEED_DRIFT_BASELINE_MIN_AGE_S", "6")) * 3600.0
+)
+_BASELINE_MAX_AGE_S = (
+    float(os.getenv("WORLDBASE_FEED_DRIFT_BASELINE_MAX_AGE_S", "48")) * 3600.0
+)
 
 _DEFAULT_WATCH = (
     "gdacs_v3",
@@ -99,7 +105,9 @@ def _parse_ts(raw: str | None) -> datetime | None:
 
 def _read_feed_cache(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
-    for row in conn.execute("SELECT key, value, cached_at FROM feed_cache ORDER BY key"):
+    for row in conn.execute(
+        "SELECT key, value, cached_at FROM feed_cache ORDER BY key"
+    ):
         meta: dict[str, Any] = {"cached_at": row["cached_at"]}
         try:
             val = json.loads(row["value"] or "{}")
@@ -116,7 +124,9 @@ def _read_feed_cache(conn: sqlite3.Connection) -> dict[str, dict[str, Any]]:
     return out
 
 
-def record_snapshots(conn: sqlite3.Connection, feeds: dict[str, dict[str, Any]], now: datetime) -> int:
+def record_snapshots(
+    conn: sqlite3.Connection, feeds: dict[str, dict[str, Any]], now: datetime
+) -> int:
     n = 0
     for key, meta in feeds.items():
         count = meta.get("count")
@@ -163,11 +173,17 @@ def _baseline_for_key(
             continue
         age_s = (now - ts).total_seconds()
         if _BASELINE_MIN_AGE_S <= age_s <= _BASELINE_MAX_AGE_S:
-            return {"count": int(row["count"]), "recorded_at": row["recorded_at"], "age_hours": round(age_s / 3600, 1)}
+            return {
+                "count": int(row["count"]),
+                "recorded_at": row["recorded_at"],
+                "age_hours": round(age_s / 3600, 1),
+            }
     return None
 
 
-def detect_drift(feeds: dict[str, dict[str, Any]], conn: sqlite3.Connection, now: datetime) -> list[dict[str, Any]]:
+def detect_drift(
+    feeds: dict[str, dict[str, Any]], conn: sqlite3.Connection, now: datetime
+) -> list[dict[str, Any]]:
     drifting: list[dict[str, Any]] = []
     watch = set(_watch_keys())
     for watch_key in watch:
@@ -187,7 +203,11 @@ def detect_drift(feeds: dict[str, dict[str, Any]], conn: sqlite3.Connection, now
         if curr < prev * _DRIFT_RATIO:
             # Healthy feed with a large count drop usually means methodology changed
             # (e.g. wildfires dedup after an inflated baseline), not upstream outage.
-            if not meta.get("error") and not meta.get("stale") and curr >= _MIN_BASELINE:
+            if (
+                not meta.get("error")
+                and not meta.get("stale")
+                and curr >= _MIN_BASELINE
+            ):
                 if prev > curr * 10:
                     continue
             drop_pct = round(100.0 * (1.0 - curr / prev), 1) if prev else 0.0
@@ -219,7 +239,9 @@ def _resolve_watch_meta(
     return None, None
 
 
-def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: int = 12) -> list[dict[str, Any]]:
+def build_freshness(
+    feeds: dict[str, dict[str, Any]], now: datetime, *, limit: int = 12
+) -> list[dict[str, Any]]:
     from connector_registry import CONNECTOR_CATALOG, feed_ttl_sec
 
     key_to_connector: dict[str, str] = {}
@@ -235,15 +257,17 @@ def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: i
         eff_key, meta = _resolve_watch_meta(watch_key, feeds)
         spec = key_to_spec.get(watch_key)
         if not meta:
-            rows.append({
-                "cache_key": watch_key,
-                "connector_id": key_to_connector.get(watch_key),
-                "connector_name": spec.name if spec else None,
-                "license": spec.license if spec else None,
-                "bridge": spec.bridge if spec else None,
-                "endpoint": spec.endpoints[0] if spec and spec.endpoints else None,
-                "status": "missing",
-            })
+            rows.append(
+                {
+                    "cache_key": watch_key,
+                    "connector_id": key_to_connector.get(watch_key),
+                    "connector_name": spec.name if spec else None,
+                    "license": spec.license if spec else None,
+                    "bridge": spec.bridge if spec else None,
+                    "endpoint": spec.endpoints[0] if spec and spec.endpoints else None,
+                    "status": "missing",
+                }
+            )
             continue
         cached_at = _parse_ts(meta.get("cached_at"))
         age_sec = round((now - cached_at).total_seconds(), 1) if cached_at else None
@@ -252,7 +276,8 @@ def build_freshness(feeds: dict[str, dict[str, Any]], now: datetime, *, limit: i
         stale = bool(meta.get("stale"))
         fresh = age_sec is not None and age_sec < ttl and not err and not stale
         status = classify_freshness(
-            age_sec, ttl,
+            age_sec,
+            ttl,
             error=err,
             stale_flag=stale,
             has_payload=bool(meta),
@@ -317,7 +342,11 @@ def check_feed_drift() -> dict[str, Any]:
         conn.commit()
     freshness = build_freshness(feeds, now)
     ok = len(drifting) == 0
-    detail = "no drift" if ok else f"{len(drifting)} feed(s) dropped >{int((1 - _DRIFT_RATIO) * 100)}%"
+    detail = (
+        "no drift"
+        if ok
+        else f"{len(drifting)} feed(s) dropped >{int((1 - _DRIFT_RATIO) * 100)}%"
+    )
     return {
         "ok": ok,
         "detail": detail,

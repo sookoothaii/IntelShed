@@ -40,7 +40,9 @@ class RagRerankTests(unittest.TestCase):
 
     def test_rerank_empty_and_single(self):
         self.assertEqual(rerank_hits("q", [], top_k=3, score_fn=lambda q, t: []), [])
-        single = rerank_hits("q", [_hit(1, "only")], top_k=3, score_fn=lambda q, t: [1.0])
+        single = rerank_hits(
+            "q", [_hit(1, "only")], top_k=3, score_fn=lambda q, t: [1.0]
+        )
         self.assertEqual(len(single), 1)
         self.assertEqual(single[0]["rank_source"], "hybrid_rrf_rerank")
 

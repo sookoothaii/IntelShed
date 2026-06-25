@@ -45,7 +45,9 @@ _CACHE_TTL = 60.0
 _DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
 )
-_SNAPSHOT_INTERVAL_S = float(os.getenv("WORLDBASE_FUSION_SNAPSHOT_INTERVAL_S", str(6 * 3600)))
+_SNAPSHOT_INTERVAL_S = float(
+    os.getenv("WORLDBASE_FUSION_SNAPSHOT_INTERVAL_S", str(6 * 3600))
+)
 _COMPARE_TOLERANCE_H = float(os.getenv("WORLDBASE_FUSION_COMPARE_TOLERANCE_H", "3"))
 _MAX_SNAPSHOT_AGE_D = float(os.getenv("WORLDBASE_FUSION_SNAPSHOT_RETAIN_D", "14"))
 _COMPARE_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*h(?:ours?)?$", re.I)
@@ -120,14 +122,16 @@ def _compact_cells(cells: list[dict]) -> list[dict]:
         cid = c.get("cell_id") or fusion_cell_id(lat, lon)
         if not cid:
             continue
-        out.append({
-            "cell_id": cid,
-            "lat": lat,
-            "lon": lon,
-            "score": c.get("score"),
-            "intensity": c.get("intensity"),
-            "sources": c.get("sources") or [],
-        })
+        out.append(
+            {
+                "cell_id": cid,
+                "lat": lat,
+                "lon": lon,
+                "score": c.get("score"),
+                "intensity": c.get("intensity"),
+                "sources": c.get("sources") or [],
+            }
+        )
     return out
 
 
@@ -146,7 +150,9 @@ def _last_snapshot_at(cell_deg: float) -> datetime | None:
     return _parse_ts(row["recorded_at"]) if row else None
 
 
-def record_snapshot_if_due(cell_deg: float, cells: list[dict], *, now: datetime | None = None) -> bool:
+def record_snapshot_if_due(
+    cell_deg: float, cells: list[dict], *, now: datetime | None = None
+) -> bool:
     """Persist fusion grid snapshot at most every 6h (configurable). Returns True if stored."""
     now = now or datetime.now(timezone.utc)
     last = _last_snapshot_at(cell_deg)
@@ -206,7 +212,9 @@ def _load_snapshot_near(cell_deg: float, target: datetime) -> dict | None:
     return best
 
 
-def apply_compare(cells: list[dict], cell_deg: float, compare_hours: float) -> dict[str, Any]:
+def apply_compare(
+    cells: list[dict], cell_deg: float, compare_hours: float
+) -> dict[str, Any]:
     """Attach baseline_score and delta_score to cells vs snapshot near now-compare_hours."""
     now = datetime.now(timezone.utc)
     target = now - timedelta(hours=compare_hours)
@@ -234,7 +242,9 @@ def apply_compare(cells: list[dict], cell_deg: float, compare_hours: float) -> d
             c["baseline_score"] = None
             c["delta_score"] = None
         ds = c.get("delta_score")
-        if ds is not None and (top_delta is None or ds > top_delta.get("delta_score", -1)):
+        if ds is not None and (
+            top_delta is None or ds > top_delta.get("delta_score", -1)
+        ):
             top_delta = {
                 "cell_id": cid,
                 "delta_score": ds,
@@ -268,7 +278,8 @@ def extract_delta_watch_cells(
 ) -> list[dict]:
     """Cells with meaningful positive delta for anticipatory watch items."""
     ranked = [
-        c for c in cells
+        c
+        for c in cells
         if c.get("delta_score") is not None and float(c["delta_score"]) >= min_delta
     ]
     ranked.sort(key=lambda x: -float(x.get("delta_score") or 0))
@@ -328,6 +339,7 @@ async def _gather_quakes() -> list[dict]:
     out: list[dict] = []
     try:
         from routes.core_feeds import get_earthquakes
+
         data = await get_earthquakes(period="day", magnitude="2.5")
     except Exception:
         return []
@@ -341,10 +353,15 @@ async def _gather_quakes() -> list[dict]:
         except (ValueError, TypeError):
             mag_f = 2.5
         weight = max(0.5, mag_f - 2.0) ** 1.5
-        out.append({
-            "lat": ll[0], "lon": ll[1], "weight": weight,
-            "source": "quake", "label": f"M{mag_f:.1f} {q.get('place', '')}".strip(),
-        })
+        out.append(
+            {
+                "lat": ll[0],
+                "lon": ll[1],
+                "weight": weight,
+                "source": "quake",
+                "label": f"M{mag_f:.1f} {q.get('place', '')}".strip(),
+            }
+        )
     return out
 
 
@@ -352,6 +369,7 @@ async def _gather_gdacs() -> list[dict]:
     out: list[dict] = []
     try:
         import feeds_extra
+
         data = await feeds_extra.gdacs_alerts()
     except Exception:
         return []
@@ -361,7 +379,15 @@ async def _gather_gdacs() -> list[dict]:
             continue
         title = (a.get("title") or "").lower()
         w = 6.0 if "red" in title else 3.0 if "orange" in title else 1.5
-        out.append({"lat": ll[0], "lon": ll[1], "weight": w, "source": "gdacs", "label": a.get("title", "GDACS alert")})
+        out.append(
+            {
+                "lat": ll[0],
+                "lon": ll[1],
+                "weight": w,
+                "source": "gdacs",
+                "label": a.get("title", "GDACS alert"),
+            }
+        )
     return out
 
 
@@ -369,6 +395,7 @@ async def _gather_hazards() -> list[dict]:
     out: list[dict] = []
     try:
         import cap_bridge
+
         data = await cap_bridge.hazards_active(limit=300)
     except Exception:
         return []
@@ -378,7 +405,15 @@ async def _gather_hazards() -> list[dict]:
             continue
         sev = (h.get("severity") or "").lower()
         w = 5.0 if "extreme" in sev else 3.0 if "severe" in sev else 1.5
-        out.append({"lat": ll[0], "lon": ll[1], "weight": w, "source": "hazard", "label": h.get("event") or h.get("headline") or "Hazard"})
+        out.append(
+            {
+                "lat": ll[0],
+                "lon": ll[1],
+                "weight": w,
+                "source": "hazard",
+                "label": h.get("event") or h.get("headline") or "Hazard",
+            }
+        )
     return out
 
 
@@ -386,6 +421,7 @@ async def _gather_volcanoes() -> list[dict]:
     out: list[dict] = []
     try:
         import volcano_bridge
+
         data = await volcano_bridge.holocene_volcanoes(active_only=True, limit=400)
     except Exception:
         return []
@@ -393,9 +429,21 @@ async def _gather_volcanoes() -> list[dict]:
         ll = _safe_lat_lon(v)
         if not ll:
             continue
-        recent = (v.get("last_eruption") or "")
-        boost = 2.0 if recent and any(x in str(recent) for x in ("2024", "2025", "2026")) else 1.0
-        out.append({"lat": ll[0], "lon": ll[1], "weight": 1.5 * boost, "source": "volcano", "label": v.get("name", "Volcano")})
+        recent = v.get("last_eruption") or ""
+        boost = (
+            2.0
+            if recent and any(x in str(recent) for x in ("2024", "2025", "2026"))
+            else 1.0
+        )
+        out.append(
+            {
+                "lat": ll[0],
+                "lon": ll[1],
+                "weight": 1.5 * boost,
+                "source": "volcano",
+                "label": v.get("name", "Volcano"),
+            }
+        )
     return out
 
 
@@ -403,6 +451,7 @@ async def _gather_anomalies() -> list[dict]:
     out: list[dict] = []
     try:
         import feeds_extra
+
         data = await feeds_extra.aircraft_anomalies()
     except Exception:
         return []
@@ -412,7 +461,15 @@ async def _gather_anomalies() -> list[dict]:
             continue
         reasons = str(a.get("reasons") or "")
         w = 5.0 if "emergency" in reasons.lower() else 2.0
-        out.append({"lat": float(lat), "lon": float(lon), "weight": w, "source": "anomaly", "label": f"Anomaly {a.get('callsign') or a.get('icao24', '')}".strip()})
+        out.append(
+            {
+                "lat": float(lat),
+                "lon": float(lon),
+                "weight": w,
+                "source": "anomaly",
+                "label": f"Anomaly {a.get('callsign') or a.get('icao24', '')}".strip(),
+            }
+        )
     return out
 
 
@@ -421,6 +478,7 @@ async def _gather_outages() -> list[dict]:
     out: list[dict] = []
     try:
         import outages_bridge
+
         data = await outages_bridge.internet_outages(hours=72, limit=120)
     except Exception:
         return []
@@ -428,7 +486,15 @@ async def _gather_outages() -> list[dict]:
         ll = _safe_lat_lon(o)
         if not ll:
             continue
-        out.append({"lat": ll[0], "lon": ll[1], "weight": 2.0, "source": "outage", "label": o.get("name") or o.get("location") or "Outage"})
+        out.append(
+            {
+                "lat": ll[0],
+                "lon": ll[1],
+                "weight": 2.0,
+                "source": "outage",
+                "label": o.get("name") or o.get("location") or "Outage",
+            }
+        )
     return out
 
 
@@ -436,6 +502,7 @@ async def _gather_pegel() -> list[dict]:
     out: list[dict] = []
     try:
         import pegel_bridge
+
         data = await pegel_bridge.get_pegel()
     except Exception:
         return []
@@ -447,7 +514,15 @@ async def _gather_pegel() -> list[dict]:
         if lat is None or lon is None:
             continue
         w = 4.0 if sev == "critical" else 2.5
-        out.append({"lat": float(lat), "lon": float(lon), "weight": w, "source": "pegel", "label": f"Pegel {g.get('name')}: {g.get('value')}{g.get('unit', '')}"})
+        out.append(
+            {
+                "lat": float(lat),
+                "lon": float(lon),
+                "weight": w,
+                "source": "pegel",
+                "label": f"Pegel {g.get('name')}: {g.get('value')}{g.get('unit', '')}",
+            }
+        )
     return out
 
 
@@ -456,6 +531,7 @@ async def _gather_aircraft_density(cell_deg: float) -> list[dict]:
     out: list[dict] = []
     try:
         import aircraft_provider
+
         data = aircraft_provider.last_known_states()
         if not data or not data.get("states"):
             data, _src = await aircraft_provider.fetch_live_states(timeout=10.0)
@@ -478,19 +554,30 @@ async def _gather_aircraft_density(cell_deg: float) -> list[dict]:
     for (lat, lon), n in counts.items():
         if n < thresh:
             continue
-        out.append({
-            "lat": lat + cell_deg / 2,
-            "lon": lon + cell_deg / 2,
-            "weight": math.log2(n) * 0.5,
-            "source": "aircraft_density",
-            "label": f"~{n} aircraft / {cell_deg:g}° cell",
-        })
+        out.append(
+            {
+                "lat": lat + cell_deg / 2,
+                "lon": lon + cell_deg / 2,
+                "weight": math.log2(n) * 0.5,
+                "source": "aircraft_density",
+                "label": f"~{n} aircraft / {cell_deg:g}° cell",
+            }
+        )
     return out
 
 
 async def _compute_grid(cell_deg: float, top: int) -> tuple[list[dict], dict, int, int]:
     """Gather feeds, aggregate grid — returns (ranked_cells, contributors, total_points, total_cells)."""
-    quakes, gdacs, hazards, volcs, anoms, outages, pegel, density = await asyncio.gather(
+    (
+        quakes,
+        gdacs,
+        hazards,
+        volcs,
+        anoms,
+        outages,
+        pegel,
+        density,
+    ) = await asyncio.gather(
         _gather_quakes(),
         _gather_gdacs(),
         _gather_hazards(),
@@ -506,6 +593,7 @@ async def _compute_grid(cell_deg: float, top: int) -> tuple[list[dict], dict, in
     # P4: apply source reliability weighting when provenance enabled
     try:
         from provenance import provenance_enabled, feed_fusion_weight
+
         _use_provenance = provenance_enabled()
     except Exception:
         _use_provenance = False
@@ -516,25 +604,32 @@ async def _compute_grid(cell_deg: float, top: int) -> tuple[list[dict], dict, in
             k = _cell_key(pt["lat"], pt["lon"], cell_deg)
         except (KeyError, TypeError, ValueError):
             continue
-        cell = cells.setdefault(k, {
-            "lat": k[0] + cell_deg / 2,
-            "lon": k[1] + cell_deg / 2,
-            "intensity": 0.0,
-            "contributions": {},
-            "samples": [],
-        })
+        cell = cells.setdefault(
+            k,
+            {
+                "lat": k[0] + cell_deg / 2,
+                "lon": k[1] + cell_deg / 2,
+                "intensity": 0.0,
+                "contributions": {},
+                "samples": [],
+            },
+        )
         weight = pt["weight"]
         if _use_provenance:
             weight = feed_fusion_weight(pt["source"], weight)
         cell["intensity"] += weight
-        cell["contributions"][pt["source"]] = cell["contributions"].get(pt["source"], 0) + 1
+        cell["contributions"][pt["source"]] = (
+            cell["contributions"].get(pt["source"], 0) + 1
+        )
         if len(cell["samples"]) < 4:
             cell["samples"].append({"source": pt["source"], "label": pt["label"]})
 
     ranked = sorted(cells.values(), key=lambda c: -c["intensity"])[:top]
     max_intensity = ranked[0]["intensity"] if ranked else 0.0
     for c in ranked:
-        c["score"] = round(c["intensity"] / max_intensity, 4) if max_intensity > 0 else 0.0
+        c["score"] = (
+            round(c["intensity"] / max_intensity, 4) if max_intensity > 0 else 0.0
+        )
         c["intensity"] = round(c["intensity"], 4)
         c["sources"] = sorted(c["contributions"].keys())
         c["cell_id"] = fusion_cell_id(c["lat"], c["lon"])
@@ -554,9 +649,13 @@ async def _compute_grid(cell_deg: float, top: int) -> tuple[list[dict], dict, in
 
 @router.get("/heatmap")
 async def fusion_heatmap(
-    cell_deg: float = Query(2.0, ge=0.5, le=10.0, description="Grid cell size in degrees"),
+    cell_deg: float = Query(
+        2.0, ge=0.5, le=10.0, description="Grid cell size in degrees"
+    ),
     top: int = Query(60, ge=10, le=400, description="Return at most N hottest cells"),
-    include_geojson: int = Query(0, ge=0, le=1, description="Include GeoJSON polygons (heavier)"),
+    include_geojson: int = Query(
+        0, ge=0, le=1, description="Include GeoJSON polygons (heavier)"
+    ),
     compare: str | None = Query(
         None,
         description="Compare to grid snapshot N hours ago (e.g. 24h) — adds delta_score per cell",
@@ -579,7 +678,11 @@ async def fusion_heatmap(
     if compare_hours is not None:
         compare_meta = apply_compare(ranked, cell_deg, compare_hours)
         ranked.sort(
-            key=lambda c: -(abs(float(c.get("delta_score") or 0)) if c.get("delta_score") is not None else float(c.get("score") or 0)),
+            key=lambda c: -(
+                abs(float(c.get("delta_score") or 0))
+                if c.get("delta_score") is not None
+                else float(c.get("score") or 0)
+            ),
         )
 
     max_intensity = ranked[0]["intensity"] if ranked else 0.0
@@ -609,17 +712,19 @@ async def fusion_heatmap(
                 [lon - half, lat + half],
                 [lon - half, lat - half],
             ]
-            feats.append({
-                "type": "Feature",
-                "geometry": {"type": "Polygon", "coordinates": [ring]},
-                "properties": {
-                    "score": c["score"],
-                    "intensity": c["intensity"],
-                    "sources": c["sources"],
-                    "contributions": c["contributions"],
-                    "samples": c["samples"],
-                },
-            })
+            feats.append(
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": [ring]},
+                    "properties": {
+                        "score": c["score"],
+                        "intensity": c["intensity"],
+                        "sources": c["sources"],
+                        "contributions": c["contributions"],
+                        "samples": c["samples"],
+                    },
+                }
+            )
         payload["geojson"] = {"type": "FeatureCollection", "features": feats}
 
     _CACHE[cache_key] = (now, payload)
@@ -658,7 +763,12 @@ def format_hotspots_for_llm(cells: list[dict], top: int = 3) -> str:
 
 def rank_cells_for_operator(cells: list[dict], *, top: int = 3) -> list[dict]:
     """Re-rank fusion cells: operator home region first, then ASEAN, then global."""
-    from operator_briefing import OPERATOR_REGION, _ASEAN_BBOX, _region_bbox, classify_item
+    from operator_briefing import (
+        OPERATOR_REGION,
+        _ASEAN_BBOX,
+        _region_bbox,
+        classify_item,
+    )
 
     local_bbox = _region_bbox(OPERATOR_REGION)
     regional_bbox = _ASEAN_BBOX if OPERATOR_REGION == "thailand" else local_bbox
@@ -688,19 +798,21 @@ def slim_hotspot_cells(cells: list[dict], top: int = 3) -> list[dict]:
         lat, lon = c.get("lat"), c.get("lon")
         if lat is None or lon is None:
             continue
-        out.append({
-            "lat": lat,
-            "lon": lon,
-            "score": c.get("score"),
-            "intensity": c.get("intensity"),
-            "sources": c.get("sources") or [],
-            "cell_id": c.get("cell_id"),
-            "delta_score": c.get("delta_score"),
-            "samples": [
-                {"source": s.get("source"), "label": (s.get("label") or "")[:80]}
-                for s in (c.get("samples") or [])[:2]
-            ],
-        })
+        out.append(
+            {
+                "lat": lat,
+                "lon": lon,
+                "score": c.get("score"),
+                "intensity": c.get("intensity"),
+                "sources": c.get("sources") or [],
+                "cell_id": c.get("cell_id"),
+                "delta_score": c.get("delta_score"),
+                "samples": [
+                    {"source": s.get("source"), "label": (s.get("label") or "")[:80]}
+                    for s in (c.get("samples") or [])[:2]
+                ],
+            }
+        )
     return out
 
 

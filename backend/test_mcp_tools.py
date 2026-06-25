@@ -19,7 +19,11 @@ from mcp_server import (
 
 class MCPAuthTests(unittest.TestCase):
     def test_auth_when_api_key_set(self):
-        with patch.dict("os.environ", {"WORLDBASE_API_KEY": "secret", "WORLDBASE_BIND_HOST": "127.0.0.1"}, clear=False):
+        with patch.dict(
+            "os.environ",
+            {"WORLDBASE_API_KEY": "secret", "WORLDBASE_BIND_HOST": "127.0.0.1"},
+            clear=False,
+        ):
             with patch("auth.security.API_KEY", "secret"):
                 self.assertTrue(mcp_auth_required())
 
@@ -29,7 +33,9 @@ class MCPAuthTests(unittest.TestCase):
                 self.assertTrue(mcp_auth_required())
 
     def test_no_auth_localhost_without_key(self):
-        with patch.dict("os.environ", {"WORLDBASE_BIND_HOST": "127.0.0.1"}, clear=False):
+        with patch.dict(
+            "os.environ", {"WORLDBASE_BIND_HOST": "127.0.0.1"}, clear=False
+        ):
             with patch("auth.security.API_KEY", ""):
                 self.assertFalse(mcp_auth_required())
 
@@ -45,7 +51,11 @@ class MCPFeedSampleTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(fid, FEED_SAMPLE_ALLOWLIST)
 
     async def test_newsdata_feed_sample_live_bridge(self):
-        fake = {"count": 2, "articles": [{"title": "A"}, {"title": "B"}], "configured": True}
+        fake = {
+            "count": 2,
+            "articles": [{"title": "A"}, {"title": "B"}],
+            "configured": True,
+        }
         with patch("newsdata_bridge.get_newsdata", new=AsyncMock(return_value=fake)):
             out = await fetch_feed_sample("newsdata", limit=1)
         self.assertEqual(out["feed_id"], "newsdata")
@@ -119,7 +129,9 @@ class MCPBriefingGenerateTests(unittest.IsolatedAsyncioTestCase):
             "digest": {"lang": "en", "region": "thailand"},
         }
         with patch("mcp_server.mcp_write_enabled", return_value=True):
-            with patch("node_sync.generate_briefing_internal", new=AsyncMock(return_value=fake)):
+            with patch(
+                "node_sync.generate_briefing_internal", new=AsyncMock(return_value=fake)
+            ):
                 out = await trigger_briefing_generate(lang="en")
         self.assertTrue(out["generated"])
         self.assertEqual(out["created_at"], fake["created_at"])
@@ -132,7 +144,11 @@ class MCPBriefingGenerateTests(unittest.IsolatedAsyncioTestCase):
                 await trigger_briefing_generate()
 
     def test_write_enabled_default(self):
-        with patch.dict("os.environ", {"WORLDBASE_MCP": "1", "WORLDBASE_MCP_WRITE": "1"}, clear=False):
+        with patch.dict(
+            "os.environ",
+            {"WORLDBASE_MCP": "1", "WORLDBASE_MCP_WRITE": "1"},
+            clear=False,
+        ):
             self.assertTrue(mcp_write_enabled())
         with patch.dict("os.environ", {"WORLDBASE_MCP_WRITE": "0"}, clear=False):
             self.assertFalse(mcp_write_enabled())

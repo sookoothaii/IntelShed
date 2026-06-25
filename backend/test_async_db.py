@@ -10,7 +10,6 @@ import feed_registry
 
 
 class TestAsyncWrappers(unittest.TestCase):
-
     def setUp(self):
         self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self._tmp.close()
@@ -44,6 +43,7 @@ class TestAsyncWrappers(unittest.TestCase):
     def test_async_read_does_not_block_event_loop(self):
         """Verify async_read_sqlite is a coroutine (non-blocking)."""
         import inspect
+
         self.assertTrue(inspect.iscoroutinefunction(feed_registry.async_read_sqlite))
         self.assertTrue(inspect.iscoroutinefunction(feed_registry.async_write_sqlite))
 

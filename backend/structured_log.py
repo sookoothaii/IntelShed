@@ -25,13 +25,28 @@ import sys
 from datetime import datetime, timezone
 
 # Keys whose values should be redacted in any log output.
-_SENSITIVE_KEYS = frozenset({
-    "api_key", "apikey", "token", "secret", "password", "passwd",
-    "authorization", "auth", "credential", "private_key",
-    "node_ingest_token", "node_admin_token", "cesium_ion_token",
-    "aisstream_api_key", "newsdata_api_key", "entsoe_security_token",
-    "opensky_client_secret", "firewall_host",
-})
+_SENSITIVE_KEYS = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "authorization",
+        "auth",
+        "credential",
+        "private_key",
+        "node_ingest_token",
+        "node_admin_token",
+        "cesium_ion_token",
+        "aisstream_api_key",
+        "newsdata_api_key",
+        "entsoe_security_token",
+        "opensky_client_secret",
+        "firewall_host",
+    }
+)
 
 # Env var names that contain secrets — their values should never be logged.
 _SENSITIVE_ENV_PATTERNS = re.compile(
@@ -59,7 +74,10 @@ def _redact_dict(d: dict) -> dict:
         if isinstance(v, dict):
             out[k] = _redact_dict(v)
         elif isinstance(v, list):
-            out[k] = [_redact_dict(i) if isinstance(i, dict) else _redact_value(i, k) for i in v]
+            out[k] = [
+                _redact_dict(i) if isinstance(i, dict) else _redact_value(i, k)
+                for i in v
+            ]
         else:
             out[k] = _redact_value(v, k)
     return out
@@ -78,10 +96,27 @@ class JsonFormatter(logging.Formatter):
         # Merge extra fields from record.__dict__
         for key, val in record.__dict__.items():
             if key in (
-                "name", "msg", "args", "levelname", "levelno", "pathname",
-                "filename", "module", "exc_info", "exc_text", "stack_info",
-                "lineno", "funcName", "created", "msecs", "relativeCreated",
-                "thread", "threadName", "processName", "process", "taskName",
+                "name",
+                "msg",
+                "args",
+                "levelname",
+                "levelno",
+                "pathname",
+                "filename",
+                "module",
+                "exc_info",
+                "exc_text",
+                "stack_info",
+                "lineno",
+                "funcName",
+                "created",
+                "msecs",
+                "relativeCreated",
+                "thread",
+                "threadName",
+                "processName",
+                "process",
+                "taskName",
                 "message",
             ):
                 continue

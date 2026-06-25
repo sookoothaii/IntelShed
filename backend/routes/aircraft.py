@@ -36,7 +36,9 @@ def _aircraft_response(
     error: str | None = None,
 ) -> dict:
     states = (payload or {}).get("states", []) or []
-    with_pos = [s for s in states if len(s) > 6 and s[5] is not None and s[6] is not None]
+    with_pos = [
+        s for s in states if len(s) > 6 and s[5] is not None and s[6] is not None
+    ]
     out = {
         "count": len(with_pos),
         "timestamp": (payload or {}).get("time"),
@@ -101,7 +103,9 @@ async def get_aircraft(limit: int = 800):
             stale = _stale_payload()
             if stale:
                 if _AIRCRAFT_REFRESH_TASK is None or _AIRCRAFT_REFRESH_TASK.done():
-                    _AIRCRAFT_REFRESH_TASK = asyncio.create_task(_refresh_aircraft_cache())
+                    _AIRCRAFT_REFRESH_TASK = asyncio.create_task(
+                        _refresh_aircraft_cache()
+                    )
                 cached = stale
                 source = stale.get("source", "stale")
             else:
@@ -125,10 +129,14 @@ async def get_aircraft(limit: int = 800):
     except asyncio.CancelledError:
         stale = _stale_payload()
         if stale:
-            return _aircraft_response(stale, source=stale.get("source", "stale"), limit=limit)
+            return _aircraft_response(
+                stale, source=stale.get("source", "stale"), limit=limit
+            )
         return _unavailable_response(limit)
     except Exception as e:
         stale = _stale_payload()
         if stale:
-            return _aircraft_response(stale, source=stale.get("source", "stale"), limit=limit)
+            return _aircraft_response(
+                stale, source=stale.get("source", "stale"), limit=limit
+            )
         return _unavailable_response(limit, e)

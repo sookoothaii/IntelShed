@@ -45,14 +45,48 @@ DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
 )
 
 SENSOR_THRESHOLDS = {
-    "cpu_temp_c": {"warn": 55, "critical": 70, "message": "CPU temperature elevated — consider ventilation"},
-    "battery_v": {"warn": 3.5, "critical": 3.3, "message": "Battery voltage low — consider charging or solar input", "invert": True},
-    "battery_pct": {"warn": 30, "critical": 15, "message": "Battery capacity low — conserve power", "invert": False},
-    "co2_ppm": {"warn": 1000, "critical": 2000, "message": "CO2 level elevated — improve ventilation"},
-    "radiation_usv_h": {"warn": 0.5, "critical": 1.0, "message": "Radiation level above baseline — check sensor placement"},
-    "pm25_ug_m3": {"warn": 35, "critical": 75, "message": "Air quality degraded — consider filter or seal"},
-    "disk_pct": {"warn": 85, "critical": 92, "message": "Root disk nearly full — run: sudo bash pi-disk-maintenance.sh"},
-    "ram_pct": {"warn": 88, "critical": 95, "message": "RAM usage high — close heavy processes"},
+    "cpu_temp_c": {
+        "warn": 55,
+        "critical": 70,
+        "message": "CPU temperature elevated — consider ventilation",
+    },
+    "battery_v": {
+        "warn": 3.5,
+        "critical": 3.3,
+        "message": "Battery voltage low — consider charging or solar input",
+        "invert": True,
+    },
+    "battery_pct": {
+        "warn": 30,
+        "critical": 15,
+        "message": "Battery capacity low — conserve power",
+        "invert": False,
+    },
+    "co2_ppm": {
+        "warn": 1000,
+        "critical": 2000,
+        "message": "CO2 level elevated — improve ventilation",
+    },
+    "radiation_usv_h": {
+        "warn": 0.5,
+        "critical": 1.0,
+        "message": "Radiation level above baseline — check sensor placement",
+    },
+    "pm25_ug_m3": {
+        "warn": 35,
+        "critical": 75,
+        "message": "Air quality degraded — consider filter or seal",
+    },
+    "disk_pct": {
+        "warn": 85,
+        "critical": 92,
+        "message": "Root disk nearly full — run: sudo bash pi-disk-maintenance.sh",
+    },
+    "ram_pct": {
+        "warn": 88,
+        "critical": 95,
+        "message": "RAM usage high — close heavy processes",
+    },
 }
 
 
@@ -172,7 +206,9 @@ async def node_ingest(
             try:
                 ts = int(x_node_timestamp)
                 if check_replay_attack(x_node_nonce, ts):
-                    raise HTTPException(status_code=403, detail="Request replay detected")
+                    raise HTTPException(
+                        status_code=403, detail="Request replay detected"
+                    )
             except ValueError:
                 pass
 
@@ -226,9 +262,19 @@ async def node_ingest(
             if severity:
                 conn.execute(
                     "INSERT INTO sensor_alerts (node_id, sensor, severity, value, threshold, message, created_at) VALUES (?,?,?,?,?,?,?)",
-                    (node_id, sensor_name, severity, val, threshold, cfg["message"], now),
+                    (
+                        node_id,
+                        sensor_name,
+                        severity,
+                        val,
+                        threshold,
+                        cfg["message"],
+                        now,
+                    ),
                 )
-                alerts_generated.append({"sensor": sensor_name, "severity": severity, "value": val})
+                alerts_generated.append(
+                    {"sensor": sensor_name, "severity": severity, "value": val}
+                )
 
         conn.execute(
             """INSERT INTO node_state (node_id, name, lat, lon, updated_at, payload)
@@ -266,7 +312,12 @@ async def node_ingest(
     except Exception:
         pass
 
-    return {"status": "ok", "node_id": node_id, "updated_at": now, "alerts": alerts_generated}
+    return {
+        "status": "ok",
+        "node_id": node_id,
+        "updated_at": now,
+        "alerts": alerts_generated,
+    }
 
 
 @router.get("/nodes")
@@ -288,19 +339,21 @@ async def list_nodes(_auth: str | None = Depends(verify_lan_auth)):
             age = (now - datetime.fromisoformat(r["updated_at"])).total_seconds()
         except Exception:
             pass
-        nodes.append({
-            "node_id": r["node_id"],
-            "name": r["name"],
-            "lat": r["lat"],
-            "lon": r["lon"],
-            "updated_at": r["updated_at"],
-            "age_seconds": age,
-            "online": age is not None and age < 300,
-            "sensors": payload.get("sensors", {}),
-            "mesh": payload.get("mesh", []),
-            "pihole": payload.get("pihole", {}),
-            "health": payload.get("health", {}),
-        })
+        nodes.append(
+            {
+                "node_id": r["node_id"],
+                "name": r["name"],
+                "lat": r["lat"],
+                "lon": r["lon"],
+                "updated_at": r["updated_at"],
+                "age_seconds": age,
+                "online": age is not None and age < 300,
+                "sensors": payload.get("sensors", {}),
+                "mesh": payload.get("mesh", []),
+                "pihole": payload.get("pihole", {}),
+                "health": payload.get("health", {}),
+            }
+        )
     return {"count": len(nodes), "nodes": nodes}
 
 
@@ -320,16 +373,18 @@ async def list_sensor_alerts(node_id: str = "", limit: int = 50):
             ).fetchall()
     alerts = []
     for r in rows:
-        alerts.append({
-            "id": r["id"],
-            "node_id": r["node_id"],
-            "sensor": r["sensor"],
-            "severity": r["severity"],
-            "value": r["value"],
-            "threshold": r["threshold"],
-            "message": r["message"],
-            "created_at": r["created_at"],
-        })
+        alerts.append(
+            {
+                "id": r["id"],
+                "node_id": r["node_id"],
+                "sensor": r["sensor"],
+                "severity": r["severity"],
+                "value": r["value"],
+                "threshold": r["threshold"],
+                "message": r["message"],
+                "created_at": r["created_at"],
+            }
+        )
     return {"count": len(alerts), "alerts": alerts}
 
 
@@ -383,7 +438,14 @@ async def poll_commands(
             args = json.loads(r["args"]) if r["args"] else {}
         except Exception:
             args = {}
-        commands.append({"id": r["id"], "command": r["command"], "args": args, "created_at": r["created_at"]})
+        commands.append(
+            {
+                "id": r["id"],
+                "command": r["command"],
+                "args": args,
+                "created_at": r["created_at"],
+            }
+        )
     return {"node_id": node_id, "pending": len(commands), "commands": commands}
 
 
@@ -459,6 +521,7 @@ def _store_sensors(node_id: str, sensors: dict):
 async def sensor_history(node_id: str, sensor: str = "", hours: int = 24):
     """Return sensor time-series for plotting."""
     from datetime import timedelta
+
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     with _db() as conn:
         if sensor:
@@ -477,7 +540,12 @@ async def sensor_history(node_id: str, sensor: str = "", hours: int = 24):
         if key not in data:
             data[key] = []
         data[key].append({"t": r["recorded_at"], "v": r["value"]})
-    return {"node_id": node_id, "sensor": sensor or "all", "hours": hours, "series": data}
+    return {
+        "node_id": node_id,
+        "sensor": sensor or "all",
+        "hours": hours,
+        "series": data,
+    }
 
 
 @router.get("/node/{node_id}/sensors/latest")
@@ -488,7 +556,12 @@ async def latest_sensors(node_id: str):
             "SELECT sensor, value, recorded_at FROM sensor_history WHERE node_id = ? AND recorded_at = (SELECT MAX(recorded_at) FROM sensor_history WHERE node_id = ? AND sensor = s.sensor)",
             (node_id, node_id),
         ).fetchall()
-    return {"node_id": node_id, "sensors": {r["sensor"]: {"value": r["value"], "at": r["recorded_at"]} for r in rows}}
+    return {
+        "node_id": node_id,
+        "sensors": {
+            r["sensor"]: {"value": r["value"], "at": r["recorded_at"]} for r in rows
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -498,9 +571,7 @@ async def latest_sensors(node_id: str):
 async def mesh_nodes():
     """Return all mesh nodes from all Pis for globe rendering."""
     with _db() as conn:
-        rows = conn.execute(
-            "SELECT node_id, payload FROM node_state"
-        ).fetchall()
+        rows = conn.execute("SELECT node_id, payload FROM node_state").fetchall()
     all_nodes = []
     for r in rows:
         try:
@@ -510,15 +581,17 @@ async def mesh_nodes():
         mesh = payload.get("mesh", [])
         for n in mesh:
             if n.get("lat") is not None and n.get("lon") is not None:
-                all_nodes.append({
-                    "pi_node": r["node_id"],
-                    "id": n.get("id", "?"),
-                    "name": n.get("name", "?"),
-                    "lat": n.get("lat"),
-                    "lon": n.get("lon"),
-                    "snr": n.get("snr"),
-                    "last_seen": n.get("last_seen"),
-                })
+                all_nodes.append(
+                    {
+                        "pi_node": r["node_id"],
+                        "id": n.get("id", "?"),
+                        "name": n.get("name", "?"),
+                        "lat": n.get("lat"),
+                        "lon": n.get("lon"),
+                        "snr": n.get("snr"),
+                        "last_seen": n.get("last_seen"),
+                    }
+                )
     return {"count": len(all_nodes), "nodes": all_nodes}
 
 
@@ -553,7 +626,10 @@ async def _node_update_generator(
 
         while True:
             try:
-                timeout = heartbeat_interval - (datetime.now(timezone.utc) - last_heartbeat).total_seconds()
+                timeout = (
+                    heartbeat_interval
+                    - (datetime.now(timezone.utc) - last_heartbeat).total_seconds()
+                )
                 if timeout <= 0:
                     yield f"event: heartbeat\ndata: {json.dumps({'timestamp': datetime.now(timezone.utc).isoformat()})}\n\n"
                     last_heartbeat = datetime.now(timezone.utc)

@@ -36,7 +36,16 @@ class InsightSynthesisTests(unittest.TestCase):
             [_cell("a", 13.0, 101.0, 0.4, sources=["hazard"])], [], with_entities=False
         )[0]
         multi = insights.synthesize_insights(
-            [_cell("b", 13.0, 101.0, 0.4, delta=0.2, sources=["hazard", "gdacs", "quake"])],
+            [
+                _cell(
+                    "b",
+                    13.0,
+                    101.0,
+                    0.4,
+                    delta=0.2,
+                    sources=["hazard", "gdacs", "quake"],
+                )
+            ],
             [],
             with_entities=False,
         )[0]
@@ -52,7 +61,10 @@ class InsightSynthesisTests(unittest.TestCase):
         self.assertEqual(len(out), 1)
 
     def test_top_cap_and_rank(self):
-        hotspots = [_cell(f"c{i}", float(i), 100.0, 0.9 - i * 0.05, sources=["x"]) for i in range(15)]
+        hotspots = [
+            _cell(f"c{i}", float(i), 100.0, 0.9 - i * 0.05, sources=["x"])
+            for i in range(15)
+        ]
         out = insights.synthesize_insights(hotspots, [], top=10, with_entities=False)
         self.assertEqual(len(out), 10)
         self.assertEqual([i["rank"] for i in out], list(range(1, 11)))
@@ -65,7 +77,9 @@ class InsightSynthesisTests(unittest.TestCase):
         self.assertEqual(out[0]["delta_score"], 0.25)
 
     def test_skips_cells_without_coords(self):
-        hotspots = [{"cell_id": "x", "lat": None, "lon": None, "score": 0.9, "sources": []}]
+        hotspots = [
+            {"cell_id": "x", "lat": None, "lon": None, "score": 0.9, "sources": []}
+        ]
         out = insights.synthesize_insights(hotspots, [], with_entities=False)
         self.assertEqual(out, [])
 
@@ -92,14 +106,26 @@ class InsightBuildTests(unittest.TestCase):
     def test_build_insights_synthesizes(self):
         async def fake(*a, **k):
             return (
-                [_cell("a", 13.0, 101.0, 0.8, delta=0.2, sources=["gdacs", "anomaly"], sample="Flood")],
+                [
+                    _cell(
+                        "a",
+                        13.0,
+                        101.0,
+                        0.8,
+                        delta=0.2,
+                        sources=["gdacs", "anomaly"],
+                        sample="Flood",
+                    )
+                ],
                 "- text",
                 [{"cell_id": "a", "delta_score": 0.2}],
             )
 
-        with patch.object(insights.fusion_heatmap, "top_hotspots_for_llm", fake), patch.object(
-            insights, "_entities_for", lambda bbox: []
-        ), patch.object(insights, "_LLM_ENABLED", False):
+        with patch.object(
+            insights.fusion_heatmap, "top_hotspots_for_llm", fake
+        ), patch.object(insights, "_entities_for", lambda bbox: []), patch.object(
+            insights, "_LLM_ENABLED", False
+        ):
             payload = asyncio.run(insights.build_insights(top=10))
         self.assertEqual(payload["count"], 1)
         ins = payload["insights"][0]
@@ -126,7 +152,17 @@ class NarrationTests(unittest.TestCase):
 
     def test_narrate_applies_llm_text(self):
         ins = insights.synthesize_insights(
-            [_cell("a", 13.0, 101.0, 0.8, delta=0.2, sources=["gdacs", "anomaly"], sample="Flood")],
+            [
+                _cell(
+                    "a",
+                    13.0,
+                    101.0,
+                    0.8,
+                    delta=0.2,
+                    sources=["gdacs", "anomaly"],
+                    sample="Flood",
+                )
+            ],
             [],
             with_entities=False,
         )
@@ -199,7 +235,15 @@ class SlimAndPromptTests(unittest.TestCase):
     def _sample(self):
         return insights.synthesize_insights(
             [
-                _cell("a", 13.0, 101.0, 0.8, delta=0.2, sources=["gdacs", "anomaly"], sample="Flood"),
+                _cell(
+                    "a",
+                    13.0,
+                    101.0,
+                    0.8,
+                    delta=0.2,
+                    sources=["gdacs", "anomaly"],
+                    sample="Flood",
+                ),
                 _cell("b", 14.0, 100.0, 0.6, sources=["hazard"]),
             ],
             [],

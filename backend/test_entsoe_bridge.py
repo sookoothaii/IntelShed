@@ -20,7 +20,9 @@ class EntsoeHelperTests(unittest.TestCase):
         self.assertEqual(eb.AREA_CODES["de"], "10Y1001A1001A82H")
 
     def test_scrub_token_redacts_from_errors(self):
-        with patch.dict("os.environ", {"ENTSOE_SECURITY_TOKEN": "secret-token"}, clear=False):
+        with patch.dict(
+            "os.environ", {"ENTSOE_SECURITY_TOKEN": "secret-token"}, clear=False
+        ):
             msg = eb._scrub_token("failed for secret-token in url")
         self.assertNotIn("secret-token", msg)
         self.assertIn("REDACTED", msg)

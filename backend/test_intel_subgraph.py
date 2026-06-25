@@ -59,12 +59,16 @@ class IntelSubgraphTests(unittest.TestCase):
 
     def test_subgraph_edge_has_decay_fields(self):
         seed = self._seed_event("local", 13.75, 100.5)
-        org = ftm_store.make_entity("Organization", ["relief"], {"name": ["Relief Org"]})
+        org = ftm_store.make_entity(
+            "Organization", ["relief"], {"name": ["Relief Org"]}
+        )
         org_id = ftm_store.upsert(org, dataset="osint")
         ftm_store.add_edge(seed, org_id, "linked", dataset="osint", confidence=0.9)
 
         bbox = [100.0, 13.0, 101.0, 14.5]
-        out = sg.build_subgraph(bbox=bbox, hops=2, window_hours=48, seed_limit=10, node_limit=20)
+        out = sg.build_subgraph(
+            bbox=bbox, hops=2, window_hours=48, seed_limit=10, node_limit=20
+        )
         self.assertTrue(out["available"])
         self.assertGreaterEqual(len(out["edges"]), 1)
         edge = out["edges"][0]
@@ -80,11 +84,30 @@ class IntelSubgraphTests(unittest.TestCase):
                 "hops": 2,
                 "node_count": 2,
                 "nodes": [
-                    {"id": "a", "schema": "Event", "caption": "E1", "hop": 0, "in_bbox": True, "datasets": ["gdacs"]},
-                    {"id": "b", "schema": "Organization", "caption": "Org", "hop": 1, "datasets": ["osint"]},
+                    {
+                        "id": "a",
+                        "schema": "Event",
+                        "caption": "E1",
+                        "hop": 0,
+                        "in_bbox": True,
+                        "datasets": ["gdacs"],
+                    },
+                    {
+                        "id": "b",
+                        "schema": "Organization",
+                        "caption": "Org",
+                        "hop": 1,
+                        "datasets": ["osint"],
+                    },
                 ],
                 "edges": [
-                    {"source_id": "a", "target_id": "b", "kind": "linked", "dataset": "osint", "decay_weight": 0.3},
+                    {
+                        "source_id": "a",
+                        "target_id": "b",
+                        "kind": "linked",
+                        "dataset": "osint",
+                        "decay_weight": 0.3,
+                    },
                 ],
             },
             lang="en",
@@ -93,12 +116,16 @@ class IntelSubgraphTests(unittest.TestCase):
 
     def test_build_subgraph_two_hop(self):
         seed = self._seed_event("local", 13.75, 100.5)
-        org = ftm_store.make_entity("Organization", ["relief"], {"name": ["Relief Org"]})
+        org = ftm_store.make_entity(
+            "Organization", ["relief"], {"name": ["Relief Org"]}
+        )
         org_id = ftm_store.upsert(org, dataset="osint")
         ftm_store.add_edge(seed, org_id, "linked", dataset="osint", confidence=0.9)
 
         bbox = [100.0, 13.0, 101.0, 14.5]
-        out = sg.build_subgraph(bbox=bbox, hops=2, window_hours=48, seed_limit=10, node_limit=20)
+        out = sg.build_subgraph(
+            bbox=bbox, hops=2, window_hours=48, seed_limit=10, node_limit=20
+        )
         self.assertTrue(out["available"])
         node_ids = {n["id"] for n in out["nodes"]}
         self.assertIn(seed, node_ids)
@@ -116,14 +143,16 @@ class IntelSubgraphTests(unittest.TestCase):
                 "available": True,
                 "hops": 2,
                 "node_count": 1,
-                "nodes": [{
-                    "id": "a",
-                    "schema": "Event",
-                    "caption": "Test",
-                    "hop": 0,
-                    "in_bbox": True,
-                    "datasets": ["gdacs"],
-                }],
+                "nodes": [
+                    {
+                        "id": "a",
+                        "schema": "Event",
+                        "caption": "Test",
+                        "hop": 0,
+                        "in_bbox": True,
+                        "datasets": ["gdacs"],
+                    }
+                ],
                 "edges": [],
             },
             lang="en",
@@ -135,7 +164,9 @@ class IntelSubgraphTests(unittest.TestCase):
         from intel_briefing import format_intel_prompt_block
 
         self._seed_event("bkk", 13.75, 100.5)
-        block = format_intel_prompt_block({"enabled": True, "window_hours": 48, "items": []}, lang="en")
+        block = format_intel_prompt_block(
+            {"enabled": True, "window_hours": 48, "items": []}, lang="en"
+        )
         self.assertIn("INTEL SUBGRAPH", block)
 
     def test_subgraph_disabled_falls_back_to_flat(self):

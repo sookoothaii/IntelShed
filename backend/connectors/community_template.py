@@ -66,7 +66,11 @@ async def fetch_my_feed(*, timeout: float = 15.0) -> dict[str, Any]:
             resp = await client.get(_UPSTREAM, headers=headers)
             resp.raise_for_status()
             raw = resp.json()
-        items = raw if isinstance(raw, list) else raw.get("items") or raw.get("events") or []
+        items = (
+            raw
+            if isinstance(raw, list)
+            else raw.get("items") or raw.get("events") or []
+        )
         out = {
             "count": len(items),
             "items": items[:500],
@@ -84,4 +88,10 @@ async def fetch_my_feed(*, timeout: float = 15.0) -> dict[str, Any]:
             stale["stale"] = True
             stale["error"] = str(exc)[:200]
             return stale
-        return {"count": 0, "items": [], "source": _UPSTREAM, "updated": _now_iso(), "error": str(exc)[:200]}
+        return {
+            "count": 0,
+            "items": [],
+            "source": _UPSTREAM,
+            "updated": _now_iso(),
+            "error": str(exc)[:200],
+        }

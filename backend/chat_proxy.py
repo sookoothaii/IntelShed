@@ -45,7 +45,9 @@ async def list_models():
                 r.raise_for_status()
                 data = r.json()
                 all_models = data.get("models", [])
-                chat_models = [m for m in all_models if not _is_embed_model(m.get("name", ""))]
+                chat_models = [
+                    m for m in all_models if not _is_embed_model(m.get("name", ""))
+                ]
                 default_model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
                 chat_names = [m.get("name") for m in chat_models]
                 all_names = [m.get("name") for m in all_models]
@@ -57,14 +59,18 @@ async def list_models():
                 payload = {
                     "host": host,
                     "count": len(chat_models),
-                    "default": default_model if default_model in chat_names else (chat_names[0] if chat_names else None),
+                    "default": default_model
+                    if default_model in chat_names
+                    else (chat_names[0] if chat_names else None),
                     "embed_model": os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
                     "embed_available": any(_is_embed_model(n or "") for n in all_names),
                     "models": [
                         {
                             "name": m.get("name"),
                             "size": m.get("size"),
-                            "parameter_size": m.get("details", {}).get("parameter_size"),
+                            "parameter_size": m.get("details", {}).get(
+                                "parameter_size"
+                            ),
                         }
                         for m in chat_models
                     ],
@@ -91,7 +97,9 @@ async def list_models():
     return err
 
 
-async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict | None]:
+async def _prepare_chat_messages(
+    payload: dict,
+) -> tuple[list, dict | None, dict | None]:
     """Firewall scan + WorldBase context. Returns (messages, firewall_meta, block_payload)."""
     firewall_meta = None
     messages = list(payload.get("messages", []))
@@ -126,17 +134,26 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
         if len(user_q) >= 8:
             if router_enabled():
                 from rag_crag import build_routed_block
+
                 routed = await build_routed_block(user_q)
                 rag_block = routed.get("block", "")
                 route_tag = route_label(routed.get("route", "vector"))
             else:
                 from rag_crag import build_rag_crag_block
+
                 rag_block = await build_rag_crag_block(user_q)
 
             # P3: Agentic chat loop — coverage → retrieve → corroboration
-            from chat_agentic import chat_agentic_enabled, run_chat_agentic_loop, format_agentic_trace_line
+            from chat_agentic import (
+                chat_agentic_enabled,
+                run_chat_agentic_loop,
+                format_agentic_trace_line,
+            )
+
             if chat_agentic_enabled() and rag_block:
-                rag_block, agentic_trace = await run_chat_agentic_loop(user_q, rag_block)
+                rag_block, agentic_trace = await run_chat_agentic_loop(
+                    user_q, rag_block
+                )
                 agentic_trace_line = format_agentic_trace_line(agentic_trace)
 
     if ctx or entity_context or search_results or rag_block:
@@ -148,7 +165,11 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
             if route_tag:
                 prefix = f"Retrieval mode: {route_tag}"
             if agentic_trace_line:
-                prefix = (prefix + "\n" + agentic_trace_line).strip() if prefix else agentic_trace_line
+                prefix = (
+                    (prefix + "\n" + agentic_trace_line).strip()
+                    if prefix
+                    else agentic_trace_line
+                )
             if prefix:
                 parts.append(f"{prefix}\n\n" + rag_block)
             else:
@@ -195,22 +216,26 @@ async def _prepare_chat_messages(payload: dict) -> tuple[list, dict | None, dict
         }
         messages = [system_msg] + messages
     elif not any(m.get("role") == "system" for m in messages):
-        messages = [{
-            "role": "system",
-            "content": (
-                "You are WorldBase AI (local Ollama). No live feeds or web search are "
-                "attached to this message unless the operator enables CTX or 🔍. "
-                "Answer honestly and concisely in the user's language. "
-                "Do not invent URLs or claim internet access you do not have."
-            ),
-        }] + messages
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are WorldBase AI (local Ollama). No live feeds or web search are "
+                    "attached to this message unless the operator enables CTX or 🔍. "
+                    "Answer honestly and concisely in the user's language. "
+                    "Do not invent URLs or claim internet access you do not have."
+                ),
+            }
+        ] + messages
 
     return messages, firewall_meta, None
 
 
 @router.post("/api/chat")
 @rate_limit_general()
-async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(verify_api_key)):
+async def chat_proxy(
+    request: Request, payload: dict, api_key: str = Depends(verify_api_key)
+):
     """Proxy chat requests to LLM providers. Supports SSE streaming.
 
     Providers: ollama (default), openai, anthropic, groq, openrouter.
@@ -244,9 +269,12 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
     # ------------------------------------------------------------------
     if provider == "ollama":
         if use_stream:
+
             async def ollama_stream():
                 yield f"data: {json.dumps({'status': 'preparing'})}\n\n"
-                messages, firewall_meta, block_msg = await _prepare_chat_messages(payload)
+                messages, firewall_meta, block_msg = await _prepare_chat_messages(
+                    payload
+                )
                 if block_msg:
                     yield f"data: {json.dumps(block_msg)}\n\n"
                     return
@@ -372,8 +400,14 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
             )
         return block_msg
 
-    api_keys = payload.get("api_keys") if isinstance(payload.get("api_keys"), dict) else None
-    api_base_urls = payload.get("api_base_urls") if isinstance(payload.get("api_base_urls"), dict) else None
+    api_keys = (
+        payload.get("api_keys") if isinstance(payload.get("api_keys"), dict) else None
+    )
+    api_base_urls = (
+        payload.get("api_base_urls")
+        if isinstance(payload.get("api_base_urls"), dict)
+        else None
+    )
 
     if api_base_urls:
         for prov, raw in api_base_urls.items():
@@ -396,7 +430,9 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                     chat_routing.DEFAULT_BASE_URLS["openai"],
                 )
             ),
-            "key": chat_routing.select_api_key("openai", api_keys, os.getenv("OPENAI_API_KEY")),
+            "key": chat_routing.select_api_key(
+                "openai", api_keys, os.getenv("OPENAI_API_KEY")
+            ),
             "header": "Authorization",
             "prefix": "Bearer ",
         },
@@ -409,7 +445,9 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                     chat_routing.DEFAULT_BASE_URLS["groq"],
                 )
             ),
-            "key": chat_routing.select_api_key("groq", api_keys, os.getenv("GROQ_API_KEY")),
+            "key": chat_routing.select_api_key(
+                "groq", api_keys, os.getenv("GROQ_API_KEY")
+            ),
             "header": "Authorization",
             "prefix": "Bearer ",
         },
@@ -422,7 +460,9 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                     chat_routing.DEFAULT_BASE_URLS["openrouter"],
                 )
             ),
-            "key": chat_routing.select_api_key("openrouter", api_keys, os.getenv("OPENROUTER_API_KEY")),
+            "key": chat_routing.select_api_key(
+                "openrouter", api_keys, os.getenv("OPENROUTER_API_KEY")
+            ),
             "header": "Authorization",
             "prefix": "Bearer ",
         },
@@ -458,6 +498,7 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
         # ----- Tool-calling loop (full WorldBase access for cloud models) -----
         if use_tools:
             if use_stream:
+
                 async def openai_tools_stream():
                     try:
                         async for event in chat_tools.stream_openai_with_tools(
@@ -467,7 +508,9 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                     except Exception as e:
                         yield f"data: {json.dumps({'error': f'{provider} tool stream error: {e}'})}\n\n"
 
-                return StreamingResponse(openai_tools_stream(), media_type="text/event-stream")
+                return StreamingResponse(
+                    openai_tools_stream(), media_type="text/event-stream"
+                )
 
             try:
                 final_msgs, actions = await chat_tools.run_openai_with_tools(
@@ -487,13 +530,19 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                     "provider": provider,
                 }
             except Exception as e:
-                return {"error": f"{provider} tool request failed: {e}", "provider": provider}
+                return {
+                    "error": f"{provider} tool request failed: {e}",
+                    "provider": provider,
+                }
 
         if use_stream:
+
             async def openai_stream():
                 try:
                     async with httpx.AsyncClient(timeout=60.0) as client:
-                        async with client.stream("POST", cfg["url"], headers=headers, json=body) as r:
+                        async with client.stream(
+                            "POST", cfg["url"], headers=headers, json=body
+                        ) as r:
                             r.raise_for_status()
                             async for line in r.aiter_lines():
                                 if not line.strip():
@@ -507,7 +556,9 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                                         chunk = json.loads(payload_text)
                                     except json.JSONDecodeError:
                                         continue
-                                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                    delta = chunk.get("choices", [{}])[0].get(
+                                        "delta", {}
+                                    )
                                     content = delta.get("content", "")
                                     if content:
                                         yield f"data: {json.dumps({'token': content})}\n\n"
@@ -527,7 +578,8 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
                 return {
                     "message": {
                         "role": "assistant",
-                        "content": choice.get("message", {}).get("content", "") or choice.get("text", ""),
+                        "content": choice.get("message", {}).get("content", "")
+                        or choice.get("text", ""),
                     },
                     "done": True,
                     "provider": provider,
@@ -546,7 +598,9 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
     # ANTHROPIC (Messages API, non-OpenAI format)
     # ------------------------------------------------------------------
     if provider == "anthropic":
-        api_key = chat_routing.select_api_key("anthropic", api_keys, os.getenv("ANTHROPIC_API_KEY"))
+        api_key = chat_routing.select_api_key(
+            "anthropic", api_keys, os.getenv("ANTHROPIC_API_KEY")
+        )
         if not api_key:
             return {
                 "error": (
@@ -589,10 +643,13 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
             body["system"] = system_text
 
         if use_stream:
+
             async def anthropic_stream():
                 try:
                     async with httpx.AsyncClient(timeout=60.0) as client:
-                        async with client.stream("POST", url, headers=headers, json=body) as r:
+                        async with client.stream(
+                            "POST", url, headers=headers, json=body
+                        ) as r:
                             r.raise_for_status()
                             async for line in r.aiter_lines():
                                 if not line.strip():
@@ -643,7 +700,10 @@ async def chat_proxy(request: Request, payload: dict, api_key: str = Depends(ver
         except Exception as e:
             return {"error": f"anthropic request failed: {e}", "provider": provider}
 
-    return {"error": f"Unknown provider '{provider}'", "available": ["ollama", "openai", "anthropic", "groq", "openrouter"]}
+    return {
+        "error": f"Unknown provider '{provider}'",
+        "available": ["ollama", "openai", "anthropic", "groq", "openrouter"],
+    }
 
 
 @router.get("/api/providers")
@@ -655,20 +715,72 @@ def list_providers():
     ``supports_tools`` flags providers wired to the WorldBase tool loop.
     """
     catalog = [
-        {"id": "ollama", "name": "Ollama (Local)", "models": [], "requires_key": False, "env_key": None, "env_base": None, "default_base_url": None},
-        {"id": "openai", "name": "OpenAI", "models": ["gpt-4o", "gpt-4o-mini", "o3-mini"], "requires_key": True, "env_key": "OPENAI_API_KEY", "env_base": "OPENAI_BASE_URL", "default_base_url": chat_routing.DEFAULT_BASE_URLS["openai"]},
-        {"id": "anthropic", "name": "Anthropic", "models": ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-haiku-20240307"], "requires_key": True, "env_key": "ANTHROPIC_API_KEY", "env_base": "ANTHROPIC_BASE_URL", "default_base_url": chat_routing.DEFAULT_BASE_URLS["anthropic"]},
-        {"id": "groq", "name": "Groq", "models": ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"], "requires_key": True, "env_key": "GROQ_API_KEY", "env_base": "GROQ_BASE_URL", "default_base_url": chat_routing.DEFAULT_BASE_URLS["groq"]},
-        {"id": "openrouter", "name": "OpenRouter", "models": ["openai/gpt-4o", "anthropic/claude-3.5-sonnet", "meta-llama/llama-3.3-70b-instruct"], "requires_key": True, "env_key": "OPENROUTER_API_KEY", "env_base": "OPENROUTER_BASE_URL", "default_base_url": chat_routing.DEFAULT_BASE_URLS["openrouter"]},
+        {
+            "id": "ollama",
+            "name": "Ollama (Local)",
+            "models": [],
+            "requires_key": False,
+            "env_key": None,
+            "env_base": None,
+            "default_base_url": None,
+        },
+        {
+            "id": "openai",
+            "name": "OpenAI",
+            "models": ["gpt-4o", "gpt-4o-mini", "o3-mini"],
+            "requires_key": True,
+            "env_key": "OPENAI_API_KEY",
+            "env_base": "OPENAI_BASE_URL",
+            "default_base_url": chat_routing.DEFAULT_BASE_URLS["openai"],
+        },
+        {
+            "id": "anthropic",
+            "name": "Anthropic",
+            "models": [
+                "claude-3-5-sonnet-20241022",
+                "claude-3-opus-20240229",
+                "claude-3-haiku-20240307",
+            ],
+            "requires_key": True,
+            "env_key": "ANTHROPIC_API_KEY",
+            "env_base": "ANTHROPIC_BASE_URL",
+            "default_base_url": chat_routing.DEFAULT_BASE_URLS["anthropic"],
+        },
+        {
+            "id": "groq",
+            "name": "Groq",
+            "models": ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"],
+            "requires_key": True,
+            "env_key": "GROQ_API_KEY",
+            "env_base": "GROQ_BASE_URL",
+            "default_base_url": chat_routing.DEFAULT_BASE_URLS["groq"],
+        },
+        {
+            "id": "openrouter",
+            "name": "OpenRouter",
+            "models": [
+                "openai/gpt-4o",
+                "anthropic/claude-3.5-sonnet",
+                "meta-llama/llama-3.3-70b-instruct",
+            ],
+            "requires_key": True,
+            "env_key": "OPENROUTER_API_KEY",
+            "env_base": "OPENROUTER_BASE_URL",
+            "default_base_url": chat_routing.DEFAULT_BASE_URLS["openrouter"],
+        },
     ]
     providers = []
     for p in catalog:
         env_key_name = p.pop("env_key")
         env_base_name = p.pop("env_base")
-        providers.append({
-            **p,
-            "key_set": bool(os.getenv(env_key_name)) if env_key_name else False,
-            "base_url_set": bool(os.getenv(env_base_name)) if env_base_name else False,
-            "supports_tools": chat_routing.provider_supports_tools(p["id"]),
-        })
+        providers.append(
+            {
+                **p,
+                "key_set": bool(os.getenv(env_key_name)) if env_key_name else False,
+                "base_url_set": bool(os.getenv(env_base_name))
+                if env_base_name
+                else False,
+                "supports_tools": chat_routing.provider_supports_tools(p["id"]),
+            }
+        )
     return {"providers": providers}

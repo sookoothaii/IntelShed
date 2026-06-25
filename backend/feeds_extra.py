@@ -43,7 +43,9 @@ def _db_get(key: str, ttl: float):
         conn.close()
         if row:
             cached_at = datetime.fromisoformat(row[1])
-            age = (datetime.now(timezone.utc) - cached_at.replace(tzinfo=timezone.utc)).total_seconds()
+            age = (
+                datetime.now(timezone.utc) - cached_at.replace(tzinfo=timezone.utc)
+            ).total_seconds()
             if age < ttl:
                 return json.loads(row[0])
     except Exception:
@@ -134,7 +136,9 @@ async def space_weather():
             return None, None
 
         # drop a possible header row (list-of-lists variant)
-        data_rows = [r for r in rows if not (isinstance(r, list) and r and r[1] == "Kp")]
+        data_rows = [
+            r for r in rows if not (isinstance(r, list) and r and r[1] == "Kp")
+        ]
         latest = data_rows[-1] if data_rows else None
         _, kp_raw = _row(latest) if latest else (None, None)
         try:
@@ -315,15 +319,17 @@ async def geopolitics(limit: int = 40):
             if sid in seen:
                 continue
             seen.add(sid)
-            items.append({
-                "id": sid,
-                "name": title[:120],
-                "status": "gdacs",
-                "url": a.get("link"),
-                "lat": lat,
-                "lon": lon,
-                "source": "gdacs",
-            })
+            items.append(
+                {
+                    "id": sid,
+                    "name": title[:120],
+                    "status": "gdacs",
+                    "url": a.get("link"),
+                    "lat": lat,
+                    "lon": lon,
+                    "source": "gdacs",
+                }
+            )
     except Exception:
         pass
 
@@ -358,15 +364,17 @@ async def geopolitics(limit: int = 40):
                         if lat is None:
                             continue
                         seen.add(did)
-                        items.append({
-                            "id": did,
-                            "name": name,
-                            "status": fields.get("status") or "reliefweb",
-                            "url": fields.get("url"),
-                            "lat": lat,
-                            "lon": lon,
-                            "source": "reliefweb",
-                        })
+                        items.append(
+                            {
+                                "id": did,
+                                "name": name,
+                                "status": fields.get("status") or "reliefweb",
+                                "url": fields.get("url"),
+                                "lat": lat,
+                                "lon": lon,
+                                "source": "reliefweb",
+                            }
+                        )
         except Exception:
             pass
 
@@ -413,10 +421,10 @@ async def aircraft_anomalies():
         callsign = (s[1] or "").strip()
         lon = s[5]
         lat = s[6]
-        alt = s[7]       # barometric altitude (m)
-        vel = s[9]       # velocity (m/s)
-        vert = s[11]     # vertical rate (m/s)
-        squawk = s[14]   # squawk code
+        alt = s[7]  # barometric altitude (m)
+        vel = s[9]  # velocity (m/s)
+        vert = s[11]  # vertical rate (m/s)
+        squawk = s[14]  # squawk code
 
         if lon is None or lat is None:
             continue
@@ -448,16 +456,18 @@ async def aircraft_anomalies():
             reasons.append("high_speed_low_alt")
 
         if reasons:
-            anomalies.append({
-                "icao24": icao,
-                "callsign": callsign or None,
-                "lat": lat,
-                "lon": lon,
-                "alt_m": alt,
-                "vel_ms": vel,
-                "squawk": squawk,
-                "reasons": reasons,
-            })
+            anomalies.append(
+                {
+                    "icao24": icao,
+                    "callsign": callsign or None,
+                    "lat": lat,
+                    "lon": lon,
+                    "alt_m": alt,
+                    "vel_ms": vel,
+                    "squawk": squawk,
+                    "reasons": reasons,
+                }
+            )
 
     return {"analyzed": len(states), "anomalies": anomalies, "count": len(anomalies)}
 
@@ -483,7 +493,10 @@ def _haversine(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
     phi2 = math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    a = (
+        math.sin(dphi / 2) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    )
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
@@ -503,7 +516,9 @@ async def cross_feed_correlations():
     # 1. Earthquake near nuclear site
     try:
         async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
-            r = await client.get("https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson")
+            r = await client.get(
+                "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson"
+            )
             quakes = r.json().get("features", [])
     except Exception:
         quakes = []
@@ -517,18 +532,30 @@ async def cross_feed_correlations():
         for site_name, site_lon, site_lat, radius in NUCLEAR_SITES:
             dist = _haversine(lon, lat, site_lon, site_lat)
             if dist < radius and mag >= 3.0:
-                situations.append({
-                    "severity": "high" if mag >= 5 else "medium",
-                    "type": "quake_near_nuclear",
-                    "title": f"M{mag:.1f} earthquake {dist:.0f} km from {site_name}",
-                    "location": {"lon": lon, "lat": lat, "place": props.get("place", "")},
-                    "details": {"distance_km": round(dist, 1), "site": site_name, "magnitude": mag},
-                })
+                situations.append(
+                    {
+                        "severity": "high" if mag >= 5 else "medium",
+                        "type": "quake_near_nuclear",
+                        "title": f"M{mag:.1f} earthquake {dist:.0f} km from {site_name}",
+                        "location": {
+                            "lon": lon,
+                            "lat": lat,
+                            "place": props.get("place", ""),
+                        },
+                        "details": {
+                            "distance_km": round(dist, 1),
+                            "site": site_name,
+                            "magnitude": mag,
+                        },
+                    }
+                )
 
     # 2. Military aircraft surge near disaster zone ( ReliefWeb )
     try:
         async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
-            r = await client.get("https://api.reliefweb.int/v1/disasters?appname=worldbase&profile=list&preset=latest&limit=20")
+            r = await client.get(
+                "https://api.reliefweb.int/v1/disasters?appname=worldbase&profile=list&preset=latest&limit=20"
+            )
             disasters = r.json().get("data", [])
     except Exception:
         disasters = []
@@ -567,13 +594,15 @@ async def cross_feed_correlations():
             if dist < 500:
                 mil_count += 1
         if mil_count >= 3:
-            situations.append({
-                "severity": "medium",
-                "type": "military_presence_disaster_zone",
-                "title": f"{mil_count} military aircraft near {dis_name}",
-                "location": {"lon": dlon, "lat": dlat, "place": dis_name},
-                "details": {"military_count": mil_count, "disaster": dis_name},
-            })
+            situations.append(
+                {
+                    "severity": "medium",
+                    "type": "military_presence_disaster_zone",
+                    "title": f"{mil_count} military aircraft near {dis_name}",
+                    "location": {"lon": dlon, "lat": dlat, "place": dis_name},
+                    "details": {"military_count": mil_count, "disaster": dis_name},
+                }
+            )
 
     # 3. High seismic activity cluster (>3 quakes M4+ within 2h in same region)
     recent = [q for q in quakes if q.get("properties", {}).get("mag", 0) >= 4.0]
@@ -582,25 +611,41 @@ async def cross_feed_correlations():
         for i, q1 in enumerate(recent[:5]):
             c1 = q1.get("geometry", {}).get("coordinates", [0, 0])
             cluster = [q1]
-            for q2 in recent[i + 1:]:
+            for q2 in recent[i + 1 :]:
                 c2 = q2.get("geometry", {}).get("coordinates", [0, 0])
                 if _haversine(c1[0], c1[1], c2[0], c2[1]) < 500:
                     cluster.append(q2)
             if len(cluster) >= 3:
-                avg_lon = sum(c.get("geometry", {}).get("coordinates", [0, 0])[0] for c in cluster) / len(cluster)
-                avg_lat = sum(c.get("geometry", {}).get("coordinates", [0, 0])[1] for c in cluster) / len(cluster)
-                situations.append({
-                    "severity": "high",
-                    "type": "seismic_cluster",
-                    "title": f"{len(cluster)} M4+ earthquakes in cluster",
-                    "location": {"lon": avg_lon, "lat": avg_lat, "place": "cluster region"},
-                    "details": {"quake_count": len(cluster), "max_mag": max(c.get("properties", {}).get("mag", 0) for c in cluster)},
-                })
+                avg_lon = sum(
+                    c.get("geometry", {}).get("coordinates", [0, 0])[0] for c in cluster
+                ) / len(cluster)
+                avg_lat = sum(
+                    c.get("geometry", {}).get("coordinates", [0, 0])[1] for c in cluster
+                ) / len(cluster)
+                situations.append(
+                    {
+                        "severity": "high",
+                        "type": "seismic_cluster",
+                        "title": f"{len(cluster)} M4+ earthquakes in cluster",
+                        "location": {
+                            "lon": avg_lon,
+                            "lat": avg_lat,
+                            "place": "cluster region",
+                        },
+                        "details": {
+                            "quake_count": len(cluster),
+                            "max_mag": max(
+                                c.get("properties", {}).get("mag", 0) for c in cluster
+                            ),
+                        },
+                    }
+                )
                 break
 
     # 4. Elevated river gauge + heavy precipitation (Open-Meteo, no key)
     try:
         import pegel_bridge
+
         peg = await pegel_bridge.get_pegel()
         async with httpx.AsyncClient(timeout=12.0, headers=_UA) as client:
             for g in peg.get("gauges") or []:
@@ -616,23 +661,35 @@ async def cross_feed_correlations():
                         "&current=precipitation,rain&timezone=UTC"
                     )
                     cur = wr.json().get("current") or {}
-                    rain_mm = cur.get("precipitation") if cur.get("precipitation") is not None else cur.get("rain")
+                    rain_mm = (
+                        cur.get("precipitation")
+                        if cur.get("precipitation") is not None
+                        else cur.get("rain")
+                    )
                 except Exception:
                     pass
                 if rain_mm is not None and float(rain_mm) >= 2.0:
-                    situations.append({
-                        "severity": "high" if g["severity"] == "critical" else "medium",
-                        "type": "pegel_rain_correlation",
-                        "title": f"High water + rain at {g['name']} ({rain_mm} mm/h)",
-                        "location": {"lon": lon, "lat": lat, "place": g.get("water", "")},
-                        "details": {
-                            "gauge": g["name"],
-                            "water": g.get("water"),
-                            "level": g.get("value"),
-                            "unit": g.get("unit"),
-                            "precipitation_mm": rain_mm,
-                        },
-                    })
+                    situations.append(
+                        {
+                            "severity": "high"
+                            if g["severity"] == "critical"
+                            else "medium",
+                            "type": "pegel_rain_correlation",
+                            "title": f"High water + rain at {g['name']} ({rain_mm} mm/h)",
+                            "location": {
+                                "lon": lon,
+                                "lat": lat,
+                                "place": g.get("water", ""),
+                            },
+                            "details": {
+                                "gauge": g["name"],
+                                "water": g.get("water"),
+                                "level": g.get("value"),
+                                "unit": g.get("unit"),
+                                "precipitation_mm": rain_mm,
+                            },
+                        }
+                    )
     except Exception:
         pass
 
@@ -679,16 +736,18 @@ async def air_quality():
                     )
                     d = r.json()
                     cur = d.get("current", {})
-                    results.append({
-                        "city": name,
-                        "lat": lat,
-                        "lon": lon,
-                        "pm25": cur.get("pm2_5"),
-                        "pm10": cur.get("pm10"),
-                        "dust": cur.get("dust"),
-                        "aerosol_optical_depth": cur.get("aerosol_optical_depth"),
-                        "time": cur.get("time"),
-                    })
+                    results.append(
+                        {
+                            "city": name,
+                            "lat": lat,
+                            "lon": lon,
+                            "pm25": cur.get("pm2_5"),
+                            "pm10": cur.get("pm10"),
+                            "dust": cur.get("dust"),
+                            "aerosol_optical_depth": cur.get("aerosol_optical_depth"),
+                            "time": cur.get("time"),
+                        }
+                    )
                 except Exception:
                     continue
         out = {"cities": results, "updated": datetime.now(timezone.utc).isoformat()}
@@ -719,11 +778,15 @@ async def gdacs_alerts():
     if cached is not None:
         cached.setdefault("source", "gdacs.org")
         if "count_mapped" not in cached and cached.get("alerts"):
-            cached["count_mapped"] = sum(1 for i in cached["alerts"] if i.get("lat") is not None)
+            cached["count_mapped"] = sum(
+                1 for i in cached["alerts"] if i.get("lat") is not None
+            )
         return cached
     try:
         async with httpx.AsyncClient(timeout=25.0, headers=_UA) as client:
-            r = await client.get("https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH")
+            r = await client.get(
+                "https://www.gdacs.org/gdacsapi/api/events/geteventlist/SEARCH"
+            )
             r.raise_for_status()
             data = r.json()
         items = []
@@ -737,16 +800,22 @@ async def gdacs_alerts():
             if len(coords) >= 2:
                 lon, lat = float(coords[0]), float(coords[1])
             url_obj = props.get("url") or {}
-            items.append({
-                "title": props.get("name") or props.get("eventname") or "GDACS alert",
-                "link": url_obj.get("report") or "",
-                "description": props.get("htmldescription") or props.get("description") or "",
-                "published": props.get("datemodified") or "",
-                "lat": lat,
-                "lon": lon,
-                "alertlevel": props.get("alertlevel"),
-                "eventtype": props.get("eventtype"),
-            })
+            items.append(
+                {
+                    "title": props.get("name")
+                    or props.get("eventname")
+                    or "GDACS alert",
+                    "link": url_obj.get("report") or "",
+                    "description": props.get("htmldescription")
+                    or props.get("description")
+                    or "",
+                    "published": props.get("datemodified") or "",
+                    "lat": lat,
+                    "lon": lon,
+                    "alertlevel": props.get("alertlevel"),
+                    "eventtype": props.get("eventtype"),
+                }
+            )
             if len(items) >= 25:
                 break
         out = {

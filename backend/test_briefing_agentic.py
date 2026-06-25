@@ -31,7 +31,10 @@ class BriefingAgenticTests(unittest.TestCase):
 
     def test_corroboration_pass_scores_digest(self):
         digest = {
-            "local": ["- Local news: Bangkok flood", "- Air quality: Bangkok PM2.5 elevated"],
+            "local": [
+                "- Local news: Bangkok flood",
+                "- Air quality: Bangkok PM2.5 elevated",
+            ],
             "regional": ["- Humanitarian data: Myanmar border"],
             "global": ["- Media heat: Middle East tensions"],
             "rag_recall": [],
@@ -43,7 +46,12 @@ class BriefingAgenticTests(unittest.TestCase):
 
     def test_format_rag_recall_block(self):
         block = format_rag_recall_block(
-            [{"text": "RAG recall (situations): Flood near Bangkok", "corroborated": True}],
+            [
+                {
+                    "text": "RAG recall (situations): Flood near Bangkok",
+                    "corroborated": True,
+                }
+            ],
             lang="en",
         )
         self.assertIn("SUPPLEMENTAL RAG RECALL", block)
@@ -64,7 +72,12 @@ class BriefingAgenticTests(unittest.TestCase):
             "nodes": ["- none"],
             "intel": {"enabled": False, "count": 0, "entities": [], "items": []},
             "watch_items": [],
-            "rag_recall": [{"text": "RAG recall (gdelt_pulse_local): Thailand weather", "corroborated": False}],
+            "rag_recall": [
+                {
+                    "text": "RAG recall (gdelt_pulse_local): Thailand weather",
+                    "corroborated": False,
+                }
+            ],
         }
         prompt = build_security_advisor_prompt(digest)
         self.assertIn("SUPPLEMENTAL RAG RECALL", prompt)
@@ -124,7 +137,16 @@ class BriefingAgenticAsyncTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(
                 briefing_agentic_mod,
                 "_retrieve_for_gaps",
-                new=AsyncMock(return_value=([], {"phase": AgenticPhase.RETRIEVE.value, "retrieved": 0, "errors": []})),
+                new=AsyncMock(
+                    return_value=(
+                        [],
+                        {
+                            "phase": AgenticPhase.RETRIEVE.value,
+                            "retrieved": 0,
+                            "errors": [],
+                        },
+                    )
+                ),
             ):
                 _, trace = await run_briefing_agentic_loop(digest)
         self.assertLessEqual(trace.get("rounds"), 3)

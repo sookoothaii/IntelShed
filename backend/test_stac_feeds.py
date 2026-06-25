@@ -29,7 +29,9 @@ class StacFeedItemsTests(unittest.TestCase):
         from connector_registry import CONNECTOR_CATALOG
 
         spec = CONNECTOR_CATALOG["cve"]
-        item = stac._feed_stac_item(spec, None, cache_payload=None, now=datetime.now(timezone.utc))
+        item = stac._feed_stac_item(
+            spec, None, cache_payload=None, now=datetime.now(timezone.utc)
+        )
         self.assertEqual(item["properties"]["worldbase:status"], "missing")
         self.assertEqual(item["id"], "worldbase-cve")
         self.assertIn("bbox", item)
@@ -41,10 +43,12 @@ class StacFeedItemsTests(unittest.TestCase):
         spec = CONNECTOR_CATALOG["cams_haze"]
         bbox = stac._connector_bbox(spec)
         self.assertIsNotNone(bbox)
-        expected = stac._union_bbox([
-            stac.REGION_PRESETS["bangkok"]["bbox"],
-            stac.REGION_PRESETS["asean"]["bbox"],
-        ])
+        expected = stac._union_bbox(
+            [
+                stac.REGION_PRESETS["bangkok"]["bbox"],
+                stac.REGION_PRESETS["asean"]["bbox"],
+            ]
+        )
         self.assertEqual(bbox, expected)
 
     def test_extract_payload_centroid_maritime(self):
@@ -73,7 +77,9 @@ class StacFeedItemsTests(unittest.TestCase):
         from ais_bridge import maritime_operator_bbox
 
         spec = CONNECTOR_CATALOG["maritime"]
-        with patch.dict(os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False):
+        with patch.dict(
+            os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False
+        ):
             self.assertEqual(stac._connector_bbox(spec), maritime_operator_bbox())
 
     def test_connector_bbox_skips_global_when_mixed(self):

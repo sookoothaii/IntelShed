@@ -39,7 +39,9 @@ async def api_intel_stats():
 async def api_intel_entities(
     limit: int = Query(50, ge=1, le=500),
     dataset: str | None = Query(None, description="Filter by provenance dataset tag"),
-    geolocated: bool = Query(False, description="Only entities with lat/lon seen in window_hours"),
+    geolocated: bool = Query(
+        False, description="Only entities with lat/lon seen in window_hours"
+    ),
     window_hours: int = Query(24, ge=1, le=168),
 ):
     """Recent entities (compat route). Set geolocated=1 for FtM globe layer."""
@@ -59,10 +61,14 @@ async def api_intel_entities(
 
 @router.get("/intel/subgraph")
 async def api_intel_subgraph(
-    bbox: str | None = Query(None, description="west,south,east,north — default operator region"),
+    bbox: str | None = Query(
+        None, description="west,south,east,north — default operator region"
+    ),
     hops: int = Query(2, ge=1, le=3),
     window_hours: int = Query(24, ge=1, le=168),
-    region: str | None = Query(None, description="Operator region preset when bbox omitted"),
+    region: str | None = Query(
+        None, description="Operator region preset when bbox omitted"
+    ),
 ):
     """2-hop FtM subgraph seeded by geolocated entities in bbox (Track 3)."""
     import intel_subgraph
@@ -139,7 +145,13 @@ async def api_entity_graph(
     try:
         return graph_view(entity_id, depth, limit)
     except Exception as exc:
-        return {"root": entity_id, "found": False, "nodes": [], "edges": [], "error": str(exc)}
+        return {
+            "root": entity_id,
+            "found": False,
+            "nodes": [],
+            "edges": [],
+            "error": str(exc),
+        }
 
 
 @router.get("/entity/{entity_id}")

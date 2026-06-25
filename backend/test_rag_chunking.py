@@ -19,7 +19,11 @@ class RagChunkingTests(unittest.TestCase):
     def test_headline_profile_keeps_short_text_single_chunk(self):
         profile = get_source_profile("gdelt_pulse_local", "gdelt_events")
         parts = chunk_record(
-            {"title": "Flood near Bangkok", "snippet": "Heavy rain continues", "id": "x1"},
+            {
+                "title": "Flood near Bangkok",
+                "snippet": "Heavy rain continues",
+                "id": "x1",
+            },
             profile,
         )
         self.assertEqual(len(parts), 1)

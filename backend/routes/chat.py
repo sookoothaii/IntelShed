@@ -16,7 +16,6 @@ from chat_proxy import *  # noqa: F401,F403
 from chat_proxy import router as _proxy_router
 
 # Explicit re-exports for symbols imported by other modules
-from chat_context import OLLAMA_HOSTS, _ollama_hosts, _is_embed_model, _models_cache, _MODELS_CACHE_TTL, build_chat_context  # noqa: F401
 from chat_proxy import _prepare_chat_messages, chat_proxy, list_models, list_providers  # noqa: F401
 
 router = APIRouter(tags=["chat"])

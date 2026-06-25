@@ -89,7 +89,9 @@ def _decode_state_row(s: list) -> dict | None:
             "callsign": (s[1] or "").strip(),
             "lon": float(lon),
             "lat": float(lat),
-            "alt": float(s[7]) if s[7] is not None else (float(s[13]) if len(s) > 13 and s[13] is not None else None),
+            "alt": float(s[7])
+            if s[7] is not None
+            else (float(s[13]) if len(s) > 13 and s[13] is not None else None),
             "speed": float(s[9]) if s[9] is not None else None,
             "heading": float(s[10]) if s[10] is not None else None,
         }
@@ -106,7 +108,11 @@ async def snapshot_now(force: bool = False) -> dict:
     global _last_snapshot_ts
     now = time.time()
     if not force and (now - _last_snapshot_ts) < _MIN_INTERVAL_SEC:
-        return {"skipped": True, "reason": "rate_limited", "min_interval_sec": _MIN_INTERVAL_SEC}
+        return {
+            "skipped": True,
+            "reason": "rate_limited",
+            "min_interval_sec": _MIN_INTERVAL_SEC,
+        }
 
     data = aircraft_provider.last_known_states()
     source = (data or {}).get("source")
@@ -162,12 +168,19 @@ async def snapshot_now(force: bool = False) -> dict:
         conn.commit()
 
     _last_snapshot_ts = now
-    return {"stored": len(rows), "source": source, "states_in_feed": len(states), "ts": now}
+    return {
+        "stored": len(rows),
+        "source": source,
+        "states_in_feed": len(states),
+        "ts": now,
+    }
 
 
 @router.get("/trails")
 def get_trail(
-    icao24: str = Query(..., min_length=3, max_length=8, description="ICAO24 hex (e.g. ae63e2)"),
+    icao24: str = Query(
+        ..., min_length=3, max_length=8, description="ICAO24 hex (e.g. ae63e2)"
+    ),
     minutes: int = Query(30, ge=1, le=360),
     max_points: int = Query(400, ge=10, le=2000),
 ):
@@ -210,9 +223,12 @@ def trail_stats():
     """How much history is persisted right now — useful for the DATA panel."""
     with _conn() as conn:
         total = conn.execute("SELECT COUNT(*) FROM aircraft_trail").fetchone()[0] or 0
-        distinct = conn.execute(
-            "SELECT COUNT(DISTINCT icao24) FROM aircraft_trail"
-        ).fetchone()[0] or 0
+        distinct = (
+            conn.execute(
+                "SELECT COUNT(DISTINCT icao24) FROM aircraft_trail"
+            ).fetchone()[0]
+            or 0
+        )
         bounds = conn.execute(
             "SELECT MIN(recorded_at) AS oldest, MAX(recorded_at) AS newest FROM aircraft_trail"
         ).fetchone()

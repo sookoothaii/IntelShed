@@ -51,7 +51,9 @@ class AgentBusPublishTests(unittest.IsolatedAsyncioTestCase):
     async def test_disabled_returns_503(self):
         with patch("agent_bus.agent_bus_enabled", return_value=False):
             with self.assertRaises(HTTPException) as ctx:
-                await publish_action(AgentPublishBody(action="fly_to", lat=1.0, lon=2.0))
+                await publish_action(
+                    AgentPublishBody(action="fly_to", lat=1.0, lon=2.0)
+                )
         self.assertEqual(ctx.exception.status_code, 503)
 
     async def test_fly_to_requires_coords(self):

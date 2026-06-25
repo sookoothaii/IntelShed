@@ -140,8 +140,9 @@ def format_market_stress_line(summary: dict, lang: str = "en") -> str | None:
 _YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/"
 
 
-async def _yahoo_series(client: httpx.AsyncClient, label: str, symbol: str,
-                        category: str) -> dict | None:
+async def _yahoo_series(
+    client: httpx.AsyncClient, label: str, symbol: str, category: str
+) -> dict | None:
     """One Yahoo symbol -> normalized quote with a 1-month daily sparkline."""
     try:
         r = await client.get(
@@ -169,8 +170,11 @@ async def _yahoo_series(client: httpx.AsyncClient, label: str, symbol: str,
         spark = [float(last)]
 
     price = float(meta.get("regularMarketPrice") or spark[-1])
-    prev = float(meta.get("chartPreviousClose") or meta.get("previousClose") or
-                 (spark[-2] if len(spark) > 1 else price))
+    prev = float(
+        meta.get("chartPreviousClose")
+        or meta.get("previousClose")
+        or (spark[-2] if len(spark) > 1 else price)
+    )
     change = price - prev
     change_pct = (change / prev * 100.0) if prev else 0.0
     # Trend over the whole sparkline window (≈1 month)
@@ -238,13 +242,16 @@ def _stocks_risk(indices: list[dict], rates_fx: list[dict]) -> dict:
         score = min(100.0, score + min(20.0, abs(avg_change) * 4.0))
     score = round(score)
 
-    level = _pct_band(score, [(25, "CALM"), (45, "NORMAL"),
-                              (65, "ELEVATED"), (82, "HIGH")], "EXTREME")
+    level = _pct_band(
+        score, [(25, "CALM"), (45, "NORMAL"), (65, "ELEVATED"), (82, "HIGH")], "EXTREME"
+    )
     notes: list[str] = []
     if vix_val is not None:
         notes.append(f"VIX {vix_val:.1f}")
     if avg_change is not None:
-        notes.append(f"index avg {'+' if avg_change >= 0 else ''}{avg_change:.2f}% (24h)")
+        notes.append(
+            f"index avg {'+' if avg_change >= 0 else ''}{avg_change:.2f}% (24h)"
+        )
     notes.append(f"breadth {advancers}↑ / {decliners}↓")
     return {
         "level": level,
@@ -271,7 +278,9 @@ async def markets_stocks():
     jobs += [(lbl, sym, "rate_fx") for lbl, sym in _RATES_FX.items()]
 
     try:
-        async with httpx.AsyncClient(timeout=20.0, headers=_UA, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=20.0, headers=_UA, follow_redirects=True
+        ) as client:
             results = await asyncio.gather(
                 *[_yahoo_series(client, lbl, sym, cat) for lbl, sym, cat in jobs]
             )
@@ -279,7 +288,13 @@ async def markets_stocks():
         stale = _cache_stale(key)
         if stale:
             return stale
-        return {"error": str(e), "indices": [], "commodities": [], "rates_fx": [], "updated": _now_iso()}
+        return {
+            "error": str(e),
+            "indices": [],
+            "commodities": [],
+            "rates_fx": [],
+            "updated": _now_iso(),
+        }
 
     quotes = [q for q in results if q]
     indices = [q for q in quotes if q["category"] == "index"]
@@ -375,23 +390,25 @@ async def _fetch_coins(client: httpx.AsyncClient) -> list[dict]:
             spark = [round(float(spark[int(i * step)]), 4) for i in range(48)]
         else:
             spark = [round(float(x), 4) for x in spark]
-        coins.append({
-            "id": c.get("id"),
-            "symbol": (c.get("symbol") or "").upper(),
-            "name": c.get("name"),
-            "price": c.get("current_price"),
-            "change_1h": c.get("price_change_percentage_1h_in_currency"),
-            "change_24h": c.get("price_change_percentage_24h_in_currency"),
-            "change_7d": c.get("price_change_percentage_7d_in_currency"),
-            "market_cap": c.get("market_cap"),
-            "market_cap_rank": c.get("market_cap_rank"),
-            "volume": c.get("total_volume"),
-            "high_24h": c.get("high_24h"),
-            "low_24h": c.get("low_24h"),
-            "ath": c.get("ath"),
-            "ath_change_pct": c.get("ath_change_percentage"),
-            "spark": spark,
-        })
+        coins.append(
+            {
+                "id": c.get("id"),
+                "symbol": (c.get("symbol") or "").upper(),
+                "name": c.get("name"),
+                "price": c.get("current_price"),
+                "change_1h": c.get("price_change_percentage_1h_in_currency"),
+                "change_24h": c.get("price_change_percentage_24h_in_currency"),
+                "change_7d": c.get("price_change_percentage_7d_in_currency"),
+                "market_cap": c.get("market_cap"),
+                "market_cap_rank": c.get("market_cap_rank"),
+                "volume": c.get("total_volume"),
+                "high_24h": c.get("high_24h"),
+                "low_24h": c.get("low_24h"),
+                "ath": c.get("ath"),
+                "ath_change_pct": c.get("ath_change_percentage"),
+                "spark": spark,
+            }
+        )
     coins.sort(key=lambda x: (x.get("market_cap") or 0), reverse=True)
     return coins
 
@@ -413,13 +430,16 @@ def _crypto_risk(coins: list[dict], glob: dict | None, fng: dict | None) -> dict
         score = min(100.0, score + min(30.0, abs(mcap_change) * 3.0))
     score = round(score)
 
-    level = _pct_band(score, [(25, "CALM"), (45, "NORMAL"),
-                              (65, "ELEVATED"), (82, "HIGH")], "EXTREME")
+    level = _pct_band(
+        score, [(25, "CALM"), (45, "NORMAL"), (65, "ELEVATED"), (82, "HIGH")], "EXTREME"
+    )
     notes: list[str] = []
     if fng_val is not None:
         notes.append(f"Fear & Greed {fng_val} ({(fng or {}).get('label')})")
     if mcap_change is not None:
-        notes.append(f"total cap {'+' if mcap_change >= 0 else ''}{mcap_change:.2f}% (24h)")
+        notes.append(
+            f"total cap {'+' if mcap_change >= 0 else ''}{mcap_change:.2f}% (24h)"
+        )
     notes.append(f"breadth {advancers}↑ / {decliners}↓")
     return {
         "level": level,
@@ -442,7 +462,9 @@ async def markets_crypto():
         return cached
 
     try:
-        async with httpx.AsyncClient(timeout=20.0, headers=_UA, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=20.0, headers=_UA, follow_redirects=True
+        ) as client:
             coins, glob, fng = await asyncio.gather(
                 _fetch_coins(client),
                 _fetch_global(client),
@@ -452,7 +474,13 @@ async def markets_crypto():
         stale = _cache_stale(key)
         if stale:
             return stale
-        return {"error": str(e), "coins": [], "global": None, "fear_greed": None, "updated": _now_iso()}
+        return {
+            "error": str(e),
+            "coins": [],
+            "global": None,
+            "fear_greed": None,
+            "updated": _now_iso(),
+        }
 
     out = {
         "updated": _now_iso(),

@@ -40,9 +40,7 @@ class TestClassification(unittest.TestCase):
         )
 
     def test_spatial_near(self):
-        self.assertEqual(
-            classify_query("what events are near Bangkok?"), "spatial"
-        )
+        self.assertEqual(classify_query("what events are near Bangkok?"), "spatial")
 
     def test_spatial_within_radius(self):
         self.assertEqual(
@@ -55,29 +53,19 @@ class TestClassification(unittest.TestCase):
         )
 
     def test_live_temporal(self):
-        self.assertEqual(
-            classify_query("what is the current situation today?"), "live"
-        )
+        self.assertEqual(classify_query("what is the current situation today?"), "live")
 
     def test_live_breaking(self):
-        self.assertEqual(
-            classify_query("any breaking news or latest updates?"), "live"
-        )
+        self.assertEqual(classify_query("any breaking news or latest updates?"), "live")
 
     def test_vector_factual(self):
-        self.assertEqual(
-            classify_query("what is the GDELT pulse?"), "vector"
-        )
+        self.assertEqual(classify_query("what is the GDELT pulse?"), "vector")
 
     def test_vector_summarize(self):
-        self.assertEqual(
-            classify_query("summarize the last briefing"), "vector"
-        )
+        self.assertEqual(classify_query("summarize the last briefing"), "vector")
 
     def test_vector_explain(self):
-        self.assertEqual(
-            classify_query("explain the FtM schema"), "vector"
-        )
+        self.assertEqual(classify_query("explain the FtM schema"), "vector")
 
     def test_hybrid_mixed_signals(self):
         """Graph + spatial signals together → hybrid."""
@@ -85,7 +73,9 @@ class TestClassification(unittest.TestCase):
         self.assertEqual(route, "hybrid")
 
     def test_hybrid_graph_and_temporal(self):
-        route = classify_query("what are the latest connections between these entities?")
+        route = classify_query(
+            "what are the latest connections between these entities?"
+        )
         self.assertEqual(route, "hybrid")
 
     def test_no_signal_returns_fallback(self):
@@ -162,9 +152,7 @@ class TestRouteRetrieval(unittest.TestCase):
         import asyncio
         from query_router import route_retrieval
 
-        result = asyncio.run(
-            route_retrieval("who is Alice?", route="graph")
-        )
+        result = asyncio.run(route_retrieval("who is Alice?", route="graph"))
         self.assertEqual(result["route"], "graph")
         self.assertIn("block", result)
         self.assertIn("meta", result)
@@ -173,9 +161,7 @@ class TestRouteRetrieval(unittest.TestCase):
         import asyncio
         from query_router import route_retrieval
 
-        result = asyncio.run(
-            route_retrieval("what is GDELT?", route="vector")
-        )
+        result = asyncio.run(route_retrieval("what is GDELT?", route="vector"))
         self.assertEqual(result["route"], "vector")
         self.assertIn("block", result)
 
@@ -183,9 +169,7 @@ class TestRouteRetrieval(unittest.TestCase):
         import asyncio
         from query_router import route_retrieval
 
-        result = asyncio.run(
-            route_retrieval("near Bangkok", route="spatial")
-        )
+        result = asyncio.run(route_retrieval("near Bangkok", route="spatial"))
         self.assertEqual(result["route"], "spatial")
         self.assertIn("block", result)
 
@@ -193,9 +177,7 @@ class TestRouteRetrieval(unittest.TestCase):
         import asyncio
         from query_router import route_retrieval
 
-        result = asyncio.run(
-            route_retrieval("who is near the border?", route="hybrid")
-        )
+        result = asyncio.run(route_retrieval("who is near the border?", route="hybrid"))
         self.assertEqual(result["route"], "hybrid")
         self.assertIn("block", result)
 

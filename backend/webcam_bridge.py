@@ -22,6 +22,7 @@ WINDY_URL = "https://api.windy.com/webcams/api/v3/webcams"
 def _windy_api_key() -> str:
     return os.getenv("WINDY_WEBCAM_API_KEY", "").strip()
 
+
 OPERATOR_LAT = float(os.getenv("WORLDBASE_OPERATOR_LAT", "9.55"))
 OPERATOR_LON = float(os.getenv("WORLDBASE_OPERATOR_LON", "100.05"))
 
@@ -67,7 +68,9 @@ def _youtube_cam(
         "lon": lon,
         "category": category,
         "url": f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg" if vid else "",
-        "embed": f"https://www.youtube.com/embed/{vid}?autoplay=1&mute=1" if vid else "",
+        "embed": f"https://www.youtube.com/embed/{vid}?autoplay=1&mute=1"
+        if vid
+        else "",
         "source": "youtube",
         "refresh": 0,
     }
@@ -205,7 +208,10 @@ def _normalize_windy(w: dict) -> dict:
 
 
 def _annotate_static() -> list[dict]:
-    return [{**w, "fetched_at": datetime.now(timezone.utc).isoformat()} for w in STATIC_WEBCAMS]
+    return [
+        {**w, "fetched_at": datetime.now(timezone.utc).isoformat()}
+        for w in STATIC_WEBCAMS
+    ]
 
 
 def _static_by_id(cam_id: str) -> dict | None:

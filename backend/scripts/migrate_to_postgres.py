@@ -36,6 +36,7 @@ except ImportError:
 # Optional: tqdm for progress bars
 try:
     from tqdm import tqdm
+
     HAS_TQDM = True
 except ImportError:
     HAS_TQDM = False
@@ -242,14 +243,15 @@ PG_SCHEMA = {
 # Data Transformations
 # ============================================================================
 
+
 def parse_timestamp(ts: str | None) -> datetime | None:
     """Parse SQLite timestamp string to datetime object."""
     if not ts:
         return None
     try:
         # Handle ISO format with or without timezone
-        ts = ts.replace('Z', '+00:00')
-        if '+' in ts or ts.endswith('Z'):
+        ts = ts.replace("Z", "+00:00")
+        if "+" in ts or ts.endswith("Z"):
             return datetime.fromisoformat(ts)
         # Assume UTC if no timezone
         return datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
@@ -282,18 +284,31 @@ def transform_row(row: sqlite3.Row, table_name: str) -> tuple:
     """Transform a SQLite row to PostgreSQL-compatible format."""
     row_dict = dict(row)
     transformed = {}
-    
+
     for key, value in row_dict.items():
         # Handle JSON columns
-        if key in ("payload", "value", "sources", "args", "result",
-                   "meta_json", "embedding_json", "model_json"):
+        if key in (
+            "payload",
+            "value",
+            "sources",
+            "args",
+            "result",
+            "meta_json",
+            "embedding_json",
+            "model_json",
+        ):
             if isinstance(value, str):
                 transformed[key] = transform_json_column(value)
             else:
                 transformed[key] = value
         # Handle timestamp columns
-        elif key in ("updated_at", "created_at", "cached_at", 
-                     "recorded_at", "acked_at"):
+        elif key in (
+            "updated_at",
+            "created_at",
+            "cached_at",
+            "recorded_at",
+            "acked_at",
+        ):
             if table_name == "aircraft_trail" and key == "recorded_at":
                 # aircraft_trail uses REAL (Unix timestamp)
                 transformed[key] = value
@@ -301,7 +316,7 @@ def transform_row(row: sqlite3.Row, table_name: str) -> tuple:
                 transformed[key] = parse_timestamp(value)
         else:
             transformed[key] = value
-    
+
     return tuple(transformed.values())
 
 
@@ -328,6 +343,7 @@ CONFLICT_COLUMNS = {
 # Database Connections
 # ============================================================================
 
+
 @contextmanager
 def sqlite_connection(db_path: str):
     """Context manager for SQLite connection."""
@@ -353,20 +369,21 @@ def postgres_connection(dsn: str):
 # Migration Logic
 # ============================================================================
 
+
 def create_postgres_schema(pg_conn, dry_run: bool = False) -> None:
     """Create PostgreSQL schema (tables, indexes)."""
     logger.info("Creating PostgreSQL schema...")
-    
+
     if dry_run:
         logger.info("[DRY RUN] Would create tables: %s", ", ".join(MIGRATION_ORDER))
         return
-    
+
     with pg_conn.cursor() as cur:
         # Create tables
         for table in MIGRATION_ORDER:
             cur.execute(PG_SCHEMA[table])
             logger.debug(f"Created table: {table}")
-        
+
         # Create additional indexes for performance
         indexes = [
             "CREATE INDEX IF NOT EXISTS idx_sensor_alerts_node ON sensor_alerts(node_id);",
@@ -381,9 +398,9 @@ def create_postgres_schema(pg_conn, dry_run: bool = False) -> None:
         ]
         for idx_sql in indexes:
             cur.execute(idx_sql)
-        
+
         pg_conn.commit()
-    
+
     logger.info("PostgreSQL schema created successfully")
 
 
@@ -409,22 +426,27 @@ def migrate_table(
     conflict_strategy: str = "update",
 ) -> dict:
     """Migrate a single table from SQLite to PostgreSQL."""
-    
+
     source_count = get_sqlite_row_count(sqlite_conn, table)
     logger.info(f"Migrating {table}: {source_count:,} rows")
-    
+
     if source_count == 0:
         return {"table": table, "source_count": 0, "dest_count": 0, "migrated": 0}
-    
+
     if dry_run:
         logger.info(f"[DRY RUN] Would migrate {source_count:,} rows to {table}")
-        return {"table": table, "source_count": source_count, "dest_count": 0, "migrated": 0}
-    
+        return {
+            "table": table,
+            "source_count": source_count,
+            "dest_count": 0,
+            "migrated": 0,
+        }
+
     # Get column names from SQLite
     cur = sqlite_conn.execute(f"PRAGMA table_info({table})")
     columns = [row[1] for row in cur.fetchall()]
     column_str = ", ".join(columns)
-    
+
     # Build INSERT SQL with conflict handling
     conflict_col = CONFLICT_COLUMNS.get(table, "id")
     if conflict_strategy == "update":
@@ -448,10 +470,17 @@ def migrate_table(
             """
         else:
             # Get primary key column
-            pk = conflict_col if conflict_col != "(source, source_id)" and conflict_col != "(from_id, to_id, relation)" else None
+            pk = (
+                conflict_col
+                if conflict_col != "(source, source_id)"
+                and conflict_col != "(from_id, to_id, relation)"
+                else None
+            )
             if pk and pk != "id":
                 # For tables with non-id primary keys
-                set_clause = ", ".join([f"{c} = EXCLUDED.{c}" for c in columns if c != pk])
+                set_clause = ", ".join(
+                    [f"{c} = EXCLUDED.{c}" for c in columns if c != pk]
+                )
                 sql = f"""
                     INSERT INTO {table} ({column_str})
                     VALUES %s
@@ -459,7 +488,9 @@ def migrate_table(
                 """
             else:
                 # Default for id primary keys
-                set_clause = ", ".join([f"{c} = EXCLUDED.{c}" for c in columns if c != "id"])
+                set_clause = ", ".join(
+                    [f"{c} = EXCLUDED.{c}" for c in columns if c != "id"]
+                )
                 sql = f"""
                     INSERT INTO {table} ({column_str})
                     VALUES %s
@@ -471,41 +502,45 @@ def migrate_table(
             VALUES %s
             ON CONFLICT DO NOTHING
         """
-    
+
     # Stream rows from SQLite and batch insert to PostgreSQL
     total_migrated = 0
     batch = []
-    
+
     progress_desc = f"Migrating {table}"
     progress_iter = sqlite_conn.execute(f"SELECT * FROM {table}")
-    
+
     if HAS_TQDM:
-        progress_iter = tqdm(progress_iter, total=source_count, desc=progress_desc, unit="rows")
+        progress_iter = tqdm(
+            progress_iter, total=source_count, desc=progress_desc, unit="rows"
+        )
     else:
         logger.info(f"Processing {source_count:,} rows...")
-    
+
     with pg_conn.cursor() as pg_cur:
         for row in progress_iter:
             transformed = transform_row(row, table)
             batch.append(transformed)
-            
+
             if len(batch) >= batch_size:
                 execute_values(pg_cur, sql, batch, page_size=batch_size)
                 total_migrated += len(batch)
                 batch = []
-        
+
         # Insert remaining rows
         if batch:
             execute_values(pg_cur, sql, batch, page_size=len(batch))
             total_migrated += len(batch)
-        
+
         pg_conn.commit()
-    
+
     # Verify
     dest_count = get_postgres_row_count(pg_conn, table)
-    
-    logger.info(f"✓ {table}: migrated {total_migrated:,} rows (source: {source_count:,}, dest: {dest_count:,})")
-    
+
+    logger.info(
+        f"✓ {table}: migrated {total_migrated:,} rows (source: {source_count:,}, dest: {dest_count:,})"
+    )
+
     return {
         "table": table,
         "source_count": source_count,
@@ -519,13 +554,13 @@ def verify_migration(results: list[dict]) -> bool:
     logger.info("\n" + "=" * 60)
     logger.info("Migration Verification")
     logger.info("=" * 60)
-    
+
     all_ok = True
     for result in results:
         table = result["table"]
         source = result["source_count"]
         dest = result["dest_count"]
-        
+
         if source == 0:
             status = "EMPTY"
         elif dest >= source:
@@ -533,26 +568,35 @@ def verify_migration(results: list[dict]) -> bool:
         else:
             status = "⚠ MISMATCH"
             all_ok = False
-        
+
         logger.info(f"{table:20s} | source: {source:8,} | dest: {dest:8,} | {status}")
-    
+
     logger.info("=" * 60)
     if all_ok:
         logger.info("Verification passed!")
     else:
-        logger.warning("Some tables have row count mismatches (this may be expected with ON CONFLICT DO NOTHING)")
-    
+        logger.warning(
+            "Some tables have row count mismatches (this may be expected with ON CONFLICT DO NOTHING)"
+        )
+
     return all_ok
 
 
 def reset_postgres_sequences(pg_conn) -> None:
     """Reset serial sequences after migration."""
     serial_tables = [
-        "aircraft", "satellites", "briefings", "sensor_alerts",
-        "node_commands", "sensor_history", "entity_links", "rag_chunks",
-        "aircraft_trail", "river_scores",
+        "aircraft",
+        "satellites",
+        "briefings",
+        "sensor_alerts",
+        "node_commands",
+        "sensor_history",
+        "entity_links",
+        "rag_chunks",
+        "aircraft_trail",
+        "river_scores",
     ]
-    
+
     with pg_conn.cursor() as cur:
         for table in serial_tables:
             cur.execute(f"""
@@ -560,13 +604,14 @@ def reset_postgres_sequences(pg_conn) -> None:
                              COALESCE((SELECT MAX(id) FROM {table}), 1), true);
             """)
         pg_conn.commit()
-    
+
     logger.info("PostgreSQL sequences reset")
 
 
 # ============================================================================
 # Main
 # ============================================================================
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -582,7 +627,7 @@ Examples:
     
     # Skip on conflict (don't update existing rows)
     python %(prog)s --sqlite-path backend/worldbase.db --postgres-url postgresql://user:pass@localhost/worldbase --on-conflict skip
-        """
+        """,
     )
     parser.add_argument(
         "--sqlite-path",
@@ -628,15 +673,15 @@ Examples:
         action="store_true",
         help="Enable verbose logging",
     )
-    
+
     args = parser.parse_args()
-    
+
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-    
+
     # Determine which tables to migrate
     tables_to_migrate = args.tables or MIGRATION_ORDER
-    
+
     logger.info("=" * 60)
     logger.info("WorldBase SQLite → PostgreSQL Migration")
     logger.info("=" * 60)
@@ -647,23 +692,23 @@ Examples:
     logger.info(f"Conflict strategy: {args.on_conflict}")
     logger.info(f"Tables: {', '.join(tables_to_migrate)}")
     logger.info("=" * 60)
-    
+
     try:
         # Open connections
         with sqlite_connection(args.sqlite_path) as sqlite_conn:
             # Verify SQLite is accessible
             sqlite_conn.execute("SELECT 1")
             logger.info("✓ SQLite connection successful")
-            
+
             with postgres_connection(args.postgres_url) as pg_conn:
                 # Verify PostgreSQL is accessible
                 with pg_conn.cursor() as cur:
                     cur.execute("SELECT 1")
                 logger.info("✓ PostgreSQL connection successful")
-                
+
                 # Create schema
                 create_postgres_schema(pg_conn, dry_run=args.dry_run)
-                
+
                 # Migrate tables
                 results = []
                 for table in tables_to_migrate:
@@ -679,34 +724,38 @@ Examples:
                         results.append(result)
                     except Exception as e:
                         logger.error(f"Failed to migrate {table}: {e}")
-                        results.append({
-                            "table": table,
-                            "source_count": 0,
-                            "dest_count": 0,
-                            "migrated": 0,
-                            "error": str(e),
-                        })
+                        results.append(
+                            {
+                                "table": table,
+                                "source_count": 0,
+                                "dest_count": 0,
+                                "migrated": 0,
+                                "error": str(e),
+                            }
+                        )
                         if not args.dry_run:
                             pg_conn.rollback()
-                
+
                 # Reset sequences
                 if not args.dry_run:
                     reset_postgres_sequences(pg_conn)
-                
+
                 # Verify
                 if not args.no_verify and not args.dry_run:
                     verify_migration(results)
-                
+
                 logger.info("\n" + "=" * 60)
                 if args.dry_run:
                     logger.info("Dry run completed. No changes were made.")
                 else:
                     total_migrated = sum(r["migrated"] for r in results)
-                    logger.info(f"Migration completed! {total_migrated:,} rows migrated.")
+                    logger.info(
+                        f"Migration completed! {total_migrated:,} rows migrated."
+                    )
                 logger.info("=" * 60)
-                
+
                 return 0 if not any("error" in r for r in results) else 1
-                
+
     except sqlite3.Error as e:
         logger.error(f"SQLite error: {e}")
         return 1

@@ -13,19 +13,23 @@ import math
 
 _SECTION_LOCAL = re.compile(r"\bLOCAL\b", re.I)
 _SECTION_INTEL = re.compile(r"\bINTEL\b", re.I)
-_GDELT_HINT = re.compile(r"\bGDELT\b|\bgdelt\b|local news|Local news|Regional media heat|Media heat", re.I)
+_GDELT_HINT = re.compile(
+    r"\bGDELT\b|\bgdelt\b|local news|Local news|Regional media heat|Media heat", re.I
+)
 _GDELT_DIGEST_PREFIXES = (
     "local news:",
     "regional media heat:",
     "media heat:",
     "news:",
 )
-_GDELT_SOURCE_KEYS = frozenset({
-    "gdelt_pulse_local",
-    "gdelt_geo_local",
-    "gdelt_pulse",
-    "gdelt_geo",
-})
+_GDELT_SOURCE_KEYS = frozenset(
+    {
+        "gdelt_pulse_local",
+        "gdelt_geo_local",
+        "gdelt_pulse",
+        "gdelt_geo",
+    }
+)
 _DIGEST_DATE_TAG = re.compile(r"^\[\d{1,2} \w{3} \d{2}:\d{2} UTC\]\s*")
 
 
@@ -57,7 +61,9 @@ def count_gdelt_digest_items(items: list[dict[str, Any]] | None) -> int:
     return sum(1 for item in items or [] if item_is_gdelt(item))
 
 
-def _gdelt_block_volume(block: dict[str, Any] | None, *, list_key: str = "articles") -> int:
+def _gdelt_block_volume(
+    block: dict[str, Any] | None, *, list_key: str = "articles"
+) -> int:
     """Digestible rows in a feed block — prefer list length over stale count metadata."""
     if not block:
         return 0
@@ -66,7 +72,9 @@ def _gdelt_block_volume(block: dict[str, Any] | None, *, list_key: str = "articl
     return int(block.get("count") or 0)
 
 
-def gdelt_digest_pipeline_meta(snap: dict[str, Any], digest: dict[str, Any]) -> dict[str, Any]:
+def gdelt_digest_pipeline_meta(
+    snap: dict[str, Any], digest: dict[str, Any]
+) -> dict[str, Any]:
     """Compare GDELT feed volume vs digest collection and final bucket placement."""
     local_pulse = snap.get("gdelt_pulse_local") or {}
     geo_local = snap.get("gdelt_geo_local") or {}
@@ -167,15 +175,30 @@ def _gdelt_from_feed(meta: dict[str, Any]) -> bool:
     return False
 
 
-_GDELT_FEED_FAMILY = frozenset({
-    "gdelt_pulse_local",
-    "gdelt_geo_local",
-    "gdelt_pulse",
-    "gdelt_geo",
-})
-_STOP_WORDS = frozenset({
-    "the", "and", "for", "with", "near", "from", "that", "this", "what", "news", "local", "media",
-})
+_GDELT_FEED_FAMILY = frozenset(
+    {
+        "gdelt_pulse_local",
+        "gdelt_geo_local",
+        "gdelt_pulse",
+        "gdelt_geo",
+    }
+)
+_STOP_WORDS = frozenset(
+    {
+        "the",
+        "and",
+        "for",
+        "with",
+        "near",
+        "from",
+        "that",
+        "this",
+        "what",
+        "news",
+        "local",
+        "media",
+    }
+)
 
 
 def _source_family(feed: str) -> str:
@@ -191,7 +214,9 @@ def _source_family(feed: str) -> str:
 
 
 def _strip_digest_date_tag(text: str) -> str:
-    return re.sub(r"^\[\d{1,2} \w{3} \d{2}:\d{2} utc\]\s*", "", str(text or ""), flags=re.I)
+    return re.sub(
+        r"^\[\d{1,2} \w{3} \d{2}:\d{2} utc\]\s*", "", str(text or ""), flags=re.I
+    )
 
 
 def _infer_feed_sources(item: dict[str, Any]) -> list[str]:
@@ -234,7 +259,9 @@ def _text_fingerprint(text: str) -> set[str]:
     return {w for w in cleaned.split() if len(w) > 3 and w not in _STOP_WORDS}
 
 
-def _geo_bucket(lat: float | None, lon: float | None, cell_deg: float = 2.0) -> tuple[float, float] | None:
+def _geo_bucket(
+    lat: float | None, lon: float | None, cell_deg: float = 2.0
+) -> tuple[float, float] | None:
     if lat is None or lon is None:
         return None
     try:
@@ -269,7 +296,9 @@ def _severity_rank(sev: str | None) -> int:
     return {"high": 0, "medium": 1, "low": 2}.get(str(sev or "low").lower(), 2)
 
 
-def corroborate_digest_item(item: dict[str, Any], pool: list[dict[str, Any]]) -> dict[str, Any]:
+def corroborate_digest_item(
+    item: dict[str, Any], pool: list[dict[str, Any]]
+) -> dict[str, Any]:
     """Score one digest row against the full collected item pool."""
     own_sources = _infer_feed_sources(item)
     families = {_source_family(s) for s in own_sources}
@@ -323,6 +352,7 @@ def build_digest_line_meta(
     """Parallel metadata for digest lines placed in each bucket."""
     try:
         from provenance import provenance_enabled, score_from_meta
+
         use_provenance = provenance_enabled()
     except Exception:
         use_provenance = False
@@ -421,7 +451,11 @@ def score_briefing(
 
     total_signals = max(local_count + regional_count + global_count, 1)
     coverage = min(1.0, (local_count + intel_count + (1 if has_gdelt else 0)) / 3.0)
-    timeliness = 1.0 if fresh else (0.5 if age_hours is not None and age_hours <= max_age_hours * 2 else 0.0)
+    timeliness = (
+        1.0
+        if fresh
+        else (0.5 if age_hours is not None and age_hours <= max_age_hours * 2 else 0.0)
+    )
     geo_relevance = min(1.0, local_count / max(total_signals * 0.25, 1))
 
     checks = {
@@ -445,7 +479,10 @@ def score_briefing(
         pred_meta = {}
 
     score = (
-        0.35 * coverage + 0.25 * timeliness + 0.25 * geo_relevance + 0.15 * (passed / 4.0)
+        0.35 * coverage
+        + 0.25 * timeliness
+        + 0.25 * geo_relevance
+        + 0.15 * (passed / 4.0)
     )
     if corro_avg is not None and corro_avg < 0.5:
         score -= 0.04
@@ -491,9 +528,15 @@ def score_briefing(
             "prediction_sample_30d": pred_meta.get("sample_size"),
             "prediction_pending": pred_meta.get("pending"),
             "intel_prompt_mode": (intel.get("prompt_metrics") or {}).get("prompt_mode"),
-            "intel_flat_chars": (intel.get("prompt_metrics") or {}).get("intel_flat_chars"),
-            "intel_subgraph_chars": (intel.get("prompt_metrics") or {}).get("intel_subgraph_chars"),
-            "intel_active_chars": (intel.get("prompt_metrics") or {}).get("intel_active_chars"),
+            "intel_flat_chars": (intel.get("prompt_metrics") or {}).get(
+                "intel_flat_chars"
+            ),
+            "intel_subgraph_chars": (intel.get("prompt_metrics") or {}).get(
+                "intel_subgraph_chars"
+            ),
+            "intel_active_chars": (intel.get("prompt_metrics") or {}).get(
+                "intel_active_chars"
+            ),
         },
     }
 

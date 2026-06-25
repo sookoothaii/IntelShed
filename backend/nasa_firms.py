@@ -3,6 +3,7 @@ Near real-time wildfire / thermal anomaly detection.
 Requires free MAP_KEY from https://firms.modaps.eosdis.nasa.gov/api/map_key
 Falls back to NASA EONET open wildfire events when MAP_KEY is missing.
 """
+
 import math
 import os
 from datetime import datetime, timezone
@@ -26,7 +27,9 @@ _FIRMS_SOURCES = {
 
 _firms_cache: dict = {}
 _FIRMS_TTL = 600  # 10 minutes
-_WILDFIRES_CONNECTOR = FeedConnector("wildfires", ttl_sec=_FIRMS_TTL, default_source="nasa_firms")
+_WILDFIRES_CONNECTOR = FeedConnector(
+    "wildfires", ttl_sec=_FIRMS_TTL, default_source="nasa_firms"
+)
 _MAX_GLOBE_FIRES = 300
 _MAX_REGIONAL_GLOBE = 120
 
@@ -70,7 +73,9 @@ def _regional_preset() -> tuple[str, str, list[float]]:
     return "asean", preset["label"], list(preset["bbox"])
 
 
-def _partition_fires(fires: list[dict], bbox: list[float]) -> tuple[list[dict], list[dict]]:
+def _partition_fires(
+    fires: list[dict], bbox: list[float]
+) -> tuple[list[dict], list[dict]]:
     regional, global_f = [], []
     for fire in fires:
         tagged = dict(fire)
@@ -143,7 +148,9 @@ def filter_fires(
         if item.get("confidence", 0) < min_confidence:
             continue
         if near_lat is not None and near_lon is not None:
-            item["distance_km"] = round(haversine_km(near_lat, near_lon, item["lat"], item["lon"]), 1)
+            item["distance_km"] = round(
+                haversine_km(near_lat, near_lon, item["lat"], item["lon"]), 1
+            )
             if max_km is not None and item["distance_km"] > max_km:
                 continue
         if not _matches_query(item, q):
@@ -158,7 +165,7 @@ def filter_fires(
         pool.sort(key=lambda x: x.get("confidence", 0), reverse=True)
 
     matched = len(pool)
-    return pool[offset: offset + limit], matched
+    return pool[offset : offset + limit], matched
 
 
 def _firms_url(source: str, area: str = "world") -> str | None:
@@ -189,20 +196,26 @@ def _parse_firms_csv(text: str) -> list[dict]:
             lon = float(row.get("longitude", 0))
             conf = _parse_firms_confidence(row.get("confidence"))
             bright = _parse_firms_brightness(row)
-            records.append({
-                "lat": lat,
-                "lon": lon,
-                "brightness": bright,
-                "confidence": conf,
-                "confidence_label": "high" if conf >= 80 else "medium" if conf >= 50 else "low",
-                "scan": float(row.get("scan", 0)),
-                "track": float(row.get("track", 0)),
-                "acq_date": row.get("acq_date"),
-                "acq_time": row.get("acq_time"),
-                "satellite": row.get("satellite"),
-                "instrument": row.get("instrument"),
-                "frp": float(row.get("frp", 0)) if row.get("frp") else 0,
-            })
+            records.append(
+                {
+                    "lat": lat,
+                    "lon": lon,
+                    "brightness": bright,
+                    "confidence": conf,
+                    "confidence_label": "high"
+                    if conf >= 80
+                    else "medium"
+                    if conf >= 50
+                    else "low",
+                    "scan": float(row.get("scan", 0)),
+                    "track": float(row.get("track", 0)),
+                    "acq_date": row.get("acq_date"),
+                    "acq_time": row.get("acq_time"),
+                    "satellite": row.get("satellite"),
+                    "instrument": row.get("instrument"),
+                    "frp": float(row.get("frp", 0)) if row.get("frp") else 0,
+                }
+            )
         except (ValueError, TypeError):
             continue
     return records
@@ -212,7 +225,11 @@ async def _fetch_firms(source: str, area: str = "world"):
     """Fetch FIRMS CSV and parse to list of fire records."""
     url = _firms_url(source, area)
     if not url:
-        return [{"error": "FIRMS_MAP_KEY not set — get a free key at firms.modaps.eosdis.nasa.gov/api/map_key"}]
+        return [
+            {
+                "error": "FIRMS_MAP_KEY not set — get a free key at firms.modaps.eosdis.nasa.gov/api/map_key"
+            }
+        ]
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
             r = await client.get(url)
@@ -240,7 +257,10 @@ async def _eonet_wildfire_fallback() -> list[dict]:
     for ev in data.get("events", []):
         cat_ids = [str(c.get("id", "")).lower() for c in ev.get("categories", [])]
         title = (ev.get("title") or "").lower()
-        if not any("wildfire" in c or "fire" in c for c in cat_ids) and "fire" not in title:
+        if (
+            not any("wildfire" in c or "fire" in c for c in cat_ids)
+            and "fire" not in title
+        ):
             continue
         geo = ev.get("geometry", [])
         if not geo:
@@ -249,21 +269,23 @@ async def _eonet_wildfire_fallback() -> list[dict]:
         coords = last.get("coordinates", [])
         if not coords or len(coords) < 2:
             continue
-        fires.append({
-            "lat": float(coords[1]),
-            "lon": float(coords[0]),
-            "brightness": 0,
-            "confidence": 65,
-            "confidence_label": "inferred",
-            "scan": 0,
-            "track": 0,
-            "acq_date": (last.get("date") or "")[:10],
-            "acq_time": "",
-            "satellite": "EONET",
-            "instrument": "EONET",
-            "frp": 0,
-            "source": "eonet",
-        })
+        fires.append(
+            {
+                "lat": float(coords[1]),
+                "lon": float(coords[0]),
+                "brightness": 0,
+                "confidence": 65,
+                "confidence_label": "inferred",
+                "scan": 0,
+                "track": 0,
+                "acq_date": (last.get("date") or "")[:10],
+                "acq_time": "",
+                "satellite": "EONET",
+                "instrument": "EONET",
+                "frp": 0,
+                "source": "eonet",
+            }
+        )
     return fires[:300]
 
 
@@ -319,8 +341,12 @@ async def _load_firms_cache() -> dict:
         "region_label": region_label,
         "errors": errors if errors else None,
         "source": "eonet" if source_note else ("firms" if FIRMS_MAP_KEY else "eonet"),
-        "spatial_resolution": "1 day VIIRS world" if FIRMS_MAP_KEY else "EONET event centroids",
-        "data_quality": "eonet_inferred" if source_note == "eonet_fallback" else "firms_thermal",
+        "spatial_resolution": "1 day VIIRS world"
+        if FIRMS_MAP_KEY
+        else "EONET event centroids",
+        "data_quality": "eonet_inferred"
+        if source_note == "eonet_fallback"
+        else "firms_thermal",
         "updated": datetime.now(timezone.utc).isoformat(),
     }
     _firms_cache[cache_key] = entry
@@ -350,22 +376,29 @@ async def get_wildfires(
     reference = None
     ref_lat, ref_lon = near_lat, near_lon
     if ref_lat is not None and ref_lon is not None:
-        reference = {"lat": ref_lat, "lon": ref_lon, "source": "request", "label": "Request coordinates"}
+        reference = {
+            "lat": ref_lat,
+            "lon": ref_lon,
+            "source": "request",
+            "label": "Request coordinates",
+        }
     else:
         reference = _default_reference()
         if reference and sort == "distance":
             ref_lat, ref_lon = reference["lat"], reference["lon"]
 
-    has_filters = any([
-        zone != "all",
-        sort != "confidence",
-        near_lat is not None,
-        max_km is not None,
-        min_confidence > 0,
-        q.strip(),
-        limit > 0,
-        offset > 0,
-    ])
+    has_filters = any(
+        [
+            zone != "all",
+            sort != "confidence",
+            near_lat is not None,
+            max_km is not None,
+            min_confidence > 0,
+            q.strip(),
+            limit > 0,
+            offset > 0,
+        ]
+    )
 
     if not has_filters:
         panel_fires = _combine_globe_fires(entry["regional"], entry["global"])

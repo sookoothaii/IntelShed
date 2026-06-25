@@ -263,7 +263,9 @@ def _print_report(report: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Corroboration ground-truth pilot (B-04)")
+    parser = argparse.ArgumentParser(
+        description="Corroboration ground-truth pilot (B-04)"
+    )
     parser.add_argument("--fixtures", action="store_true")
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--api-base", default="http://127.0.0.1:8002")

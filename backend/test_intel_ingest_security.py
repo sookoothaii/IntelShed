@@ -73,7 +73,10 @@ class IntelIngestSecurityTests(unittest.TestCase):
 
     def test_text_accepts_api_key(self):
         client = _client()
-        fake = {"ok": True, "counts": {"entities": 1, "edges": 0, "mentions": 1, "relations": 0}}
+        fake = {
+            "ok": True,
+            "counts": {"entities": 1, "edges": 0, "mentions": 1, "relations": 0},
+        }
         with patch("intel_ingest._to_thread", return_value=fake):
             resp = client.post(
                 "/api/intel/ingest/text",
@@ -85,7 +88,10 @@ class IntelIngestSecurityTests(unittest.TestCase):
 
     def test_text_accepts_node_token(self):
         client = _client()
-        fake = {"ok": True, "counts": {"entities": 1, "edges": 0, "mentions": 1, "relations": 0}}
+        fake = {
+            "ok": True,
+            "counts": {"entities": 1, "edges": 0, "mentions": 1, "relations": 0},
+        }
         with patch("intel_ingest._to_thread", return_value=fake):
             resp = client.post(
                 "/api/intel/ingest/text",

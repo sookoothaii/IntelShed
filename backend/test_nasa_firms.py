@@ -43,7 +43,13 @@ class TestNasaFirms(unittest.TestCase):
 
     def test_filter_distance_from_reference(self):
         fires = [
-            {"lat": 13.75, "lon": 100.5, "confidence": 65, "zone": "regional", "frp": 1},
+            {
+                "lat": 13.75,
+                "lon": 100.5,
+                "confidence": 65,
+                "zone": "regional",
+                "frp": 1,
+            },
             {"lat": -8.1, "lon": 140.8, "confidence": 65, "zone": "regional", "frp": 2},
         ]
         page, matched = filter_fires(

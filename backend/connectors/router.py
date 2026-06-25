@@ -11,7 +11,11 @@ router = APIRouter(prefix="/api/connectors", tags=["connectors"])
 
 
 @router.get("")
-async def list_connectors(include_unlisted: bool = Query(True, description="Include feed_cache keys not in catalog")):
+async def list_connectors(
+    include_unlisted: bool = Query(
+        True, description="Include feed_cache keys not in catalog"
+    ),
+):
     """Connector manifest with optional live cache metadata."""
     return connector_registry.connectors_snapshot(include_unlisted=include_unlisted)
 

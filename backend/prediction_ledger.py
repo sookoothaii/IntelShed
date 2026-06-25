@@ -12,7 +12,9 @@ _DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
 )
 _WINDOW_DAYS = int(os.getenv("WORLDBASE_PREDICTION_WINDOW_DAYS", "30") or "30")
-_RESOLVE_INTERVAL_S = float(os.getenv("WORLDBASE_PREDICTION_RESOLVE_INTERVAL_S", "3600"))
+_RESOLVE_INTERVAL_S = float(
+    os.getenv("WORLDBASE_PREDICTION_RESOLVE_INTERVAL_S", "3600")
+)
 
 
 def autopilot_on() -> bool:
@@ -198,7 +200,12 @@ def _eval_gdacs(row: sqlite3.Row, snap: dict[str, Any]) -> tuple[bool, str]:
     claim_low = (row["claim"] or "").lower()
     for alert in alerts:
         title = str(alert.get("title") or "").lower()
-        if claim_low and title and title[:40] not in claim_low and claim_low[:40] not in title:
+        if (
+            claim_low
+            and title
+            and title[:40] not in claim_low
+            and claim_low[:40] not in title
+        ):
             if row["cell_id"] and not _near_point(
                 alert.get("lat"), alert.get("lon"), row["cell_id"], km=300.0
             ):
@@ -227,11 +234,7 @@ _MARITIME_DENSITY_MIN = 12
 
 def _thai_corridor_vessel_count(snap: dict[str, Any]) -> int:
     vessels = (snap.get("maritime") or {}).get("vessels") or []
-    return sum(
-        1
-        for v in vessels
-        if (v.get("region") or "") in _THAI_CORRIDOR_REGIONS
-    )
+    return sum(1 for v in vessels if (v.get("region") or "") in _THAI_CORRIDOR_REGIONS)
 
 
 def _eval_maritime(row: sqlite3.Row, snap: dict[str, Any]) -> tuple[bool, str]:
@@ -271,10 +274,20 @@ def _eval_hdx(row: sqlite3.Row, snap: dict[str, Any]) -> tuple[bool, str]:
             title = str(ds.get("title") or "").lower()
             if not title:
                 continue
-            if title_hint in title or title[:60] in title_hint or title_hint[:40] in title:
-                return True, f"HDX dataset still listed ({str(ds.get('title') or '')[:60]})"
+            if (
+                title_hint in title
+                or title[:60] in title_hint
+                or title_hint[:40] in title
+            ):
+                return (
+                    True,
+                    f"HDX dataset still listed ({str(ds.get('title') or '')[:60]})",
+                )
     if len(datasets) >= 3:
-        return True, f"regional humanitarian activity persists ({len(datasets)} datasets)"
+        return (
+            True,
+            f"regional humanitarian activity persists ({len(datasets)} datasets)",
+        )
     if datasets and not title_hint:
         return True, f"humanitarian feed active ({len(datasets)} datasets)"
     return False, "watched HDX dataset no longer in feed"
@@ -306,7 +319,10 @@ def _eval_alert(row: sqlite3.Row, snap: dict[str, Any]) -> tuple[bool, str]:
         if n >= 5:
             return True, f"GDACS feed still active ({n} alerts)"
         return False, f"GDACS count eased ({n})"
-    if any(k in claim_low for k in ("nws", "meteoalarm", "tornado", "flood warning", "hazard")):
+    if any(
+        k in claim_low
+        for k in ("nws", "meteoalarm", "tornado", "flood warning", "hazard")
+    ):
         n = int((snap.get("hazards") or {}).get("count") or 0)
         if n >= 10:
             return True, f"hazards feed still active ({n} alerts)"
@@ -378,7 +394,11 @@ def _evaluate_row(
         return _eval_quake(row, snap)
     if prefix in ("gdacs",) or "gdacs" in sources:
         return _eval_gdacs(row, snap)
-    if prefix in ("gdelt",) or "gdelt_pulse_local" in sources or "gdelt_geo_local" in sources:
+    if (
+        prefix in ("gdelt",)
+        or "gdelt_pulse_local" in sources
+        or "gdelt_geo_local" in sources
+    ):
         return _eval_gdelt(row, snap)
     if prefix in ("fusion", "fusion_delta") or "fusion" in sources:
         return _eval_fusion(row, fusion_cells)

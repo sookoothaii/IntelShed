@@ -33,7 +33,11 @@ _DEFAULT_QUERIES: tuple[str, ...] = (
 def _parse_dataset(row: dict[str, Any]) -> dict[str, Any]:
     org = row.get("organization") or {}
     org_title = org.get("title") if isinstance(org, dict) else None
-    tags = [t.get("name") for t in (row.get("tags") or []) if isinstance(t, dict) and t.get("name")]
+    tags = [
+        t.get("name")
+        for t in (row.get("tags") or [])
+        if isinstance(t, dict) and t.get("name")
+    ]
     resources = row.get("resources") or []
     return {
         "id": row.get("id") or row.get("name"),
@@ -43,7 +47,9 @@ def _parse_dataset(row: dict[str, Any]) -> dict[str, Any]:
         "modified": row.get("metadata_modified") or row.get("metadata_created"),
         "tags": tags[:8],
         "resource_count": len(resources),
-        "url": f"https://data.humdata.org/dataset/{row.get('name')}" if row.get("name") else None,
+        "url": f"https://data.humdata.org/dataset/{row.get('name')}"
+        if row.get("name")
+        else None,
     }
 
 
@@ -116,7 +122,11 @@ async def get_humanitarian(*, limit: int = 20, refresh: bool = False) -> dict:
         except Exception as exc:
             if stale_hit:
                 return _CONNECTOR.build(
-                    FeedEnvelope(count=stale_hit.get("count", 0), stale=True, error=str(exc)[:120]),
+                    FeedEnvelope(
+                        count=stale_hit.get("count", 0),
+                        stale=True,
+                        error=str(exc)[:120],
+                    ),
                     persist=False,
                     subkey=subkey,
                     datasets=stale_hit.get("datasets") or [],
@@ -126,7 +136,9 @@ async def get_humanitarian(*, limit: int = 20, refresh: bool = False) -> dict:
 
         if raw.get("datasets"):
             return _CONNECTOR.build(
-                FeedEnvelope(count=raw["count"], source="hdx", updated=raw.get("updated")),
+                FeedEnvelope(
+                    count=raw["count"], source="hdx", updated=raw.get("updated")
+                ),
                 subkey=subkey,
                 datasets=raw["datasets"],
                 queries=raw.get("queries"),

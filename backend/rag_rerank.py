@@ -29,7 +29,9 @@ def _get_model():
             raise RuntimeError(
                 "RAG_RERANK=1 requires sentence-transformers — pip install sentence-transformers"
             ) from e
-        print(f"[RAG] Loading reranker {_RERANK_MODEL} on {_RERANK_DEVICE}...", flush=True)
+        print(
+            f"[RAG] Loading reranker {_RERANK_MODEL} on {_RERANK_DEVICE}...", flush=True
+        )
         _model = CrossEncoder(_RERANK_MODEL, device=_RERANK_DEVICE)
         print("[RAG] Reranker ready.", flush=True)
     return _model

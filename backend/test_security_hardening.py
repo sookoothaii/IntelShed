@@ -16,7 +16,6 @@ from unittest.mock import patch
 from unittest.mock import MagicMock
 
 
-
 class TestBootstrapEnvWarnings(unittest.TestCase):
     """6.1 — Auth-by-default enforcement."""
 
@@ -67,10 +66,13 @@ class TestAdminTokenSeparation(unittest.TestCase):
     """6.2 — Admin token no longer falls back to ingest token."""
 
     def test_admin_token_empty_when_not_set(self):
-        with patch.dict("os.environ", {"NODE_INGEST_TOKEN": "ingest-secret"}, clear=True):
+        with patch.dict(
+            "os.environ", {"NODE_INGEST_TOKEN": "ingest-secret"}, clear=True
+        ):
             # Need to reimport to pick up env changes
             import importlib
             import auth.security as sec
+
             importlib.reload(sec)
             self.assertEqual(sec.ADMIN_TOKEN, "")
             self.assertEqual(sec.INGEST_TOKEN, "ingest-secret")
@@ -83,6 +85,7 @@ class TestAdminTokenSeparation(unittest.TestCase):
         ):
             import importlib
             import auth.security as sec
+
             importlib.reload(sec)
             self.assertEqual(sec.ADMIN_TOKEN, "admin-secret")
             self.assertEqual(sec.INGEST_TOKEN, "ingest-secret")
@@ -90,6 +93,7 @@ class TestAdminTokenSeparation(unittest.TestCase):
     def test_require_admin_raises_without_token(self):
         import importlib
         import auth.security as sec
+
         importlib.reload(sec)
 
         with patch.dict("os.environ", {}, clear=True):
@@ -119,6 +123,7 @@ class TestErrorSanitization(unittest.TestCase):
 
         # Check that error strings in the module don't contain str(exc)
         import inspect
+
         source = inspect.getsource(df)
         self.assertNotIn("str(exc)", source)
         self.assertNotIn("{exc}", source)
@@ -154,8 +159,8 @@ class TestDuckDBParameterization(unittest.TestCase):
 
         source = inspect.getsource(df)
         # Should not have f-string SQL with sqlite_scan or read_parquet
-        self.assertNotIn("f\"SELECT", source)
-        self.assertNotIn("f\"\"\"", source)
+        self.assertNotIn('f"SELECT', source)
+        self.assertNotIn('f"""', source)
 
     def test_fusion_spatial_stage_no_fstring_sql(self):
         import fusion_spatial_stage as fss
@@ -164,7 +169,7 @@ class TestDuckDBParameterization(unittest.TestCase):
         source = inspect.getsource(fss)
         # Should not have f-string with read_parquet
         self.assertNotIn("read_parquet('{", source)
-        self.assertNotIn("read_parquet(f\"", source)
+        self.assertNotIn('read_parquet(f"', source)
 
 
 class TestPrivateIPBlocking(unittest.TestCase):

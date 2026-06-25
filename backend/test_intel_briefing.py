@@ -73,7 +73,9 @@ class IntelBriefingTests(unittest.TestCase):
     def test_rank_prefers_gdacs_event_over_ais_vessel(self):
         self._seed_thailand_event()
         self._seed_global_vessel()
-        candidates = ftm_store.entities_for_briefing(window_hours=48, exclude_schemas={"Airplane"})
+        candidates = ftm_store.entities_for_briefing(
+            window_hours=48, exclude_schemas={"Airplane"}
+        )
         ranked = intel_briefing.rank_entities_for_briefing(candidates)
         self.assertEqual(ranked[0]["schema"], "Event")
         self.assertEqual(ranked[0]["datasets"], ["gdacs"])
@@ -83,8 +85,12 @@ class IntelBriefingTests(unittest.TestCase):
         p2 = ftm_store.make_entity("Person", ["b"], {"name": ["Alice Example"]})
         e1 = ftm_store.upsert(p1, dataset="feedA", lat=13.7, lon=100.5)
         ftm_store.upsert(p2, dataset="feedB", lat=13.71, lon=100.51)
-        ftm_store.add_edge(e1, p2.id, "sameAs", dataset="entity-resolution", confidence=0.95)
-        rows = ftm_store.entities_for_briefing(window_hours=48, exclude_schemas={"Airplane"})
+        ftm_store.add_edge(
+            e1, p2.id, "sameAs", dataset="entity-resolution", confidence=0.95
+        )
+        rows = ftm_store.entities_for_briefing(
+            window_hours=48, exclude_schemas={"Airplane"}
+        )
         target = next(r for r in rows if r["id"] == e1)
         self.assertTrue(target.get("same_as"))
         self.assertEqual(target["same_as"][0]["schema"], "Person")
@@ -103,24 +109,32 @@ class IntelBriefingTests(unittest.TestCase):
         intel_meta = intel_briefing.gather_for_briefing()
         snap = {
             "gdacs": {
-                "alerts": [{
-                    "title": "Bangkok flood warning",
-                    "lat": 13.75,
-                    "lon": 100.5,
-                }],
+                "alerts": [
+                    {
+                        "title": "Bangkok flood warning",
+                        "lat": 13.75,
+                        "lon": 100.5,
+                    }
+                ],
             },
         }
         digest = format_digest_sections(snap, [], "none", [], intel_meta=intel_meta)
-        ftm_lines = [i for i in (digest["intel"].get("items") or []) if "FtM" in i.get("text", "")]
+        ftm_lines = [
+            i
+            for i in (digest["intel"].get("items") or [])
+            if "FtM" in i.get("text", "")
+        ]
         self.assertEqual(len(ftm_lines), 0)
 
     def test_format_entity_line_includes_same_as(self):
-        line = intel_briefing.format_entity_line({
-            "schema": "Person",
-            "caption": "Alice",
-            "datasets": ["intel-ingest"],
-            "same_as": [{"caption": "Alice Example", "schema": "Person"}],
-        })
+        line = intel_briefing.format_entity_line(
+            {
+                "schema": "Person",
+                "caption": "Alice",
+                "datasets": ["intel-ingest"],
+                "same_as": [{"caption": "Alice Example", "schema": "Person"}],
+            }
+        )
         self.assertIn("linked:", line)
         self.assertIn("Alice Example", line)
 

@@ -97,7 +97,9 @@ class TestScoreProvenance(unittest.TestCase):
 
     def test_conflict_penalty(self):
         base = score_provenance("gdacs", corroboration_count=2, age_sec=60)
-        conflict = score_provenance("gdacs", corroboration_count=2, age_sec=60, conflict=True)
+        conflict = score_provenance(
+            "gdacs", corroboration_count=2, age_sec=60, conflict=True
+        )
         self.assertLess(conflict, base)
         self.assertAlmostEqual(base - conflict, 0.15, places=2)
 
@@ -152,6 +154,7 @@ class TestScoreFromMeta(unittest.TestCase):
 
     def test_with_observed_at(self):
         from datetime import datetime, timezone, timedelta
+
         recent = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
         meta = {"sources": ["gdacs"], "observed_at": recent}
         score_recent = score_from_meta(meta)
@@ -230,10 +233,18 @@ class TestBriefingQualityIntegration(unittest.TestCase):
         from briefing_quality import build_digest_line_meta
 
         items = [
-            {"text": "Local news: flooding in Bangkok", "bucket": "local",
-             "sources": ["gdelt_pulse_local"], "severity": "high"},
-            {"text": "GDACS alert: earthquake near Thailand", "bucket": "local",
-             "sources": ["gdacs"], "severity": "high"},
+            {
+                "text": "Local news: flooding in Bangkok",
+                "bucket": "local",
+                "sources": ["gdelt_pulse_local"],
+                "severity": "high",
+            },
+            {
+                "text": "GDACS alert: earthquake near Thailand",
+                "bucket": "local",
+                "sources": ["gdacs"],
+                "severity": "high",
+            },
         ]
         picked = {"local": items}
         meta = build_digest_line_meta(items, picked)
@@ -266,7 +277,9 @@ class TestInsightsIntegration(unittest.TestCase):
 
         hotspots = [
             {
-                "lat": 13.0, "lon": 100.0, "score": 0.8,
+                "lat": 13.0,
+                "lon": 100.0,
+                "score": 0.8,
                 "sources": ["gdacs", "quake"],
                 "samples": [{"source": "gdacs", "label": "Test alert"}],
             },

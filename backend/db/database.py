@@ -10,6 +10,7 @@ from typing import AsyncGenerator
 # Load .env file if present
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass  # python-dotenv not installed
@@ -29,8 +30,7 @@ except ImportError:
 
 # Database URL from environment or default for development
 DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://worldbase:worldbase@localhost:5432/worldbase"
+    "DATABASE_URL", "postgresql+asyncpg://worldbase:worldbase@localhost:5432/worldbase"
 )
 
 # Global engine instance (initialized once)
@@ -39,7 +39,7 @@ _engine: AsyncEngine | None = None
 
 def get_engine() -> AsyncEngine:
     """Get or create the async database engine.
-    
+
     Uses connection pooling optimized for async operations.
     """
     global _engine
@@ -58,7 +58,7 @@ def get_engine() -> AsyncEngine:
 
 def get_session_maker() -> async_sessionmaker[AsyncSession]:
     """Get the async session factory.
-    
+
     Creates sessions with:
     - expire_on_commit=False (for async safety)
     - autoflush=False (manual flush control)
@@ -78,7 +78,7 @@ SessionLocal = get_session_maker
 
 async def init_db() -> None:
     """Initialize the database by creating all tables.
-    
+
     Safe to run multiple times - existing tables are not recreated.
     Should be called during application startup.
     """
@@ -89,7 +89,7 @@ async def init_db() -> None:
 
 async def close_db() -> None:
     """Close database connections and cleanup resources.
-    
+
     Should be called during application shutdown.
     """
     global _engine
@@ -100,12 +100,12 @@ async def close_db() -> None:
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency for database sessions.
-    
+
     Usage:
         @app.get("/items")
         async def read_items(db: AsyncSession = Depends(get_db)):
             ...
-    
+
     Automatically handles session lifecycle:
     - Creates new session per request
     - Commits on success
@@ -127,11 +127,11 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 @asynccontextmanager
 async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
     """Context manager for database sessions outside of FastAPI.
-    
+
     Usage:
         async with get_db_context() as db:
             result = await db.execute(...)
-    
+
     Automatically commits on successful exit, rolls back on exception.
     """
     session_maker = get_session_maker()
@@ -148,11 +148,12 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
 
 async def health_check() -> bool:
     """Check database connectivity.
-    
+
     Returns True if database is accessible, False otherwise.
     """
     try:
         from sqlalchemy import text
+
         engine = get_engine()
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))

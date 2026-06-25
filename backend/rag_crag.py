@@ -28,7 +28,9 @@ def top_hit_score(results: list[dict]) -> float:
     return best
 
 
-def format_rag_hits(results: list[dict], *, limit: int = 6, max_chars: int = 450) -> list[str]:
+def format_rag_hits(
+    results: list[dict], *, limit: int = 6, max_chars: int = 450
+) -> list[str]:
     lines: list[str] = []
     for row in results[:limit]:
         src = row.get("source") or "?"
@@ -64,6 +66,7 @@ async def build_routed_block(query: str) -> dict:
 
             try:
                 from situations import unified_situations
+
                 sit = await unified_situations()
                 items = (sit.get("items") or [])[:8]
                 if items:
@@ -77,6 +80,7 @@ async def build_routed_block(query: str) -> dict:
 
             try:
                 import intel_subgraph
+
                 sg = await asyncio.to_thread(intel_subgraph.build_subgraph, hops=2)
                 sg_block = intel_subgraph.format_subgraph_prompt_block(sg)
                 if sg_block:

@@ -12,7 +12,9 @@ import ais_bridge as ais
 
 class AisBridgeTests(unittest.TestCase):
     def test_active_regions_thailand_default(self):
-        with patch.dict(os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False):
+        with patch.dict(
+            os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False
+        ):
             regions = ais._active_regions()
             self.assertIn("malacca", regions)
             self.assertIn("bangkok_port", regions)
@@ -28,7 +30,9 @@ class AisBridgeTests(unittest.TestCase):
             self.assertEqual(set(regions.keys()), {"malacca", "singapore"})
 
     def test_maritime_operator_bbox(self):
-        with patch.dict(os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False):
+        with patch.dict(
+            os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False
+        ):
             bbox = ais.maritime_operator_bbox()
             self.assertIsNotNone(bbox)
             self.assertEqual(len(bbox), 4)
@@ -54,7 +58,9 @@ class AisBridgeTests(unittest.TestCase):
                 "_seen_at": 9999999999.0,
             },
         }
-        with patch.dict(os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False):
+        with patch.dict(
+            os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False
+        ):
             snap = ais._snapshot_from_stream(ais._active_regions())
         mmsis = {v["mmsi"] for v in snap}
         self.assertIn("1", mmsis)
@@ -62,9 +68,17 @@ class AisBridgeTests(unittest.TestCase):
         ais._STREAM["vessels"] = {}
 
     def test_aisstream_background_on_requires_key(self):
-        with patch.dict(os.environ, {"AISSTREAM_API_KEY": "", "WORLDBASE_MARITIME_AISSTREAM": "1"}, clear=False):
+        with patch.dict(
+            os.environ,
+            {"AISSTREAM_API_KEY": "", "WORLDBASE_MARITIME_AISSTREAM": "1"},
+            clear=False,
+        ):
             self.assertFalse(ais._aisstream_background_on())
-        with patch.dict(os.environ, {"AISSTREAM_API_KEY": "abc", "WORLDBASE_MARITIME_AISSTREAM": "0"}, clear=False):
+        with patch.dict(
+            os.environ,
+            {"AISSTREAM_API_KEY": "abc", "WORLDBASE_MARITIME_AISSTREAM": "0"},
+            clear=False,
+        ):
             self.assertFalse(ais._aisstream_background_on())
 
     def test_empty_sources_return_no_vessels(self):
@@ -130,7 +144,9 @@ class AisBridgeTests(unittest.TestCase):
                     "_seen_at": 9999999999.0,
                 },
             }
-            with patch.dict(os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False):
+            with patch.dict(
+                os.environ, {"WORLDBASE_OPERATOR_REGION": "thailand"}, clear=False
+            ):
                 with patch.object(ais.feed_registry, "write_auto") as write_auto:
                     ok = await ais.touch_maritime_cache()
             ais._STREAM["vessels"] = {}

@@ -24,24 +24,26 @@ from mcp.server.fastmcp import FastMCP
 log = get_logger(__name__)
 
 # Feeds allowed for worldbase_feed_sample (cache key or live bridge id).
-FEED_SAMPLE_ALLOWLIST: frozenset[str] = frozenset({
-    "aircraft",
-    "airquality",
-    "earthquakes",
-    "eonet",
-    "gdacs",
-    "gdacs_v2",
-    "geopolitics",
-    "markets",
-    "military",
-    "outages",
-    "pegel",
-    "reliefweb",
-    "spaceweather",
-    "wildfires",
-    "energy_de",
-    "newsdata",
-})
+FEED_SAMPLE_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "aircraft",
+        "airquality",
+        "earthquakes",
+        "eonet",
+        "gdacs",
+        "gdacs_v2",
+        "geopolitics",
+        "markets",
+        "military",
+        "outages",
+        "pegel",
+        "reliefweb",
+        "spaceweather",
+        "wildfires",
+        "energy_de",
+        "newsdata",
+    }
+)
 
 _TEXT_PREVIEW_CHARS = 4000
 _mcp_session_cm = None
@@ -63,6 +65,7 @@ def mcp_globe_enabled() -> bool:
     if not mcp_write_enabled():
         return False
     import agent_bus
+
     return agent_bus.agent_bus_enabled()
 
 
@@ -97,7 +100,15 @@ def _trim_payload(data: dict | list | None, limit: int) -> dict | list | None:
     if not isinstance(data, dict):
         return data
     out = dict(data)
-    for key in ("items", "alerts", "states", "earthquakes", "articles", "nodes", "cells"):
+    for key in (
+        "items",
+        "alerts",
+        "states",
+        "earthquakes",
+        "articles",
+        "nodes",
+        "cells",
+    ):
         if key in out and isinstance(out[key], list):
             out[key] = out[key][:limit]
     return out
@@ -108,6 +119,7 @@ async def fetch_health() -> dict[str, Any]:
     ftm_ready = False
     try:
         import ftm_store
+
         ftm_ready = bool((ftm_store.store_status() or {}).get("ready"))
     except Exception:
         pass
@@ -223,9 +235,7 @@ async def fetch_feed_sample(feed_id: str, limit: int = 5) -> dict[str, Any]:
     feed_id = (feed_id or "").strip().lower()
     if feed_id not in FEED_SAMPLE_ALLOWLIST:
         allowed = sorted(FEED_SAMPLE_ALLOWLIST)
-        raise ValueError(
-            f"Unknown feed_id {feed_id!r}. Allowed: {', '.join(allowed)}"
-        )
+        raise ValueError(f"Unknown feed_id {feed_id!r}. Allowed: {', '.join(allowed)}")
     limit = max(1, min(limit, 25))
 
     import feed_registry
@@ -249,16 +259,19 @@ async def fetch_feed_sample(feed_id: str, limit: int = 5) -> dict[str, Any]:
 async def _fetch_feed_live(feed_id: str, limit: int) -> dict[str, Any]:
     if feed_id == "earthquakes":
         from routes.core_feeds import get_earthquakes
+
         data = await get_earthquakes(period="day", magnitude="2.5")
         return _trim_payload(data, limit) or {}
 
     if feed_id in ("gdacs", "gdacs_v2"):
         import feeds_extra
+
         data = await feeds_extra.gdacs_alerts()
         return _trim_payload(data, limit) or {}
 
     if feed_id == "aircraft":
         import aircraft_provider
+
         data, source = await aircraft_provider.fetch_live_states(timeout=12.0)
         trimmed = _trim_payload(data, limit) or {}
         if isinstance(trimmed, dict):
@@ -267,6 +280,7 @@ async def _fetch_feed_live(feed_id: str, limit: int) -> dict[str, Any]:
 
     if feed_id == "wildfires":
         import nasa_firms
+
         entry = await nasa_firms._load_firms_cache()
         fires = nasa_firms._all_fires_from_cache(entry)[:limit]
         return {
@@ -278,11 +292,13 @@ async def _fetch_feed_live(feed_id: str, limit: int) -> dict[str, Any]:
 
     if feed_id == "pegel":
         import pegel_bridge
+
         data = await pegel_bridge.get_pegel()
         return _trim_payload(data, limit) or {}
 
     if feed_id == "newsdata":
         import newsdata_bridge
+
         data = await newsdata_bridge.get_newsdata(limit=limit)
         return _trim_payload(data, limit) or {}
 
@@ -295,6 +311,7 @@ async def _fetch_feed_live(feed_id: str, limit: int) -> dict[str, Any]:
     }
     if feed_id in feeds_extra_map:
         import feeds_extra
+
         fn = getattr(feeds_extra, feeds_extra_map[feed_id])
         data = await fn()
         return _trim_payload(data, limit) or {}
@@ -413,7 +430,9 @@ if mcp_write_enabled():
             "worldbase_briefing_generate",
             {"lang": lang, "include_full_text": include_full_text},
         )
-        return await trigger_briefing_generate(lang=lang, include_full_text=include_full_text)
+        return await trigger_briefing_generate(
+            lang=lang, include_full_text=include_full_text
+        )
 
 
 if mcp_globe_enabled():
@@ -431,22 +450,29 @@ if mcp_globe_enabled():
             {"lat": lat, "lon": lon, "height": height, "title": title},
         )
         import agent_bus
-        return await agent_bus.publish_fly_to(lat=lat, lon=lon, height=height, title=title)
+
+        return await agent_bus.publish_fly_to(
+            lat=lat, lon=lon, height=height, title=title
+        )
 
     @mcp.tool(name="worldbase_globe_toggle_layer")
-    async def worldbase_globe_toggle_layer(layer: str, enabled: bool | None = None) -> dict[str, Any]:
+    async def worldbase_globe_toggle_layer(
+        layer: str, enabled: bool | None = None
+    ) -> dict[str, Any]:
         """Toggle a globe feed layer on the open HUD (see worldbase_globe_layers for keys)."""
         await _gate_mcp_write(
             "worldbase_globe_toggle_layer",
             {"layer": layer, "enabled": enabled},
         )
         import agent_bus
+
         return await agent_bus.publish_toggle_layer(layer=layer, enabled=enabled)
 
     @mcp.tool(name="worldbase_globe_get_camera")
     async def worldbase_globe_get_camera() -> dict[str, Any]:
         """Last camera position synced from the open HUD globe session."""
         import agent_bus
+
         cam = agent_bus.get_camera_state()
         return {"camera": cam or None, "subscribers": agent_bus.subscriber_count()}
 
@@ -454,12 +480,14 @@ if mcp_globe_enabled():
     async def worldbase_globe_layers() -> dict[str, Any]:
         """Valid layer_id values for worldbase_globe_toggle_layer."""
         import agent_bus
+
         return {"layers": sorted(agent_bus.GLOBE_LAYER_KEYS)}
 
 
 # ---------------------------------------------------------------------------
 # Mount + auth + session lifecycle
 # ---------------------------------------------------------------------------
+
 
 class _MCPAuthMiddleware:
     """Optional X-API-Key gate for the MCP mount path."""
@@ -499,7 +527,9 @@ def mount_worldbase_mcp(app) -> None:
     mcp.streamable_http_app()
     wrapped = _get_mcp_asgi()
     app.mount("/api/mcp", wrapped)
-    auth_note = "X-API-Key required" if mcp_auth_required() else "open (localhost, no API key)"
+    auth_note = (
+        "X-API-Key required" if mcp_auth_required() else "open (localhost, no API key)"
+    )
     write_note = "write on" if mcp_write_enabled() else "write off"
     globe_note = "globe on" if mcp_globe_enabled() else "globe off"
     log.info("mcp_mounted", auth=auth_note, write=write_note, globe=globe_note)

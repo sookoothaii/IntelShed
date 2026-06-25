@@ -15,7 +15,11 @@ from feeds.envelope import FeedEnvelope, utc_now_iso, validate_feed_payload
 def _warn_violations(cache_key: str, violations: list[str]) -> None:
     """Surface envelope contract drift on stderr (fail-soft: never raises)."""
     if violations:
-        print(f"[feed-contract] {cache_key} drift: {violations}", file=sys.stderr, flush=True)
+        print(
+            f"[feed-contract] {cache_key} drift: {violations}",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 class FeedConnector:
@@ -53,7 +57,9 @@ class FeedConnector:
     def read_disk(self) -> dict[str, Any] | None:
         return feed_registry.read(self.cache_key)
 
-    def empty_payload(self, error: str, *, source: str | None = None, **extra: Any) -> dict[str, Any]:
+    def empty_payload(
+        self, error: str, *, source: str | None = None, **extra: Any
+    ) -> dict[str, Any]:
         env = FeedEnvelope(
             count=0,
             source=source or self.default_source,
@@ -75,7 +81,9 @@ class FeedConnector:
         payload = envelope.merge(**fields)
         if envelope.source is None and envelope.sources is None and self.default_source:
             payload.setdefault("source", self.default_source)
-        _warn_violations(self.cache_key, validate_feed_payload(payload, endpoint=self.cache_key))
+        _warn_violations(
+            self.cache_key, validate_feed_payload(payload, endpoint=self.cache_key)
+        )
         if persist and not payload.get("stale") and not payload.get("error"):
             feed_registry.write_auto(self.cache_key, payload)
         self.set_cached(payload, subkey)
@@ -113,7 +121,9 @@ class FeedConnector:
                 payload["updated"] = utc_now_iso()
             if self.default_source:
                 payload.setdefault("source", self.default_source)
-            _warn_violations(self.cache_key, validate_feed_payload(payload, endpoint=self.cache_key))
+            _warn_violations(
+                self.cache_key, validate_feed_payload(payload, endpoint=self.cache_key)
+            )
             if persist and not payload.get("stale") and not payload.get("error"):
                 # Disk persists under cache_key only; subkey segments memory.
                 # A subkeyed feed's disk stale-fallback returns the last-written

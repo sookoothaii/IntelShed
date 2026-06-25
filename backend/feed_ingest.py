@@ -392,7 +392,9 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
                 out["semantic_edges"] = semantic
                 totals["edges"] += semantic.get("edges_added", 0)
             if intel_semantic_links.sanctions_enabled():
-                sanction = await intel_semantic_links.link_sanction_edges(window_hours=24)
+                sanction = await intel_semantic_links.link_sanction_edges(
+                    window_hours=24
+                )
                 out["sanction_edges"] = sanction
                 totals["edges"] += sanction.get("edges_added", 0)
         except Exception:
@@ -403,7 +405,9 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
             import intel_graph_export
 
             if intel_graph_export.enabled():
-                exported = await asyncio.to_thread(intel_graph_export.export_operator_subgraph)
+                exported = await asyncio.to_thread(
+                    intel_graph_export.export_operator_subgraph
+                )
                 out["subgraph_export"] = {
                     "node_count": exported.get("node_count"),
                     "edge_count": exported.get("edge_count"),
@@ -417,7 +421,10 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
     out["duration_sec"] = round(_elapsed, 2)
     logger.info(
         "feed ingest: %.1fs, +%d entities, +%d edges, sources=%s",
-        _elapsed, totals["entities"], totals["edges"], chosen,
+        _elapsed,
+        totals["entities"],
+        totals["edges"],
+        chosen,
     )
     _LAST_RUN = out
     _LAST_ERROR = errors[0] if errors else None

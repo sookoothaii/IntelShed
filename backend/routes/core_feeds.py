@@ -22,8 +22,12 @@ router = APIRouter(tags=["core-feeds"])
 
 _TLE_GROUP_RE = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 
-_QUAKES_CONNECTOR = FeedConnector("quakes:day", ttl_sec=300.0, default_source="earthquake.usgs.gov")
-_EONET_CONNECTOR = FeedConnector("eonet", ttl_sec=1800.0, default_source="eonet.gsfc.nasa.gov")
+_QUAKES_CONNECTOR = FeedConnector(
+    "quakes:day", ttl_sec=300.0, default_source="earthquake.usgs.gov"
+)
+_EONET_CONNECTOR = FeedConnector(
+    "eonet", ttl_sec=1800.0, default_source="eonet.gsfc.nasa.gov"
+)
 
 
 def _sanitize_tle_group(group: str) -> str:
@@ -79,11 +83,13 @@ async def get_satellites(limit: int = 400, group: str = "active"):
     cap = max(0, min(limit, 2000))
     while i < len(lines) - 2:
         if lines[i + 1].startswith("1 ") and lines[i + 2].startswith("2 "):
-            satellites.append({
-                "name": lines[i],
-                "tle1": lines[i + 1],
-                "tle2": lines[i + 2],
-            })
+            satellites.append(
+                {
+                    "name": lines[i],
+                    "tle1": lines[i + 1],
+                    "tle2": lines[i + 2],
+                }
+            )
             i += 3
             if len(satellites) >= cap:
                 break
@@ -112,17 +118,19 @@ async def get_earthquakes(period: str = "day", magnitude: str = "2.5"):
             props = f.get("properties", {})
             geom = f.get("geometry", {})
             coords = geom.get("coordinates", [None, None, None])
-            quakes.append({
-                "id": f.get("id"),
-                "place": props.get("place"),
-                "mag": props.get("mag"),
-                "time": props.get("time"),
-                "depth": coords[2],
-                "lon": coords[0],
-                "lat": coords[1],
-                "tsunami": props.get("tsunami"),
-                "url": props.get("url"),
-            })
+            quakes.append(
+                {
+                    "id": f.get("id"),
+                    "place": props.get("place"),
+                    "mag": props.get("mag"),
+                    "time": props.get("time"),
+                    "depth": coords[2],
+                    "lon": coords[0],
+                    "lat": coords[1],
+                    "tsunami": props.get("tsunami"),
+                    "url": props.get("url"),
+                }
+            )
         return FeedEnvelope(
             count=len(quakes),
             source="earthquake.usgs.gov",
@@ -153,21 +161,23 @@ async def get_events(limit: int = 100):
             if not coords or not isinstance(coords, list) or len(coords) < 2:
                 continue
             sources = [s.get("url") for s in ev.get("sources", []) if s.get("url")]
-            events.append({
-                "id": ev.get("id"),
-                "title": ev.get("title"),
-                "category": cats[0] if cats else "Unknown",
-                "categories": cats,
-                "date": last.get("date"),
-                "lon": coords[0],
-                "lat": coords[1],
-                "magnitude": last.get("magnitudeValue"),
-                "unit": last.get("magnitudeUnit"),
-                "closed": ev.get("closed"),
-                "link": ev.get("link"),
-                "sources": sources,
-                "points": len(geo),
-            })
+            events.append(
+                {
+                    "id": ev.get("id"),
+                    "title": ev.get("title"),
+                    "category": cats[0] if cats else "Unknown",
+                    "categories": cats,
+                    "date": last.get("date"),
+                    "lon": coords[0],
+                    "lat": coords[1],
+                    "magnitude": last.get("magnitudeValue"),
+                    "unit": last.get("magnitudeUnit"),
+                    "closed": ev.get("closed"),
+                    "link": ev.get("link"),
+                    "sources": sources,
+                    "points": len(geo),
+                }
+            )
         return FeedEnvelope(
             count=len(events),
             source="eonet.gsfc.nasa.gov",

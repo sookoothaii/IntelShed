@@ -77,7 +77,12 @@ def extract_coords(meta: dict[str, Any] | None) -> tuple[float, float] | None:
     bbox = meta.get("bbox")
     if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
         try:
-            west, south, east, north = (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
+            west, south, east, north = (
+                float(bbox[0]),
+                float(bbox[1]),
+                float(bbox[2]),
+                float(bbox[3]),
+            )
             return (south + north) / 2.0, (west + east) / 2.0
         except (TypeError, ValueError):
             pass

@@ -97,11 +97,15 @@ class DualPipelineTest(unittest.TestCase):
             entity_resolution._SPLINK_ENABLED = prev
 
     def test_rows_for_schema_includes_email_username(self):
-        p = ftm_store.make_entity("Person", ["e1"], {
-            "name": "Test Person",
-            "email": "test@example.com",
-            "alias": "testuser",
-        })
+        p = ftm_store.make_entity(
+            "Person",
+            ["e1"],
+            {
+                "name": "Test Person",
+                "email": "test@example.com",
+                "alias": "testuser",
+            },
+        )
         ftm_store.upsert(p, dataset="feedA")
         entities = ftm_store.list_entities_for_resolution(["Person"], 100)
         rows = entity_resolution._rows_for_schema("Person", entities)
@@ -123,14 +127,22 @@ class DualPipelineTest(unittest.TestCase):
 
     def test_list_ambiguous_pairs_returns_edges_in_band(self):
         # Create edges with confidence in the ambiguous band
-        ftm_store.add_edge("a", "b", "sameAs",
-                           dataset=entity_resolution.RESOLUTION_DATASET,
-                           confidence=0.75,
-                           properties={"method": "splink", "schema": "Person"})
-        ftm_store.add_edge("c", "d", "sameAs",
-                           dataset=entity_resolution.RESOLUTION_DATASET,
-                           confidence=0.95,
-                           properties={"method": "exact", "schema": "Person"})
+        ftm_store.add_edge(
+            "a",
+            "b",
+            "sameAs",
+            dataset=entity_resolution.RESOLUTION_DATASET,
+            confidence=0.75,
+            properties={"method": "splink", "schema": "Person"},
+        )
+        ftm_store.add_edge(
+            "c",
+            "d",
+            "sameAs",
+            dataset=entity_resolution.RESOLUTION_DATASET,
+            confidence=0.95,
+            properties={"method": "exact", "schema": "Person"},
+        )
         pairs = entity_resolution.list_ambiguous_pairs(limit=10)
         # Only the 0.75 edge should be in the ambiguous band (0.60-0.84)
         self.assertEqual(len(pairs), 1)
@@ -139,10 +151,14 @@ class DualPipelineTest(unittest.TestCase):
         self.assertAlmostEqual(pairs[0]["confidence"], 0.75, places=2)
 
     def test_list_ambiguous_pairs_excludes_labeled(self):
-        ftm_store.add_edge("a", "b", "sameAs",
-                           dataset=entity_resolution.RESOLUTION_DATASET,
-                           confidence=0.70,
-                           properties={"method": "splink", "schema": "Person"})
+        ftm_store.add_edge(
+            "a",
+            "b",
+            "sameAs",
+            dataset=entity_resolution.RESOLUTION_DATASET,
+            confidence=0.70,
+            properties={"method": "splink", "schema": "Person"},
+        )
         # Label the pair
         entity_resolution.label_pair("a", "b", confirmed=True, schema="Person")
         pairs = entity_resolution.list_ambiguous_pairs(limit=10)
@@ -161,10 +177,14 @@ class DualPipelineTest(unittest.TestCase):
         import asyncio
         import threading
 
-        ftm_store.add_edge("a", "b", "sameAs",
-                           dataset=entity_resolution.RESOLUTION_DATASET,
-                           confidence=0.75,
-                           properties={"method": "splink", "schema": "Person"})
+        ftm_store.add_edge(
+            "a",
+            "b",
+            "sameAs",
+            dataset=entity_resolution.RESOLUTION_DATASET,
+            confidence=0.75,
+            properties={"method": "splink", "schema": "Person"},
+        )
 
         main_thread = threading.current_thread()
         captured: dict = {}
@@ -189,29 +209,44 @@ class DualPipelineTest(unittest.TestCase):
         )
 
     def test_label_pair_confirmed_bumps_confidence(self):
-        ftm_store.add_edge("x", "y", "sameAs",
-                           dataset=entity_resolution.RESOLUTION_DATASET,
-                           confidence=0.70,
-                           properties={"method": "splink", "schema": "Person"})
+        ftm_store.add_edge(
+            "x",
+            "y",
+            "sameAs",
+            dataset=entity_resolution.RESOLUTION_DATASET,
+            confidence=0.70,
+            properties={"method": "splink", "schema": "Person"},
+        )
         result = entity_resolution.label_pair("x", "y", confirmed=True, schema="Person")
         self.assertTrue(result["ok"])
         self.assertTrue(result["confirmed"])
         # Verify the edge was upserted with high confidence via direct query
         from ftm_connection import _LOCK, _conn
+
         with _LOCK:
-            row = _conn().execute(
-                "SELECT confidence FROM edges WHERE source_id = ? AND target_id = ? AND dataset = ?",
-                ["x", "y", entity_resolution.RESOLUTION_DATASET],
-            ).fetchone()
+            row = (
+                _conn()
+                .execute(
+                    "SELECT confidence FROM edges WHERE source_id = ? AND target_id = ? AND dataset = ?",
+                    ["x", "y", entity_resolution.RESOLUTION_DATASET],
+                )
+                .fetchone()
+            )
         self.assertIsNotNone(row)
         self.assertGreaterEqual(row[0], 0.95)
 
     def test_label_pair_rejected_deletes_edge(self):
-        ftm_store.add_edge("x", "y", "sameAs",
-                           dataset=entity_resolution.RESOLUTION_DATASET,
-                           confidence=0.70,
-                           properties={"method": "splink", "schema": "Person"})
-        result = entity_resolution.label_pair("x", "y", confirmed=False, schema="Person")
+        ftm_store.add_edge(
+            "x",
+            "y",
+            "sameAs",
+            dataset=entity_resolution.RESOLUTION_DATASET,
+            confidence=0.70,
+            properties={"method": "splink", "schema": "Person"},
+        )
+        result = entity_resolution.label_pair(
+            "x", "y", confirmed=False, schema="Person"
+        )
         self.assertTrue(result["ok"])
         self.assertFalse(result["confirmed"])
         # Edge should be deleted
@@ -270,12 +305,16 @@ class DualPipelineTest(unittest.TestCase):
             def any(self):
                 return any(self._bools)
 
-        df = FakeDF({
-            "country": ["us", "uk"],
-            "email": ["a@b.com", "c@d.com"],
-            "username": ["user1", "user2"],
-        })
-        comparisons, blocking = entity_resolution._build_comparisons_and_blocking("Person", df)
+        df = FakeDF(
+            {
+                "country": ["us", "uk"],
+                "email": ["a@b.com", "c@d.com"],
+                "username": ["user1", "user2"],
+            }
+        )
+        comparisons, blocking = entity_resolution._build_comparisons_and_blocking(
+            "Person", df
+        )
         # Should have NameComparison + ExactMatch(country) + Levenshtein(email) + JaroWinkler(username)
         self.assertGreaterEqual(len(comparisons), 4)
 
@@ -315,12 +354,16 @@ class DualPipelineTest(unittest.TestCase):
             def any(self):
                 return any(self._bools)
 
-        df = FakeDF({
-            "country": ["us", None],
-            "email": [None, None],
-            "username": [None, None],
-        })
-        comparisons, blocking = entity_resolution._build_comparisons_and_blocking("Person", df)
+        df = FakeDF(
+            {
+                "country": ["us", None],
+                "email": [None, None],
+                "username": [None, None],
+            }
+        )
+        comparisons, blocking = entity_resolution._build_comparisons_and_blocking(
+            "Person", df
+        )
         # Should have NameComparison + ExactMatch(country) only
         self.assertEqual(len(comparisons), 2)
 
@@ -337,10 +380,14 @@ class DualPipelineTest(unittest.TestCase):
             self.skipTest("splink not installed")
         # Create enough entities for training
         for i in range(5):
-            p = ftm_store.make_entity("Person", [f"u{i}"], {
-                "name": f"Unique Person {i}",
-                "country": "us",
-            })
+            p = ftm_store.make_entity(
+                "Person",
+                [f"u{i}"],
+                {
+                    "name": f"Unique Person {i}",
+                    "country": "us",
+                },
+            )
             ftm_store.upsert(p, dataset="feedA")
         result = entity_resolution.train_model("Person")
         self.assertTrue(result["ok"])
@@ -354,10 +401,14 @@ class DualPipelineTest(unittest.TestCase):
             self.skipTest("splink not installed")
         # Create enough entities
         for i in range(5):
-            p = ftm_store.make_entity("Person", [f"u{i}"], {
-                "name": f"Test Person {i}",
-                "country": "us",
-            })
+            p = ftm_store.make_entity(
+                "Person",
+                [f"u{i}"],
+                {
+                    "name": f"Test Person {i}",
+                    "country": "us",
+                },
+            )
             ftm_store.upsert(p, dataset="feedA")
         # Train and save model
         entity_resolution.train_model("Person")

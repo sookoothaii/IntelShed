@@ -1,6 +1,7 @@
 """Stock & index prices via Yahoo Finance (unofficial but stable JSON endpoints).
 No API key required. Rate-limit friendly polling.
 """
+
 from datetime import datetime, timezone
 
 import httpx
@@ -34,7 +35,9 @@ async def _fetch_yahoo(symbol: str):
     params = {"interval": "1d", "range": "2d"}
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"})
+            r = await client.get(
+                url, params=params, headers={"User-Agent": "Mozilla/5.0"}
+            )
             r.raise_for_status()
             data = r.json()
     except Exception as e:

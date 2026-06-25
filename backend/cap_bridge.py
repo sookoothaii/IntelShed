@@ -21,28 +21,66 @@ METEOALARM_ATOM = "https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom"
 
 # US state centroids (lat, lon) for CAP entries without geometry
 _US_STATE: dict[str, tuple[float, float]] = {
-    "alabama": (32.8, -86.8), "alaska": (64.2, -152.5), "arizona": (34.3, -111.7),
-    "arkansas": (34.8, -92.2), "california": (36.8, -119.4), "colorado": (39.0, -105.5),
-    "connecticut": (41.6, -72.7), "delaware": (39.0, -75.5), "florida": (27.7, -81.7),
-    "georgia": (32.2, -83.4), "hawaii": (20.8, -156.3), "idaho": (44.1, -114.7),
-    "illinois": (40.0, -89.0), "indiana": (39.8, -86.1), "iowa": (42.0, -93.5),
-    "kansas": (38.5, -98.4), "kentucky": (37.5, -85.3), "louisiana": (31.0, -92.0),
-    "maine": (45.3, -69.4), "maryland": (39.0, -76.8), "massachusetts": (42.4, -71.4),
-    "michigan": (43.3, -84.5), "minnesota": (46.3, -94.3), "mississippi": (32.7, -89.7),
-    "missouri": (38.5, -92.4), "montana": (47.0, -109.6), "nebraska": (41.5, -99.8),
-    "nevada": (39.3, -116.6), "new hampshire": (43.2, -71.5), "new jersey": (40.1, -74.7),
-    "new mexico": (34.5, -106.0), "new york": (43.0, -75.5), "north carolina": (35.5, -79.4),
-    "north dakota": (47.5, -100.5), "ohio": (40.4, -82.8), "oklahoma": (35.5, -97.5),
-    "oregon": (44.0, -120.5), "pennsylvania": (40.9, -77.8), "rhode island": (41.7, -71.5),
-    "south carolina": (33.9, -81.0), "south dakota": (44.4, -100.2), "tennessee": (35.8, -86.3),
-    "texas": (31.5, -99.3), "utah": (39.3, -111.7), "vermont": (44.0, -72.7),
-    "virginia": (37.5, -78.7), "washington": (47.4, -120.5), "west virginia": (38.6, -80.6),
-    "wisconsin": (44.5, -89.5), "wyoming": (43.0, -107.5), "district of columbia": (38.9, -77.0),
+    "alabama": (32.8, -86.8),
+    "alaska": (64.2, -152.5),
+    "arizona": (34.3, -111.7),
+    "arkansas": (34.8, -92.2),
+    "california": (36.8, -119.4),
+    "colorado": (39.0, -105.5),
+    "connecticut": (41.6, -72.7),
+    "delaware": (39.0, -75.5),
+    "florida": (27.7, -81.7),
+    "georgia": (32.2, -83.4),
+    "hawaii": (20.8, -156.3),
+    "idaho": (44.1, -114.7),
+    "illinois": (40.0, -89.0),
+    "indiana": (39.8, -86.1),
+    "iowa": (42.0, -93.5),
+    "kansas": (38.5, -98.4),
+    "kentucky": (37.5, -85.3),
+    "louisiana": (31.0, -92.0),
+    "maine": (45.3, -69.4),
+    "maryland": (39.0, -76.8),
+    "massachusetts": (42.4, -71.4),
+    "michigan": (43.3, -84.5),
+    "minnesota": (46.3, -94.3),
+    "mississippi": (32.7, -89.7),
+    "missouri": (38.5, -92.4),
+    "montana": (47.0, -109.6),
+    "nebraska": (41.5, -99.8),
+    "nevada": (39.3, -116.6),
+    "new hampshire": (43.2, -71.5),
+    "new jersey": (40.1, -74.7),
+    "new mexico": (34.5, -106.0),
+    "new york": (43.0, -75.5),
+    "north carolina": (35.5, -79.4),
+    "north dakota": (47.5, -100.5),
+    "ohio": (40.4, -82.8),
+    "oklahoma": (35.5, -97.5),
+    "oregon": (44.0, -120.5),
+    "pennsylvania": (40.9, -77.8),
+    "rhode island": (41.7, -71.5),
+    "south carolina": (33.9, -81.0),
+    "south dakota": (44.4, -100.2),
+    "tennessee": (35.8, -86.3),
+    "texas": (31.5, -99.3),
+    "utah": (39.3, -111.7),
+    "vermont": (44.0, -72.7),
+    "virginia": (37.5, -78.7),
+    "washington": (47.4, -120.5),
+    "west virginia": (38.6, -80.6),
+    "wisconsin": (44.5, -89.5),
+    "wyoming": (43.0, -107.5),
+    "district of columbia": (38.9, -77.0),
     "puerto rico": (18.2, -66.5),
 }
 
 _SEVERITY_SCORE = {
-    "extreme": 0.95, "severe": 0.75, "moderate": 0.5, "minor": 0.3, "unknown": 0.35,
+    "extreme": 0.95,
+    "severe": 0.75,
+    "moderate": 0.5,
+    "minor": 0.3,
+    "unknown": 0.35,
 }
 
 
@@ -164,7 +202,9 @@ async def _fetch_meteoalarm(client: httpx.AsyncClient, limit: int) -> list[dict]
     r.raise_for_status()
     root = ET.fromstring(r.content)
     ns = {"atom": "http://www.w3.org/2005/Atom"}
-    entries = root.findall("atom:entry", ns) or root.findall(".//{http://www.w3.org/2005/Atom}entry")
+    entries = root.findall("atom:entry", ns) or root.findall(
+        ".//{http://www.w3.org/2005/Atom}entry"
+    )
     out = []
     for entry in entries:
         row = _parse_atom_entry(entry, "meteoalarm")

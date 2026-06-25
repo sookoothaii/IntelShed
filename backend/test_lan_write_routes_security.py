@@ -142,7 +142,9 @@ class LanWriteRouteRemoteSecurityTests(unittest.TestCase):
         app = _remote_client_middleware(FastAPI())
         app.include_router(agent_bus.router)
         client = TestClient(app)
-        resp = client.post("/api/agent/camera", json={"lat": 0, "lon": 0, "height": 1000})
+        resp = client.post(
+            "/api/agent/camera", json={"lat": 0, "lon": 0, "height": 1000}
+        )
         self.assertEqual(resp.status_code, 401)
 
 
@@ -153,7 +155,9 @@ class LanWriteRouteLocalhostTests(unittest.TestCase):
         app = FastAPI()
         app.include_router(feed_ingest.router)
         client = TestClient(app)
-        with patch.dict("os.environ", {"WORLDBASE_BIND_HOST": "127.0.0.1"}, clear=False):
+        with patch.dict(
+            "os.environ", {"WORLDBASE_BIND_HOST": "127.0.0.1"}, clear=False
+        ):
             with patch("auth.security.API_KEY", "test-api-key"):
                 with patch("feed_ingest.run_feed_ingest", return_value={"ok": True}):
                     resp = client.post("/api/intel/feeds/run")
