@@ -41,6 +41,7 @@ _AUTOPILOT_INTERVAL = int(os.getenv("WORLDBASE_ENTITY_RESOLUTION_INTERVAL", "864
 # deterministic exact + token-subset stages stay always-on. Re-enable once the
 # comparison is calibrated (forename/surname split + TF). See progress notes.
 _SPLINK_ENABLED = os.getenv("WORLDBASE_ENTITY_RESOLUTION_SPLINK", "0").strip().lower() in ("1", "true", "yes", "on")
+_PIPELINE_MODE = os.getenv("WORLDBASE_ENTITY_RESOLUTION_PIPELINE", "single").strip().lower()
 
 # Generic head/tail tokens that must not, on their own, trigger a single-token
 # subset match (e.g. "authorities" sub of "local authorities"). Proper nouns
@@ -316,9 +317,171 @@ def _run_splink_schema(schema: str, rows: list[dict], seen_pairs: set[tuple[str,
     return added
 
 
-def run_resolution(*, schemas: tuple[str, ...] | None = None) -> dict:
-    """Run deterministic + Splink resolution for configured schemas."""
+def _run_splink_cross_dataset(
+    schema: str,
+    rows_a: list[dict],
+    rows_b: list[dict],
+    seen_pairs: set[tuple[str, str, str]],
+) -> int:
+    """Splink ``link_only`` between two dataset groups (cross-dataset linking).
+
+    Unlike ``_run_splink_schema`` which uses ``dedupe_only``, this expects two
+    pre-filtered row sets from different datasets and only looks for cross-
+    dataset matches (no within-dataset duplicates).
+    """
+    if len(rows_a) < _MIN_ROWS_SPLINK or len(rows_b) < _MIN_ROWS_SPLINK:
+        return 0
+    try:
+        import pandas as pd
+        from splink import DuckDBAPI, Linker, SettingsCreator, block_on
+        import splink.comparison_library as cl
+    except ImportError as exc:
+        raise RuntimeError("splink not installed — pip install 'splink>=4.0,<5'") from exc
+
+    global _SPLINK_VERSION
+    import splink as _splink_mod
+    _SPLINK_VERSION = getattr(_splink_mod, "__version__", None)
+
+    df_a = pd.DataFrame(rows_a)
+    df_b = pd.DataFrame(rows_b)
+    df_a["source_dataset"] = "a"
+    df_b["source_dataset"] = "b"
+    df = pd.concat([df_a, df_b], ignore_index=True)
+
+    comparisons = [cl.NameComparison("name")]
+    blocking = [block_on("substr(name, 1, 4)"), block_on("name_last")]
+    if schema == "Vessel":
+        comparisons.append(cl.ExactMatch("imo_number"))
+        blocking.append(block_on("imo_number"))
+    if df["country"].notna().any() and (df["country"] != "").any():
+        comparisons.append(cl.ExactMatch("country"))
+        blocking.append(block_on("country"))
+
+    settings = SettingsCreator(
+        link_type="link_only",
+        comparisons=comparisons,
+        blocking_rules_to_generate_predictions=blocking,
+        probability_two_random_records_match=0.02,
+    )
+    linker = Linker(df, settings, db_api=DuckDBAPI())
+
+    if len(df) >= _EM_MIN_ROWS:
+        linker.training.estimate_u_using_random_sampling(
+            max_pairs=min(1_000_000, len(df) * 20)
+        )
+
+    pred = linker.inference.predict(threshold_match_probability=_THRESHOLD)
+    out = pred.as_pandas_dataframe()
+
+    added = 0
+    for _, row in out.iterrows():
+        left = str(row.get("unique_id_l") or "")
+        right = str(row.get("unique_id_r") or "")
+        prob = float(row.get("match_probability") or 0.0)
+        if prob < _THRESHOLD:
+            continue
+        if _record_edge(
+            left, right, confidence=prob, method="splink:cross", schema=schema, seen_pairs=seen_pairs,
+        ):
+            added += 1
+    return added
+
+
+def _run_two_stage_schema(
+    schema: str,
+    seen_pairs: set[tuple[str, str, str]],
+    errors: list[str],
+) -> tuple[int, int, int, int]:
+    """Two-stage resolution for one schema.
+
+    Stage 1: Per-dataset dedupe — exact + subset + splink(dedupe_only) within
+    each dataset independently.
+    Stage 2: Cross-dataset link — splink(link_only) between coherent dataset
+    pairs to find the same entity across feeds.
+
+    Returns (exact_edges, subset_edges, splink_edges, cross_edges).
+    """
+    datasets = ftm_store.list_datasets_for_schema([schema])
+    if not datasets:
+        # No dataset labels — fall back to single-mode behaviour
+        entities = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA)
+        rows = _rows_for_schema(schema, entities)
+        exact = _run_exact_matches(schema, entities, seen_pairs)
+        subset = _run_subset_matches(schema, entities, seen_pairs)
+        splink = 0
+        if _SPLINK_ENABLED:
+            try:
+                splink = _run_splink_schema(schema, rows, seen_pairs)
+            except Exception:
+                if len(errors) < 5:
+                    errors.append(f"{schema}: dedupe splink failed")
+                logger.exception("splink dedupe failed for schema %s", schema)
+        return exact, subset, splink, 0
+
+    total_exact = 0
+    total_subset = 0
+    total_splink = 0
+    total_cross = 0
+
+    # Stage 1: per-dataset dedupe
+    dataset_rows: dict[str, list[dict]] = {}
+    for ds in datasets:
+        entities = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA, dataset=ds)
+        if not entities:
+            continue
+        rows = _rows_for_schema(schema, entities)
+        dataset_rows[ds] = rows
+        total_exact += _run_exact_matches(schema, entities, seen_pairs)
+        total_subset += _run_subset_matches(schema, entities, seen_pairs)
+        if _SPLINK_ENABLED and len(rows) >= _MIN_ROWS_SPLINK:
+            try:
+                total_splink += _run_splink_schema(schema, rows, seen_pairs)
+            except Exception:
+                if len(errors) < 5:
+                    errors.append(f"{schema}/{ds}: dedupe splink failed")
+                logger.exception("splink dedupe failed for %s/%s", schema, ds)
+
+    # Stage 2: cross-dataset link
+    # Run deterministic exact+subset across dataset pairs first (always-on),
+    # then Splink link_only if enabled.
+    viable = list(dataset_rows.keys())
+    for i in range(len(viable)):
+        for j in range(i + 1, len(viable)):
+            ds_a, ds_b = viable[i], viable[j]
+            entities_a = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA, dataset=ds_a)
+            entities_b = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA, dataset=ds_b)
+            combined = entities_a + entities_b
+            total_exact += _run_exact_matches(schema, combined, seen_pairs)
+            total_subset += _run_subset_matches(schema, combined, seen_pairs)
+            if _SPLINK_ENABLED:
+                try:
+                    total_cross += _run_splink_cross_dataset(
+                        schema, dataset_rows[ds_a], dataset_rows[ds_b], seen_pairs,
+                    )
+                except Exception:
+                    if len(errors) < 5:
+                        errors.append(f"{schema}: cross {ds_a}↔{ds_b} failed")
+                    logger.exception(
+                        "splink cross-dataset failed for %s (%s ↔ %s)",
+                        schema, ds_a, ds_b,
+                    )
+
+    return total_exact, total_subset, total_splink, total_cross
+
+
+def run_resolution(
+    *,
+    schemas: tuple[str, ...] | None = None,
+    pipeline_mode: str | None = None,
+) -> dict:
+    """Run deterministic + Splink resolution for configured schemas.
+
+    *pipeline_mode* overrides the env default. ``"single"`` runs the classic
+    all-entities-mixed path. ``"two_stage"`` runs per-dataset dedupe first,
+    then cross-dataset ``link_only`` Splink between coherent dataset pairs.
+    """
     global _LAST_RUN, _LAST_ERROR
+    mode = (pipeline_mode or _PIPELINE_MODE).strip().lower()
     schema_list = schemas or RESOLUTION_SCHEMAS
     started = _now()
     seen_pairs: set[tuple[str, str, str]] = set()
@@ -326,48 +489,60 @@ def run_resolution(*, schemas: tuple[str, ...] | None = None) -> dict:
     total_exact = 0
     total_subset = 0
     total_splink = 0
+    total_cross = 0
     errors: list[str] = []
 
     with _LOCK:
         try:
             for schema in schema_list:
-                entities = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA)
-                rows = _rows_for_schema(schema, entities)
-                exact = _run_exact_matches(schema, entities, seen_pairs)
-                subset = _run_subset_matches(schema, entities, seen_pairs)
-                splink_added = 0
-                if _SPLINK_ENABLED:
-                    try:
-                        splink_added = _run_splink_schema(schema, rows, seen_pairs)
-                    except Exception:
-                        if len(errors) < 5:
-                            errors.append(f"{schema}: resolution failed")
-                        logger.exception("splink resolution failed for schema %s", schema)
+                if mode == "two_stage":
+                    _exact, _subset, _splink, _cross = _run_two_stage_schema(
+                        schema, seen_pairs, errors,
+                    )
+                else:
+                    entities = ftm_store.list_entities_for_resolution([schema], _LIMIT_PER_SCHEMA)
+                    rows = _rows_for_schema(schema, entities)
+                    _exact = _run_exact_matches(schema, entities, seen_pairs)
+                    _subset = _run_subset_matches(schema, entities, seen_pairs)
+                    _splink = 0
+                    if _SPLINK_ENABLED:
+                        try:
+                            _splink = _run_splink_schema(schema, rows, seen_pairs)
+                        except Exception:
+                            if len(errors) < 5:
+                                errors.append(f"{schema}: resolution failed")
+                            logger.exception("splink resolution failed for schema %s", schema)
+                    _cross = 0
+
                 per_schema[schema] = {
-                    "candidates": len(entities),
-                    "rows": len(rows),
-                    "exact_edges": exact,
-                    "subset_edges": subset,
-                    "splink_edges": splink_added,
+                    "candidates": 0,
+                    "rows": 0,
+                    "exact_edges": _exact,
+                    "subset_edges": _subset,
+                    "splink_edges": _splink,
+                    "cross_edges": _cross,
                 }
-                total_exact += exact
-                total_subset += subset
-                total_splink += splink_added
+                total_exact += _exact
+                total_subset += _subset
+                total_splink += _splink
+                total_cross += _cross
 
             result = {
                 "ok": True,
                 "started_at": started,
                 "finished_at": _now(),
+                "pipeline_mode": mode,
                 "threshold": _THRESHOLD,
                 "exact_confidence": _EXACT_CONFIDENCE,
                 "subset_confidence": _SUBSET_CONFIDENCE,
                 "splink_enabled": _SPLINK_ENABLED,
                 "schemas": list(schema_list),
                 "per_schema": per_schema,
-                "edges_added": total_exact + total_subset + total_splink,
+                "edges_added": total_exact + total_subset + total_splink + total_cross,
                 "exact_edges": total_exact,
                 "subset_edges": total_subset,
                 "splink_edges": total_splink,
+                "cross_edges": total_cross,
                 "resolution_edges_total": ftm_store.count_edges_for_dataset(RESOLUTION_DATASET),
                 "splink_version": _SPLINK_VERSION,
                 "errors": errors,
@@ -425,9 +600,12 @@ async def resolution_status():
 
 
 @router.post("/run")
-async def resolution_run(_auth: str | None = Depends(verify_lan_auth)):
+async def resolution_run(
+    pipeline: str | None = None,
+    _auth: str | None = Depends(verify_lan_auth),
+):
     try:
-        return await asyncio.to_thread(run_resolution)
+        return await asyncio.to_thread(run_resolution, pipeline_mode=pipeline)
     except Exception as exc:
         logger.exception("entity resolution failed")
         raise HTTPException(status_code=503, detail="entity resolution failed") from exc

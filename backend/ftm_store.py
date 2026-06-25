@@ -63,6 +63,7 @@ from ftm_query import (  # noqa: F401
     import_entities,
     import_ndjson,
     list_entities_for_resolution,
+    list_datasets_for_schema,
     list_entities_recent,
     make_entity,
     stats,

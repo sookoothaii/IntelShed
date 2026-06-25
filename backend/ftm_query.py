@@ -472,22 +472,33 @@ def import_ndjson(text: str, dataset: str = "import") -> dict:
 def list_entities_for_resolution(
     schemas: Iterable[str],
     limit: int = 3000,
+    dataset: str | None = None,
 ) -> list[dict]:
-    """Return recent entities for Splink / deterministic resolution."""
+    """Return recent entities for Splink / deterministic resolution.
+
+    If *dataset* is given, only entities whose ``datasets`` JSON array
+    contains that value are returned (used by the two-stage pipeline).
+    """
     schema_list = [s for s in schemas if s]
     if not schema_list or limit <= 0:
         return []
     placeholders = ", ".join("?" * len(schema_list))
+    params: list = [*schema_list]
+    dataset_clause = ""
+    if dataset:
+        dataset_clause = " AND EXISTS (SELECT 1 FROM json_each(datasets) je WHERE TRIM(je.value::VARCHAR, '\"') = ?)"
+        params.append(dataset)
+    params.append(int(limit))
     with _LOCK:
         rows = _conn().execute(
             f"""
             SELECT id, schema, caption, properties, datasets
             FROM entities
-            WHERE schema IN ({placeholders})
+            WHERE schema IN ({placeholders}){dataset_clause}
             ORDER BY last_seen DESC
             LIMIT ?
             """,
-            [*schema_list, int(limit)],
+            params,
         ).fetchall()
     return [
         {
@@ -499,6 +510,26 @@ def list_entities_for_resolution(
         }
         for r in rows
     ]
+
+
+def list_datasets_for_schema(schemas: Iterable[str]) -> list[str]:
+    """Return distinct dataset names that appear on entities of the given schemas."""
+    schema_list = [s for s in schemas if s]
+    if not schema_list:
+        return []
+    placeholders = ", ".join("?" * len(schema_list))
+    with _LOCK:
+        rows = _conn().execute(
+            f"""
+            SELECT DISTINCT TRIM(je.value::VARCHAR, '"') AS ds
+            FROM entities, json_each(datasets) AS je
+            WHERE schema IN ({placeholders})
+              AND datasets != '[]'
+            ORDER BY ds
+            """,
+            schema_list,
+        ).fetchall()
+    return [r[0] for r in rows if r[0]]
 
 
 def count_edges_for_dataset(dataset: str) -> int:
