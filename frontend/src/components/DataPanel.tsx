@@ -32,13 +32,14 @@ import {
   LightningMapPanel,
 } from './DataFeedPanels';
 import WildfiresPanel from './WildfiresPanel';
+import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { useHudSessionState } from '../lib/hudSessionState';
 
 export const DATA_TABS = [
   'edge', 'feeds', 'aircraft', 'satellites', 'seismic', 'events', 'spaceweather',
   'geopolitics', 'gdelt', 'gdacs', 'hazards', 'outages', 'military', 'maritime',
   'situations', 'airquality', 'pegel', 'weather', 'wildfires', 'lightning', 'volcanoes',
-  'energy', 'eu-energy', 'stocks', 'traffic', 'webcams', 'cve', 'stac', 'sanctions', 'intel',
+  'energy', 'eu-energy', 'stocks', 'traffic', 'webcams', 'cve', 'stac', 'sanctions', 'intel', 'flags',
 ] as const
 export type DataTab = typeof DATA_TABS[number]
 
@@ -909,6 +910,8 @@ export default function DataPanel({
       {tab === 'intel' && (
         <IntelGraphPanel onFocus={onFocus} initialEntityId={intelEntityId} />
       )}
+
+      {tab === 'flags' && <FeatureFlagsPanel />}
 
     </div>
   )

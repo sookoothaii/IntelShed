@@ -157,6 +157,12 @@ async def health():
     except Exception:
         result["ftm"] = {"ready": False, "error": "unavailable"}
     try:
+        import duckdb_queue
+
+        result["duckdb_queue"] = duckdb_queue.get_queue().status()
+    except Exception:
+        pass
+    try:
         from credentials.registry import providers_status
 
         result["credentials"] = {

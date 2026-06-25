@@ -287,6 +287,10 @@ def register_lifecycle(app) -> None:
         entity_store.init_entity_db()
         if not ftm_store.init_store():
             log.error("ftm_store_offline", detail="DuckDB locked or missing")
+        if _cfg().duckdb_queue_enabled:
+            import duckdb_queue
+
+            duckdb_queue.get_queue().enable()
         node_sync.init_node_db()
         node_sync.init_command_db()
         anomaly_river.init_river_db()
@@ -298,6 +302,9 @@ def register_lifecycle(app) -> None:
 
         prediction_ledger.init_prediction_db()
         aircraft_trails.init_trail_db()
+        import features
+
+        features.init_feature_flags_db()
         from ollama_config import briefing_autopilot_on
 
         if briefing_autopilot_on():
@@ -328,6 +335,10 @@ def register_lifecycle(app) -> None:
     def on_shutdown() -> None:
         if _BRIEFING_AUTOPILOT_TASK:
             _BRIEFING_AUTOPILOT_TASK.cancel()
+        import duckdb_queue
+
+        if duckdb_queue.is_enabled():
+            duckdb_queue.get_queue().disable()
         import ais_bridge
 
         ais_bridge.stop_aisstream_collector()

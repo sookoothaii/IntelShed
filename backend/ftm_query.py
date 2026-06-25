@@ -95,7 +95,7 @@ def _merge_props(existing: dict, incoming: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def upsert(
+def _upsert_impl(
     proxy,
     dataset: str,
     *,
@@ -180,6 +180,30 @@ def upsert(
     return _run_with_recovery(_do)
 
 
+def upsert(
+    proxy,
+    dataset: str,
+    *,
+    seen_at: str | None = None,
+    lat: float | None = None,
+    lon: float | None = None,
+) -> str | None:
+    """Merge an FtM entity into the store (routes through DuckDB queue when enabled)."""
+    try:
+        from duckdb_queue import is_enabled, get_queue
+        if is_enabled():
+            return get_queue().enqueue_sync("upsert", {
+                "entity_dict": proxy.to_dict(),
+                "dataset": dataset,
+                "seen_at": seen_at,
+                "lat": lat,
+                "lon": lon,
+            })
+    except ImportError:
+        pass
+    return _upsert_impl(proxy, dataset, seen_at=seen_at, lat=lat, lon=lon)
+
+
 def upsert_legacy(
     entity_id: str,
     entity_type: str,
@@ -215,7 +239,7 @@ def upsert_legacy(
     return upsert(proxy, dataset=source_feed or "worldbase", lat=lat, lon=lon)
 
 
-def add_edge(
+def _add_edge_impl(
     source_id: str,
     target_id: str,
     kind: str,
@@ -247,6 +271,38 @@ def add_edge(
         )
 
     _run_with_recovery(_do)
+
+
+def add_edge(
+    source_id: str,
+    target_id: str,
+    kind: str,
+    dataset: str = "worldbase",
+    *,
+    confidence: float = 1.0,
+    properties: dict | None = None,
+    seen_at: str | None = None,
+) -> None:
+    """Add an edge (routes through DuckDB queue when enabled)."""
+    if not source_id or not target_id:
+        return
+    try:
+        from duckdb_queue import is_enabled, get_queue
+        if is_enabled():
+            get_queue().enqueue_sync("add_edge", {
+                "source_id": source_id,
+                "target_id": target_id,
+                "kind": kind,
+                "dataset": dataset,
+                "confidence": confidence,
+                "properties": properties,
+                "seen_at": seen_at,
+            })
+            return
+    except ImportError:
+        pass
+    _add_edge_impl(source_id, target_id, kind, dataset,
+                   confidence=confidence, properties=properties, seen_at=seen_at)
 
 
 def get_entity(entity_id: str) -> dict | None:
@@ -466,7 +522,7 @@ def graph_overview(
     }
 
 
-def import_entities(
+def _import_entities_impl(
     dicts: Iterable[dict], dataset: str, seen_at: str | None = None
 ) -> dict:
     imported = 0
@@ -478,7 +534,7 @@ def import_entities(
             if not proxy.id:
                 errors.append("entity without id skipped")
                 continue
-            upsert(proxy, dataset, seen_at=seen_at)
+            _upsert_impl(proxy, dataset, seen_at=seen_at)
             imported += 1
             if len(ids) < 1000:
                 ids.append(proxy.id)
@@ -486,6 +542,23 @@ def import_entities(
             if len(errors) < 25:
                 errors.append(str(exc))
     return {"imported": imported, "ids": ids, "errors": errors}
+
+
+def import_entities(
+    dicts: Iterable[dict], dataset: str, seen_at: str | None = None
+) -> dict:
+    """Import entities (routes through DuckDB queue when enabled)."""
+    try:
+        from duckdb_queue import is_enabled, get_queue
+        if is_enabled():
+            return get_queue().enqueue_sync("import_entities", {
+                "dicts": list(dicts),
+                "dataset": dataset,
+                "seen_at": seen_at,
+            })
+    except ImportError:
+        pass
+    return _import_entities_impl(dicts, dataset, seen_at=seen_at)
 
 
 def import_ndjson(text: str, dataset: str = "import") -> dict:
@@ -599,7 +672,7 @@ def count_edges_for_dataset(dataset: str) -> int:
     return int(row[0] if row else 0)
 
 
-def delete_edges_for_dataset(dataset: str) -> int:
+def _delete_edges_impl(dataset: str) -> int:
     """Remove every edge from one provenance dataset; returns the count deleted.
 
     Entity resolution is append-only, so this is the supported way to reset a
@@ -635,6 +708,19 @@ def delete_edges_for_dataset(dataset: str) -> int:
         return count
 
     return _run_with_recovery(_do)
+
+
+def delete_edges_for_dataset(dataset: str) -> int:
+    """Delete edges for a dataset (routes through DuckDB queue when enabled)."""
+    try:
+        from duckdb_queue import is_enabled, get_queue
+        if is_enabled():
+            return get_queue().enqueue_sync("delete_edges_for_dataset", {
+                "dataset": dataset,
+            })
+    except ImportError:
+        pass
+    return _delete_edges_impl(dataset)
 
 
 def list_entities_recent(limit: int = 50, dataset: str | None = None) -> dict:
@@ -825,3 +911,54 @@ def stats() -> dict:
         "by_schema": {k: v for k, v in by_schema},
         "by_dataset": {k: v for k, v in by_dataset},
     }
+
+
+# ---------------------------------------------------------------------------
+# DuckDB Queue — operation handlers + registration
+# ---------------------------------------------------------------------------
+
+
+def _op_upsert(params: dict) -> str | None:
+    proxy = model.get_proxy(params["entity_dict"])
+    return _upsert_impl(
+        proxy,
+        dataset=params["dataset"],
+        seen_at=params.get("seen_at"),
+        lat=params.get("lat"),
+        lon=params.get("lon"),
+    )
+
+
+def _op_add_edge(params: dict) -> None:
+    _add_edge_impl(
+        params["source_id"],
+        params["target_id"],
+        params["kind"],
+        params.get("dataset", "worldbase"),
+        confidence=params.get("confidence", 1.0),
+        properties=params.get("properties"),
+        seen_at=params.get("seen_at"),
+    )
+
+
+def _op_delete_edges(params: dict) -> int:
+    return _delete_edges_impl(params["dataset"])
+
+
+def _op_import_entities(params: dict) -> dict:
+    return _import_entities_impl(
+        params["dicts"],
+        params["dataset"],
+        seen_at=params.get("seen_at"),
+    )
+
+
+try:
+    from duckdb_queue import register_op as _register_op
+
+    _register_op("upsert", _op_upsert)
+    _register_op("add_edge", _op_add_edge)
+    _register_op("delete_edges_for_dataset", _op_delete_edges)
+    _register_op("import_entities", _op_import_entities)
+except ImportError:
+    pass

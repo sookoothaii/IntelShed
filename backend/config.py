@@ -39,6 +39,7 @@ class WorldBaseConfig(BaseModel):
     entity_resolution_autopilot: bool = False
     entity_resolution_splink_enabled: bool = False
     entity_resolution_pipeline_mode: str = "single"
+    duckdb_queue_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> Self:
@@ -72,6 +73,12 @@ class WorldBaseConfig(BaseModel):
             )
             .strip()
             .lower(),
+            duckdb_queue_enabled=_truthy(
+                os.getenv("WORLDBASE_DUCKDB_QUEUE", "0")
+            ),
+            admin_flags_enabled=_truthy(
+                os.getenv("WORLDBASE_ADMIN_FLAGS", "1")
+            ),
         )
 
 
@@ -83,4 +90,5 @@ def get_config() -> WorldBaseConfig:
     config should clear the cache with ``get_config.cache_clear()`` before
     calling it again.
     """
+    return WorldBaseConfig.from_env()
     return WorldBaseConfig.from_env()

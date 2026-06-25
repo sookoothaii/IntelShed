@@ -120,3 +120,8 @@ def register_routers(app) -> None:
     app.include_router(connectors_router.router)
     app.include_router(traffic_bridge.router)
     app.include_router(model_cookbook.router)
+    from routes import admin as admin_routes
+    from routes import duckdb_queue as duckdb_queue_routes
+
+    app.include_router(duckdb_queue_routes.router)
+    app.include_router(admin_routes.router)
