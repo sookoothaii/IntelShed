@@ -110,9 +110,15 @@ def _validate_publish(body: AgentPublishBody) -> None:
                 status_code=422, detail=f"Unknown layer {layer!r}. Allowed: {allowed}"
             )
         return
+    if action == "agent_phase":
+        # Generic phase update from the orchestrator.  Requires a title;
+        # lines are optional human-readable context.
+        if not (body.title or "").strip():
+            raise HTTPException(status_code=422, detail="agent_phase requires a title")
+        return
     raise HTTPException(
         status_code=422,
-        detail=f"Unknown action {body.action!r}. Use fly_to or toggle_layer.",
+        detail=f"Unknown action {body.action!r}. Use fly_to, toggle_layer, or agent_phase.",
     )
 
 

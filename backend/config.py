@@ -71,6 +71,11 @@ class WorldBaseConfig(BaseModel):
     prompt_registry_enabled: bool = False
     lineage_enabled: bool = False
     ftm_statements_enabled: bool = False
+    agent_orchestrator_enabled: bool = False
+    agent_orchestrator_max_workers: int = 8
+    agent_orchestrator_phase_timeout: float = 10.0
+    agent_orchestrator_circuit_breaker_threshold: int = 3
+    agent_orchestrator_circuit_breaker_window: int = 60
     dynamic_graph_enabled: bool = False
     dynamic_graph_max_confidence: float = 0.7
     maritime_trajectory_enabled: bool = False
@@ -191,6 +196,36 @@ class WorldBaseConfig(BaseModel):
             ),
             lineage_enabled=_truthy(os.getenv("WORLDBASE_LINEAGE", "0")),
             ftm_statements_enabled=_truthy(os.getenv("WORLDBASE_FTM_STATEMENTS", "0")),
+            agent_orchestrator_enabled=_truthy(
+                os.getenv("WORLDBASE_AGENT_ORCHESTRATOR", "0")
+            ),
+            agent_orchestrator_max_workers=max(
+                1,
+                min(
+                    64,
+                    int(os.getenv("WORLDBASE_AGENT_ORCHESTRATOR_MAX_WORKERS", "8")),
+                ),
+            ),
+            agent_orchestrator_phase_timeout=max(
+                1.0,
+                float(os.getenv("WORLDBASE_AGENT_ORCHESTRATOR_PHASE_TIMEOUT", "10.0")),
+            ),
+            agent_orchestrator_circuit_breaker_threshold=max(
+                1,
+                int(
+                    os.getenv(
+                        "WORLDBASE_AGENT_ORCHESTRATOR_CIRCUIT_BREAKER_THRESHOLD", "3"
+                    )
+                ),
+            ),
+            agent_orchestrator_circuit_breaker_window=max(
+                10,
+                int(
+                    os.getenv(
+                        "WORLDBASE_AGENT_ORCHESTRATOR_CIRCUIT_BREAKER_WINDOW", "60"
+                    )
+                ),
+            ),
             dynamic_graph_enabled=_truthy(os.getenv("WORLDBASE_DYNAMIC_GRAPH", "0")),
             dynamic_graph_max_confidence=float(
                 os.getenv("WORLDBASE_DYNAMIC_GRAPH_MAX_CONFIDENCE", "0.7")

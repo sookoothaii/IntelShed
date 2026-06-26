@@ -411,6 +411,28 @@ async def worldbase_feed_allowlist() -> dict[str, Any]:
     return {"feeds": sorted(FEED_SAMPLE_ALLOWLIST)}
 
 
+@mcp.tool(name="worldbase_orchestrate")
+async def worldbase_orchestrate(
+    query: str,
+    route: str | None = None,
+) -> dict[str, Any]:
+    """Run the P3+ multi-agent orchestrator (coverage → retrieval → spatial → corroboration → synthesis).
+
+    Rule-based dispatcher, 0 VRAM. Set WORLDBASE_AGENT_ORCHESTRATOR=1 to enable.
+    """
+    import agent_orchestrator
+
+    return await agent_orchestrator.orchestrate(query, route=route)
+
+
+@mcp.tool(name="worldbase_agent_status")
+async def worldbase_agent_status() -> dict[str, Any]:
+    """Status of the multi-agent orchestrator and the Agent Bus."""
+    import agent_orchestrator
+
+    return await agent_orchestrator.agent_status()
+
+
 async def _gate_mcp_write(tool_name: str, arguments: dict[str, Any]) -> None:
     """Slim guard + optional HAK_GAL — see firewall_bridge.ensure_mcp_tool_allowed."""
     from firewall_bridge import ensure_mcp_tool_allowed
