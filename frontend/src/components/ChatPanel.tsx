@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { fetchApi } from '../lib/networkFetch';
 
 import FirewallMonitor from './FirewallMonitor';
@@ -104,6 +104,21 @@ export default function ChatPanel({
   const [customModelDrafts, setCustomModelDrafts] = useState<Record<string, string>>({})
   const [rerankerWarming, setRerankerWarming] = useState(false)
   const processedAskIdRef = useRef(0)
+  const abortRef = useRef<AbortController | null>(null)
+
+  const stopGeneration = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setBusy(false)
+    setGenStatus(null)
+    setHistory((h) => {
+      const copy = [...h]
+      if (copy.length > 0 && copy[copy.length - 1].role === 'assistant' && !copy[copy.length - 1].content) {
+        copy[copy.length - 1] = { role: 'assistant', content: '⏹ Stopped by operator.' }
+      }
+      return copy
+    })
+  }, [])
 
   const saveApiKeys = (next: Record<string, string>) => {
     setApiKeys(next)
@@ -362,13 +377,21 @@ export default function ChatPanel({
 
     const isEntityAsk = Boolean(entityCtx)
     const forceFast = opts?.forceFast ?? isEntityAsk
-    const useCtx = !forceFast && feedContext
-    const useWebSearch = !forceFast && webSearch
-    const useToolCalls = !forceFast && useTools
+    const useCtx = feedContext
+    const useWebSearch = webSearch
+    const useToolCalls = useTools
 
     setMsg('')
     setFirewallMeta(null)
     const userDisplay = entityCtx ? `${text}\n\n${entityCtx}` : text
+
+    // Build conversation context from existing history (skip system placeholder, last 20 messages)
+    const priorMsgs = history
+      .filter((m) => m.role !== 'system' && m.content && m.content !== 'Select a model and start chatting.')
+      .slice(-20)
+      .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }))
+    const apiMessages = [...priorMsgs, { role: 'user', content: text }]
+
     setHistory((h) => [...h, { role: 'user', content: userDisplay }])
     setHistory((h) => [...h, { role: 'assistant', content: '' }])
     setBusy(true)
@@ -398,13 +421,15 @@ export default function ChatPanel({
     else if (forceFast) setGenStatus(`${provider} analyzing target…`)
     else setGenStatus(`Contacting ${provider}…`)
 
+    const ac = new AbortController()
+    abortRef.current = ac
     try {
       const r = await fetchApi('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({
           model: activeModel,
-          messages: [{ role: 'user', content: text }],
+          messages: apiMessages,
           stream: true,
           context: useCtx,
           provider,
@@ -417,6 +442,7 @@ export default function ChatPanel({
           api_keys: apiKeys,
           api_base_urls: apiBaseUrls,
         }),
+        signal: ac.signal,
       })
       if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
       if (!r.body) throw new Error('No response body')
@@ -442,7 +468,12 @@ export default function ChatPanel({
             if (data.error) {
               setHistory((h) => {
                 const copy = [...h]
-                copy[copy.length - 1] = { role: 'assistant', content: 'Error: ' + data.error }
+                const existing = copy[copy.length - 1]?.content || ''
+                const errMsg = 'Error: ' + data.error
+                copy[copy.length - 1] = {
+                  role: 'assistant',
+                  content: existing ? `${existing}\n\n⚠ ${errMsg}` : errMsg,
+                }
                 return copy
               })
               break
@@ -510,12 +541,14 @@ export default function ChatPanel({
         }
       }
     } catch (e) {
+      if ((e as Error).name === 'AbortError') return
       setHistory((h) => {
         const copy = [...h]
         copy[copy.length - 1] = { role: 'assistant', content: 'Error: ' + (e as Error).message }
         return copy
       })
     } finally {
+      abortRef.current = null
       setBusy(false)
       setGenStatus(null)
     }
@@ -965,9 +998,26 @@ export default function ChatPanel({
           placeholder={model ? `Ask ${model} (${provider})…` : 'Select a model first…'}
           disabled={!model}
         />
-        <button onClick={() => sendWithMessage(msg.trim())} disabled={busy || !model}>
-          Send
-        </button>
+        {busy ? (
+          <button onClick={stopGeneration} className="chat-stop-btn">
+            ⏹ Stop
+          </button>
+        ) : (
+          <>
+            <button onClick={() => sendWithMessage(msg.trim())} disabled={!model}>
+              Send
+            </button>
+            {history.length > 1 && (
+              <button
+                onClick={() => setHistory([{ role: 'system', content: 'Select a model and start chatting.' }])}
+                className="chat-clear-btn"
+                title="Clear conversation context"
+              >
+                🗑
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   )

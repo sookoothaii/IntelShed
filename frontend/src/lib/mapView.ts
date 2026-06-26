@@ -11,6 +11,8 @@ export type MapViewMode = {
   buildings: boolean
   /** Cesium Ion Google Photorealistic 3D Tiles (needs VITE_CESIUM_ION_TOKEN) */
   photorealistic: boolean
+  /** Place/city name label overlay (Esri World Boundaries & Places) */
+  labels: boolean
 }
 
 export const DEFAULT_MAP_VIEW: MapViewMode = {
@@ -18,6 +20,7 @@ export const DEFAULT_MAP_VIEW: MapViewMode = {
   render3d: true,
   buildings: false,
   photorealistic: false,
+  labels: true,
 }
 
 export const BASEMAP_LABELS: Record<BasemapMode, string> = {

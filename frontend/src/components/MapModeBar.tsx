@@ -67,6 +67,15 @@ export default function MapModeBar({ mode, onChange, onRequestGlobe, compact }: 
         BUILDINGS
       </label>
 
+      <label className={`map-mode-toggle${mode.labels ? ' on' : ''}`} title="Place & city name labels (Esri World Boundaries & Places)">
+        <input
+          type="checkbox"
+          checked={mode.labels}
+          onChange={(e) => onChange({ ...mode, labels: e.target.checked })}
+        />
+        LABELS
+      </label>
+
       {ionOk && (
         <label
           className={`map-mode-toggle photoreal${mode.photorealistic ? ' on' : ''}`}

@@ -31,6 +31,10 @@ describe('mapView', () => {
     it('has photorealistic false by default', () => {
       expect(DEFAULT_MAP_VIEW.photorealistic).toBe(false)
     })
+
+    it('has labels true by default', () => {
+      expect(DEFAULT_MAP_VIEW.labels).toBe(true)
+    })
   })
 
   describe('BASEMAP_LABELS', () => {

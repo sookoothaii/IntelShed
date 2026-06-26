@@ -148,8 +148,7 @@ async def _prepare_chat_messages(
 
     search_results = payload.get("search_results", "")
     entity_context = payload.get("entity_context", "")
-    force_fast = payload.get("force_fast") or bool(entity_context)
-    want_ctx = payload.get("context") and not force_fast
+    want_ctx = bool(payload.get("context"))
     ctx = await build_chat_context() if want_ctx else ""
 
     rag_block = ""
@@ -277,7 +276,11 @@ async def _prepare_chat_messages(
                 "with targeted retrieval; [corroborated]/[uncorroborated] tags mark "
                 "claim strength — weigh tagged claims accordingly.\n"
                 "- Tools may query WorldBase APIs (situations, OSINT lookups, "
-                "spatial_query for 'within X km of Y' questions).\n\n"
+                "spatial_query for 'within X km of Y' questions).\n"
+                "- GLOBE CONTROL: When the user asks to show, focus, or navigate to "
+                "any place (e.g. 'show me Berlin', 'zoom to 35.68,139.76'), call the "
+                "focus_globe tool with approximate coordinates — the operator's 3D globe "
+                "will fly there automatically.\n\n"
                 "RULES:\n"
                 "1. Answer the user's actual question FIRST (1-3 sentences), same language.\n"
                 "2. Use ONLY data in the blocks below — never invent URLs, headlines, or CVEs.\n"
@@ -300,7 +303,8 @@ async def _prepare_chat_messages(
                     f"You are WorldBase AI ({host_label}). No live feeds or web search are "
                     "attached to this message unless the operator enables CTX or 🔍. "
                     "Answer honestly and concisely in the user's language. "
-                    "Do not invent URLs or claim internet access you do not have."
+                    "Do not invent URLs or claim internet access you do not have. "
+                    "If the user asks to show or navigate to a place, call focus_globe."
                 ),
             }
         ] + messages
@@ -624,6 +628,7 @@ async def chat_proxy(
             "messages": messages,
             "stream": use_stream,
             "temperature": 0.7,
+            "max_tokens": 2048 if force_fast else 8192,
         }
 
         # ----- Tool-calling loop (full WorldBase access for cloud models) -----
@@ -693,7 +698,7 @@ async def chat_proxy(
                                         chunk = json.loads(payload_text)
                                     except json.JSONDecodeError:
                                         continue
-                                    delta = chunk.get("choices", [{}])[0].get(
+                                    delta = (chunk.get("choices") or [{}])[0].get(
                                         "delta", {}
                                     )
                                     content = delta.get("content", "")

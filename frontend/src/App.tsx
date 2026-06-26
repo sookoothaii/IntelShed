@@ -68,7 +68,8 @@ function isMapViewMode(v: unknown): v is MapViewMode {
     BASEMAP_MODES.includes(m.basemap as typeof BASEMAP_MODES[number]) &&
     typeof m.render3d === 'boolean' &&
     typeof m.buildings === 'boolean' &&
-    typeof m.photorealistic === 'boolean'
+    typeof m.photorealistic === 'boolean' &&
+    (m.labels === undefined || typeof m.labels === 'boolean')
   )
 }
 
@@ -290,6 +291,8 @@ export default function App() {
 
   const mapVisible = splitView || view === 'map'
 
+  const chatVisible = !splitView && view === 'chat'
+
   const globeSharedProps = {
     focus,
     onAskAI: handleAskAI,
@@ -438,32 +441,41 @@ export default function App() {
           )}
         </div>
 
-        {splitView ? null : view !== 'globe' && view !== 'map' ? (
+        <div
+          className={[
+            'view-layer',
+            'chat-layer',
+            chatVisible ? 'view-layer--active' : 'view-layer--hidden',
+          ].join(' ')}
+        >
+          <ErrorBoundary name="Chat">
+            <Suspense fallback={<TabFallback label="AI" />}>
+              <ChatPanel
+                askAI={askAI}
+                onClearAsk={() => setAskAI(null)}
+                onClientAction={(act: unknown) => {
+                  const a = act as { type?: string; lat?: number; lon?: number; kind?: string; title?: string; lines?: string[] }
+                  if (a?.type === 'focus_globe' && a.lat != null && a.lon != null) {
+                    focusOnMap({
+                      kind: a.kind || 'ai_focus',
+                      lat: a.lat,
+                      lon: a.lon,
+                      height: 400000,
+                      title: a.title || 'AI focus',
+                      lines: a.lines || [],
+                    })
+                  }
+                }}
+              />
+            </Suspense>
+          </ErrorBoundary>
+        </div>
+
+        {splitView ? null : view !== 'globe' && view !== 'map' && view !== 'chat' ? (
           <div key={view} className="view-fade">
             {view === 'data' && (
               <Suspense fallback={<TabFallback label="DATA" />}>
                 <DataPanel onFocus={focusOnMap} onOpenWindyMap={openWindyMap} intelEntityId={intelEntityId} />
-              </Suspense>
-            )}
-            {view === 'chat' && (
-              <Suspense fallback={<TabFallback label="AI" />}>
-                <ChatPanel
-                  askAI={askAI}
-                  onClearAsk={() => setAskAI(null)}
-                  onClientAction={(act: unknown) => {
-                    const a = act as { type?: string; lat?: number; lon?: number; kind?: string; title?: string; lines?: string[] }
-                    if (a?.type === 'focus_globe' && a.lat != null && a.lon != null) {
-                      focusOnMap({
-                        kind: a.kind || 'ai_focus',
-                        lat: a.lat,
-                        lon: a.lon,
-                        height: 400000,
-                        title: a.title || 'AI focus',
-                        lines: a.lines || [],
-                      })
-                    }
-                  }}
-                />
               </Suspense>
             )}
             {view === 'news' && (

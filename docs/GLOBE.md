@@ -82,6 +82,29 @@ $ep = Invoke-RestMethod "https://api.cesium.com/v1/assets/1/endpoint?access_toke
 
 ---
 
+## Basemap modes & place labels
+
+The globe supports 4 basemap modes via the **MapModeBar** (top toolbar):
+
+| Mode | Basemap | Labels |
+|------|---------|--------|
+| **MAP** | Esri World Street Map / Ion Road | Built-in |
+| **SAT** | Esri World Imagery / Ion Aerial | Via **LABELS** toggle |
+| **HYBRID** | Satellite + Esri World Boundaries & Places overlay | Built-in |
+| **TERRAIN** | Esri Hillshade + Street (55% alpha) | Via **LABELS** toggle |
+
+**LABELS toggle** (default on): overlays **Esri World Boundaries and Places** tiles on any basemap that doesn't already include labels (SAT, TERRAIN). Persistent in HUD session storage. When off, only event markers are visible — no city/place names.
+
+**Files:** `frontend/src/lib/mapView.ts` (`MapViewMode.labels`, `ESRI_REFERENCE_LABELS`), `frontend/src/components/MapModeBar.tsx` (LABELS toggle), `frontend/src/components/Globe.tsx` (`applyGlobeMapMode` — label overlay logic).
+
+---
+
+## Chat-driven globe focus (geocoding)
+
+The `focus_globe` chat tool (`backend/chat_tools.py`) and MCP `worldbase_globe_fly_to` (`backend/mcp_server.py`) accept a `place` parameter (city/region/country name). The server geocodes via **OpenStreetMap Nominatim** and ignores any LLM-guessed `lat`/`lon` when `place` is provided — preventing hallucinated coordinates from DeepSeek and similar models. Falls back to explicit `lat`/`lon` only when no `place` is given.
+
+---
+
 ## Verification
 
 ```powershell

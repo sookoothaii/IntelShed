@@ -68,20 +68,23 @@ class OpenAIToolLoopTests(unittest.IsolatedAsyncioTestCase):
         ]
         fake = _FakeClient(responses)
 
-        with patch("chat_tools.httpx.AsyncClient", return_value=fake), patch(
-            "chat_tools.execute_tool",
-            new=AsyncMock(
-                return_value={
-                    "tool": "focus_globe",
-                    "result": {"ok": True},
-                    "client_action": {
-                        "type": "focus_globe",
-                        "lat": 13.75,
-                        "lon": 100.5,
-                    },
-                }
-            ),
-        ) as exec_mock:
+        with (
+            patch("chat_tools.httpx.AsyncClient", return_value=fake),
+            patch(
+                "chat_tools.execute_tool",
+                new=AsyncMock(
+                    return_value={
+                        "tool": "focus_globe",
+                        "result": {"ok": True},
+                        "client_action": {
+                            "type": "focus_globe",
+                            "lat": 13.75,
+                            "lon": 100.5,
+                        },
+                    }
+                ),
+            ) as exec_mock,
+        ):
             final_msgs, actions = await chat_tools.run_openai_with_tools(
                 "https://api.test/v1/chat/completions",
                 {"Authorization": "Bearer x"},
@@ -104,9 +107,10 @@ class OpenAIToolLoopTests(unittest.IsolatedAsyncioTestCase):
         fake = _FakeClient(
             [{"choices": [{"message": {"role": "assistant", "content": "hi"}}]}]
         )
-        with patch("chat_tools.httpx.AsyncClient", return_value=fake), patch(
-            "chat_tools.execute_tool", new=AsyncMock()
-        ) as exec_mock:
+        with (
+            patch("chat_tools.httpx.AsyncClient", return_value=fake),
+            patch("chat_tools.execute_tool", new=AsyncMock()) as exec_mock,
+        ):
             final_msgs, actions = await chat_tools.run_openai_with_tools(
                 "https://api.test/v1/chat/completions",
                 {},
@@ -183,6 +187,110 @@ class ChatToolExecutionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out["result"]["query"], "within 50km of Bangkok")
         self.assertEqual(len(out["result"]["results"]), 2)
         self.assertEqual(out["result"]["results"][0]["id"], "e1")
+
+
+class GeocodeToolTests(unittest.IsolatedAsyncioTestCase):
+    """Tests for focus_globe with place geocoding and geocode_place tool."""
+
+    async def test_focus_globe_with_place_geocodes(self):
+        """focus_globe with 'place' should geocode via Nominatim and return client_action."""
+        fake_geo = {
+            "lat": 52.5173885,
+            "lon": 13.3951309,
+            "display_name": "Berlin, Deutschland",
+            "boundingbox": ["52.3382448", "52.6755087", "13.0883450", "13.7611609"],
+            "place_rank": 8,
+            "osm_type": "relation",
+            "osm_id": 62422,
+        }
+        with patch("chat_tools._geocode_place", new=AsyncMock(return_value=fake_geo)):
+            out = await chat_tools.execute_tool(
+                "focus_globe", {"place": "Berlin", "title": "Berlin"}
+            )
+        self.assertTrue(out["result"]["ok"])
+        self.assertAlmostEqual(out["result"]["lat"], 52.5173885)
+        self.assertAlmostEqual(out["result"]["lon"], 13.3951309)
+        self.assertEqual(out["client_action"]["type"], "focus_globe")
+        self.assertEqual(out["client_action"]["lat"], 52.5173885)
+        self.assertEqual(out["client_action"]["lon"], 13.3951309)
+
+    async def test_focus_globe_with_place_uses_display_name_as_title(self):
+        """When title is not provided, display_name from geocoding should be used."""
+        fake_geo = {
+            "lat": 13.7563,
+            "lon": 100.5018,
+            "display_name": "Bangkok, Thailand",
+        }
+        with patch("chat_tools._geocode_place", new=AsyncMock(return_value=fake_geo)):
+            out = await chat_tools.execute_tool("focus_globe", {"place": "Bangkok"})
+        self.assertTrue(out["result"]["ok"])
+        self.assertEqual(out["client_action"]["title"], "Bangkok, Thailand")
+
+    async def test_focus_globe_geocode_failure_returns_error(self):
+        """focus_globe with place but geocoding fails should return ok=False."""
+        with patch("chat_tools._geocode_place", new=AsyncMock(return_value=None)):
+            out = await chat_tools.execute_tool(
+                "focus_globe", {"place": "NonexistentPlace123", "title": "X"}
+            )
+        self.assertFalse(out["result"]["ok"])
+        self.assertNotIn("client_action", out)
+
+    async def test_focus_globe_place_ignores_llm_guessed_latlon(self):
+        """If place is provided with wrong lat/lon, geocoding wins and ignores the guess."""
+        fake_geo = {
+            "lat": 52.5173885,
+            "lon": 13.3951309,
+            "display_name": "Berlin, Deutschland",
+        }
+        with patch(
+            "chat_tools._geocode_place", new=AsyncMock(return_value=fake_geo)
+        ) as geo_mock:
+            out = await chat_tools.execute_tool(
+                "focus_globe",
+                {"place": "Berlin", "title": "Berlin", "lat": 55.5, "lon": 12.5},
+            )
+        geo_mock.assert_awaited_once()
+        self.assertTrue(out["result"]["ok"])
+        self.assertAlmostEqual(out["result"]["lat"], 52.5173885)
+        self.assertAlmostEqual(out["result"]["lon"], 13.3951309)
+        self.assertEqual(out["client_action"]["lat"], 52.5173885)
+        self.assertEqual(out["client_action"]["lon"], 13.3951309)
+
+    async def test_focus_globe_with_explicit_coords_still_works(self):
+        """focus_globe with explicit lat/lon (no place) should not geocode."""
+        with patch("chat_tools._geocode_place", new=AsyncMock()) as geo_mock:
+            out = await chat_tools.execute_tool(
+                "focus_globe", {"lat": 13.75, "lon": 100.5, "title": "Bangkok"}
+            )
+        geo_mock.assert_not_awaited()
+        self.assertTrue(out["result"]["ok"])
+        self.assertEqual(out["client_action"]["lat"], 13.75)
+        self.assertEqual(out["client_action"]["lon"], 100.5)
+
+    async def test_focus_globe_no_place_no_coords_returns_error(self):
+        """focus_globe without place or lat/lon should return ok=False."""
+        out = await chat_tools.execute_tool("focus_globe", {"title": "Nowhere"})
+        self.assertFalse(out["result"]["ok"])
+
+    async def test_geocode_place_tool(self):
+        """geocode_place tool should return coordinates from Nominatim."""
+        fake_geo = {
+            "lat": 52.5173885,
+            "lon": 13.3951309,
+            "display_name": "Berlin, Deutschland",
+        }
+        with patch("chat_tools._geocode_place", new=AsyncMock(return_value=fake_geo)):
+            out = await chat_tools.execute_tool(
+                "geocode_place", {"query": "Berlin, Germany"}
+            )
+        self.assertTrue(out["result"]["ok"])
+        self.assertAlmostEqual(out["result"]["lat"], 52.5173885)
+        self.assertAlmostEqual(out["result"]["lon"], 13.3951309)
+
+    async def test_geocode_place_empty_query(self):
+        """geocode_place with empty query should return ok=False."""
+        out = await chat_tools.execute_tool("geocode_place", {"query": ""})
+        self.assertFalse(out["result"]["ok"])
 
 
 if __name__ == "__main__":

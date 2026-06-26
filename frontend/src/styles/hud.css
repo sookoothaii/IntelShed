@@ -1386,6 +1386,10 @@ html, body, #root {
   overflow: hidden;
 }
 
+.hud-main--split .chat-layer {
+  display: none;
+}
+
 .map-pane {
   min-width: 0;
   min-height: 0;
@@ -2100,6 +2104,30 @@ html, body, #root {
 
 .chat-input button {
   margin: 0;
+}
+
+.chat-stop-btn {
+  background: rgba(255, 45, 0, 0.15) !important;
+  border-color: rgba(255, 45, 0, 0.5) !important;
+  color: #ff6b50 !important;
+  animation: chat-stop-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes chat-stop-pulse {
+  0%, 100% { border-color: rgba(255, 45, 0, 0.5); }
+  50% { border-color: rgba(255, 45, 0, 0.9); }
+}
+
+.chat-clear-btn {
+  background: transparent !important;
+  border: 1px solid var(--line) !important;
+  color: var(--text-dim) !important;
+  font-size: 14px;
+  padding: 4px 8px !important;
+}
+.chat-clear-btn:hover {
+  border-color: rgba(255, 45, 0, 0.5) !important;
+  color: #ff6b50 !important;
 }
 
 /* Cesium widget override */

@@ -461,12 +461,25 @@ if mcp_globe_enabled():
 
     @mcp.tool(name="worldbase_globe_fly_to")
     async def worldbase_globe_fly_to(
-        lat: float,
-        lon: float,
+        lat: float | None = None,
+        lon: float | None = None,
+        place: str | None = None,
         height: float | None = None,
         title: str | None = None,
     ) -> dict[str, Any]:
-        """Fly the open HUD globe to lat/lon (Agent Bus → browser stream). Requires HUD at :5176."""
+        """Fly the open HUD globe to lat/lon or a named place (geocoded via OpenStreetMap). Requires HUD at :5176."""
+        if lat is None or lon is None:
+            if not place:
+                return {"ok": False, "error": "Provide either lat+lon or place"}
+            from chat_tools import _geocode_place
+
+            geo = await _geocode_place(place)
+            if geo is None:
+                return {"ok": False, "error": f"Geocoding failed for '{place}'"}
+            lat = geo["lat"]
+            lon = geo["lon"]
+            if title is None:
+                title = geo.get("display_name", place)
         await _gate_mcp_write(
             "worldbase_globe_fly_to",
             {"lat": lat, "lon": lon, "height": height, "title": title},

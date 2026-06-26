@@ -254,6 +254,15 @@ async function applyGlobeMapMode(
     if (top) top.alpha = 0.55
   }
 
+  // --- Label overlay (Esri World Boundaries & Places) for non-hybrid modes ---
+  // hybrid mode already manages its own label overlay above.
+  if (mode.labels && !refs.labelOverlay.current && mode.basemap !== 'hybrid') {
+    refs.labelOverlay.current = layers.addImageryProvider(
+      esriImagery(ESRI_REFERENCE_LABELS, 'Esri, OpenStreetMap contributors'),
+    )
+    if (refs.labelOverlay.current) refs.labelOverlay.current.alpha = 0.9
+  }
+
   // --- 3D buildings ---
   if (refs.osmBuildings.current) {
     refs.osmBuildings.current.show = mode.buildings && !mode.photorealistic

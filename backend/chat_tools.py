@@ -13,6 +13,36 @@ import osint_tools
 
 _UA = {"User-Agent": "WorldBase/1.0"}
 
+_NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+
+
+async def _geocode_place(query: str) -> dict[str, Any] | None:
+    """Resolve a place name to lat/lon via OpenStreetMap Nominatim (fail-soft)."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                _NOMINATIM_URL,
+                params={"q": query, "format": "json", "limit": 1},
+                headers=_UA,
+            )
+            r.raise_for_status()
+            results = r.json()
+            if not results:
+                return None
+            hit = results[0]
+            return {
+                "lat": float(hit["lat"]),
+                "lon": float(hit["lon"]),
+                "display_name": hit.get("display_name", query),
+                "boundingbox": hit.get("boundingbox"),
+                "place_rank": hit.get("place_rank"),
+                "osm_type": hit.get("osm_type"),
+                "osm_id": hit.get("osm_id"),
+            }
+    except Exception:
+        return None
+
+
 OLLAMA_TOOLS = [
     {
         "type": "function",
@@ -70,16 +100,50 @@ OLLAMA_TOOLS = [
         "type": "function",
         "function": {
             "name": "focus_globe",
-            "description": "Ask the UI to focus the globe on coordinates. Returns client_action for the dashboard.",
+            "description": "Navigate the operator's 3D globe to a specific location. Use this when the user asks to show, focus, zoom to, or display any place (e.g. 'show me Berlin', 'focus on Tokyo', 'go to 13.75,100.5'). IMPORTANT: pass 'place' (a city/region/country name) whenever the user names a location. The server geocodes via OpenStreetMap for exact coordinates and ignores any lat/lon you might guess. Only provide lat/lon directly when the user explicitly gives numeric coordinates.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "lat": {"type": "number"},
-                    "lon": {"type": "number"},
-                    "title": {"type": "string"},
-                    "lines": {"type": "array", "items": {"type": "string"}},
+                    "place": {
+                        "type": "string",
+                        "description": "Place name to geocode (e.g. 'Berlin', 'Mount Everest', 'Phuket, Thailand'). Preferred over guessing lat/lon.",
+                    },
+                    "lat": {
+                        "type": "number",
+                        "description": "Latitude — provide only if the user gave exact coordinates",
+                    },
+                    "lon": {
+                        "type": "number",
+                        "description": "Longitude — provide only if the user gave exact coordinates",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Display name for the location marker (defaults to place name)",
+                    },
+                    "lines": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional info lines to show in the marker popup",
+                    },
                 },
-                "required": ["lat", "lon", "title"],
+                "required": ["title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "geocode_place",
+            "description": "Resolve a place name to exact lat/lon coordinates via OpenStreetMap Nominatim. Returns coordinates, display name, bounding box, and place rank. Use this when you need coordinates for any purpose other than focus_globe (which geocodes internally).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Place name to geocode (e.g. 'Berlin, Germany', 'K2 mountain', 'Strait of Malacca')",
+                    },
+                },
+                "required": ["query"],
             },
         },
     },
@@ -182,10 +246,40 @@ async def execute_tool(name: str, arguments: dict) -> dict[str, Any]:
         return {"tool": name, "result": result}
 
     if name == "focus_globe":
-        lat = float(args["lat"])
-        lon = float(args["lon"])
-        title = str(args.get("title", "Focus"))
+        place = str(args.get("place", "")).strip()
+        title = str(args.get("title") or place or "Focus")
         lines = args.get("lines") or []
+        lat_raw = args.get("lat")
+        lon_raw = args.get("lon")
+
+        if place:
+            # Always geocode the place name; ignore any LLM-guessed lat/lon.
+            # This prevents DeepSeek and similar models from hallucinating coordinates.
+            geo = await _geocode_place(place)
+            if geo is None:
+                return {
+                    "tool": name,
+                    "result": {"ok": False, "error": f"Geocoding failed for '{place}'"},
+                }
+            lat = geo["lat"]
+            lon = geo["lon"]
+            if not args.get("title"):
+                title = geo.get("display_name", place)
+            lines = lines or [
+                f"Geocoded via OpenStreetMap: {geo.get('display_name', place)}"
+            ]
+        elif lat_raw is not None and lon_raw is not None:
+            lat = float(lat_raw)
+            lon = float(lon_raw)
+        else:
+            return {
+                "tool": name,
+                "result": {
+                    "ok": False,
+                    "error": "Provide either 'place' or both 'lat' and 'lon'",
+                },
+            }
+
         client_action = {
             "type": "focus_globe",
             "lat": lat,
@@ -196,9 +290,21 @@ async def execute_tool(name: str, arguments: dict) -> dict[str, Any]:
         }
         return {
             "tool": name,
-            "result": {"ok": True, "lat": lat, "lon": lon},
+            "result": {"ok": True, "lat": lat, "lon": lon, "place": place or None},
             "client_action": client_action,
         }
+
+    if name == "geocode_place":
+        query = str(args.get("query", "")).strip()
+        if not query:
+            return {"tool": name, "result": {"ok": False, "error": "query is required"}}
+        geo = await _geocode_place(query)
+        if geo is None:
+            return {
+                "tool": name,
+                "result": {"ok": False, "error": f"No results for '{query}'"},
+            }
+        return {"tool": name, "result": {"ok": True, **geo}}
 
     if name == "generate_briefing":
         import node_sync
