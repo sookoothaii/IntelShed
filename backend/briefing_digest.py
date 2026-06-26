@@ -463,6 +463,18 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
                 )
             )
 
+    maritime_anomaly_digest = snap.get("maritime_anomaly_digest") or {}
+    if maritime_anomaly_digest.get("enabled"):
+        for line in (maritime_anomaly_digest.get("lines") or [])[:5]:
+            items.append(
+                _line(
+                    line.get("severity", "medium"),
+                    line.get("text", ""),
+                    line.get("bucket", "global"),
+                    sources=["maritime_trajectory"],
+                )
+            )
+
     for row in (snap.get("gdelt_geo_local", {}) or {}).get("events", [])[:12]:
         name = row.get("name") or "GDELT signal"
         lat, lon = row.get("lat"), row.get("lon")
@@ -887,6 +899,16 @@ def build_watch_items(
         except Exception:
             pass
 
+    maritime_anomaly_digest = snap.get("maritime_anomaly_digest") or {}
+    if maritime_anomaly_digest.get("enabled"):
+        try:
+            from maritime_briefing import build_maritime_watch_items
+
+            for item in build_maritime_watch_items(maritime_anomaly_digest):
+                candidates.append(item)
+        except Exception:
+            pass
+
     seen_ids: set[str] = set()
     ranked: list[dict[str, Any]] = []
     for item in sorted(candidates, key=lambda x: -float(x.get("confidence") or 0)):
@@ -995,6 +1017,7 @@ def format_digest_sections(
     darkweb_digest: dict[str, Any] | None = None,
     ransomware_digest: dict[str, Any] | None = None,
     telegram_digest: dict[str, Any] | None = None,
+    maritime_anomaly_digest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
@@ -1132,5 +1155,7 @@ def format_digest_sections(
         "darkweb": darkweb_digest or {"enabled": False, "count": 0, "lines": []},
         "ransomware": ransomware_digest or {"enabled": False, "count": 0, "lines": []},
         "telegram": telegram_digest or {"enabled": False, "count": 0, "lines": []},
+        "maritime": maritime_anomaly_digest
+        or {"enabled": False, "count": 0, "lines": []},
         "_gdelt_collected": gdelt_collected,
     }

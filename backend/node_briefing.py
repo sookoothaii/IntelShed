@@ -419,6 +419,7 @@ async def _generate_briefing_unlocked(
     darkweb_digest: dict = {"enabled": False, "count": 0, "lines": []}
     ransomware_digest: dict = {"enabled": False, "count": 0, "lines": []}
     telegram_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    maritime_anomaly_digest: dict = {"enabled": False, "count": 0, "lines": []}
     try:
         import darkweb_bridge
 
@@ -437,11 +438,19 @@ async def _generate_briefing_unlocked(
         telegram_digest = await gather_telegram_briefing()
     except Exception:
         pass
+    try:
+        from maritime_briefing import gather_maritime_anomaly_digest
+
+        maritime_anomaly_digest = await gather_maritime_anomaly_digest()
+    except Exception:
+        pass
 
     if ransomware_digest:
         snap["ransomware_digest"] = ransomware_digest
     if telegram_digest:
         snap["telegram_digest"] = telegram_digest
+    if maritime_anomaly_digest:
+        snap["maritime_anomaly_digest"] = maritime_anomaly_digest
     digest = format_digest_sections(
         snap,
         alerts,
@@ -453,6 +462,7 @@ async def _generate_briefing_unlocked(
         darkweb_digest=darkweb_digest,
         ransomware_digest=ransomware_digest,
         telegram_digest=telegram_digest,
+        maritime_anomaly_digest=maritime_anomaly_digest,
     )
     from briefing_agentic import run_briefing_agentic_loop
 

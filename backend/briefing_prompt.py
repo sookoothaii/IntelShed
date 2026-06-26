@@ -157,6 +157,12 @@ def build_security_advisor_prompt(
         for line in telegram["lines"]:
             prompt += f"  - {line}\n"
         prompt += "\n"
+    maritime = digest.get("maritime") or {}
+    if maritime.get("enabled") and maritime.get("lines"):
+        prompt += "MARITIME ANOMALIES (AIS pattern-of-life, 24h):\n"
+        for line in maritime["lines"]:
+            prompt += f"  - {line.get('text', line)}\n"
+        prompt += "\n"
     prompt += (
         "Edge nodes:\n"
         + "\n".join(digest["nodes"])

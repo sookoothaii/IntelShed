@@ -33,6 +33,23 @@ _BRIEFING_AUTOPILOT_TASK: asyncio.Task | None = None
 _BRIEFING_INTERVAL = _cfg().briefing_interval
 
 
+async def _maritime_trajectory_maintenance() -> None:
+    """P7: Periodic AIS trajectory ringbuffer flush + position pruning (every 5 min)."""
+    await asyncio.sleep(60)
+    while True:
+        try:
+            import ais_trajectory
+
+            if ais_trajectory.trajectory_enabled():
+                ais_trajectory.flush_buffer()
+                pruned = ais_trajectory.prune_old_positions()
+                if pruned:
+                    log.debug("ais_trajectory_pruned", removed=pruned)
+        except Exception as exc:
+            log.debug("ais_trajectory_maintenance_failed", error=str(exc))
+        await asyncio.sleep(300)
+
+
 async def _phase1_background_tasks() -> None:
     """River anomaly scan + GDELT/RAG indexing (best-effort, no crash on missing Ollama)."""
     from ollama_config import rag_autopilot_on
@@ -396,6 +413,7 @@ def register_lifecycle(app) -> None:
         asyncio.create_task(_situations_prewarm())
         asyncio.create_task(_stack_warmup())
         asyncio.create_task(_feed_cache_autopilot())
+        asyncio.create_task(_maritime_trajectory_maintenance())
         import ais_bridge
 
         ais_bridge.start_aisstream_collector()
