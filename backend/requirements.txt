@@ -41,9 +41,10 @@ alembic>=1.13.0
 # Environment variables
 python-dotenv>=1.0.0
 
-# Document export (briefing PDF/DOCX, feed status XLSX)
+# Document export (briefing PDF/DOCX/PPTX, feed status XLSX)
 reportlab>=5.0
 python-docx>=1.1
+python-pptx>=1.0
 openpyxl>=3.1
 
 # Optional: document intel ingest (GLiNER NER; GLiREL relations opt-in).

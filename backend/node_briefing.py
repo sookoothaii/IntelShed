@@ -635,7 +635,7 @@ async def latest_briefing(_auth: str | None = Depends(verify_lan_auth)):
 
 @router.get("/briefing/export")
 async def export_briefing(
-    format: str = Query("pdf", regex="^(pdf|docx)$"),
+    format: str = Query("pdf", regex="^(pdf|docx|pptx)$"),
     _auth: str | None = Depends(verify_lan_auth),
 ):
     """Export the latest briefing as a downloadable PDF or DOCX document."""
@@ -669,6 +669,15 @@ async def export_briefing(
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
                 "Content-Disposition": f'attachment; filename="worldbase-briefing-{briefing["created_at"][:10] if briefing["created_at"] else "latest"}.docx"',
+            },
+        )
+    elif format == "pptx":
+        data = doc_export.briefing_to_pptx(briefing)
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            headers={
+                "Content-Disposition": f'attachment; filename="worldbase-briefing-{briefing["created_at"][:10] if briefing["created_at"] else "latest"}.pptx"',
             },
         )
 

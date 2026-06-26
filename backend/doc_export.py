@@ -290,6 +290,264 @@ def briefing_to_docx(briefing: dict) -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# PPTX export (python-pptx)
+# ---------------------------------------------------------------------------
+
+
+def briefing_to_pptx(briefing: dict) -> bytes:
+    """Render a briefing dict as a PowerPoint situational awareness deck."""
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
+    dark = RGBColor(0x0A, 0x0E, 0x14)
+    accent = RGBColor(0x00, 0xFF, 0xA3)
+    amber = RGBColor(0xFF, 0xB4, 0x54)
+    grey = RGBColor(0x5A, 0x64, 0x70)
+    white = RGBColor(0xFF, 0xFF, 0xFF)
+
+    def _add_bg(slide, color=dark):
+        bg = slide.background
+        fill = bg.fill
+        fill.solid()
+        fill.fore_color.rgb = color
+
+    def _add_textbox(
+        slide,
+        left,
+        top,
+        width,
+        height,
+        text,
+        font_size=14,
+        color=white,
+        bold=False,
+        align=PP_ALIGN.LEFT,
+    ):
+        txBox = slide.shapes.add_textbox(left, top, width, height)
+        tf = txBox.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.text = text
+        p.font.size = Pt(font_size)
+        p.font.color.rgb = color
+        p.font.bold = bold
+        p.alignment = align
+        return tf
+
+    sections = _digest_lines(briefing)
+    quality = briefing.get("quality") or {}
+    q_score = quality.get("score")
+    created = _safe_text(briefing.get("created_at"), "—")
+
+    # --- Slide 1: Title ---
+    slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
+    _add_bg(slide)
+    _add_textbox(
+        slide,
+        Inches(1),
+        Inches(2.5),
+        Inches(11),
+        Inches(1.2),
+        "WORLDBASE",
+        44,
+        accent,
+        True,
+        PP_ALIGN.CENTER,
+    )
+    _add_textbox(
+        slide,
+        Inches(1),
+        Inches(3.5),
+        Inches(11),
+        Inches(0.8),
+        "24h Situation Briefing",
+        28,
+        white,
+        False,
+        PP_ALIGN.CENTER,
+    )
+    meta_parts = [f"Generated: {created}", f"Region: {sections['region_label']}"]
+    if q_score is not None:
+        meta_parts.append(f"Quality: {q_score:.2f}/1.00")
+    _add_textbox(
+        slide,
+        Inches(1),
+        Inches(4.5),
+        Inches(11),
+        Inches(0.5),
+        "  |  ".join(meta_parts),
+        12,
+        grey,
+        False,
+        PP_ALIGN.CENTER,
+    )
+
+    # --- Slide 2: Digest Summary ---
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    _add_bg(slide)
+    _add_textbox(
+        slide,
+        Inches(0.5),
+        Inches(0.3),
+        Inches(12),
+        Inches(0.6),
+        "DIGEST SUMMARY",
+        24,
+        accent,
+        True,
+    )
+
+    y = Inches(1.2)
+    for label, key in [
+        ("LOCAL", "local"),
+        ("REGIONAL", "regional"),
+        ("GLOBAL", "global"),
+    ]:
+        lines = sections.get(key) or []
+        _add_textbox(
+            slide, Inches(0.5), y, Inches(3), Inches(0.4), label, 16, amber, True
+        )
+        y2 = y + Inches(0.5)
+        if not lines:
+            _add_textbox(
+                slide, Inches(0.8), y2, Inches(11), Inches(0.4), "No signals.", 11, grey
+            )
+            y2 += Inches(0.4)
+        else:
+            for line in lines[:6]:
+                _add_textbox(
+                    slide,
+                    Inches(0.8),
+                    y2,
+                    Inches(11),
+                    Inches(0.35),
+                    f"• {_safe_text(line)}",
+                    11,
+                    white,
+                )
+                y2 += Inches(0.35)
+        y = y2 + Inches(0.2)
+
+    # --- Slide 3: Watch Items ---
+    watch = briefing.get("watch_items") or []
+    if watch:
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        _add_bg(slide)
+        _add_textbox(
+            slide,
+            Inches(0.5),
+            Inches(0.3),
+            Inches(12),
+            Inches(0.6),
+            "WATCH ITEMS",
+            24,
+            accent,
+            True,
+        )
+        y = Inches(1.2)
+        for w in watch[:8]:
+            headline = _safe_text(w.get("headline") or w.get("text"), "—")
+            horizon = _safe_text(w.get("horizon"), "")
+            _add_textbox(
+                slide,
+                Inches(0.8),
+                y,
+                Inches(11),
+                Inches(0.5),
+                f"• {headline}  ({horizon})",
+                13,
+                white,
+            )
+            y += Inches(0.55)
+
+    # --- Slide 4: Insight Cards ---
+    insights = briefing.get("insights") or []
+    if insights:
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        _add_bg(slide)
+        _add_textbox(
+            slide,
+            Inches(0.5),
+            Inches(0.3),
+            Inches(12),
+            Inches(0.6),
+            "INSIGHT CARDS",
+            24,
+            accent,
+            True,
+        )
+        y = Inches(1.2)
+        for ins in insights[:5]:
+            headline = _safe_text(ins.get("headline"), "—")
+            so_what = _safe_text(ins.get("so_what"), "")
+            score = ins.get("score")
+            score_str = f"  [{score:.2f}]" if score is not None else ""
+            _add_textbox(
+                slide,
+                Inches(0.8),
+                y,
+                Inches(11),
+                Inches(0.4),
+                f"• {headline}{score_str}",
+                13,
+                white,
+                True,
+            )
+            y += Inches(0.45)
+            if so_what:
+                _add_textbox(
+                    slide,
+                    Inches(1.2),
+                    y,
+                    Inches(10.5),
+                    Inches(0.4),
+                    f"→ {so_what}",
+                    11,
+                    grey,
+                )
+                y += Inches(0.4)
+            y += Inches(0.1)
+
+    # --- Slide 5+: Full briefing text (paginated) ---
+    text = briefing.get("text") or ""
+    if text:
+        paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
+        # ~12 lines per slide
+        per_slide = 12
+        for i in range(0, len(paragraphs), per_slide):
+            chunk = paragraphs[i : i + per_slide]
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            _add_bg(slide)
+            _add_textbox(
+                slide,
+                Inches(0.5),
+                Inches(0.3),
+                Inches(12),
+                Inches(0.6),
+                "FULL BRIEFING TEXT",
+                20,
+                accent,
+                True,
+            )
+            y = Inches(1.1)
+            for para in chunk:
+                _add_textbox(
+                    slide, Inches(0.5), y, Inches(12), Inches(0.45), para, 10, white
+                )
+                y += Inches(0.42)
+
+    buf = io.BytesIO()
+    prs.save(buf)
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
 # XLSX feed status export (openpyxl)
 # ---------------------------------------------------------------------------
 

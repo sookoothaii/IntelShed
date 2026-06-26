@@ -1201,6 +1201,14 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                       >
                         DOCX
                       </button>
+                      <button
+                        type="button"
+                        className="brief-export"
+                        onClick={() => window.open('/api/briefing/export?format=pptx', '_blank')}
+                        title="Download briefing as PowerPoint slides"
+                      >
+                        PPTX
+                      </button>
                     </div>
                   </div>
                   {briefError && <div className="brief-error">{briefError}</div>}
