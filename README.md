@@ -31,7 +31,7 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | **Satellite CD (K4)** | Sentinel-2 L2A COG window-read — NDVI/NDWI change detection, GeoJSON anomaly polygons, DATA → SATELLITE panel |
 | **Track R** | **R0 + R1.1–R1.4 shipped** — rerank, spatial bbox, CRAG-lite chat, adaptive YAML chunking, briefing agentic loop — [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
 | **Connectors** | Manifest registry + cache overlay — `GET /api/connectors`, DATA → **FEEDS**, STAC feed items |
-| **AI** | Local chat via Ollama (`qwen3:8b` default); spatial reasoning tool for "within X km of Y" queries |
+| **AI** | Local chat via Ollama (`qwen3:8b` default); 6 providers incl. NVIDIA NIM (`stepfun-ai/step-3.7-flash`); spatial reasoning tool for "within X km of Y" queries; **query-aware context enrichment** — extracts entities from user query → filters live feeds → injects relevant data + synthesis directive; **3-layer anti-hallucination stack** — positive prompt protocol (RAW DATA INTERPRETER), NIM-specific parameter tweaks (temp 0.15, top_p 0.4), post-generation Claim Auditor (source/URL/timestamp verification against context blocks, 0 VRAM) |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → hardened briefing pull back to Pi |
 | **Trust** | Rule-based briefing quality + field trust score (FULL SITUATION panel; feed drift + connector provenance) |
 | **Thailand operator** | CAMS haze, HDX humanitarian, GDELT local, maritime Malacca corridor — enriched LOCAL/REGION briefing blocks |
@@ -146,8 +146,9 @@ Restart backend. The DARK WEB panel appears under **DATA → DARK WEB**. The bri
 | `GET /api/cams/haze` | CAMS dust / AOD for Bangkok, Chiang Mai, ASEAN cities |
 | `GET /api/humanitarian` | HDX datasets (Myanmar border, displacement) |
 | `GET /api/gdelt/pulse/local` | Operator-region GDELT headlines |
+| `GET /api/chat/context?q=...` | Query-aware chat context enrichment (smoke test endpoint) |
 
-These feed the 24h security digest LOCAL / REGION blocks automatically.
+These feed the 24h security digest LOCAL / REGION blocks automatically. The chat context enricher (`backend/chat_context_enricher.py`) extracts entities from user queries and filters live feed caches (quakes, GDELT local, fusion hotspots) to inject relevant data into chat context, along with a synthesis directive (Structured Analytic Techniques, evidence weighting, red-team review, actionable intelligence).
 
 ### Offline maps (PMTiles)
 

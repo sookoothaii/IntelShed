@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 
 import httpx
@@ -97,10 +98,327 @@ async def list_models():
     return err
 
 
+@router.get("/api/chat/context")
+async def chat_context_endpoint(q: str = "", api_key: str = Depends(verify_api_key)):
+    """Return the chat context block for inspection / smoke testing.
+
+    When ?q= is provided, returns query-enriched context (P1).
+    """
+    ctx = await build_chat_context(query=q if q else None)
+    return {"context": ctx, "query": q or None}
+
+
+# --- P2: Synthesis directive builder ---
+
+_DOMAIN_TEMPLATES: dict[str, str] = {
+    "earthquake": (
+        "\nDOMAIN TEMPLATE (seismic event):\n"
+        "- Magnitude/depth → potential damage radius\n"
+        "- Nearby population centers → humanitarian impact\n"
+        "- Coastal location → tsunami risk assessment\n"
+        "- Regional political stability → response capacity\n"
+        "- Energy infrastructure → supply chain impact\n"
+        "- Historical seismicity → pattern context\n"
+    ),
+    "volcano": (
+        "\nDOMAIN TEMPLATE (volcanic event):\n"
+        "- VEI/eruption type → ash dispersion radius\n"
+        "- Wind direction → ash fall zones, aviation risk\n"
+        "- Nearby population → evacuation needs\n"
+        "- Thermal/CO2 emissions → health hazards\n"
+    ),
+    "flood": (
+        "\nDOMAIN TEMPLATE (flood event):\n"
+        "- Affected area and population → humanitarian impact\n"
+        "- Critical infrastructure → disruption assessment\n"
+        "- Weather pattern → duration and escalation risk\n"
+        "- Agricultural impact → food security implications\n"
+    ),
+    "cyclone": (
+        "\nDOMAIN TEMPLATE (cyclone/typhoon event):\n"
+        "- Category/wind speed → damage potential\n"
+        "- Track forecast → areas at risk\n"
+        "- Storm surge → coastal flooding risk\n"
+        "- Evacuation status → population safety\n"
+    ),
+    "fire": (
+        "\nDOMAIN TEMPLATE (wildfire event):\n"
+        "- Fire size/intensity → containment difficulty\n"
+        "- Wind/terrain → spread direction and speed\n"
+        "- Population/property → evacuation needs\n"
+        "- Air quality → health impact radius\n"
+    ),
+    "conflict": (
+        "\nDOMAIN TEMPLATE (conflict/attack event):\n"
+        "- Actors involved → motivation and capability\n"
+        "- Casualties/displacement → humanitarian impact\n"
+        "- Regional stability → escalation risk\n"
+        "- Economic assets → supply chain disruption\n"
+        "- International response → diplomatic implications\n"
+    ),
+    "vessel": (
+        "\nDOMAIN TEMPLATE (maritime event):\n"
+        "- Vessel type/cargo → incident severity\n"
+        "- Location (port/straight/open sea) → jurisdiction\n"
+        "- AIS data → track history and anomalies\n"
+        "- Nearby vessels → collision/assistance potential\n"
+    ),
+    "cyber": (
+        "\nDOMAIN TEMPLATE (cyber event):\n"
+        "- CVE/exploit details → affected systems\n"
+        "- Threat actor → capability and motivation\n"
+        "- Sector impact → cascading effects\n"
+        "- Ransomware group → leak site timeline\n"
+        "- Darkweb mentions → threat intelligence\n"
+    ),
+    "protest": (
+        "\nDOMAIN TEMPLATE (civil unrest event):\n"
+        "- Scale/intensity → disruption level\n"
+        "- Grievances → underlying causes\n"
+        "- Government response → escalation risk\n"
+        "- Economic impact → business disruption\n"
+    ),
+}
+
+
+def _build_synthesis_directive(
+    event_type: str | None = None,
+    intent: str = "general",
+) -> str:
+    """Build P2 synthesis directive with SATs, evidence weighting, red-team, and actionable.
+
+    Returns a string appended to the system prompt when enriched context is present.
+    All sections are controlled by env flags (default on).
+    """
+    parts: list[str] = []
+
+    # Synthesis directive
+    if os.getenv("WORLDBASE_CHAT_SYNTHESIS_DIRECTIVE", "1").strip() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        parts.append(
+            "\nANALYSIS DIRECTIVE (query-enriched context is present):\n"
+            "- Cross-reference the event with ALL provided telemetry sources:\n"
+            "  * GDELT events near the location → political/social context\n"
+            "  * FtM graph entities → who/what is connected to this location\n"
+            "  * Fusion hotspots → is this a pattern or isolated event?\n"
+            "  * ReliefWeb crises → humanitarian situation\n"
+            "  * Maritime AIS → port/vessel activity if coastal\n"
+            "- Assess IMPLICATIONS, not just facts:\n"
+            "  * What infrastructure is at risk?\n"
+            "  * What political/economic factors amplify or mitigate?\n"
+            "  * What should the operator monitor next?\n"
+            "- If data is sparse for a source, say 'DATA GAP: [source]' — do not speculate.\n"
+        )
+
+    # Domain-specific template
+    if (
+        os.getenv("WORLDBASE_CHAT_DOMAIN_TEMPLATES", "1").strip()
+        in ("1", "true", "yes", "on")
+        and event_type
+        and event_type in _DOMAIN_TEMPLATES
+    ):
+        parts.append(_DOMAIN_TEMPLATES[event_type])
+
+    # Structured Analytic Techniques (SATs)
+    if os.getenv("WORLDBASE_CHAT_SATS", "1").strip() in ("1", "true", "yes", "on"):
+        parts.append(
+            "\nSTRUCTURED ANALYTIC TECHNIQUES (mandatory when enriched context present):\n"
+            "- KEY ASSUMPTIONS CHECK: Begin the analysis by listing 2-3 implicit "
+            "assumptions that underpin your assessment. State them explicitly: "
+            "'We assume that...'\n"
+            "- ANALYSIS OF COMPETING HYPOTHESES (ACH): When the event is ambiguous, "
+            "present at least two competing hypotheses and evaluate each against the "
+            "available evidence. Do not default to the most obvious explanation.\n"
+            "- DEVIL'S ADVOCACY: End every analysis with a 'COUNTERARGUMENT' section "
+            "that argues against your own main thesis. What evidence would change "
+            "this assessment?\n"
+            "- INDICATORS & WARNINGS: Conclude with specific, observable signals "
+            "that would confirm or refute the assessment. Format as a watchlist.\n"
+        )
+
+    # Evidence weighting
+    if os.getenv("WORLDBASE_CHAT_EVIDENCE_WEIGHTING", "1").strip() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        parts.append(
+            "\nEVIDENCE WEIGHTING (for each key claim in the analysis):\n"
+            "- List supporting sources with confidence: "
+            "[HIGH — direct measurement], [MEDIUM — indirect], [LOW — negative evidence]\n"
+            "- State overall claim confidence: HIGH / MEDIUM / LOW\n"
+            "- If single-source and uncorroborated, tag as "
+            "[SINGLE-SOURCE — unverified]\n"
+        )
+
+    # Red-team review
+    if os.getenv("WORLDBASE_CHAT_RED_TEAM", "1").strip() in ("1", "true", "yes", "on"):
+        parts.append(
+            "\nBLIND SPOTS & LIMITATIONS (mandatory section):\n"
+            "- List data sources that were unavailable or sparse\n"
+            "- Note temporal limitations (data freshness, window size)\n"
+            "- Identify analytical gaps (e.g. no HUMINT, no SAR, AIS coverage)\n"
+            "- State the data cutoff timestamp\n"
+        )
+
+    # Actionable intelligence
+    if os.getenv("WORLDBASE_CHAT_ACTIONABLE", "1").strip() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        parts.append(
+            "\nRECOMMENDED ACTIONS (mandatory closing block):\n"
+            "1. MONITOR: [specific signal to watch] (source: [feed/API])\n"
+            "2. VERIFY: [specific verification step] (method: [SAR/cross-source/HUMINT])\n"
+            "3. ALERT: [threshold or trigger for escalation]\n"
+            "4. ESCALATE: [condition that requires senior analyst notification]\n"
+        )
+
+    # Fusion matrix
+    if os.getenv("WORLDBASE_CHAT_FUSION_MATRIX", "1").strip() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        parts.append(
+            "\nFUSION MATRIX (include when multiple sources are enriched):\n"
+            "                    USGS    GDELT    FtM    AIS    ReliefWeb\n"
+            "Event details      ████    ░░░░     ░░░░   ░░░░   ░░░░\n"
+            "Political context  ░░░░    ████     ██░░   ░░░░   ░░░░\n"
+            "Infrastructure     ██░░    ░░░░     ████   ░░░░   ░░░░\n"
+            "Maritime           ░░░░    ░░░░     ░░░░   ████   ░░░░\n"
+            "Humanitarian       ░░░░    ░░░░     ░░░░   ░░░░   ████\n"
+            "LEGEND: ████ = direct data, ██░░ = indirect, ░░░░ = no data\n"
+            "(Fill in actual coverage based on enriched context blocks above)\n"
+        )
+
+    return "".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Auto web search — when user explicitly requests live data / DuckDuckGo
+# ---------------------------------------------------------------------------
+
+_WEB_SEARCH_TRIGGERS = {
+    "duckduckgo",
+    "web search",
+    "web-search",
+    "search the web",
+    "search web",
+    "live data",
+    "live search",
+    "live research",
+    "recherche",
+    "suche im web",
+    "suche duckduckgo",
+    "nutze duckduckgo",
+    "use duckduckgo",
+    "use web search",
+    "google it",
+    "look it up",
+    "look up",
+    "fetch live",
+    "current data",
+    "aktuelle daten",
+    "echtzeit",
+    "real-time data",
+    "realtime data",
+    "internet search",
+    "online search",
+    "browse the web",
+    "suche im internet",
+    "im internet suchen",
+    "suche im netz",
+    "search the internet",
+    "search online",
+    "find online",
+    "suche infos",
+    "suche informationen",
+    "suche mir",
+    "search for info",
+    "find information",
+    "check noch einmal",
+    "check again",
+    "prüfe nach",
+    "schau nach",
+    "nachprüfen",
+    "schauen sie nach",
+    "look again",
+    "check for info",
+    "suche nach",
+    "search for",
+    "check for details",
+}
+
+# Regex patterns for more flexible matching (e.g. "suche ... im internet")
+_WEB_SEARCH_PATTERNS = [
+    re.compile(r"\bsuche\b.*\binternet\b", re.IGNORECASE),
+    re.compile(r"\bsuche\b.*\bweb\b", re.IGNORECASE),
+    re.compile(r"\bsuche\b.*\bonline\b", re.IGNORECASE),
+    re.compile(r"\bsearch\b.*\binternet\b", re.IGNORECASE),
+    re.compile(r"\bsearch\b.*\bweb\b", re.IGNORECASE),
+    re.compile(r"\bsearch\b.*\bonline\b", re.IGNORECASE),
+    re.compile(r"\bfind\b.*\binternet\b", re.IGNORECASE),
+    re.compile(r"\bfind\b.*\bweb\b", re.IGNORECASE),
+    re.compile(r"\brecherche\b.*\binternet\b", re.IGNORECASE),
+    re.compile(r"\brecherche\b.*\bweb\b", re.IGNORECASE),
+    re.compile(r"\bcheck\b.*\binfo\b", re.IGNORECASE),
+    re.compile(r"\bcheck\b.*\bnach\b", re.IGNORECASE),
+    re.compile(r"\bprüf\b.*\binfo\b", re.IGNORECASE),
+    re.compile(r"\bsuche\b.*\bnach\b", re.IGNORECASE),
+    re.compile(r"\bschau\b.*\bnach\b", re.IGNORECASE),
+    re.compile(r"\blook\b.*\bagain\b", re.IGNORECASE),
+    re.compile(r"\bcheck\b.*\bagai\b", re.IGNORECASE),
+    re.compile(r"\bfind\b.*\binfo\b", re.IGNORECASE),
+]
+
+
+def _wants_web_search(text: str) -> bool:
+    """Detect if the user explicitly requests web search / live data."""
+    if not text or len(text) < 5:
+        return False
+    lower = text.lower()
+    if any(trigger in lower for trigger in _WEB_SEARCH_TRIGGERS):
+        return True
+    return any(p.search(text) for p in _WEB_SEARCH_PATTERNS)
+
+
+async def _auto_web_search(query: str) -> str:
+    """Fetch DuckDuckGo results and format as context block.
+
+    Reuses the /api/search endpoint logic (chat_context.search_web).
+    Returns formatted string or empty string on failure.
+    """
+    try:
+        from chat_context import search_web
+
+        result = await search_web(q=query, n=5)
+        if result.get("results"):
+            lines = []
+            for i, r in enumerate(result["results"]):
+                lines.append(
+                    f"[{i + 1}] {r.get('title', '')}\n"
+                    f"{r.get('snippet', '')}\n"
+                    f"URL: {r.get('url', '')}"
+                )
+            return "\n\n".join(lines)
+    except Exception:
+        pass
+    return ""
+
+
 async def _prepare_chat_messages(
     payload: dict,
-) -> tuple[list, dict | None, dict | None, str]:
-    """Firewall scan + WorldBase context. Returns (messages, firewall_meta, block_payload, user_text)."""
+) -> tuple[list, dict | None, dict | None, str, list[str]]:
+    """Firewall scan + WorldBase context. Returns (messages, firewall_meta, block_payload, user_text, context_blocks)."""
     firewall_meta = None
     messages = list(payload.get("messages", []))
     user_text = ""
@@ -149,16 +467,46 @@ async def _prepare_chat_messages(
     search_results = payload.get("search_results", "")
     entity_context = payload.get("entity_context", "")
     want_ctx = bool(payload.get("context"))
-    ctx = await build_chat_context() if want_ctx else ""
+
+    # Reuse user_text already extracted for enrichment (P1) and RAG routing
+    user_q = user_text
+
+    # Auto-web-search: if the user explicitly requests DuckDuckGo / web search
+    # / live research but no pre-fetched search_results were sent by the frontend
+    # (i.e. the 🔍 toggle was off), fetch them now.
+    # When entity_context is present, use the entity title as the search query
+    # (the user is asking about the selected target, not their literal words).
+    if not search_results and user_q and _wants_web_search(user_q):
+        search_query = user_q
+        if entity_context:
+            elines = entity_context.split("\n")
+            entity_title = re.sub(r"^Entity:\s*", "", elines[0]).strip()
+            area = ""
+            date = ""
+            cat = ""
+            for line in elines[1:]:
+                if line.startswith("AREA:"):
+                    area = line.replace("AREA:", "").strip()
+                elif line.startswith("DATE:"):
+                    date = line.replace("DATE:", "").strip()
+                elif line.startswith("CATEGORY:"):
+                    cat = line.replace("CATEGORY:", "").strip()
+            parts = [p for p in [entity_title, cat, area, date] if p and len(p) > 1]
+            if parts:
+                search_query = " ".join(parts)
+            elif entity_title and len(entity_title) > 3:
+                search_query = entity_title
+        search_results = await _auto_web_search(search_query)
+
+    # Pass query to build_chat_context for query-aware enrichment
+    ctx = await build_chat_context(query=user_q) if want_ctx else ""
 
     rag_block = ""
     route_tag = ""
     agentic_trace_line = ""
     if want_ctx:
-        from firewall_bridge import _extract_user_text
         from query_router import router_enabled, route_label
 
-        user_q = _extract_user_text(messages)
         if len(user_q) >= 8:
             if router_enabled():
                 from rag_crag import build_routed_block
@@ -254,42 +602,80 @@ async def _prepare_chat_messages(
         if search_results:
             parts.append("=== WEB SEARCH RESULTS ===\n" + search_results)
         entity_rules = (
-            "\n6. SELECTED TARGET is the operator's picked map entity — analyze IT first; "
-            "do not answer with generic world news unless the target clearly ties to it.\n"
+            "\nENTITY PROTOCOL:\n"
+            "- The SELECTED TARGET block is the ONLY source of data about that entity.\n"
+            "- List the exact fields present in the block before analyzing.\n"
+            "- Do NOT add details (dates, timestamps, coordinates, source names, URLs) "
+            "not in the block.\n"
+            "- Do NOT reference GDELT, GDACS, ReliefWeb, USGS, NIFC, WFCA, or any feed "
+            "source unless its data appears in a context block above.\n"
+            "- If no === INTERNAL TELEMETRY === block is present, you have NO live feed "
+            "access. State this if asked.\n"
             if entity_context
             else ""
         )
+
+        # P2: Synthesis directive + SATs + evidence weighting + red-team + actionable
+        # Injected when query-enriched context is present
+        synthesis_directive = ""
+        has_enriched = "=== QUERY-ENRICHED CONTEXT ===" in (ctx or "")
+        if has_enriched:
+            try:
+                from chat_context_enricher import get_query_event_type, get_query_intent
+
+                event_type = get_query_event_type(user_q)
+                intent = get_query_intent(user_q)
+                synthesis_directive = _build_synthesis_directive(
+                    event_type=event_type, intent=intent
+                )
+            except Exception:
+                synthesis_directive = _build_synthesis_directive()
+
+        # Build explicit list of available context blocks
+        available_blocks = []
+        if ctx:
+            available_blocks.append("INTERNAL TELEMETRY")
+        if rag_block:
+            available_blocks.append("RAG MEMORY")
+        if entity_context:
+            available_blocks.append("SELECTED TARGET")
+        if search_results:
+            available_blocks.append("WEB SEARCH RESULTS")
+        blocks_list = ", ".join(available_blocks) if available_blocks else "NONE"
+
         system_msg = {
             "role": "system",
             "content": (
                 f"You are WorldBase AI — {host_label} on a spatial intelligence workstation.\n\n"
+                "ROLE: You are a RAW DATA INTERPRETER, not a creative writer. Your job is to "
+                "interpret the data blocks below and answer the user's question. You are NOT "
+                "an analyst who fills gaps with plausible-sounding narrative.\n\n"
+                f"AVAILABLE CONTEXT BLOCKS: {blocks_list}\n"
+                "If a block is not listed above, its data is NOT available. Do not reference it.\n\n"
                 "CAPABILITIES (be honest if asked):\n"
-                "- Direct internet: only when the operator enabled web search (🔍); "
-                "then you receive DuckDuckGo snippets below — not live browsing.\n"
-                "- Live feeds (aircraft, quakes, nodes, CVE, headlines): only when "
-                "INTERNAL TELEMETRY is attached (CTX/situation mode).\n"
-                "- RAG MEMORY block: citable indexed briefings/feeds; CRAG fallback "
-                "adds live situations + FtM subgraph when memory confidence is low.\n"
-                "- Query Router (P1): retrieval mode shown above — use the indicated "
-                "retrieval strategy (VECTOR/GRAPH/SPATIAL/HYBRID/LIVE) for context.\n"
-                "- Agentic (P3): when AGENTIC trace is shown, coverage gaps were filled "
-                "with targeted retrieval; [corroborated]/[uncorroborated] tags mark "
-                "claim strength — weigh tagged claims accordingly.\n"
+                "- Direct internet: only when WEB SEARCH RESULTS block is present (operator "
+                "enabled 🔍 or auto-search triggered). Not live browsing.\n"
+                "- Live feeds: only when INTERNAL TELEMETRY block is present (CTX mode).\n"
+                "- RAG MEMORY: indexed briefings/feeds when block is present.\n"
                 "- Tools may query WorldBase APIs (situations, OSINT lookups, "
                 "spatial_query for 'within X km of Y' questions).\n"
                 "- GLOBE CONTROL: When the user asks to show, focus, or navigate to "
-                "any place (e.g. 'show me Berlin', 'zoom to 35.68,139.76'), call the "
-                "focus_globe tool with approximate coordinates — the operator's 3D globe "
-                "will fly there automatically.\n\n"
-                "RULES:\n"
-                "1. Answer the user's actual question FIRST (1-3 sentences), same language.\n"
-                "2. Use ONLY data in the blocks below — never invent URLs, headlines, or CVEs.\n"
-                "3. Cite sources only from WEB SEARCH RESULTS or INTERNAL TELEMETRY; "
-                "if none apply, say so — no fake SOURCES section.\n"
-                "4. Use KEY FINDINGS → DETAILS → SOURCES only for explicit analysis requests; "
-                "skip that template for simple or meta questions.\n"
-                "5. If data is missing, say 'DATA GAP: [topic]' — do not guess.\n"
+                "any place, call the focus_globe tool.\n\n"
+                "PROTOCOL (follow exactly):\n"
+                "1. ANSWER FIRST: 1-3 sentences in the user's language, based ONLY on "
+                "data in the blocks above.\n"
+                "2. SOURCE DISCIPLINE: Every factual claim must come from a listed block. "
+                "If a claim is not supported by block data, say 'DATA GAP: [topic]'.\n"
+                "3. NO FABRICATION: Do not invent URLs, dates, timestamps, coordinates, "
+                "source names, statistics, or details not present in the blocks.\n"
+                "4. NO SOURCE NAME-DROPPING: Do not mention GDELT, USGS, ReliefWeb, GDACS, "
+                "NIFC, or any source unless its data is in a block above.\n"
+                "5. HONESTY OVER CONFIDENCE: 'I don't have that data' is the correct answer "
+                "when data is absent. Dry truth is valued over confident fabrication.\n"
+                "6. CONCISE: Keep responses short. No padding with speculation or generic "
+                "background knowledge.\n"
                 + entity_rules
+                + synthesis_directive
                 + "\n\n"
                 + "\n\n".join(parts)
             ),
@@ -309,7 +695,110 @@ async def _prepare_chat_messages(
             }
         ] + messages
 
-    return messages, firewall_meta, None, user_text
+    # Collect context blocks for claim auditor
+    context_blocks: list[str] = []
+    if ctx:
+        context_blocks.append(ctx)
+    if rag_block:
+        context_blocks.append(rag_block)
+    if entity_context:
+        context_blocks.append(entity_context)
+    if search_results:
+        context_blocks.append(search_results)
+
+    return messages, firewall_meta, None, user_text, context_blocks
+
+
+# Known feed/data source names that must only appear if their data is in context
+_KNOWN_SOURCES = [
+    "GDELT",
+    "USGS",
+    "ReliefWeb",
+    "GDACS",
+    "NIFC",
+    "WFCA",
+    "AISStream",
+    "OpenSky",
+    "NewsData",
+    "EONET",
+    "FIRMS",
+    "Sentinel",
+    "CAMS",
+    "HDX",
+    "OCHA",
+    "ENTSO-E",
+    "SMARD",
+    "Blitzortung",
+    "Ransomware.live",
+    "RansomLook",
+    "USA Today",
+    "Gannett",
+    "Reuters",
+    "AP News",
+    "BBC",
+    "DuckDuckGo",
+]
+
+# Patterns for specific fabricated details
+_URL_RE = re.compile(r"https?://[^\s\)\]]+", re.IGNORECASE)
+_DATE_TIME_RE = re.compile(
+    r"\b\d{1,2}:\d{2}\s*(?:AM|PM|UTC|EDT|EST|PDT|PST)?\b", re.IGNORECASE
+)
+
+
+def _claim_auditor(
+    response_text: str, context_blocks: list[str]
+) -> tuple[str, dict | None]:
+    """Post-generation claim verification.
+
+    Checks the LLM response for source names, URLs, and timestamps that
+    do not appear in any context block. If found, appends a verification
+    warning to the response. Does NOT modify the response body — only appends.
+    """
+    if not response_text or not context_blocks:
+        return response_text, None
+
+    combined_ctx = " ".join(context_blocks)
+    ctx_lower = combined_ctx.lower()
+    resp_lower = response_text.lower()
+
+    violations: list[str] = []
+
+    # Check 1: Source names not in context
+    for src in _KNOWN_SOURCES:
+        if src.lower() in resp_lower and src.lower() not in ctx_lower:
+            violations.append(f"Source '{src}' referenced but not in context blocks")
+
+    # Check 2: URLs not in context (extract all URLs from response, check if in context)
+    resp_urls = set(_URL_RE.findall(response_text))
+    for url in resp_urls:
+        if url.lower() not in ctx_lower:
+            violations.append(f"URL '{url}' not found in context blocks")
+
+    # Check 3: Specific times (e.g. "8:03 AM") not in context
+    resp_times = set(_DATE_TIME_RE.findall(response_text))
+    for ts in resp_times:
+        if ts.lower() not in ctx_lower:
+            violations.append(f"Timestamp '{ts}' not found in context blocks")
+
+    if not violations:
+        return response_text, None
+
+    warning = "\n\n---\n⚠ **CLAIM AUDITOR WARNING**: The following claims could not be verified against context data:\n"
+    for v in violations[:10]:
+        warning += f"- {v}\n"
+    warning += (
+        "\nThese may be fabricated. Verify with 🔍 web search or CTX telemetry mode.\n"
+        "---\n"
+    )
+
+    meta = {
+        "claim_auditor": {
+            "violations": violations[:10],
+            "violation_count": len(violations),
+        }
+    }
+    return response_text + warning, meta
 
 
 def _apply_output_guard(
@@ -373,6 +862,7 @@ async def chat_proxy(
                     firewall_meta,
                     block_msg,
                     user_text,
+                    context_blocks,
                 ) = await _prepare_chat_messages(payload)
                 if block_msg:
                     yield f"data: {json.dumps(block_msg)}\n\n"
@@ -432,9 +922,13 @@ async def chat_proxy(
 
             return StreamingResponse(ollama_stream(), media_type="text/event-stream")
 
-        messages, firewall_meta, block_msg, user_text = await _prepare_chat_messages(
-            payload
-        )
+        (
+            messages,
+            firewall_meta,
+            block_msg,
+            user_text,
+            context_blocks,
+        ) = await _prepare_chat_messages(payload)
         if block_msg:
             return block_msg
 
@@ -448,13 +942,17 @@ async def chat_proxy(
                     )
                     text = (final_msgs[-1].get("content") or "") if final_msgs else ""
                     text, og_meta = _apply_output_guard(text, user_text)
+                    text, ca_meta = _claim_auditor(text, context_blocks)
+                    audit_meta = og_meta or {}
+                    if ca_meta:
+                        audit_meta = {**audit_meta, **ca_meta}
                     return {
                         "message": {"role": "assistant", "content": text},
                         "client_actions": actions,
                         "done": True,
                         **(
-                            {"firewall_result": {**(firewall_meta or {}), **og_meta}}
-                            if og_meta
+                            {"firewall_result": {**(firewall_meta or {}), **audit_meta}}
+                            if audit_meta
                             else {}
                         ),
                     }
@@ -470,11 +968,15 @@ async def chat_proxy(
                     resp_text = (data.get("message") or {}).get("content", "")
                     if resp_text:
                         resp_text, og_meta = _apply_output_guard(resp_text, user_text)
+                        resp_text, ca_meta = _claim_auditor(resp_text, context_blocks)
                         data.setdefault("message", {})["content"] = resp_text
-                        if og_meta:
+                        audit_meta = og_meta or {}
+                        if ca_meta:
+                            audit_meta = {**audit_meta, **ca_meta}
+                        if audit_meta:
                             data["firewall_result"] = {
                                 **(firewall_meta or {}),
-                                **og_meta,
+                                **audit_meta,
                             }
                     return data
             except httpx.ConnectError:
@@ -509,9 +1011,13 @@ async def chat_proxy(
     # ------------------------------------------------------------------
     # EXTERNAL PROVIDERS (OpenAI-compatible or Anthropic)
     # ------------------------------------------------------------------
-    messages, firewall_meta, block_msg, user_text = await _prepare_chat_messages(
-        payload
-    )
+    (
+        messages,
+        firewall_meta,
+        block_msg,
+        user_text,
+        context_blocks,
+    ) = await _prepare_chat_messages(payload)
     if block_msg:
         if use_stream:
             return StreamingResponse(
@@ -627,8 +1133,11 @@ async def chat_proxy(
             "model": model,
             "messages": messages,
             "stream": use_stream,
-            "temperature": 0.7,
-            "max_tokens": 2048 if force_fast else 8192,
+            "temperature": 0.15 if provider == "nvidia" else 0.7,
+            "top_p": 0.4 if provider == "nvidia" else 0.9,
+            "max_tokens": (1024 if force_fast else 2048)
+            if provider == "nvidia"
+            else (2048 if force_fast else 8192),
         }
 
         # ----- Tool-calling loop (full WorldBase access for cloud models) -----
@@ -654,14 +1163,18 @@ async def chat_proxy(
                 )
                 text = (final_msgs[-1].get("content") or "") if final_msgs else ""
                 text, og_meta = _apply_output_guard(text, user_text)
+                text, ca_meta = _claim_auditor(text, context_blocks)
+                audit_meta = og_meta or {}
+                if ca_meta:
+                    audit_meta = {**audit_meta, **ca_meta}
                 return {
                     "message": {"role": "assistant", "content": text},
                     "client_actions": actions,
                     "done": True,
                     "provider": provider,
                     **(
-                        {"firewall_result": {**(firewall_meta or {}), **og_meta}}
-                        if og_meta
+                        {"firewall_result": {**(firewall_meta or {}), **audit_meta}}
+                        if audit_meta
                         else {}
                     ),
                 }
@@ -721,6 +1234,10 @@ async def chat_proxy(
                     "text", ""
                 )
                 resp_text, og_meta = _apply_output_guard(resp_text, user_text)
+                resp_text, ca_meta = _claim_auditor(resp_text, context_blocks)
+                audit_meta = og_meta or {}
+                if ca_meta:
+                    audit_meta = {**audit_meta, **ca_meta}
                 return {
                     "message": {
                         "role": "assistant",
@@ -730,8 +1247,8 @@ async def chat_proxy(
                     "provider": provider,
                     "model": data.get("model"),
                     **(
-                        {"firewall_result": {**(firewall_meta or {}), **og_meta}}
-                        if og_meta
+                        {"firewall_result": {**(firewall_meta or {}), **audit_meta}}
+                        if audit_meta
                         else {}
                     ),
                 }

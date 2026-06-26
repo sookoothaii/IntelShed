@@ -399,9 +399,16 @@ export default function ChatPanel({
 
     let searchCtx = ''
     if (useWebSearch) {
-      const searchQ = isEntityAsk && entityCtx
-        ? entityCtx.split('\n')[0].replace(/^Entity:\s*/, '').trim() || text
-        : text
+      let searchQ = text
+      if (isEntityAsk && entityCtx) {
+        const lines = entityCtx.split('\n')
+        const title = lines[0].replace(/^Entity:\s*/, '').trim()
+        const area = lines.find(l => /^AREA:/i.test(l))?.replace(/^AREA:\s*/i, '').trim() || ''
+        const date = lines.find(l => /^DATE:/i.test(l))?.replace(/^DATE:\s*/i, '').trim() || ''
+        const cat = lines.find(l => /^CATEGORY:/i.test(l))?.replace(/^CATEGORY:\s*/i, '').trim() || ''
+        const parts = [title, cat, area, date].filter(Boolean)
+        searchQ = parts.join(' ') || title || text
+      }
       setGenStatus('🔍 DuckDuckGo search…')
       try {
         const sr = await fetchApi(`/api/search?q=${encodeURIComponent(searchQ)}&n=5`)
