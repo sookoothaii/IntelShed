@@ -172,6 +172,47 @@ def _compile_alerts(snap: dict) -> list:
                 f"HF radio/GPS may degrade.",
             }
         )
+    dst = sw.get("dst")
+    if dst is not None and dst <= -100:
+        alerts.append(
+            {
+                "severity": "high" if dst <= -150 else "medium",
+                "kind": "space_weather_dst",
+                "text": f"Geomagnetic storm (Dst={dst:.0f} nT). Power grid/GPS risk elevated.",
+            }
+        )
+    solar = sw.get("solar_wind") or {}
+    sw_speed = solar.get("speed_km_s")
+    if sw_speed is not None and sw_speed >= 600:
+        alerts.append(
+            {
+                "severity": "medium",
+                "kind": "solar_wind",
+                "text": f"High-speed solar wind {sw_speed:.0f} km/s. Aurora/HF propagation impact likely.",
+            }
+        )
+    protons = sw.get("protons") or {}
+    p10 = protons.get("gt_10_mev")
+    if p10 is not None and p10 >= 10:
+        alerts.append(
+            {
+                "severity": "high" if p10 >= 100 else "medium",
+                "kind": "proton_event",
+                "text": f"Elevated proton flux >10 MeV ({p10:.1f} pfu). Radiation storm risk.",
+            }
+        )
+    for a in (sw.get("alerts") or [])[:3]:
+        msg = (a.get("message") or "").strip()
+        if not msg:
+            continue
+        asev = a.get("severity", "").lower()
+        alerts.append(
+            {
+                "severity": "high" if asev in ("extreme", "severe") else "medium",
+                "kind": "swpc_alert",
+                "text": f"SWPC: {msg[:160]}",
+            }
+        )
 
     try:
         import markets_bridge
@@ -420,6 +461,7 @@ async def _generate_briefing_unlocked(
     ransomware_digest: dict = {"enabled": False, "count": 0, "lines": []}
     telegram_digest: dict = {"enabled": False, "count": 0, "lines": []}
     maritime_anomaly_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    spaceweather_digest: dict = {"enabled": False, "count": 0, "lines": []}
     try:
         import darkweb_bridge
 
@@ -444,6 +486,12 @@ async def _generate_briefing_unlocked(
         maritime_anomaly_digest = await gather_maritime_anomaly_digest()
     except Exception:
         pass
+    try:
+        from spaceweather_briefing import gather_spaceweather_digest
+
+        spaceweather_digest = gather_spaceweather_digest(snap)
+    except Exception:
+        pass
 
     if ransomware_digest:
         snap["ransomware_digest"] = ransomware_digest
@@ -451,6 +499,8 @@ async def _generate_briefing_unlocked(
         snap["telegram_digest"] = telegram_digest
     if maritime_anomaly_digest:
         snap["maritime_anomaly_digest"] = maritime_anomaly_digest
+    if spaceweather_digest:
+        snap["spaceweather_digest"] = spaceweather_digest
     digest = format_digest_sections(
         snap,
         alerts,
@@ -463,6 +513,7 @@ async def _generate_briefing_unlocked(
         ransomware_digest=ransomware_digest,
         telegram_digest=telegram_digest,
         maritime_anomaly_digest=maritime_anomaly_digest,
+        spaceweather_digest=spaceweather_digest,
     )
     from briefing_agentic import run_briefing_agentic_loop
 
@@ -513,6 +564,8 @@ async def _generate_briefing_unlocked(
             "global_count": len(digest.get("global") or []),
             "intel_count": intel_src.get("count", 0),
             "maritime": digest.get("maritime")
+            or {"enabled": False, "count": 0, "lines": []},
+            "spaceweather": digest.get("spaceweather")
             or {"enabled": False, "count": 0, "lines": []},
         },
         "_digest_sections": {

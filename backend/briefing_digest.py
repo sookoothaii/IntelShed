@@ -841,6 +841,16 @@ def build_watch_items(
             )
         )
 
+    spaceweather_digest = snap.get("spaceweather_digest") or {}
+    if spaceweather_digest.get("enabled"):
+        try:
+            from spaceweather_briefing import build_spaceweather_watch_items
+
+            for item in build_spaceweather_watch_items(spaceweather_digest):
+                candidates.append(item)
+        except Exception:
+            pass
+
     for ds in (snap.get("humanitarian", {}) or {}).get("datasets") or []:
         title = ds.get("title") or ""
         if not title:
@@ -1018,6 +1028,7 @@ def format_digest_sections(
     ransomware_digest: dict[str, Any] | None = None,
     telegram_digest: dict[str, Any] | None = None,
     maritime_anomaly_digest: dict[str, Any] | None = None,
+    spaceweather_digest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
@@ -1156,6 +1167,8 @@ def format_digest_sections(
         "ransomware": ransomware_digest or {"enabled": False, "count": 0, "lines": []},
         "telegram": telegram_digest or {"enabled": False, "count": 0, "lines": []},
         "maritime": maritime_anomaly_digest
+        or {"enabled": False, "count": 0, "lines": []},
+        "spaceweather": spaceweather_digest
         or {"enabled": False, "count": 0, "lines": []},
         "_gdelt_collected": gdelt_collected,
     }

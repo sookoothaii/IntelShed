@@ -159,6 +159,15 @@ def build_security_advisor_prompt(
         for line in telegram["lines"]:
             prompt += f"  - {line}\n"
         prompt += "\n"
+    spaceweather = digest.get("spaceweather") or {}
+    if spaceweather.get("enabled"):
+        prompt += "SPACE WEATHER (NOAA SWPC, 24h):\n"
+        if spaceweather.get("lines"):
+            for line in spaceweather.get("lines"):
+                prompt += f"  - {line}\n"
+        else:
+            prompt += "  - No significant space weather activity.\n"
+        prompt += "\n"
     maritime = digest.get("maritime") or {}
     if maritime.get("enabled"):
         prompt += "MARITIME ANOMALIES (AIS pattern-of-life, 24h):\n"

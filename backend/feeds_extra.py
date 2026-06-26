@@ -114,38 +114,68 @@ _UA = {"User-Agent": "WorldBase/1.0 (spatial intelligence dashboard)"}
 # ---------------------------------------------------------------------------
 @router.get("/spaceweather")
 async def space_weather():
-    """Planetary K-index + solar wind summary (cached 5 min). No key."""
+    """Planetary K-index + solar wind + Dst + protons + alerts + forecast (cached 5 min). No key."""
     key = "spaceweather"
     cached = await _get(key, ttl=300.0)
     if cached is not None:
         return cached
+
     try:
-        async with httpx.AsyncClient(timeout=20.0, headers=_UA) as client:
-            kp = await client.get(
+        async with httpx.AsyncClient(timeout=25.0, headers=_UA) as client:
+            kp_task = client.get(
                 "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
             )
-            kp.raise_for_status()
-            rows = kp.json()  # list of {"time_tag":..,"Kp":..,"a_running":..,...}
+            sw_task = client.get(
+                "https://services.swpc.noaa.gov/json/ace/swepam/ace_swepam_1h.json"
+            )
+            dst_task = client.get("https://services.swpc.noaa.gov/json/dst.json")
+            protons_task = client.get(
+                "https://services.swpc.noaa.gov/json/ace/epam/ace_epam_1h.json"
+            )
+            alerts_task = client.get(
+                "https://services.swpc.noaa.gov/products/alerts.json"
+            )
+            forecast_task = client.get(
+                "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json"
+            )
+            kp_r, sw_r, dst_r, protons_r, alerts_r, forecast_r = await asyncio.gather(
+                kp_task,
+                sw_task,
+                dst_task,
+                protons_task,
+                alerts_task,
+                forecast_task,
+                return_exceptions=True,
+            )
 
-        def _row(r):
-            """Normalize a row (dict or list+header) to (time_tag, kp)."""
+        def _kp_row(r):
             if isinstance(r, dict):
                 return r.get("time_tag"), r.get("Kp")
             if isinstance(r, list) and len(r) >= 2:
                 return r[0], r[1]
             return None, None
 
-        # drop a possible header row (list-of-lists variant)
-        data_rows = [
-            r for r in rows if not (isinstance(r, list) and r and r[1] == "Kp")
-        ]
-        latest = data_rows[-1] if data_rows else None
-        _, kp_raw = _row(latest) if latest else (None, None)
+        # Kp
+        kp_val = None
+        kp_time = None
+        kp_rows = []
         try:
+            kp_rows_raw = (
+                kp_r.json()
+                if isinstance(kp_r, httpx.Response) and kp_r.status_code == 200
+                else []
+            )
+            kp_rows = [
+                r
+                for r in kp_rows_raw
+                if not (isinstance(r, list) and r and r[1] == "Kp")
+            ]
+            latest = kp_rows[-1] if kp_rows else None
+            kp_time, kp_raw = _kp_row(latest) if latest else (None, None)
             kp_val = float(kp_raw) if kp_raw not in (None, "null") else None
-        except (TypeError, ValueError):
-            kp_val = None
-        # storm scale interpretation
+        except Exception:
+            pass
+
         scale = "quiet"
         if kp_val is not None:
             if kp_val >= 8:
@@ -156,20 +186,145 @@ async def space_weather():
                 scale = "minor-moderate storm (G1-G2)"
             elif kp_val >= 4:
                 scale = "active"
+
         history = []
-        for r in data_rows[-24:]:
-            t, k = _row(r)
+        for r in kp_rows[-24:]:
+            t, k = _kp_row(r)
             try:
                 history.append({"time": t, "kp": float(k)})
             except (TypeError, ValueError):
                 continue
+
+        # Solar wind (latest 1h entry)
+        solar_wind: dict = {}
+        try:
+            sw_data = (
+                sw_r.json()
+                if isinstance(sw_r, httpx.Response) and sw_r.status_code == 200
+                else []
+            )
+            if sw_data and isinstance(sw_data, list):
+                entry = sw_data[-1]
+                if isinstance(entry, dict):
+                    solar_wind = {
+                        "time": entry.get("time_tag"),
+                        "speed_km_s": _float_or_none(entry.get("speed")),
+                        "density_p_cc": _float_or_none(entry.get("density")),
+                        "temperature_k": _float_or_none(entry.get("temperature")),
+                    }
+        except Exception:
+            pass
+
+        # Dst
+        dst_val = None
+        dst_time = None
+        try:
+            dst_data = (
+                dst_r.json()
+                if isinstance(dst_r, httpx.Response) and dst_r.status_code == 200
+                else []
+            )
+            if dst_data and isinstance(dst_data, list):
+                # list of dicts: time_tag, dst
+                entry = dst_data[-1]
+                if isinstance(entry, dict):
+                    dst_val = _float_or_none(entry.get("dst") or entry.get("Dst"))
+                    dst_time = entry.get("time_tag")
+        except Exception:
+            pass
+
+        # Proton flux
+        protons: dict = {}
+        try:
+            p_data = (
+                protons_r.json()
+                if isinstance(protons_r, httpx.Response)
+                and protons_r.status_code == 200
+                else []
+            )
+            if p_data and isinstance(p_data, list):
+                entry = p_data[-1]
+                if isinstance(entry, dict):
+                    protons = {
+                        "time": entry.get("time_tag"),
+                        "gt_10_mev": _float_or_none(
+                            entry.get("flux") or entry.get("p1")
+                        ),
+                        "gt_50_mev": _float_or_none(entry.get("p5")),
+                        "gt_100_mev": _float_or_none(entry.get("p10")),
+                    }
+        except Exception:
+            pass
+
+        # Alerts
+        alerts: list[dict] = []
+        try:
+            alerts_data = (
+                alerts_r.json()
+                if isinstance(alerts_r, httpx.Response) and alerts_r.status_code == 200
+                else []
+            )
+            if isinstance(alerts_data, list):
+                for a in alerts_data[:10]:
+                    if isinstance(a, dict):
+                        alerts.append(
+                            {
+                                "time": a.get("issue_time") or a.get("time_tag"),
+                                "product": a.get("product_id")
+                                or a.get("product")
+                                or "SWPC",
+                                "message": (a.get("message") or "")[:220],
+                                "severity": a.get("severity") or "",
+                            }
+                        )
+        except Exception:
+            pass
+
+        # 3-day Kp forecast
+        forecast: list[dict] = []
+        try:
+            fc_data = (
+                forecast_r.json()
+                if isinstance(forecast_r, httpx.Response)
+                and forecast_r.status_code == 200
+                else []
+            )
+            if isinstance(fc_data, list) and fc_data:
+                # may contain header row
+                rows = [
+                    r
+                    for r in fc_data
+                    if not (isinstance(r, list) and r and "Kp" in str(r))
+                ]
+                for r in rows[:12]:
+                    if isinstance(r, dict):
+                        forecast.append(
+                            {
+                                "time": r.get("time_tag") or r.get("time"),
+                                "kp": _float_or_none(r.get("Kp") or r.get("kp")),
+                            }
+                        )
+                    elif isinstance(r, list) and len(r) >= 2:
+                        forecast.append({"time": r[0], "kp": _float_or_none(r[1])})
+        except Exception:
+            pass
+
         out = {
             "kp_index": kp_val,
             "scale": scale,
-            "time": _row(latest)[0] if latest else None,
+            "time": kp_time,
+            "dst": dst_val,
+            "dst_time": dst_time,
+            "solar_wind": solar_wind,
+            "protons": protons,
+            "alerts": alerts,
+            "forecast": forecast,
             "aurora_visible_midlat": (kp_val or 0) >= 6,
             "hf_radio_impact": (kp_val or 0) >= 5,
+            "gps_degrade": (kp_val or 0) >= 5
+            or (dst_val is not None and dst_val <= -80),
             "history": history,
+            "updated": datetime.now(timezone.utc).isoformat(),
         }
         await _set(key, out)
         return out
@@ -178,6 +333,15 @@ async def space_weather():
         if stale:
             return stale
         return {"kp_index": None, "scale": "unknown", "error": str(e)}
+
+
+def _float_or_none(v):
+    if v is None or v == "null":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 # ---------------------------------------------------------------------------

@@ -62,16 +62,37 @@ def _is_embed_model(name: str) -> bool:
 # ---------------------------------------------------------------------------
 # Chat context: inject live world state into LLM prompts
 # ---------------------------------------------------------------------------
-async def build_chat_context() -> str:
-    """Fuse briefing + nodes + feed counts into a concise system context."""
+async def build_chat_context(query: str | None = None) -> str:
+    """Fuse briefing + nodes + feed counts into a concise system context.
+
+    When *query* is provided, appends a query-aware enriched context block
+    with full feed details for query-matched events (P1 enrichment).
+    """
     parts = []
 
-    # Briefing
+    # Query-aware enrichment (P1)
+    enriched_block: str | None = None
+    if query:
+        try:
+            from chat_context_enricher import enrich_query_context
+
+            enriched_block = await enrich_query_context(query)
+        except Exception:
+            pass
+
+    # Briefing — use configurable truncation (default 2500 for chat, was 500)
+    try:
+        from chat_context_enricher import _briefing_chars
+
+        brief_chars = _briefing_chars()
+    except Exception:
+        brief_chars = 2500
+
     try:
         brief = node_sync.latest_briefing()
         if brief and brief.get("text"):
             parts.append(f"SITUATION BRIEFING ({brief.get('created_at', 'unknown')}):")
-            parts.append(brief["text"][:500])
+            parts.append(brief["text"][:brief_chars])
     except Exception:
         pass
 
@@ -245,6 +266,10 @@ async def build_chat_context() -> str:
                 parts.append(f"\n{block}")
     except Exception:
         pass
+
+    # Query-aware enriched block (P1) — appended after generic context
+    if enriched_block:
+        parts.append(f"\n=== QUERY-ENRICHED CONTEXT ===\n{enriched_block}")
 
     return "\n".join(parts) if parts else "No live context available."
 
