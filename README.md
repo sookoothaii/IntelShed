@@ -6,12 +6,13 @@
 ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![Cesium](https://img.shields.io/badge/Cesium-1.142-6CADDF?style=flat-square)
 ![Ollama](https://img.shields.io/badge/LLM-Ollama%20qwen3-black?style=flat-square)
+![NVIDIA NIM](https://img.shields.io/badge/LLM-NVIDIA%20NIM%20step--3.7--flash-76B900?style=flat-square&logo=nvidia&logoColor=white)
 
 **Spatial intelligence workstation** — live OSINT feeds on a Cesium globe, fusion analytics, and local AI chat.
 
 WorldBase is a thin integration layer: almost everything here rests on libraries, datasets, and tools that other people built and shared. We are grateful to every maintainer whose work makes this project possible.
 
-`FastAPI` · `React` · `Vite` · `SQLite` · `Ollama` · optional `Pi` edge sync
+`FastAPI` · `React` · `Vite` · `SQLite` · `Ollama` · `NVIDIA NIM` · optional `Pi` edge sync
 
 WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-raspi`](https://github.com/sookoothaii/offgrid-raspi)) with heavy fusion, a 24h security briefing, and globe UX. Run WorldBase alone on a PC, or **Pi + PC together** via push/pull sync (see below).
 
@@ -27,8 +28,12 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | **Briefing** | 24h security digest (LOCAL / REGION / GLOBAL), watch items, prediction ledger, **agentic loop** (coverage → RAG retrieve → corroboration) |
 | **NEWS** | HUD **NEWS** tab — NewsData + GDELT local/global headline feed |
 | **Dark Web** | Passive `.onion` OSINT (Ahmia, DarkSearch, optional Tor engines) → entity matching, FtM `Mention` ingest, DARK WEB panel |
+| **Ransomware Intel** | Ransomware.live + RansomLook leak-site monitoring → FtM `Event` mapping, briefing block, watch items |
 | **Telegram SOCMINT** | Allow-listed public channels → SEA scoring, FtM `Event`/`Mention` ingest, DATA → TELEGRAM panel |
 | **Satellite CD (K4)** | Sentinel-2 L2A COG window-read — NDVI/NDWI change detection, GeoJSON anomaly polygons, DATA → SATELLITE panel |
+| **Maritime Anomaly (P7)** | AIS trajectory storage + behavioural anomaly detection (speed variance, AIS gaps, night port visits, risk zone proximity) |
+| **Entity Resolution** | Per-dataset dedupe → cross-dataset link (Splink), dual-pipeline (batch train + predict), human-in-the-loop labelling |
+| **Multi-Agent (P3+)** | 5-agent orchestrator (Coverage → Retrieval → Spatial → Corroboration → Synthesis), rule-based dispatcher, 0 VRAM |
 | **Track R** | **R0 + R1.1–R1.4 shipped** — rerank, spatial bbox, CRAG-lite chat, adaptive YAML chunking, briefing agentic loop — [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
 | **Connectors** | Manifest registry + cache overlay — `GET /api/connectors`, DATA → **FEEDS**, STAC feed items |
 | **AI** | Local chat via Ollama (`qwen3:8b` default); 6 providers incl. NVIDIA NIM (`stepfun-ai/step-3.7-flash`); spatial reasoning tool for "within X km of Y" queries; **query-aware context enrichment** — extracts entities from user query → filters live feeds → injects relevant data + synthesis directive; **3-layer anti-hallucination stack** — positive prompt protocol (RAW DATA INTERPRETER), NIM-specific parameter tweaks (temp 0.15, top_p 0.4), post-generation Claim Auditor (source/URL/timestamp verification against context blocks, 0 VRAM) |
@@ -43,7 +48,7 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 
 ## Quick start
 
-**Prerequisites:** Python 3.11+, Node.js 18+, [Ollama](https://ollama.com/) (`qwen3:8b`, `nomic-embed-text`), free [Cesium Ion](https://ion.cesium.com/tokens) token. Windows: use `-LiteralPath` when the clone path contains spaces.
+**Prerequisites:** Python 3.11+, Node.js 18+, [Ollama](https://ollama.com/) (`qwen3:8b`, `nomic-embed-text`), free [Cesium Ion](https://ion.cesium.com/tokens) token. Optional: [NVIDIA NIM API key](https://build.nvidia.com/) for cloud reasoning models (free tier incl. `stepfun-ai/step-3.7-flash`). Windows: use `-LiteralPath` when the clone path contains spaces.
 
 ### Native (development)
 
@@ -90,7 +95,7 @@ ollama pull nomic-embed-text   # RAG embeddings
 pip install sentence-transformers   # when RAG_RERANK=1 in backend/.env
 ```
 
-**Verify stack:** `.\scripts\smoke-test.ps1` → expect **34 PASS / 0 FAIL / 1 WARN** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, satellite health, Vite proxy, Ollama chat, frontend build). The WARN is the expected intel-ingest auth gate when no API key is set for that check.
+**Verify stack:** `.\scripts\smoke-test.ps1` → expect **33 PASS / 0 FAIL / 1 WARN** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, satellite health, Vite proxy, Ollama chat, frontend build). The WARN is the expected intel-ingest auth gate when no API key is set for that check.
 
 `.\start.ps1` waits for `GET /api/health/ping` before starting Vite (avoids proxy `ECONNREFUSED`). ~**6 s** after backend boot, a feed warm-up refreshes GDELT local + **global** pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
 
@@ -222,12 +227,14 @@ Feed health → `GET /api/health` · trust score → `GET /api/trust` · key cat
 ┌───────────────────────────▼─────────────────────────────┐
 │  FastAPI + SQLite feed_cache                 :8002        │
 │  MCP · Agent Bus · hybrid RAG · briefing agentic loop   │
-│  briefing quality · /api/trust                            │
+│  briefing quality · /api/trust · claim auditor           │
 └───────────────────────────┬─────────────────────────────┘
          ┌──────────────────┼──────────────────┐
          ▼                  ▼                  ▼
     USGS · NASA ·      Ollama :11434      Pi :8002/ingest
     GDACS · SMARD …    qwen3 + RAG        (offgrid-raspi)
+         │       │
+         │       └── NVIDIA NIM API (step-3.7-flash, free tier)
          │
          └── Cursor MCP (Streamable HTTP) + optional Docker MCP gateway
 ```
@@ -242,6 +249,7 @@ Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](do
 |-----|---------|
 | [`AGENTS.md`](AGENTS.md) | Runtime, endpoints, key files, troubleshooting |
 | [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) | Track R — hybrid RAG + FtM OSINT enhancement plan |
+| [`docs/WORLDBASE_ROADMAP_2026.md`](docs/WORLDBASE_ROADMAP_2026.md) | Full 2026 roadmap — P3–P10, J1–J6, K3–K4 changelog |
 | [`docs/MCP.md`](docs/MCP.md) | Cursor MCP tools, Agent Bus, Docker gateway |
 | [`docs/FIREWALL.md`](docs/FIREWALL.md) | Slim prompt guard (default) + optional HAK_GAL bridge (`:8001`) |
 | [`docs/DARKWEB.md`](docs/DARKWEB.md) | Dark Web / Darknet OSINT module (P8) — engines, Tor proxy, OPSEC |
@@ -278,6 +286,7 @@ WorldBase is not a standalone invention. It is glue, configuration, and operator
 | **[SQLite](https://sqlite.org/)** & **[sqlite-vec](https://github.com/asg017/sqlite-vec)** | Local cache, briefing store, hybrid vector + FTS RAG — no cloud lock-in. |
 | **[DuckDB](https://duckdb.org/)** | FtM entity graph storage when intel ingest is enabled. |
 | **[Ollama](https://ollama.com/)** & **[Qwen](https://qwenlm.github.io/)** | Local LLM chat and briefing generation on operator hardware. |
+| **[NVIDIA NIM](https://build.nvidia.com/)** & **[stepfun-ai](https://github.com/stepfun-ai)** | Cloud reasoning models (step-3.7-flash) via free NIM API — no local GPU required. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). |
 | **[FollowTheMoney](https://followthemoney.tech/)** / **[aleph](https://github.com/alephdata/aleph)** ecosystem | Entity schema and graph patterns for OSINT ingest. |
 | **[sentence-transformers](https://www.sbert.net/)** & **[BAAI/bge-reranker](https://huggingface.co/BAAI/bge-reranker-base)** | Optional CPU reranker after RRF (Track R0). |
 | **[GLiNER](https://github.com/urchade/GLiNER)** (optional) | Zero-shot entity extraction for document intel — Apache-2.0. |
@@ -308,7 +317,7 @@ If we missed a dependency you rely on, please open an issue — attribution shou
 
 | Repo | Role | When you need it |
 |------|------|------------------|
-| **[worldbase](https://github.com/sookoothaii/worldbase)** (this repo) | Windows/Linux PC — Cesium globe, 30+ feeds, Ollama briefing, node API `:8002` | Spatial intelligence workstation; fusion and LLM digest |
+| **[worldbase](https://github.com/sookoothaii/worldbase)** (this repo) | Windows/Linux PC — Cesium globe, 30+ feeds, Ollama + NVIDIA NIM briefing, node API `:8002` | Spatial intelligence workstation; fusion and LLM digest |
 | **[offgrid-raspi](https://github.com/sookoothaii/offgrid-raspi)** | Raspberry Pi — portal, sensors, mesh, offline services | Edge node that survives without mains; pushes telemetry to the PC |
 
 **Together:** Pi `worldbase_push` → PC `POST /api/node/ingest` · PC briefing → Pi `GET /api/node/pull` (v2: ETag/304, SHA-256, `source: worldbase-pc`, briefing quality) → portal / LCD.  
@@ -327,7 +336,7 @@ This repo vendors the Pi repo as a **git submodule** at `offgrid-raspi/` (script
 | PC pull payload (v2) | `GET /api/node/pull` with `X-Node-Token` when `NODE_INGEST_TOKEN` is set |
 | Deploy token + HTTP to Pi | `.\scripts\setup-node-security.ps1` then `.\scripts\sync-pi.ps1` |
 | Deploy hardened push/pull scripts | `.\scripts\deploy-pi-sync.ps1` |
-| Smoke test | `.\scripts\smoke-test.ps1` → expect **32/32 PASS** |
+| Smoke test | `.\scripts\smoke-test.ps1` → expect **33 PASS / 0 FAIL / 1 WARN** |
 | Pi disk maintenance | `sudo bash pi-disk-maintenance.sh` (on Pi) |
 
 ---
