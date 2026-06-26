@@ -10,6 +10,7 @@ import json
 import os
 import re
 import time
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, Request
@@ -581,8 +582,10 @@ async def _prepare_chat_messages(
 
     if ctx or entity_context or search_results or rag_block:
         parts = []
+        context_blocks_for_budget: list[tuple[str, str]] = []
         if ctx:
             parts.append("=== INTERNAL TELEMETRY ===\n" + ctx)
+            context_blocks_for_budget.append(("INTERNAL TELEMETRY", ctx))
         if rag_block:
             prefix = ""
             if route_tag:
@@ -597,10 +600,13 @@ async def _prepare_chat_messages(
                 parts.append(f"{prefix}\n\n" + rag_block)
             else:
                 parts.append(rag_block)
+            context_blocks_for_budget.append(("RAG MEMORY", rag_block))
         if entity_context:
             parts.append("=== SELECTED TARGET (Globe) ===\n" + entity_context)
+            context_blocks_for_budget.append(("SELECTED TARGET", entity_context))
         if search_results:
             parts.append("=== WEB SEARCH RESULTS ===\n" + search_results)
+            context_blocks_for_budget.append(("WEB SEARCH RESULTS", search_results))
         entity_rules = (
             "\nENTITY PROTOCOL:\n"
             "- The SELECTED TARGET block is the ONLY source of data about that entity.\n"
@@ -643,44 +649,77 @@ async def _prepare_chat_messages(
             available_blocks.append("WEB SEARCH RESULTS")
         blocks_list = ", ".join(available_blocks) if available_blocks else "NONE"
 
+        system_prompt_base = (
+            f"You are WorldBase AI — {host_label} on a spatial intelligence workstation.\n\n"
+            "ROLE: You are a RAW DATA INTERPRETER, not a creative writer. Your job is to "
+            "interpret the data blocks below and answer the user's question. You are NOT "
+            "an analyst who fills gaps with plausible-sounding narrative.\n\n"
+            f"AVAILABLE CONTEXT BLOCKS: {blocks_list}\n"
+            "If a block is not listed above, its data is NOT available. Do not reference it.\n\n"
+            "CAPABILITIES (be honest if asked):\n"
+            "- Direct internet: only when WEB SEARCH RESULTS block is present (operator "
+            "enabled 🔍 or auto-search triggered). Not live browsing.\n"
+            "- Live feeds: only when INTERNAL TELEMETRY block is present (CTX mode).\n"
+            "- RAG MEMORY: indexed briefings/feeds when block is present.\n"
+            "- Tools may query WorldBase APIs (situations, OSINT lookups, "
+            "spatial_query for 'within X km of Y' questions).\n"
+            "- GLOBE CONTROL: When the user asks to show, focus, or navigate to "
+            "any place, call the focus_globe tool.\n\n"
+            "PROTOCOL (follow exactly):\n"
+            "1. ANSWER FIRST: 1-3 sentences in the user's language, based ONLY on "
+            "data in the blocks above.\n"
+            "2. SOURCE DISCIPLINE: Every factual claim must come from a listed block. "
+            "If a claim is not supported by block data, say 'DATA GAP: [topic]'.\n"
+            "3. NO FABRICATION: Do not invent URLs, dates, timestamps, coordinates, "
+            "source names, statistics, or details not present in the blocks.\n"
+            "4. NO SOURCE NAME-DROPPING: Do not mention GDELT, USGS, ReliefWeb, GDACS, "
+            "NIFC, or any source unless its data is in a block above.\n"
+            "5. HONESTY OVER CONFIDENCE: 'I don't have that data' is the correct answer "
+            "when data is absent. Dry truth is valued over confident fabrication.\n"
+            "6. CONCISE: Keep responses short. No padding with speculation or generic "
+            "background knowledge.\n" + entity_rules + synthesis_directive
+        )
+
+        # P2+ Context budget: enforce token budget, provenance-based truncation,
+        # and refuse path when retrieval quality is too low.
+        system_content = ""
+        budget_meta: dict[str, Any] | None = None
+        try:
+            import context_budget
+
+            if context_blocks_for_budget:
+                budget_result = context_budget.apply_budget(
+                    system_prompt_base,
+                    context_blocks_for_budget,
+                )
+                if not budget_result.ok:
+                    block_payload = {
+                        "error": "Context budget refused",
+                        "detail": budget_result.refusal_reason,
+                        "quality_score": budget_result.quality_score,
+                    }
+                    return (
+                        messages,
+                        firewall_meta,
+                        block_payload,
+                        user_text,
+                        [t for _, t in context_blocks_for_budget],
+                    )
+                system_content, budget_meta = context_budget.format_context_from_result(
+                    budget_result
+                )
+            else:
+                system_content = system_prompt_base
+        except Exception:
+            system_content = system_prompt_base + "\n\n" + "\n\n".join(parts)
+
         system_msg = {
             "role": "system",
-            "content": (
-                f"You are WorldBase AI — {host_label} on a spatial intelligence workstation.\n\n"
-                "ROLE: You are a RAW DATA INTERPRETER, not a creative writer. Your job is to "
-                "interpret the data blocks below and answer the user's question. You are NOT "
-                "an analyst who fills gaps with plausible-sounding narrative.\n\n"
-                f"AVAILABLE CONTEXT BLOCKS: {blocks_list}\n"
-                "If a block is not listed above, its data is NOT available. Do not reference it.\n\n"
-                "CAPABILITIES (be honest if asked):\n"
-                "- Direct internet: only when WEB SEARCH RESULTS block is present (operator "
-                "enabled 🔍 or auto-search triggered). Not live browsing.\n"
-                "- Live feeds: only when INTERNAL TELEMETRY block is present (CTX mode).\n"
-                "- RAG MEMORY: indexed briefings/feeds when block is present.\n"
-                "- Tools may query WorldBase APIs (situations, OSINT lookups, "
-                "spatial_query for 'within X km of Y' questions).\n"
-                "- GLOBE CONTROL: When the user asks to show, focus, or navigate to "
-                "any place, call the focus_globe tool.\n\n"
-                "PROTOCOL (follow exactly):\n"
-                "1. ANSWER FIRST: 1-3 sentences in the user's language, based ONLY on "
-                "data in the blocks above.\n"
-                "2. SOURCE DISCIPLINE: Every factual claim must come from a listed block. "
-                "If a claim is not supported by block data, say 'DATA GAP: [topic]'.\n"
-                "3. NO FABRICATION: Do not invent URLs, dates, timestamps, coordinates, "
-                "source names, statistics, or details not present in the blocks.\n"
-                "4. NO SOURCE NAME-DROPPING: Do not mention GDELT, USGS, ReliefWeb, GDACS, "
-                "NIFC, or any source unless its data is in a block above.\n"
-                "5. HONESTY OVER CONFIDENCE: 'I don't have that data' is the correct answer "
-                "when data is absent. Dry truth is valued over confident fabrication.\n"
-                "6. CONCISE: Keep responses short. No padding with speculation or generic "
-                "background knowledge.\n"
-                + entity_rules
-                + synthesis_directive
-                + "\n\n"
-                + "\n\n".join(parts)
-            ),
+            "content": system_content,
         }
         messages = [system_msg] + messages
+        if budget_meta:
+            firewall_meta = {**(firewall_meta or {}), **budget_meta}
     elif not any(m.get("role") == "system" for m in messages):
         messages = [
             {

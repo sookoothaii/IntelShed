@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import sqlite3
 
 import httpx
@@ -19,7 +18,7 @@ from fastapi import APIRouter
 import feed_registry
 import fusion_heatmap
 import node_sync
-from runtime_cache import cache_get, cache_set
+from runtime_cache import cache_get
 
 router = APIRouter(tags=["chat"])
 
@@ -132,71 +131,19 @@ async def build_chat_context(query: str | None = None) -> str:
         if ev:
             parts.append(f"  Natural events: {len(ev.get('events', []) or [])}")
 
-    # ReliefWeb humanitarian crises
+    # ReliefWeb humanitarian crises (cache-backed; background autopilot refreshes)
     try:
-        rw = cache_get("reliefweb", ttl=999999)
-        if not rw:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                r = await client.get(
-                    "https://api.reliefweb.int/v1/disasters",
-                    params={
-                        "appname": "worldbase",
-                        "profile": "list",
-                        "preset": "latest",
-                        "limit": 10,
-                    },
-                )
-                rw = r.json()
-                cache_set("reliefweb", rw)
-        disasters = rw.get("data", [])
-        if disasters:
-            parts.append("\nACTIVE CRISES (ReliefWeb):")
-            for d in disasters[:5]:
-                f = d.get("fields", {})
-                parts.append(
-                    f"  {f.get('name', 'Unknown')} — {f.get('status', 'unknown')}"
-                )
+        import news_feeds
+
+        parts.extend(news_feeds.get_reliefweb_context())
     except Exception:
         pass
 
-    # RSS news headlines
+    # RSS news headlines (cache-backed; background autopilot refreshes)
     try:
-        news = cache_get("rss_news", ttl=999999)
-        if not news:
-            headlines = []
-            feeds = [
-                ("BBC World", "http://feeds.bbci.co.uk/news/world/rss.xml"),
-                (
-                    "Reuters",
-                    "https://www.reutersagency.com/feed/?best-topics=business-finance",
-                ),
-                ("Tagesschau", "https://www.tagesschau.de/xml/rss2/"),
-            ]
-            async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                for name, url in feeds:
-                    try:
-                        r = await client.get(
-                            url, headers={"User-Agent": "WorldBase/1.0"}
-                        )
-                        text = r.text
-                        # Simple regex extraction for <title> inside <item>
-                        titles = re.findall(
-                            r"<item>.*?<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>.*?</item>",
-                            text,
-                            re.DOTALL,
-                        )[:3]
-                        for t in titles:
-                            clean = re.sub(r"<[^>]+>", "", t).strip()
-                            if clean and clean not in [h["text"] for h in headlines]:
-                                headlines.append({"source": name, "text": clean})
-                    except Exception:
-                        continue
-            news = headlines[:8]
-            cache_set("rss_news", news)
-        if news:
-            parts.append("\nHEADLINES:")
-            for h in news:
-                parts.append(f"  [{h['source']}] {h['text']}")
+        import news_feeds
+
+        parts.extend(news_feeds.get_rss_context())
     except Exception:
         pass
 

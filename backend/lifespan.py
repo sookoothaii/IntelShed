@@ -33,6 +33,25 @@ _BRIEFING_AUTOPILOT_TASK: asyncio.Task | None = None
 _BRIEFING_INTERVAL = _cfg().briefing_interval
 
 
+async def _news_feeds_autopilot() -> None:
+    """Refresh ReliefWeb + RSS headlines for chat context (10 min TTL)."""
+    await asyncio.sleep(30)
+    interval = float(os.getenv("WORLDBASE_NEWS_REFRESH_INTERVAL", "600"))
+    while True:
+        try:
+            import news_feeds
+
+            result = await news_feeds.refresh_news_feeds()
+            log.info(
+                "news_feeds_refreshed",
+                reliefweb=result.get("reliefweb", {}).get("count", 0),
+                rss=result.get("rss", {}).get("count", 0),
+            )
+        except Exception as exc:
+            log.debug("news_feeds_refresh_failed", error=str(exc))
+        await asyncio.sleep(interval)
+
+
 async def _maritime_trajectory_maintenance() -> None:
     """P7: Periodic AIS trajectory ringbuffer flush + position pruning (every 5 min)."""
     await asyncio.sleep(60)
@@ -414,6 +433,7 @@ def register_lifecycle(app) -> None:
         asyncio.create_task(_stack_warmup())
         asyncio.create_task(_feed_cache_autopilot())
         asyncio.create_task(_maritime_trajectory_maintenance())
+        asyncio.create_task(_news_feeds_autopilot())
         import ais_bridge
 
         ais_bridge.start_aisstream_collector()
