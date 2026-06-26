@@ -831,17 +831,17 @@ async def get_maritime_anomalies():
     }
 
 
-@router.get("/trajectory/{mmsi}")
-async def get_vessel_trajectory(mmsi: str):
-    """Get trajectory features for a specific vessel (P7)."""
-    import ais_trajectory
-
-    return ais_trajectory.get_vessel_features(mmsi)
-
-
 @router.get("/trajectory/stats")
 async def get_trajectory_stats():
     """Get trajectory tracking statistics (P7)."""
     import ais_trajectory
 
     return ais_trajectory.trajectory_stats()
+
+
+@router.get("/trajectory/{mmsi}")
+async def get_vessel_trajectory(mmsi: str):
+    """Get trajectory features for a specific vessel (P7)."""
+    import ais_trajectory
+
+    return ais_trajectory.get_vessel_features(mmsi)

@@ -51,6 +51,7 @@ def build_security_advisor_prompt(
             "REGION — ASEAN / Nachbarn / nahe Umgebung wenn relevant\n"
             "GLOBAL — Rest der Welt, der für informierte Bewohner relevant bleibt\n"
             "CYBER & INFRA — KEV, Nodes, Weltraumwetter, Märkte, Luftqualität wenn vorhanden\n"
+            "MARITIME ANOMALIES — AIS Mustererkennung (immer nennen, auch wenn keine Anomalien)\n"
             "RECOMMENDATION — 1–2 Sätze: ruhig, umsetzbar, keine Panik\n"
         )
         no_data_clause = (
@@ -69,7 +70,7 @@ def build_security_advisor_prompt(
         protocol_label = "Protokoll:"
         final_reminder = (
             "WICHTIG: Schreibe den gesamten Protokoll-Text auf Deutsch. "
-            "Behalte die Labels LOCAL / REGION / GLOBAL / CYBER & INFRA / RECOMMENDATION "
+            "Behalte die Labels LOCAL / REGION / GLOBAL / CYBER & INFRA / MARITIME ANOMALIES / RECOMMENDATION "
             "wörtlich auf Englisch — der Fließtext darunter MUSS deutsch sein."
         )
     else:
@@ -78,6 +79,7 @@ def build_security_advisor_prompt(
             "REGION — ASEAN / neighbours / nearby if relevant\n"
             "GLOBAL — rest of the world that still matters to an informed resident\n"
             "CYBER & INFRA — KEV, nodes, space weather, markets, air quality if present\n"
+            "MARITIME ANOMALIES — AIS pattern-of-life (always include, even if no anomalies)\n"
             "RECOMMENDATION — 1–2 sentences: calm, actionable, no panic\n"
         )
         no_data_clause = (
@@ -158,10 +160,13 @@ def build_security_advisor_prompt(
             prompt += f"  - {line}\n"
         prompt += "\n"
     maritime = digest.get("maritime") or {}
-    if maritime.get("enabled") and maritime.get("lines"):
+    if maritime.get("enabled"):
         prompt += "MARITIME ANOMALIES (AIS pattern-of-life, 24h):\n"
-        for line in maritime["lines"]:
-            prompt += f"  - {line.get('text', line)}\n"
+        if maritime.get("lines"):
+            for line in maritime["lines"]:
+                prompt += f"  - {line.get('text', line)}\n"
+        else:
+            prompt += "  - No anomalies detected (threshold 0.6).\n"
         prompt += "\n"
     prompt += (
         "Edge nodes:\n"

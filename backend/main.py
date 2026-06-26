@@ -99,7 +99,11 @@ if __name__ == "__main__":
             "worldbase.db",
             "worldbase.db-wal",
             "worldbase.db-shm",
-            "data/*.duckdb",
-            "data/*.duckdb.wal",
+            "data/entities.duckdb",
+            "data/entities.duckdb.wal",
+            "data/ais_trajectory.db",
+            "data/ais_trajectory.db-wal",
+            "data/ais_trajectory.db-shm",
+            "data/intel_subgraph_latest.json",
         ],
     )

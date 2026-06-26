@@ -512,6 +512,8 @@ async def _generate_briefing_unlocked(
             "regional_count": len(digest.get("regional") or []),
             "global_count": len(digest.get("global") or []),
             "intel_count": intel_src.get("count", 0),
+            "maritime": digest.get("maritime")
+            or {"enabled": False, "count": 0, "lines": []},
         },
         "_digest_sections": {
             "local": digest.get("local") or [],

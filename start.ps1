@@ -112,8 +112,12 @@ $uvicornArgs = @(
     '--reload-exclude', 'worldbase.db',
     '--reload-exclude', 'worldbase.db-wal',
     '--reload-exclude', 'worldbase.db-shm',
-    '--reload-exclude', 'data/*.duckdb',
-    '--reload-exclude', 'data/*.duckdb.wal'
+    '--reload-exclude', 'data/entities.duckdb',
+    '--reload-exclude', 'data/entities.duckdb.wal',
+    '--reload-exclude', 'data/ais_trajectory.db',
+    '--reload-exclude', 'data/ais_trajectory.db-wal',
+    '--reload-exclude', 'data/ais_trajectory.db-shm',
+    '--reload-exclude', 'data/intel_subgraph_latest.json'
 ) -join ' '
 Start-LoggedPowerShell -Title 'Backend :8002' -WorkingDirectory $backendPath -Command (
     "& '$py' $uvicornArgs"
