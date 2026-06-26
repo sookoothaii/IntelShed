@@ -28,7 +28,7 @@ export function attachTerrainFailover(viewer: Viewer, provider: TerrainProvider)
   const onError = () => {
     fails += 1
     if (fails < 5) return
-    if ((viewer as any).isDestroyed?.()) return
+    if (viewer.isDestroyed?.()) return
     try {
       viewer.terrainProvider = new EllipsoidTerrainProvider()
       viewer.scene.globe.depthTestAgainstTerrain = false

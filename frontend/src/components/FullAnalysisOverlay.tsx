@@ -12,6 +12,348 @@ type AnalysisTab = 'operator' | 'alerts' | 'feeds'
 const ANALYSIS_TABS: AnalysisTab[] = ['operator', 'alerts', 'feeds']
 const ANALYSIS_FETCH_TIMEOUT_MS = 15_000
 
+// ---------- API response types ----------
+
+interface FeedHealthEntry { status?: string; fresh?: boolean; age_sec?: number }
+
+interface HealthResponse {
+  feeds?: Record<string, FeedHealthEntry>
+}
+
+interface SituationEntry {
+  severity?: string
+  title?: string
+  type?: string
+  location?: { lon?: number; lat?: number }
+}
+
+interface CorrelationsResponse {
+  situations?: SituationEntry[]
+}
+
+interface DigestMeta {
+  region_label?: string
+  window?: string
+  local_count?: number
+  regional_count?: number
+  global_count?: number
+}
+
+interface BriefingQualityMeta {
+  gdelt_collected?: number
+  gdelt_digest_lines?: number
+  gdelt_pipeline_blocker?: string
+  gdelt_pipeline_placed_ok?: boolean
+  pipeline_blocker?: string
+  pipeline_placed_ok?: boolean
+  watch_count?: number
+  corroboration_avg_local?: number
+  corroboration_blocker?: string
+  prediction_accuracy_30d?: number
+  prediction_pending?: number
+  prediction_sample_30d?: number
+}
+
+interface BriefingQuality {
+  score?: number
+  meta?: BriefingQualityMeta
+}
+
+interface WatchItem {
+  id?: string
+  horizon_h?: number
+  title?: string
+  confidence?: number
+  sources?: string[]
+  delta_score?: number
+  lat?: number
+  lon?: number
+  bucket?: string
+}
+
+interface IntelEntity {
+  id?: string
+  caption?: string
+  schema?: string
+  bucket?: string
+  lat?: number
+  lon?: number
+  datasets?: string[]
+}
+
+interface IntelBlock {
+  count?: number
+  entities?: IntelEntity[]
+  by_bucket?: { local?: number; regional?: number; global?: number }
+}
+
+interface FusionHotspot {
+  label?: string
+  summary?: string
+  lat?: number
+  lon?: number
+  score?: number
+}
+
+interface DigestLineMeta {
+  label?: string
+  text?: string
+  observed_at?: string
+  corroboration?: number
+  sources?: string[]
+}
+
+interface BriefingResponse {
+  text?: string
+  digest?: DigestMeta
+  quality?: BriefingQuality
+  watch_items?: WatchItem[]
+  fusion_hotspots?: FusionHotspot[]
+  intel?: IntelBlock
+  digest_line_meta?: DigestLineMeta[]
+  created_at?: string
+  agentic?: unknown
+}
+
+interface TrustProbe {
+  name?: string
+  ok?: boolean
+  detail?: string
+}
+
+interface FeedDriftEntry {
+  cache_key?: string
+  previous_count?: number
+  current_count?: number
+  drop_pct?: number
+}
+
+interface FreshnessEntry {
+  cache_key?: string
+  connector_name?: string
+  connector_id?: string
+  source?: string | string[]
+  license?: string
+  bridge?: string
+  endpoint?: string
+  status?: string
+  count?: number
+  age_sec?: number
+  error?: string
+}
+
+interface FeedDrift {
+  ok?: boolean
+  detail?: string
+  degradation?: unknown
+  offline_pct?: number
+  warn?: boolean
+  offline_keys?: string[]
+  drifting?: FeedDriftEntry[]
+  freshness?: FreshnessEntry[]
+}
+
+interface TrustResponse {
+  score?: number
+  max_score?: number
+  degraded?: boolean
+  field_warn?: boolean
+  feed_warn?: boolean
+  probes?: TrustProbe[]
+  feed_drift?: FeedDrift
+  briefing_pipeline?: BriefingQualityMeta
+  failed_probes?: string[]
+}
+
+interface PredictionEntry {
+  id?: string
+  watch_id?: string
+  overdue?: boolean
+  due_at?: string
+  claim?: string
+  prefix?: string
+  horizon_h?: number
+  hit?: boolean
+  outcome?: string
+}
+
+interface PredictionStats {
+  pending?: number
+  sample_size?: number
+  accuracy?: number
+}
+
+interface PredictionsResponse {
+  enabled?: boolean
+  pending?: PredictionEntry[]
+  resolved_recent?: PredictionEntry[]
+  stats?: PredictionStats
+  overdue_count?: number
+  due_next?: string
+}
+
+interface CveVulnerability {
+  cve_id?: string
+  vendor?: string
+  product?: string
+  due_date?: string
+  ransomware?: string
+}
+
+interface CveResponse {
+  vulnerabilities?: CveVulnerability[]
+}
+
+interface QuakeEntry {
+  mag?: number
+  place?: string
+  depth?: number
+  lon?: number
+  lat?: number
+  time?: string
+  tsunami?: boolean
+}
+
+interface EarthquakesResponse {
+  earthquakes?: QuakeEntry[]
+}
+
+interface EventEntry {
+  category?: string
+  title?: string
+  date?: string
+  lon?: number
+  lat?: number
+  magnitude?: number
+}
+
+interface EventsResponse {
+  events?: EventEntry[]
+}
+
+interface MilitaryAircraft {
+  flight?: string
+  hex?: string
+  type?: string
+  alt?: number
+  speed?: number
+  squawk?: string
+  lon?: number
+  lat?: number
+}
+
+interface MilitaryResponse {
+  count?: number
+  aircraft?: MilitaryAircraft[]
+}
+
+interface GdacsAlert {
+  title?: string
+  published?: string
+  lat?: number
+  lon?: number
+  description?: string
+}
+
+interface GdacsResponse {
+  alerts?: GdacsAlert[]
+}
+
+interface AnomalyEntry {
+  callsign?: string
+  icao24?: string
+  reasons?: string[]
+  lon?: number
+  lat?: number
+}
+
+interface AnomaliesResponse {
+  count?: number
+  anomalies?: AnomalyEntry[]
+}
+
+interface AirQualityCity {
+  city?: string
+  pm25?: number
+  pm10?: number
+}
+
+interface AirQualityResponse {
+  cities?: AirQualityCity[]
+}
+
+interface PegelGauge {
+  name?: string
+  water?: string
+  value?: number
+  unit?: string
+  severity?: string
+  lon?: number
+  lat?: number
+  state_mnw_mhw?: string
+  state_nsw_hsw?: string
+}
+
+interface PegelResponse {
+  gauges?: PegelGauge[]
+}
+
+interface NodeHealth {
+  disk_pct?: number
+  cpu_temp_c?: number
+  load_1m?: number
+  ram_pct?: number
+}
+
+interface NodeEntry {
+  name?: string
+  node_id?: string
+  online?: boolean
+  age_seconds?: number
+  lat?: number
+  lon?: number
+  health?: NodeHealth
+}
+
+interface NodesResponse {
+  count?: number
+  nodes?: NodeEntry[]
+}
+
+interface CryptoEntry {
+  usd?: number
+  price?: number
+  usd_24h_change?: number
+  change_24h?: number
+}
+
+interface SpaceWeatherResponse {
+  kp_index?: number
+  scale?: string
+  aurora_visible_midlat?: boolean
+  hf_radio_impact?: boolean
+  history?: unknown[]
+}
+
+interface AnalysisResults {
+  health?: HealthResponse
+  correlations?: CorrelationsResponse
+  briefing?: BriefingResponse
+  trust?: TrustResponse
+  predictions?: PredictionsResponse
+  cve?: CveResponse
+  earthquakes?: EarthquakesResponse
+  events?: EventsResponse
+  military?: MilitaryResponse
+  gdacs?: GdacsResponse
+  anomalies?: AnomaliesResponse
+  airquality?: AirQualityResponse
+  pegel?: PegelResponse
+  nodes?: NodesResponse
+  markets?: { crypto?: Record<string, CryptoEntry> }
+  spaceweather?: SpaceWeatherResponse
+}
+
 const ANALYSIS_ENDPOINTS: { key: string; url: string }[] = [
   { key: 'health', url: '/api/health' },
   { key: 'nodes', url: '/api/nodes' },
@@ -202,13 +544,13 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
   })
   const briefingQ = useBriefingQuery({ refetchInterval: autoRefresh ? 30_000 : 60_000 })
 
-  const results: any = {}
+  const results: Partial<AnalysisResults> = {}
   ANALYSIS_ENDPOINTS.forEach((ep, i) => {
     const q = queries[i]
-    if (q.data !== undefined) results[ep.key] = q.data
-    else if (q.isError) results[ep.key] = { error: 'unavailable' }
+    if (q.data !== undefined) results[ep.key as keyof AnalysisResults] = q.data as never
+    else if (q.isError) results[ep.key as keyof AnalysisResults] = { error: 'unavailable' } as never
   })
-  results.briefing = briefingQ.data ?? (briefingQ.isError ? { error: 'unavailable' } : undefined)
+  results.briefing = (briefingQ.data ?? (briefingQ.isError ? { error: 'unavailable' } : undefined)) as BriefingResponse | undefined
   const loading = queries.some((q) => q.isLoading) || briefingQ.isLoading
 
   const generateBriefing = async () => {
@@ -220,8 +562,8 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
       await r.json().catch(() => null)
       await queryClient.invalidateQueries({ queryKey: ['briefing'] })
       await queryClient.invalidateQueries({ queryKey: ['analysis'] })
-    } catch (e: any) {
-      setBriefError(e?.message || 'briefing failed')
+    } catch (e: unknown) {
+      setBriefError((e as Error)?.message || 'briefing failed')
     } finally {
       setBriefBusy(false)
     }
@@ -252,8 +594,8 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
   const agenticTrace = briefing?.agentic as AgenticTrace | undefined
   const cveFeed = results.cve
   const quakes = (results.earthquakes?.earthquakes || []).slice(0, 15)
-  const wildfires = (results.events?.events || []).filter((e: any) => (e.category || '').toLowerCase().includes('fire') || (e.title || '').toLowerCase().includes('fire')).slice(0, 8)
-  const allEvents = (results.events?.events || []).filter((e: any) => !((e.category || '').toLowerCase().includes('fire') || (e.title || '').toLowerCase().includes('fire'))).slice(0, 10)
+  const wildfires = (results.events?.events || []).filter((e: EventEntry) => (e.category || '').toLowerCase().includes('fire') || (e.title || '').toLowerCase().includes('fire')).slice(0, 8)
+  const allEvents = (results.events?.events || []).filter((e: EventEntry) => !((e.category || '').toLowerCase().includes('fire') || (e.title || '').toLowerCase().includes('fire'))).slice(0, 10)
   const military = results.military
   const gdacs = (results.gdacs?.alerts || []).slice(0, 15)
   const anomalies = results.anomalies
@@ -267,7 +609,7 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
     if (s === 'warning' || s === 'medium') return '#ff6b35'
     return '#00e5a0'
   }
-  const aqColor = (pm25: number | null) => {
+  const aqColor = (pm25: number | null | undefined) => {
     if (pm25 == null) return '#6f8c84'
     if (pm25 <= 12) return '#00e5a0'
     if (pm25 <= 35) return '#ffd23f'
@@ -312,12 +654,12 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
 
   const digestMeta = briefing?.digest_line_meta || []
   const weakDigestCount = digestMeta.filter(
-    (row: any) =>
+    (row: DigestLineMeta) =>
       row.label === 'single-source'
       || row.label === 'contradictory'
       || Number(row.corroboration ?? 1) < 0.5,
   ).length
-  const feedDegrade = trust?.feed_drift?.degradation
+  const feedDegrade = trust?.feed_drift
   const showDegradeBanner =
     analysisTab === 'operator'
     && (trust?.degraded || trust?.field_warn || trust?.feed_warn)
@@ -451,7 +793,7 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                     {trustExpanded ? 'LESS' : 'DETAIL'}
                   </button>
                 </div>
-                {trustExpanded && trust?.probes?.map((p: any) => (
+                {trustExpanded && trust?.probes?.map((p: TrustProbe) => (
                   <div key={p.name} className="analysis-row" style={{ fontSize: 11 }}>
                     <span style={{ color: p.ok ? '#00e5a0' : '#ff6b35', fontWeight: 'bold' }}>
                       {p.ok ? 'OK' : 'FAIL'}
@@ -472,7 +814,7 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                     <span>feeds: {trust.feed_drift.detail}</span>
                   </div>
                 )}
-                {trustExpanded && trust?.feed_drift?.drifting?.length > 0 && trust.feed_drift.drifting.map((d: any) => (
+                {trustExpanded && trust?.feed_drift?.drifting && trust.feed_drift.drifting.length > 0 && trust.feed_drift.drifting.map((d: FeedDriftEntry) => (
                   <div key={d.cache_key} className="analysis-row" style={{ fontSize: 10, color: '#ffd23f' }}>
                     <span style={{ fontWeight: 'bold' }}>{d.cache_key}</span>
                     <span>
@@ -480,9 +822,9 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                     </span>
                   </div>
                 ))}
-                {trustExpanded && trust?.feed_drift?.freshness?.length > 0 && (
+                {trustExpanded && trust?.feed_drift?.freshness && trust.feed_drift.freshness.length > 0 && (
                   <div style={{ marginTop: 8, fontSize: 10, color: '#8fb7a9' }}>
-                    {trust.feed_drift.freshness.map((f: any) => {
+                    {trust.feed_drift.freshness.map((f: FreshnessEntry) => {
                       const label = f.connector_name || f.connector_id || f.cache_key
                       const src = Array.isArray(f.source) ? f.source.join(', ') : f.source
                       const tip = [
@@ -586,10 +928,10 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
             )}
             <div className="analysis-col analysis-col--single">
 
-              {analysisTab === 'alerts' && nodes?.nodes?.some((n: any) => (n.health?.disk_pct ?? 0) >= 85) && (
+              {analysisTab === 'alerts' && nodes?.nodes?.some((n: NodeEntry) => (n.health?.disk_pct ?? 0) >= 85) && (
                 <div className="analysis-section critical">
                   <h3>⚠ EDGE NODE DISK</h3>
-                  {nodes.nodes.filter((n: any) => (n.health?.disk_pct ?? 0) >= 85).map((n: any, i: number) => (
+                  {nodes.nodes.filter((n: NodeEntry) => (n.health?.disk_pct ?? 0) >= 85).map((n: NodeEntry, i: number) => (
                     <div key={i} className="analysis-row" style={{ borderLeft: '3px solid #ffd23f' }}>
                       <span style={{ color: '#ffd23f', fontWeight: 'bold' }}>DISK</span>
                       <span>{n.name}: {n.health?.disk_pct}% — run `sudo bash ~/pi-disk-maintenance.sh` on Pi</span>
@@ -598,32 +940,32 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                 </div>
               )}
 
-              {analysisTab === 'alerts' && (correlations?.situations?.length > 0 || anomalies?.count > 0) && (
+              {analysisTab === 'alerts' && ((correlations?.situations?.length ?? 0) > 0 || (anomalies?.count ?? 0) > 0) && (
                 <div className="analysis-section critical">
                   <h3>🚨 CRITICAL ALERTS ({(correlations?.situations?.length || 0) + (anomalies?.count || 0)})</h3>
-                  {correlations?.situations?.map((s: any, i: number) => (
-                    <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${severityColor(s.severity)}` }}>
-                      <span style={{ color: severityColor(s.severity), fontWeight: 'bold', minWidth: 70 }}>{s.severity?.toUpperCase()}</span>
+                  {correlations?.situations?.map((s: SituationEntry, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${severityColor(s.severity || '')}` }}>
+                      <span style={{ color: severityColor(s.severity || ''), fontWeight: 'bold', minWidth: 70 }}>{s.severity?.toUpperCase()}</span>
                       <span>{s.title}</span>
                       {s.location?.lon != null && (
-                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'situation', lon: s.location.lon, lat: s.location.lat, height: 400000, title: s.title, lines: [`TYPE: ${s.type}`, `SEVERITY: ${s.severity}`] }) }}>◎</button>
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'situation', lon: s.location!.lon!, lat: s.location!.lat!, height: 400000, title: s.title || '', lines: [`TYPE: ${s.type || '—'}`, `SEVERITY: ${s.severity || '—'}`] }) }}>◎</button>
                       )}
                     </div>
                   ))}
-                  {anomalies?.anomalies?.slice(0, 8).map((a: any, i: number) => (
+                  {anomalies?.anomalies?.slice(0, 8).map((a: AnomalyEntry, i: number) => (
                     <div key={i} className="analysis-row" style={{ borderLeft: '3px solid #ff2d00' }}>
                       <span style={{ color: '#ff2d00', fontWeight: 'bold', minWidth: 70 }}>ANOMALY</span>
                       <span>{a.callsign || a.icao24} — {a.reasons?.join(', ')}</span>
-                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'anomaly', lon: a.lon, lat: a.lat, height: 400000, title: `Anomaly ${a.icao24}`, lines: a.reasons || [] }) }}>◎</button>
+                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'anomaly', lon: a.lon || 0, lat: a.lat || 0, height: 400000, title: `Anomaly ${a.icao24}`, lines: a.reasons || [] }) }}>◎</button>
                     </div>
                   ))}
                 </div>
               )}
 
-              {analysisTab === 'alerts' && briefing?.watch_items?.length > 0 && (
+              {analysisTab === 'alerts' && briefing?.watch_items && briefing.watch_items.length > 0 && (
                 <div className="analysis-section">
                   <h3>👁 WATCH ITEMS ({briefing.watch_items.length})</h3>
-                  {briefing.watch_items.map((w: any, i: number) => (
+                  {briefing.watch_items.map((w: WatchItem, i: number) => (
                     <div key={w.id || i} className="analysis-row" style={{ borderLeft: '3px solid #7ec8ff' }}>
                       <span style={{ color: '#7ec8ff', fontWeight: 'bold', minWidth: 52 }}>{w.horizon_h}h</span>
                       <span>{w.title}</span>
@@ -639,10 +981,10 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                             onClose()
                             onFocus({
                               kind: 'watch',
-                              lon: w.lon,
-                              lat: w.lat,
+                              lon: w.lon!,
+                              lat: w.lat!,
                               height: 800000,
-                              title: w.title,
+                              title: w.title || '',
                               lines: [
                                 `HORIZON: ${w.horizon_h}h`,
                                 `CONFIDENCE: ${Math.round((w.confidence ?? 0) * 100)}%`,
@@ -661,20 +1003,20 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
               )}
 
               {analysisTab === 'alerts' && predictions?.enabled && (
-                predictions.pending?.length > 0 || predictions.resolved_recent?.length > 0
+                (predictions.pending?.length ?? 0) > 0 || (predictions.resolved_recent?.length ?? 0) > 0
               ) && (
                 <div className="analysis-section">
                   <h3>
                     📊 PREDICTION LEDGER ({predictions.stats?.pending ?? 0} pending
-                    {predictions.overdue_count > 0 ? ` · ${predictions.overdue_count} overdue` : ''}
+                    {(predictions.overdue_count ?? 0) > 0 ? ` · ${predictions.overdue_count} overdue` : ''}
                     {predictions.due_next ? ` · next ${formatPredDue(predictions.due_next)}` : ''})
                   </h3>
-                  {predictions.stats?.sample_size > 0 && (
+                  {(predictions.stats?.sample_size ?? 0) > 0 && (
                     <div className="analysis-row" style={{ fontSize: 10, color: '#8fb7a9' }}>
-                      30d hit rate {Math.round((predictions.stats.accuracy ?? 0) * 100)}% · n={predictions.stats.sample_size}
+                      30d hit rate {Math.round((predictions.stats?.accuracy ?? 0) * 100)}% · n={predictions.stats?.sample_size}
                     </div>
                   )}
-                  {predictions.pending?.slice(0, 6).map((p: any) => (
+                  {predictions.pending?.slice(0, 6).map((p: PredictionEntry) => (
                     <div
                       key={p.id ?? p.watch_id}
                       className="analysis-row"
@@ -689,7 +1031,7 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                       </span>
                     </div>
                   ))}
-                  {predictions.resolved_recent?.slice(0, 4).map((p: any) => (
+                  {predictions.resolved_recent?.slice(0, 4).map((p: PredictionEntry) => (
                     <div
                       key={`r-${p.id}`}
                       className="analysis-row"
@@ -705,7 +1047,7 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                 </div>
               )}
 
-              {analysisTab === 'alerts' && briefing?.intel?.entities?.length > 0 && (
+              {analysisTab === 'alerts' && briefing?.intel?.entities && briefing.intel.entities.length > 0 && (
                 <div className="analysis-section">
                   <h3>🕸 INTEL ENTITIES ({briefing.intel.count ?? briefing.intel.entities.length})</h3>
                   {(briefing.intel.by_bucket) && (
@@ -713,7 +1055,7 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                       LOCAL {briefing.intel.by_bucket.local ?? 0} · REGION {briefing.intel.by_bucket.regional ?? 0} · GLOBAL {briefing.intel.by_bucket.global ?? 0}
                     </div>
                   )}
-                  {briefing.intel.entities.slice(0, 6).map((e: any, i: number) => (
+                  {briefing.intel.entities.slice(0, 6).map((e: IntelEntity, i: number) => (
                     <div key={e.id || i} className="analysis-row" style={{ borderLeft: '3px solid #c084fc' }}>
                       <span style={{ color: '#c084fc', fontWeight: 'bold', minWidth: 52, textTransform: 'uppercase', fontSize: 10 }}>
                         {(e.bucket || '—').slice(0, 6)}
@@ -728,10 +1070,10 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                             onClose()
                             onFocus({
                               kind: 'intel',
-                              lon: e.lon,
-                              lat: e.lat,
+                              lon: e.lon!,
+                              lat: e.lat!,
                               height: 600000,
-                              title: e.caption || e.id,
+                              title: e.caption || e.id || '',
                               lines: [
                                 `SCHEMA: ${e.schema || '—'}`,
                                 `BUCKET: ${e.bucket || '—'}`,
@@ -751,15 +1093,15 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
               {analysisTab === 'alerts' && gdacs.length > 0 && (
                 <div className="analysis-section">
                   <h3>🌊 HUMANITARIAN ALERTS ({gdacs.length})</h3>
-                  {gdacs.slice(0, 8).map((a: any, i: number) => {
-                    const gt = gdacsType(a.title)
+                  {gdacs.slice(0, 8).map((a: GdacsAlert, i: number) => {
+                    const gt = gdacsType(a.title || '')
                     return (
                       <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${gt.color}` }}>
                         <span style={{ color: gt.color, fontWeight: 'bold', minWidth: 40 }}>{gt.label}</span>
                         <span style={{ flex: 1 }}>{a.title || '—'}</span>
                         <span style={{ color: '#6f8c84', fontSize: 10 }}>{a.published ? new Date(a.published).toLocaleDateString() : '—'}</span>
                         {a.lat != null && (
-                          <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'gdacs', lon: a.lon, lat: a.lat, height: 400000, title: a.title, lines: [a.description?.substring(0, 100) || ''] }) }}>◎</button>
+                          <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'gdacs', lon: a.lon!, lat: a.lat!, height: 400000, title: a.title || '', lines: [a.description?.substring(0, 100) || ''] }) }}>◎</button>
                         )}
                       </div>
                     )
@@ -769,13 +1111,13 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
 
               {analysisTab === 'operator' && agenticTrace && <AgenticLoopPanel agentic={agenticTrace} />}
 
-              {analysisTab === 'operator' && briefing?.digest_line_meta?.length > 0 && (
+              {analysisTab === 'operator' && briefing?.digest_line_meta && briefing.digest_line_meta.length > 0 && (
                 <AnalysisCollapsible
                   title="✓ DIGEST VERIFICATION"
                   count={briefing.digest_line_meta.length}
                   defaultOpen={weakDigestCount > 0}
                 >
-                  {briefing.digest_line_meta.slice(0, 8).map((row: any, i: number) => (
+                  {briefing.digest_line_meta.slice(0, 8).map((row: DigestLineMeta, i: number) => (
                     <div
                       key={i}
                       className="analysis-row"
@@ -876,7 +1218,7 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                           )}
                         </div>
                       )}
-                      {fusionHotspots.slice(0, 3).map((h: any, i: number) => (
+                      {fusionHotspots.slice(0, 3).map((h: FusionHotspot, i: number) => (
                         <div key={i} className="analysis-fusion-row">
                           <span style={{ color: '#ff6b35', fontWeight: 'bold' }}>FUSION #{i + 1}</span>
                           <span>{h.label || h.summary || `${h.lat?.toFixed(1)}, ${h.lon?.toFixed(1)}`}</span>
@@ -888,8 +1230,8 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                                 onClose()
                                 onFocus({
                                   kind: 'fusion',
-                                  lon: h.lon,
-                                  lat: h.lat,
+                                  lon: h.lon!,
+                                  lat: h.lat!,
                                   height: 800000,
                                   title: h.label || `Fusion hotspot ${i + 1}`,
                                   lines: [`Score: ${h.score ?? '—'}`, h.summary].filter(Boolean) as string[],
@@ -908,8 +1250,8 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
               )}
 
               {analysisTab === 'feeds' && (cveFeed?.vulnerabilities?.length ?? 0) > 0 && (
-                <AnalysisCollapsible title="🔐 CISA KEV" count={cveFeed.vulnerabilities.length} defaultOpen={false}>
-                  {cveFeed.vulnerabilities.slice(0, 8).map((v: any, i: number) => (
+                <AnalysisCollapsible title="🔐 CISA KEV" count={cveFeed!.vulnerabilities!.length} defaultOpen={false}>
+                  {cveFeed!.vulnerabilities!.slice(0, 8).map((v: CveVulnerability, i: number) => (
                     <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${v.ransomware === 'Known' ? '#ff2d00' : '#ff6b35'}` }}>
                       <span style={{ fontWeight: 'bold', minWidth: 120 }}>{v.cve_id}</span>
                       <span style={{ flex: 1 }}>{v.vendor} — {v.product}</span>
@@ -921,13 +1263,13 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
 
               {analysisTab === 'feeds' && quakes.length > 0 && (
                 <AnalysisCollapsible title="🌋 SEISMIC" count={quakes.length} defaultOpen={false}>
-                  {quakes.slice(0, 6).map((q: any, i: number) => (
-                    <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${q.mag >= 5 ? '#ff2d00' : q.mag >= 3.5 ? '#ff6b35' : '#00e5a0'}` }}>
+                  {quakes.slice(0, 6).map((q: QuakeEntry, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${(q.mag ?? 0) >= 5 ? '#ff2d00' : (q.mag ?? 0) >= 3.5 ? '#ff6b35' : '#00e5a0'}` }}>
                       <span style={{ fontWeight: 'bold', minWidth: 50 }}>M{q.mag?.toFixed(1) ?? '—'}</span>
                       <span style={{ flex: 1 }}>{q.place || '—'}</span>
                       <span style={{ color: '#6f8c84', minWidth: 70 }}>{q.depth != null ? q.depth.toFixed(1) + ' km' : '—'}</span>
                       <span style={{ color: '#6f8c84', minWidth: 50 }}>{q.tsunami ? 'TSU' : ''}</span>
-                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'quake', lon: q.lon, lat: q.lat, height: 400000, title: `M${q.mag} ${q.place}`, lines: [`Depth: ${q.depth} km`, `Time: ${new Date(q.time).toLocaleString()}`, `Tsunami: ${q.tsunami ? 'YES' : 'no'}`] }) }}>◎</button>
+                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'quake', lon: q.lon!, lat: q.lat!, height: 400000, title: `M${q.mag} ${q.place}`, lines: [`Depth: ${q.depth} km`, `Time: ${new Date(q.time || '').toLocaleString()}`, `Tsunami: ${q.tsunami ? 'YES' : 'no'}`] }) }}>◎</button>
                     </div>
                   ))}
                 </AnalysisCollapsible>
@@ -947,13 +1289,13 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
 
               {analysisTab === 'feeds' && allEvents.length > 0 && (
                 <AnalysisCollapsible title="🔔 EVENTS" count={allEvents.length} defaultOpen={false}>
-                  {allEvents.slice(0, 5).map((e: any, i: number) => (
+                  {allEvents.slice(0, 5).map((e: EventEntry, i: number) => (
                     <div key={i} className="analysis-row" style={{ borderLeft: `3px solid ${(e.magnitude || 0) > 6 ? '#ff2d00' : '#ff6b35'}` }}>
                       <span style={{ minWidth: 90, fontWeight: 'bold' }}>{e.category || 'EVENT'}</span>
                       <span style={{ flex: 1 }}>{e.title || '—'}</span>
                       <span style={{ color: '#6f8c84' }}>{e.date ? new Date(e.date).toLocaleDateString() : '—'}</span>
                       {e.lon != null && (
-                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'event', lon: e.lon, lat: e.lat, height: 400000, title: e.title, lines: [`Category: ${e.category}`, `Date: ${e.date}`] }) }}>◎</button>
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'event', lon: e.lon!, lat: e.lat!, height: 400000, title: e.title || '', lines: [`Category: ${e.category || '—'}`, `Date: ${e.date || '—'}`] }) }}>◎</button>
                       )}
                     </div>
                   ))}
@@ -962,37 +1304,37 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
 
               {analysisTab === 'feeds' && wildfires.length > 0 && (
                 <AnalysisCollapsible title="🔥 WILDFIRES" count={wildfires.length} defaultOpen={false}>
-                  {wildfires.slice(0, 5).map((e: any, i: number) => (
+                  {wildfires.slice(0, 5).map((e: EventEntry, i: number) => (
                     <div key={i} className="analysis-row" style={{ borderLeft: '3px solid #ff2d00' }}>
                       <span style={{ flex: 1 }}>{e.title || '—'}</span>
                       <span style={{ color: '#6f8c84' }}>{e.date ? new Date(e.date).toLocaleDateString() : '—'}</span>
                       {e.lon != null && (
-                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'wildfire', lon: e.lon, lat: e.lat, height: 400000, title: e.title, lines: [`Category: ${e.category}`, `Date: ${e.date}`] }) }}>◎</button>
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'wildfire', lon: e.lon!, lat: e.lat!, height: 400000, title: e.title || '', lines: [`Category: ${e.category || '—'}`, `Date: ${e.date || '—'}`] }) }}>◎</button>
                       )}
                     </div>
                   ))}
                 </AnalysisCollapsible>
               )}
 
-              {analysisTab === 'feeds' && military?.count > 0 && (
-                <AnalysisCollapsible title="✈️ MILITARY AIRCRAFT" count={military.count} defaultOpen={false}>
-                  {military.aircraft?.slice(0, 8).map((a: any, i: number) => (
-                    <div key={i} className="analysis-row" style={{ borderLeft: ['7500', '7600', '7700'].includes(a.squawk) ? '3px solid #ff2d00' : '3px solid #ff6b35' }}>
+              {analysisTab === 'feeds' && (military?.count ?? 0) > 0 && (
+                <AnalysisCollapsible title="✈️ MILITARY AIRCRAFT" count={military!.count} defaultOpen={false}>
+                  {military!.aircraft?.slice(0, 8).map((a: MilitaryAircraft, i: number) => (
+                    <div key={i} className="analysis-row" style={{ borderLeft: ['7500', '7600', '7700'].includes(a.squawk || '') ? '3px solid #ff2d00' : '3px solid #ff6b35' }}>
                       <span style={{ fontWeight: 'bold', minWidth: 80 }}>{a.flight || a.hex}</span>
                       <span style={{ minWidth: 50 }}>{a.type || '—'}</span>
                       <span style={{ color: '#6f8c84', minWidth: 90 }}>Alt: {a.alt != null && !isNaN(Number(a.alt)) ? Number(a.alt).toFixed(0) + ' m' : '—'}</span>
                       <span style={{ color: '#6f8c84', minWidth: 90 }}>Spd: {a.speed != null && !isNaN(Number(a.speed)) ? Number(a.speed).toFixed(0) + ' m/s' : '—'}</span>
                       {a.squawk && <span style={{ color: '#ff2d00', fontWeight: 'bold', minWidth: 80 }}>SQ {a.squawk}</span>}
-                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'military', lon: a.lon, lat: a.lat, height: 400000, title: a.flight || a.hex, lines: [`Type: ${a.type || '—'}`, `Alt: ${a.alt} m`, `Speed: ${a.speed} m/s`, `Squawk: ${a.squawk || '—'}`] }) }}>◎</button>
+                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'military', lon: a.lon!, lat: a.lat!, height: 400000, title: a.flight || a.hex || '', lines: [`Type: ${a.type || '—'}`, `Alt: ${a.alt} m`, `Speed: ${a.speed} m/s`, `Squawk: ${a.squawk || '—'}`] }) }}>◎</button>
                     </div>
                   ))}
                 </AnalysisCollapsible>
               )}
 
-              {analysisTab === 'feeds' && air?.cities?.length > 0 && (
+              {analysisTab === 'feeds' && air?.cities && air.cities.length > 0 && (
                 <AnalysisCollapsible title="💨 AIR QUALITY" count={air.cities.length} defaultOpen={false}>
                   <div className="analysis-grid">
-                    {air.cities.map((c: any, i: number) => (
+                    {air.cities.map((c: AirQualityCity, i: number) => (
                       <div key={i} className="analysis-card" style={{ borderLeft: `3px solid ${aqColor(c.pm25)}` }}>
                         <strong>{c.city}</strong>
                         <span style={{ color: aqColor(c.pm25) }}>PM2.5: {c.pm25 != null ? c.pm25.toFixed(1) : '—'}</span>
@@ -1003,23 +1345,23 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                 </AnalysisCollapsible>
               )}
 
-              {analysisTab === 'feeds' && (pegel?.gauges?.length ?? 0) > 0 && (
+              {analysisTab === 'feeds' && pegel?.gauges && pegel.gauges.length > 0 && (
                 <AnalysisCollapsible title="🌊 RIVER GAUGES DE" count={pegel.gauges.length} defaultOpen={false}>
-                  {pegel.gauges.filter((g: any) => g.severity === 'critical' || g.severity === 'high').map((g: any, i: number) => (
+                  {pegel.gauges.filter((g: PegelGauge) => g.severity === 'critical' || g.severity === 'high').map((g: PegelGauge, i: number) => (
                     <div key={`a-${i}`} className="analysis-row" style={{ borderLeft: '3px solid #ff6b35' }}>
                       <span style={{ fontWeight: 'bold', minWidth: 100 }}>{g.name}</span>
                       <span style={{ minWidth: 60 }}>{g.water}</span>
                       <span>{g.value} {g.unit}</span>
                       <span style={{ color: '#ff6b35' }}>{g.severity}</span>
-                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'pegel', lon: g.lon, lat: g.lat, height: 350000, title: `${g.name} (${g.water})`, lines: [`Level: ${g.value} ${g.unit}`, `State: ${g.state_mnw_mhw || '—'} / ${g.state_nsw_hsw || '—'}`] }) }}>◎</button>
+                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'pegel', lon: g.lon!, lat: g.lat!, height: 350000, title: `${g.name} (${g.water})`, lines: [`Level: ${g.value} ${g.unit}`, `State: ${g.state_mnw_mhw || '—'} / ${g.state_nsw_hsw || '—'}`] }) }}>◎</button>
                     </div>
                   ))}
-                  {pegel.gauges.filter((g: any) => g.severity === 'normal' || g.severity === 'low').slice(0, 6).map((g: any, i: number) => (
+                  {pegel.gauges.filter((g: PegelGauge) => g.severity === 'normal' || g.severity === 'low').slice(0, 6).map((g: PegelGauge, i: number) => (
                     <div key={`n-${i}`} className="analysis-row" style={{ borderLeft: '3px solid #4fc3f7' }}>
                       <span style={{ fontWeight: 'bold', minWidth: 100 }}>{g.name}</span>
                       <span style={{ minWidth: 60 }}>{g.water}</span>
                       <span>{g.value} {g.unit}</span>
-                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'pegel', lon: g.lon, lat: g.lat, height: 350000, title: `${g.name} (${g.water})`, lines: [`Level: ${g.value} ${g.unit}`] }) }}>◎</button>
+                      <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'pegel', lon: g.lon!, lat: g.lat!, height: 350000, title: `${g.name} (${g.water})`, lines: [`Level: ${g.value} ${g.unit}`] }) }}>◎</button>
                     </div>
                   ))}
                 </AnalysisCollapsible>
@@ -1028,7 +1370,7 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
               {analysisTab === 'feeds' && results.markets?.crypto && (
                 <AnalysisCollapsible title="📈 CRYPTO MARKETS" defaultOpen={false}>
                   <div className="analysis-grid">
-                    {Object.entries(results.markets.crypto).map(([k, v]: [string, any]) => {
+                    {Object.entries(results.markets.crypto).map(([k, v]: [string, CryptoEntry]) => {
                       const price = v.usd ?? v.price ?? null
                       const change = v.usd_24h_change ?? v.change_24h ?? null
                       return (
@@ -1043,9 +1385,9 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                 </AnalysisCollapsible>
               )}
 
-              {analysisTab === 'feeds' && nodes?.nodes?.length > 0 && (
+              {analysisTab === 'feeds' && nodes?.nodes && nodes.nodes.length > 0 && (
                 <AnalysisCollapsible title="📡 NODES" count={nodes.count} defaultOpen={false}>
-                  {nodes.nodes.map((n: any, i: number) => {
+                  {nodes.nodes.map((n: NodeEntry, i: number) => {
                     const disk = n.health?.disk_pct
                     const diskWarn = disk != null && disk >= 85
                     return (
@@ -1058,7 +1400,7 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                       <span style={{ color: '#6f8c84' }}>RAM: {n.health?.ram_pct != null ? n.health.ram_pct + '%' : '—'}</span>
                       <span style={{ color: diskWarn ? '#ffd23f' : '#6f8c84', fontWeight: diskWarn ? 'bold' : 'normal' }}>Disk: {disk != null ? disk + '%' : '—'}{diskWarn ? ' ⚠' : ''}</span>
                       {n.lat && (
-                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon, lat: n.lat, height: 400000, title: n.name, lines: [`Node: ${n.node_id}`, `CPU: ${n.health?.cpu_temp_c ?? '—'}°C`, `RAM: ${n.health?.ram_pct ?? '—'}%`, `Disk: ${disk ?? '—'}%`] }) }}>◎</button>
+                        <button className="locate-mini" onClick={() => { onClose(); onFocus({ kind: 'node', lon: n.lon!, lat: n.lat!, height: 400000, title: n.name || '', lines: [`Node: ${n.node_id || '—'}`, `CPU: ${n.health?.cpu_temp_c ?? '—'}°C`, `RAM: ${n.health?.ram_pct ?? '—'}%`, `Disk: ${disk ?? '—'}%`] }) }}>◎</button>
                       )}
                     </div>
                   )})}
@@ -1069,8 +1411,8 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                 <AnalysisCollapsible title="🔌 FEED HEALTH" count={Object.keys(health.feeds).length} defaultOpen={false}>
                   <div className="analysis-grid">
                     {Object.entries(health.feeds)
-                      .sort(([, a]: [string, any], [, b]: [string, any]) => (b.age_sec || 0) - (a.age_sec || 0))
-                      .map(([k, v]: [string, any]) => {
+                      .sort(([, a]: [string, FeedHealthEntry], [, b]: [string, FeedHealthEntry]) => (b.age_sec || 0) - (a.age_sec || 0))
+                      .map(([k, v]: [string, FeedHealthEntry]) => {
                         const st = feedHealthStyle(v)
                         return (
                       <div key={k} className="analysis-card" style={{ borderLeft: `3px solid ${st.border}` }}>

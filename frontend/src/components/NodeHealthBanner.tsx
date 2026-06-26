@@ -45,9 +45,9 @@ export function NodeHealthBanner() {
         if (!alive) return
         setNodes(data.nodes || [])
         setError(null)
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (!alive) return
-        setError(e?.message || 'fetch failed')
+        setError(e instanceof Error ? e.message : 'fetch failed')
       }
     }
     tick()

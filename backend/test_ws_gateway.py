@@ -10,6 +10,11 @@ import unittest
 class TestWSGateway(unittest.TestCase):
     """WebSocket gateway module."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_ws_disabled_by_default(self):
         from ws_gateway import ws_enabled
 
@@ -74,6 +79,11 @@ class TestWSGateway(unittest.TestCase):
 
 class TestConfigWebSocket(unittest.TestCase):
     """Config integration."""
+
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
 
     def test_config_ws_default_off(self):
         os.environ.pop("WORLDBASE_WEBSOCKET", None)

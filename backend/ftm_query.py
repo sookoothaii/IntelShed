@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
+from config import get_config
 from followthemoney import model
 
 from ftm_connection import _LOCK, _conn, _run_with_recovery
@@ -607,6 +608,35 @@ def import_ndjson(text: str, dataset: str = "import") -> dict:
     return result
 
 
+def list_entities(limit: int = 1000) -> list[dict]:
+    """Return recent entities with properties and datasets (general purpose)."""
+    limit = max(1, min(int(limit), 5000))
+    with _LOCK:
+        rows = (
+            _conn()
+            .execute(
+                """
+                SELECT id, schema, caption, properties, datasets
+                FROM entities
+                ORDER BY last_seen DESC
+                LIMIT ?
+                """,
+                [limit],
+            )
+            .fetchall()
+        )
+    return [
+        {
+            "id": r[0],
+            "schema": r[1],
+            "caption": r[2],
+            "properties": json.loads(r[3] or "{}"),
+            "datasets": json.loads(r[4] or "[]"),
+        }
+        for r in rows
+    ]
+
+
 def list_entities_for_resolution(
     schemas: Iterable[str],
     limit: int = 3000,
@@ -1072,9 +1102,8 @@ def statement_stats() -> dict:
 # P5+ — Dynamic Knowledge Graph: external edge support
 # ---------------------------------------------------------------------------
 
-import os as _os  # noqa: E402
 
-_MAX_EXT_CONF = float(_os.getenv("WORLDBASE_DYNAMIC_GRAPH_MAX_CONFIDENCE", "0.7"))
+_MAX_EXT_CONF = get_config().dynamic_graph_max_confidence
 
 
 def add_external_edge(

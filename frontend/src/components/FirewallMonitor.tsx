@@ -1,4 +1,11 @@
-export default function FirewallMonitor({ meta }: { meta: any }) {
+interface FirewallMeta {
+  action: string
+  risk_score: number
+  flags?: string[]
+  policy_violations?: string[]
+}
+
+export default function FirewallMonitor({ meta }: { meta: FirewallMeta | null }) {
   if (!meta) return null
   const { action, risk_score, flags, policy_violations } = meta
   const isBlock = action === 'block'

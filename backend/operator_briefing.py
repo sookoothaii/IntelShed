@@ -13,3 +13,9 @@ from briefing_prompt import *  # noqa: F401,F403
 
 # Explicit re-exports for symbols used with `from operator_briefing import X`
 # Star-import doesn't re-export _-prefixed names, so list them explicitly.
+from briefing_digest import (  # noqa: F401
+    _ASEAN_BBOX,
+    _pm25_severity,
+    _region_bbox,
+    _text_bucket,
+)

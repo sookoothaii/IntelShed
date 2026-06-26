@@ -8,13 +8,15 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from config import get_config
+
 
 def _truthy(val: str | None) -> bool:
     return str(val or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def dynamic_graph_enabled() -> bool:
-    return _truthy(os.getenv("WORLDBASE_DYNAMIC_GRAPH", "0"))
+    return get_config().dynamic_graph_enabled
 
 
 def list_external_edges(

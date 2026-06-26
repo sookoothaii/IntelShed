@@ -8,6 +8,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { Stats, FeedHud, OutageItem } from '../../lib/types';
 
 export function useOutagesLayer({
   viewer,
@@ -21,8 +22,8 @@ export function useOutagesLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
-  setFeedHud: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  setFeedHud: React.Dispatch<React.SetStateAction<FeedHud>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -60,7 +61,7 @@ export function useOutagesLayer({
     src.entities.suspendEvents();
     src.entities.removeAll();
     
-    for (const o of data.items || []) {
+    for (const o of (data.items || []) as OutageItem[]) {
       if (o.lon == null || o.lat == null) continue;
       const col = Color.fromCssColorString(o.source === 'cloudflare' ? '#ff9f43' : '#a855f7');
       src.entities.add({
@@ -78,16 +79,16 @@ export function useOutagesLayer({
           level: o.level,
           duration_h: o.duration_h,
           datasource: o.datasource,
-        } as any,
+        },
       });
     }
     
     src.entities.resumeEvents();
     
     const total = data.count ?? (data.items || []).length;
-    setStats((p: any) => ({ ...p, outages: total }));
+    setStats((p: Stats) => ({ ...p, outages: total }));
     const srcLabel = (data.sources || []).join('+') || 'ioda';
     const mapNote = data.geocoded != null && data.geocoded < total ? `${data.geocoded} map` : srcLabel;
-    setFeedHud((p: any) => ({ ...p, outages: mapNote }));
+    setFeedHud((p: FeedHud) => ({ ...p, outages: mapNote }));
   }, [viewer, data, active, setStats, setFeedHud]);
 }

@@ -273,6 +273,59 @@ def format_insights_prompt_block(insights: list[dict[str, Any]], top: int = 5) -
     return "\n".join(lines)
 
 
+def _darkweb_insights(top: int = 3) -> list[dict[str, Any]]:
+    """Create insight cards from already ingested dark web Mention entities."""
+    try:
+        from config import get_config
+
+        if not get_config().darkweb_enabled or not get_config().briefing_darkweb:
+            return []
+    except Exception:
+        return []
+
+    try:
+        import ftm_query
+
+        rows = ftm_query.list_entities(limit=200)
+        mentions = [
+            r
+            for r in rows
+            if r.get("schema") == "Mention" and "darkweb" in (r.get("datasets") or [])
+        ]
+    except Exception:
+        return []
+
+    insights: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for m in mentions[:top]:
+        props = m.get("properties", {})
+        url = (props.get("url") or [""])[0]
+        if url in seen:
+            continue
+        seen.add(url)
+        title = (props.get("name") or ["Dark web mention"])[0]
+        engine = (props.get("source") or ["darkweb"])[0]
+        query = (props.get("query") or [""])[0]
+        insights.append(
+            {
+                "id": f"darkweb:{m.get('id', url)}",
+                "type": "darkweb_mention",
+                "center": {"lat": None, "lon": None, "place": "dark web"},
+                "score": 0.55,
+                "delta_score": 0.0,
+                "rising": False,
+                "sources": [engine],
+                "entities": [],
+                "confidence": 0.45,
+                "confidence_basis": "single low-reliability source",
+                "headline": f"Dark web mention: {title[:60]}",
+                "so_what": f"Low-reliability dark web reference ({engine}). Corroborate before acting; query: {query[:40]}",
+                "narrative_source": "template",
+            }
+        )
+    return insights
+
+
 async def build_insights(top: int = 10, *, narrate: bool = True) -> dict[str, Any]:
     """Fetch fusion hotspots and synthesize ranked insight cards."""
     try:
@@ -287,15 +340,16 @@ async def build_insights(top: int = 10, *, narrate: bool = True) -> dict[str, An
             "generated_at": _now_iso(),
         }
 
-    if not hotspots:
-        return {
-            "count": 0,
-            "insights": [],
-            "generated_at": _now_iso(),
-            "cell_deg": _CELL_DEG,
-        }
+    insights: list[dict[str, Any]] = []
+    if hotspots:
+        insights = synthesize_insights(hotspots, deltas, top=top)
 
-    insights = synthesize_insights(hotspots, deltas, top=top)
+    # Append dark web insights (low-reliability, no spatial center) if enabled.
+    try:
+        insights.extend(_darkweb_insights(top=3))
+    except Exception:
+        pass
+
     if narrate:
         try:
             insights = await narrate_insights(insights)

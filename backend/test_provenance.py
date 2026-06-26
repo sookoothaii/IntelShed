@@ -211,6 +211,11 @@ class TestIngestionChainHash(unittest.TestCase):
 class TestEnvFlag(unittest.TestCase):
     """WORLDBASE_PROVENANCE env toggle."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_default_enabled(self):
         os.environ.pop("WORLDBASE_PROVENANCE", None)
         self.assertTrue(provenance_enabled())
@@ -228,6 +233,11 @@ class TestEnvFlag(unittest.TestCase):
 
 class TestBriefingQualityIntegration(unittest.TestCase):
     """Verify build_digest_line_meta adds integrity field."""
+
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
 
     def test_integrity_field_present(self):
         from briefing_quality import build_digest_line_meta
@@ -271,6 +281,11 @@ class TestBriefingQualityIntegration(unittest.TestCase):
 
 class TestInsightsIntegration(unittest.TestCase):
     """Verify insights carry provenance field."""
+
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
 
     def test_synthesize_insights_has_provenance(self):
         from insights import synthesize_insights

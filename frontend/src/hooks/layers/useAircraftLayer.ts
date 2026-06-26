@@ -15,6 +15,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import type { GlobePrimitivePick } from '../../lib/globePick';
+import type { Stats, AircraftState, AircraftApiResponse } from '../../lib/types';
 import {
   attachPrimitiveCollection,
   detachPrimitiveCollection,
@@ -42,7 +43,7 @@ export function useAircraftLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
   setAircraftSource: React.Dispatch<React.SetStateAction<string>>;
 }) {
   const pointsRef = useRef<PointPrimitiveCollection | null>(null);
@@ -87,7 +88,7 @@ export function useAircraftLayer({
     const points = pointsRef.current;
     const labels = labelsRef.current;
     const acMap = acMapRef.current;
-    const states: any[] = data.states || [];
+    const states: AircraftState[] = (data as AircraftApiResponse)?.states || [];
     const seen = new Set<string>();
 
     for (const s of states) {
@@ -157,8 +158,8 @@ export function useAircraftLayer({
       }
     }
 
-    setStats((p: any) => ({ ...p, aircraft: acMap.size }));
-    if (data.source) setAircraftSource(String(data.source));
+    setStats((p: Stats) => ({ ...p, aircraft: acMap.size }));
+    if ((data as AircraftApiResponse)?.source) setAircraftSource(String((data as AircraftApiResponse).source));
     requestSceneRender(viewer);
   }, [viewer, data, isSuccess, active, setStats, setAircraftSource]);
 }

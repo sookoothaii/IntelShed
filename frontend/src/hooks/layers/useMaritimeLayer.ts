@@ -16,6 +16,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { Stats, MaritimeVessel } from '../../lib/types';
 
 export function useMaritimeLayer({
   viewer,
@@ -29,7 +30,7 @@ export function useMaritimeLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
   setSanctionedMmsi?: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
@@ -95,11 +96,11 @@ export function useMaritimeLayer({
         src.entities.remove(e);
         vesselMap.delete(id);
       }
-      setStats((p: any) => ({ ...p, maritime: 0 }));
+      setStats((p: Stats) => ({ ...p, maritime: 0 }));
       return;
     }
     
-    const vessels: any[] = data.vessels || [];
+    const vessels: MaritimeVessel[] = data.vessels || [];
     const seen = new Set<string>();
     const sanctioned = sanctionsData || new Set<string>();
 
@@ -153,7 +154,7 @@ export function useMaritimeLayer({
             flag: v.flag,
             length: v.length,
             sanctioned: flagged,
-          } as any,
+          },
         });
         vesselMap.set(id, e);
       }
@@ -167,6 +168,6 @@ export function useMaritimeLayer({
     }
     
     src.entities.resumeEvents();
-    setStats((p: any) => ({ ...p, maritime: vesselMap.size }));
+    setStats((p: Stats) => ({ ...p, maritime: vesselMap.size }));
   }, [viewer, data, sanctionsData, active, setStats]);
 }

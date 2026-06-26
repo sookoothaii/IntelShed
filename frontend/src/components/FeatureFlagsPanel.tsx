@@ -33,8 +33,8 @@ export default function FeatureFlagsPanel() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setFlags(data.flags || [])
-    } catch (e: any) {
-      setError(e.message || 'Failed to load flags')
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Failed to load flags')
     } finally {
       setLoading(false)
     }
@@ -46,8 +46,8 @@ export default function FeatureFlagsPanel() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setLog(data.entries || [])
-    } catch (e: any) {
-      setError(e.message || 'Failed to load log')
+    } catch (e: unknown) {
+      setError((e as Error).message || 'Failed to load log')
     }
   }, [])
 
@@ -66,8 +66,8 @@ export default function FeatureFlagsPanel() {
         })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         await loadFlags()
-      } catch (e: any) {
-        setError(e.message || `Failed to toggle ${key}`)
+      } catch (e: unknown) {
+        setError((e as Error).message || `Failed to toggle ${key}`)
       } finally {
         setBusy(null)
       }

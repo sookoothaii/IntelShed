@@ -1,5 +1,6 @@
 import React from 'react';
 import { Viewer } from 'cesium';
+import type { Stats, FeedHud, HeatmapMeta } from '../../lib/types';
 import { useAircraftLayer } from './useAircraftLayer';
 import { useSatellitesLayer } from './useSatellitesLayer';
 import { useQuakesLayer } from './useQuakesLayer';
@@ -23,6 +24,7 @@ import { useHeatmapLayer } from './useHeatmapLayer';
 import { useWeatherLayer } from './useWeatherLayer';
 import { useTrafficCamsLayer } from './useTrafficCamsLayer';
 import { useIntelLayer } from './useIntelLayer';
+import { useDarkwebLayer } from './useDarkwebLayer';
 
 export function GlobeLayerManager({
   viewer,
@@ -45,8 +47,8 @@ export function GlobeLayerManager({
   layers: Record<string, boolean>;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
-  setFeedHud: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  setFeedHud: React.Dispatch<React.SetStateAction<FeedHud>>;
   satGroup: string;
   orbitsActive: boolean;
   transitCity: string;
@@ -54,7 +56,7 @@ export function GlobeLayerManager({
   timelineHours: number;
   setAircraftSource: React.Dispatch<React.SetStateAction<string>>;
   heatmapOn: boolean;
-  setHeatmapMeta: React.Dispatch<React.SetStateAction<any>>;
+  setHeatmapMeta: React.Dispatch<React.SetStateAction<HeatmapMeta | null>>;
   setSanctionedMmsi: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
   // Pass down the props to individual hooks
@@ -80,6 +82,7 @@ export function GlobeLayerManager({
   useWeatherLayer({ viewer, active: layers.weather, feedActive, canFetch, setStats, region: 'thailand' });
   useTrafficCamsLayer({ viewer, active: layers.trafficCams, feedActive, canFetch, setStats });
   useIntelLayer({ viewer, active: layers.intelFt, feedActive, canFetch, setStats });
+  useDarkwebLayer({ viewer, active: layers.darkweb, feedActive, canFetch, setStats });
   useHeatmapLayer({ viewer, active: heatmapOn, feedActive, canFetch, setHeatmapMeta });
 
   return null;

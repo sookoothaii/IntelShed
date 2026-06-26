@@ -12,6 +12,7 @@ import {
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint } from './layerUtils';
+import type { HeatmapMeta, HeatmapCell, HeatmapSample, HeatmapApiResponse } from '../../lib/types';
 
 export function useHeatmapLayer({
   viewer,
@@ -24,7 +25,7 @@ export function useHeatmapLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setHeatmapMeta: React.Dispatch<React.SetStateAction<any>>;
+  setHeatmapMeta: React.Dispatch<React.SetStateAction<HeatmapMeta | null>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -63,7 +64,7 @@ export function useHeatmapLayer({
     src.entities.suspendEvents();
     src.entities.removeAll();
     
-    const cells: any[] = data.cells || [];
+    const cells: HeatmapCell[] = (data as HeatmapApiResponse)?.cells || [];
     for (const c of cells) {
       const t = Math.min(1, c.score || 0);
       const hueDeg = (1 - t) * 180;
@@ -92,12 +93,12 @@ export function useHeatmapLayer({
           intensity: c.intensity,
           score: c.score,
           sources: c.sources?.join(', '),
-          samples: (c.samples || []).map((s: any) => `${s.source}: ${s.label}`).join(' | '),
-        } as any,
+          samples: (c.samples || []).map((s: HeatmapSample) => `${s.source}: ${s.label}`).join(' | '),
+        },
       });
     }
     
     src.entities.resumeEvents();
-    setHeatmapMeta({ cells: cells.length, max: data.max_intensity || 0, contrib: data.contributors || {} });
+    setHeatmapMeta({ cells: cells.length, max: (data as HeatmapApiResponse)?.max_intensity || 0, contrib: (data as HeatmapApiResponse)?.contributors || {} });
   }, [viewer, data, active, setHeatmapMeta]);
 }

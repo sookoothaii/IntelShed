@@ -8,6 +8,7 @@ import {
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint } from './layerUtils';
+import type { Stats, FeedHud } from '../../lib/types';
 
 const gdacsTypeColor = (title: string) => {
   const t = (title || '').toLowerCase();
@@ -31,8 +32,8 @@ export function useGdacsLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
-  setFeedHud: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  setFeedHud: React.Dispatch<React.SetStateAction<FeedHud>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -83,7 +84,7 @@ export function useGdacsLayer({
           description: (a.description || '').slice(0, 200),
           published: a.published,
           link: a.link,
-        } as any,
+        },
       });
       n++;
     }
@@ -91,8 +92,8 @@ export function useGdacsLayer({
     src.entities.resumeEvents();
     
     const total = data.count ?? (data.alerts || []).length;
-    setStats((p: any) => ({ ...p, gdacs: total }));
-    setFeedHud((p: any) => ({
+    setStats((p: Stats) => ({ ...p, gdacs: total }));
+    setFeedHud((p: FeedHud) => ({
       ...p,
       gdacs: n < total ? `${n} map` : (data.source ? String(data.source).replace('.org', '') : ''),
     }));

@@ -11,11 +11,11 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import ftm_store
+from config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -70,53 +70,29 @@ _STOP_WORDS = frozenset(
 
 
 def enabled() -> bool:
-    return os.getenv("WORLDBASE_INTEL_SEMANTIC_EDGES", "1").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
+    return get_config().intel_semantic_edges_enabled
 
 
 def sanctions_enabled() -> bool:
-    return os.getenv("WORLDBASE_INTEL_SANCTION_EDGES", "1").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
+    return get_config().intel_sanction_edges_enabled
 
 
 def _max_km() -> float:
-    try:
-        return max(5.0, float(os.getenv("WORLDBASE_INTEL_SEMANTIC_MAX_KM", "120")))
-    except ValueError:
-        return 120.0
+    return max(5.0, get_config().intel_semantic_max_km)
 
 
 def _entity_cap() -> int:
-    try:
-        return max(
-            20, min(300, int(os.getenv("WORLDBASE_INTEL_SEMANTIC_MAX_ENTITIES", "120")))
-        )
-    except ValueError:
-        return 120
+    return max(20, min(300, get_config().intel_semantic_max_entities))
 
 
 def _event_corr_max_km() -> float:
     """Max distance for cross-feed event correlation (global events can be far apart)."""
-    try:
-        return max(50.0, float(os.getenv("WORLDBASE_INTEL_EVENT_CORR_MAX_KM", "500")))
-    except ValueError:
-        return 500.0
+    return max(50.0, get_config().intel_event_corr_max_km)
 
 
 def _event_corr_min_shared_words() -> int:
     """Min shared caption words for event correlation (1 = country name suffices)."""
-    try:
-        return max(1, int(os.getenv("WORLDBASE_INTEL_EVENT_CORR_MIN_WORDS", "1")))
-    except ValueError:
-        return 1
+    return max(1, get_config().intel_event_corr_min_words)
 
 
 def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:

@@ -26,6 +26,9 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | **Intelligence** | Situations, FtM entity graph (INTEL globe layer), OpenSanctions via Yente, hybrid RAG (sqlite-vec + FTS5 + RRF + optional BGE rerank) |
 | **Briefing** | 24h security digest (LOCAL / REGION / GLOBAL), watch items, prediction ledger, **agentic loop** (coverage → RAG retrieve → corroboration) |
 | **NEWS** | HUD **NEWS** tab — NewsData + GDELT local/global headline feed |
+| **Dark Web** | Passive `.onion` OSINT (Ahmia, DarkSearch, optional Tor engines) → entity matching, FtM `Mention` ingest, DARK WEB panel |
+| **Telegram SOCMINT** | Allow-listed public channels → SEA scoring, FtM `Event`/`Mention` ingest, DATA → TELEGRAM panel |
+| **Satellite CD (K4)** | Sentinel-2 L2A COG window-read — NDVI/NDWI change detection, GeoJSON anomaly polygons, DATA → SATELLITE panel |
 | **Track R** | **R0 + R1.1–R1.4 shipped** — rerank, spatial bbox, CRAG-lite chat, adaptive YAML chunking, briefing agentic loop — [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
 | **Connectors** | Manifest registry + cache overlay — `GET /api/connectors`, DATA → **FEEDS**, STAC feed items |
 | **AI** | Local chat via Ollama (`qwen3:8b` default); spatial reasoning tool for "within X km of Y" queries |
@@ -87,7 +90,7 @@ ollama pull nomic-embed-text   # RAG embeddings
 pip install sentence-transformers   # when RAG_RERANK=1 in backend/.env
 ```
 
-**Verify stack:** `.\scripts\smoke-test.ps1` → expect **33 PASS / 0 FAIL / 1 WARN** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, Vite proxy, Ollama chat, frontend build). The WARN is the expected intel-ingest auth gate when no API key is set for that check.
+**Verify stack:** `.\scripts\smoke-test.ps1` → expect **34 PASS / 0 FAIL / 1 WARN** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, satellite health, Vite proxy, Ollama chat, frontend build). The WARN is the expected intel-ingest auth gate when no API key is set for that check.
 
 `.\start.ps1` waits for `GET /api/health/ping` before starting Vite (avoids proxy `ECONNREFUSED`). ~**6 s** after backend boot, a feed warm-up refreshes GDELT local + **global** pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
 
@@ -121,6 +124,20 @@ AISSTREAM_API_KEY=your-key
 Restart backend. The API reads a **background AISstream buffer** (non-blocking); JSON includes `stream_connected` and `stream_buffer`. Without the key, `/api/maritime` falls back to MyShipTracking or demo fleet.
 
 **STAC feed items:** `GET /api/stac/feeds/items` exposes connector snapshots with bbox/geometry and registry links. In the HUD: **DATA → FEEDS** — STAC JSON link and ⊕ fly-to per connector.
+
+### Optional: Dark Web / Darknet OSINT (no extra keys)
+
+Passive `.onion` search via clearnet APIs — no Tor relay required for the default engines.
+
+```env
+WORLDBASE_DARKWEB=1
+WORLDBASE_DARKWEB_ENGINES=ahmia,darksearch
+WORLDBASE_BRIEFING_DARKWEB=1
+# Optional: route .onion requests through a local Tor SOCKS5 proxy
+# WORLDBASE_DARKWEB_TOR_PROXY=socks5://127.0.0.1:9050
+```
+
+Restart backend. The DARK WEB panel appears under **DATA → DARK WEB**. The bridge searches for operator queries and high-value FtM entities, matches results against the entity graph, and ingests them as `Mention` entities. It feeds a dedicated digest block and Situation cards when `WORLDBASE_BRIEFING_DARKWEB=1`. Details, engine list, and OPSEC guardrails → [`docs/DARKWEB.md`](docs/DARKWEB.md).
 
 ### Optional: Thailand briefing enrichment (no extra keys)
 
@@ -226,6 +243,8 @@ Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](do
 | [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) | Track R — hybrid RAG + FtM OSINT enhancement plan |
 | [`docs/MCP.md`](docs/MCP.md) | Cursor MCP tools, Agent Bus, Docker gateway |
 | [`docs/FIREWALL.md`](docs/FIREWALL.md) | Slim prompt guard (default) + optional HAK_GAL bridge (`:8001`) |
+| [`docs/DARKWEB.md`](docs/DARKWEB.md) | Dark Web / Darknet OSINT module (P8) — engines, Tor proxy, OPSEC |
+| [`docs/TELEGRAM.md`](docs/TELEGRAM.md) | Telegram SOCMINT bridge (K3) — allow-listed public channels, SEA scoring, OPSEC |
 | [`docs/GLOBE.md`](docs/GLOBE.md) | Click-to-detail, layers, INTEL FtM, traffic cams |
 | [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md) | Optional document intel ingest (GLiNER) |
 | [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) | Pi ↔ PC sync |

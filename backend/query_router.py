@@ -17,24 +17,20 @@ Env:
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 from typing import Any
+
+from config import get_config
 
 VALID_ROUTES = ("vector", "graph", "spatial", "hybrid", "live")
 
 
 def router_enabled() -> bool:
-    return os.getenv("WORLDBASE_QUERY_ROUTER", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
+    return get_config().query_router_enabled
 
 
 def fallback_route() -> str:
-    r = os.getenv("WORLDBASE_QUERY_ROUTER_FALLBACK", "vector").strip().lower()
+    r = get_config().query_router_fallback
     return r if r in VALID_ROUTES else "vector"
 
 

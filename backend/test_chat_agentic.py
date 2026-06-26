@@ -18,6 +18,11 @@ from chat_agentic import (
 
 
 class ChatAgenticEnvTests(unittest.TestCase):
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_disabled_by_default(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("WORLDBASE_CHAT_AGENTIC", None)
@@ -136,6 +141,11 @@ class TraceLineTests(unittest.TestCase):
 
 
 class RunChatAgenticLoopTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     async def test_disabled_returns_unchanged(self):
         with patch.dict(os.environ, {"WORLDBASE_CHAT_AGENTIC": "0"}):
             block, trace = await run_chat_agentic_loop("query", "original block")

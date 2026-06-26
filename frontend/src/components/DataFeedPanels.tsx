@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { FocusTarget } from '../lib/focus'
 import { fetchApi } from '../lib/networkFetch'
+import type {
+  HazardsAlert,
+  HazardsApiResponse,
+  Volcano,
+  VolcanoesApiResponse,
+  TrafficCamera,
+  TrafficCamsApiResponse,
+  OutageItem,
+  OutagesApiResponse,
+  GdeltArticle,
+  GdeltPulseApiResponse,
+} from '../lib/types'
 
 const BLITZORTUNG_MAP = 'https://maps.blitzortung.org/en/#5/13/100'
 
@@ -35,7 +47,7 @@ function FeedSection({
 }
 
 export function GdeltFeedPanel() {
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<GdeltPulseApiResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -67,7 +79,7 @@ export function GdeltFeedPanel() {
     >
       {!data?.articles?.length && !loading && <div className="health-status pending">No headlines</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {(data?.articles || []).slice(0, 40).map((a: any, i: number) => (
+        {(data?.articles || []).slice(0, 40).map((a: GdeltArticle, i: number) => (
           <div key={i} className="iss-card">
             <strong>{a.title}</strong>
             <small style={{ color: '#6f8c84' }}>
@@ -84,7 +96,7 @@ export function GdeltFeedPanel() {
 }
 
 export function OutagesPanel({ onFocus }: { onFocus: FocusFn }) {
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<OutagesApiResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -109,12 +121,12 @@ export function OutagesPanel({ onFocus }: { onFocus: FocusFn }) {
       title="Sources: IODA (free) · optional Cloudflare Radar"
       countLabel={`${data?.count ?? 0} outage signals · ${data?.geocoded ?? 0} geocoded`}
       loading={loading}
-      error={error || data?.error}
+      error={error || data?.error || null}
       onRefresh={load}
     >
       {!data?.items?.length && !loading && <div className="health-status pending">No outage signals</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {(data?.items || []).map((item: any, i: number) => (
+        {(data?.items || []).map((item: OutageItem, i: number) => (
           <div
             key={i}
             className="iss-card"
@@ -139,7 +151,7 @@ export function OutagesPanel({ onFocus }: { onFocus: FocusFn }) {
 }
 
 export function HazardsPanel({ onFocus }: { onFocus: FocusFn }) {
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<HazardsApiResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -169,7 +181,7 @@ export function HazardsPanel({ onFocus }: { onFocus: FocusFn }) {
     >
       {!data?.alerts?.length && !loading && <div className="health-status pending">No hazard alerts</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {(data?.alerts || []).slice(0, 50).map((a: any, i: number) => (
+        {(data?.alerts || []).slice(0, 50).map((a: HazardsAlert, i: number) => (
           <div
             key={i}
             className="iss-card"
@@ -195,7 +207,7 @@ export function HazardsPanel({ onFocus }: { onFocus: FocusFn }) {
 
 export function VolcanoesPanel({ onFocus }: { onFocus: FocusFn }) {
   const [activeOnly, setActiveOnly] = useState(false)
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<VolcanoesApiResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -220,7 +232,7 @@ export function VolcanoesPanel({ onFocus }: { onFocus: FocusFn }) {
       title="Smithsonian GVP holocene volcanoes · WFS"
       countLabel={`${data?.count ?? 0} volcanoes · ${data?.active_count ?? 0} active`}
       loading={loading}
-      error={error || data?.error}
+      error={error || data?.error || null}
       onRefresh={load}
     >
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: 12 }}>
@@ -230,13 +242,13 @@ export function VolcanoesPanel({ onFocus }: { onFocus: FocusFn }) {
       <table className="data-table clickable">
         <thead><tr><th>Name</th><th>Country</th><th>Type</th><th>Last eruption</th><th>Ele (m)</th><th></th></tr></thead>
         <tbody>
-          {(data?.volcanoes || []).slice(0, 100).map((v: any) => (
-            <tr key={v.number || v.name} onClick={() => onFocus({
+          {(data?.volcanoes || []).slice(0, 100).map((v: Volcano) => (
+            <tr key={v.number || v.name} onClick={() => v.lon != null && v.lat != null && onFocus({
               kind: 'volcano',
               lon: v.lon,
               lat: v.lat,
               height: 350000,
-              title: v.name,
+              title: v.name || 'Volcano',
               lines: [`Country: ${v.country || '—'}`, `Type: ${v.type || '—'}`, `Last: ${v.last_eruption ?? '—'}`, `Evidence: ${v.evidence || '—'}`],
             })}>
               <td><strong>{v.name}</strong></td>
@@ -255,7 +267,7 @@ export function VolcanoesPanel({ onFocus }: { onFocus: FocusFn }) {
 
 export function TrafficPanel({ onFocus }: { onFocus: FocusFn }) {
   const [scope, setScope] = useState('regional')
-  const [data, setData] = useState<any>(null)
+  const [data, setData] = useState<TrafficCamsApiResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -280,7 +292,7 @@ export function TrafficPanel({ onFocus }: { onFocus: FocusFn }) {
       title={`Source: ${data?.source || '—'} · Singapore regional free · Thailand iTIC needs token`}
       countLabel={`${data?.count ?? 0} cameras · ${scope.toUpperCase()}`}
       loading={loading}
-      error={error || data?.error}
+      error={error || data?.error || null}
       onRefresh={load}
     >
       <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
@@ -293,7 +305,7 @@ export function TrafficPanel({ onFocus }: { onFocus: FocusFn }) {
       <table className="data-table clickable">
         <thead><tr><th>Name</th><th>Source</th><th>Lat</th><th>Lon</th><th></th></tr></thead>
         <tbody>
-          {(data?.cameras || []).slice(0, 80).map((c: any) => (
+          {(data?.cameras || []).slice(0, 80).map((c: TrafficCamera) => (
             <tr key={c.id} onClick={() => c.lat != null && c.lon != null && onFocus({
               kind: 'traffic_cam',
               lon: c.lon,

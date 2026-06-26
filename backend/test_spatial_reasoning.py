@@ -9,6 +9,11 @@ import unittest
 class TestP6Config(unittest.TestCase):
     """P6 config integration."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_spatial_reasoning_disabled_by_default(self):
         os.environ.pop("WORLDBASE_SPATIAL_REASONING", None)
         from spatial_reasoning import spatial_reasoning_enabled

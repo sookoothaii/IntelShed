@@ -132,6 +132,11 @@ Test-Endpoint "stac feed items" "$Backend/api/stac/feeds/items" {
     param($d); if ($d.type -ne 'FeatureCollection') { throw "not FeatureCollection" }
     if (-not $d.features -or $d.features.Count -lt 1) { throw "no feed features" }
 } -TimeoutSec 15
+Test-Endpoint "satellite health" "$Backend/api/satellite/health" {
+    param($d)
+    if ($d.enabled -ne $true) { throw "satellite change detection disabled" }
+    if ($d.rasterio_available -ne $true) { throw "rasterio not available" }
+} -TimeoutSec 15
 Test-Endpoint "sanctions status" "$Backend/api/sanctions/status" {
     param($d); if ($null -eq $d.index_rows) { throw "no index_rows" }
 } -Optional

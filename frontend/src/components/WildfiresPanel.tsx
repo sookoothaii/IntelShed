@@ -51,11 +51,11 @@ async function resolveMeshReference(): Promise<Reference | null> {
     const r = await fetchApi('/api/nodes')
     if (!r.ok) return null
     const data = await r.json()
-    const pi = (data.nodes || []).find((n: any) => n.node_id === PRIMARY_EDGE_NODE)
+    const pi = (data.nodes || []).find((n: Record<string, unknown>) => n.node_id === PRIMARY_EDGE_NODE)
     if (!pi) return null
 
     const meshWithGps = (pi.mesh || []).find(
-      (m: any) => m.lat != null && m.lon != null && Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lon)),
+      (m: Record<string, unknown>) => m.lat != null && m.lon != null && Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lon)),
     )
     if (meshWithGps) {
       return {

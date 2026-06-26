@@ -98,6 +98,11 @@ class TestClassification(unittest.TestCase):
 class TestEnvFlags(unittest.TestCase):
     """Env-based configuration."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_router_enabled_default(self):
         os.environ.pop("WORLDBASE_QUERY_ROUTER", None)
         self.assertTrue(router_enabled())
@@ -138,6 +143,11 @@ class TestRouteLabel(unittest.TestCase):
 
 class TestRouteRetrieval(unittest.TestCase):
     """route_retrieval() dispatch — offline, no network."""
+
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
 
     def test_live_route_returns_dict(self):
         import asyncio

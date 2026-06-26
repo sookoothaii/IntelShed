@@ -10,6 +10,11 @@ import uuid
 class TestLineage(unittest.TestCase):
     """Lineage store operations."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_lineage_disabled_by_default(self):
         from lineage import lineage_enabled
 
@@ -135,6 +140,11 @@ class TestLineage(unittest.TestCase):
 
 class TestImpactGraph(unittest.TestCase):
     """Impact graph cascade."""
+
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
 
     def test_cascade_refresh_disabled(self):
         from impact_graph import cascade_refresh

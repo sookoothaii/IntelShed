@@ -13,7 +13,6 @@ When WORLDBASE_RBAC=0 (default), all RBAC checks are bypassed (backward compatib
 
 from __future__ import annotations
 
-import os
 from typing import Literal
 
 from fastapi import HTTPException, Request
@@ -27,6 +26,7 @@ from auth.security import (
     _LOOPBACK_CLIENTS,
     lan_exposed,
 )
+from config import get_config
 
 Role = Literal["operator", "viewer", "node"]
 
@@ -36,12 +36,7 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def rbac_enabled() -> bool:
-    return os.getenv("WORLDBASE_RBAC", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return get_config().rbac_enabled
 
 
 def _key_scope(api_key: str) -> Role | None:

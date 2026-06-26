@@ -40,7 +40,7 @@ export default function SensorSparklines({ nodeId, hours = 24 }: { nodeId: strin
         if (!r.ok) throw new Error(`${r.status}`)
         const d = await r.json()
         if (!cancelled) setSeries(d.series || {})
-      } catch (e) {
+      } catch {
         if (!cancelled) setErr('no history')
       }
     })()

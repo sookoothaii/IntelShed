@@ -4,6 +4,7 @@ import {
   CustomDataSource,
   Entity,
   Cartesian3,
+  ConstantPositionProperty,
   Color,
   NearFarScalar,
   LabelStyle,
@@ -15,6 +16,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { Stats } from '../../lib/types';
 
 type TrafficCam = {
   id: string;
@@ -39,7 +41,7 @@ export function useTrafficCamsLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const camMapRef = useRef(new Map<string, Entity>());
@@ -97,7 +99,7 @@ export function useTrafficCamsLayer({
           id: cam.id,
           name: label,
           position: pos,
-          properties: props as any,
+          properties: props,
           point: {
             pixelSize: 12,
             color: Color.fromCssColorString('#ff6b00'),
@@ -123,8 +125,8 @@ export function useTrafficCamsLayer({
         });
         camMapRef.current.set(cam.id, ent);
       } else {
-        ent.position = pos as any;
-        ent.properties = props as any;
+        ent.position = new ConstantPositionProperty(pos);
+        ent.properties = props as unknown as Entity['properties'];
         ent.name = label;
       }
     }
@@ -136,6 +138,6 @@ export function useTrafficCamsLayer({
       }
     }
 
-    setStats((s: any) => ({ ...s, trafficCams: cams.length }));
+    setStats((s: Stats) => ({ ...s, trafficCams: cams.length }));
   }, [data, setStats]);
 }

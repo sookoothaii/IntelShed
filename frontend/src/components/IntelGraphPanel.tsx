@@ -115,7 +115,7 @@ export default function IntelGraphPanel({ onFocus, initialEntityId }: Props) {
     try {
       const r = await fetchApi('/api/intel/ingest/status')
       setStatus(await r.json())
-    } catch (e: any) { setError(`status: ${e.message || e}`) }
+    } catch (e: unknown) { setError(`status: ${(e as Error).message || e}`) }
   }, [])
 
   const fetchResolutionStatus = useCallback(async () => {
@@ -274,7 +274,7 @@ export default function IntelGraphPanel({ onFocus, initialEntityId }: Props) {
     }
     cy.elements().remove()
     cy.add(els)
-    cy.layout({ name: 'cose', animate: false, nodeRepulsion: () => 9000, idealEdgeLength: () => 90, padding: 20 } as any).run()
+    cy.layout({ name: 'cose', animate: false, nodeRepulsion: () => 9000, idealEdgeLength: () => 90, padding: 20 } as unknown as cytoscape.LayoutOptions).run()
     cy.fit(undefined, 30)
     const mode = g.mode === 'overview' ? 'overview · ' : ''
     setInfo(`${mode}${g.nodes.length} nodes · ${g.edges.length} edges`)
@@ -297,7 +297,7 @@ export default function IntelGraphPanel({ onFocus, initialEntityId }: Props) {
         return
       }
       renderGraph(g)
-    } catch (e: any) { setError(`overview: ${e.message || e}`) }
+    } catch (e: unknown) { setError(`overview: ${(e as Error).message || e}`) }
   }, [renderGraph, schemaFilter])
 
   const toggleSchema = (schema: OverviewSchema) => {
@@ -317,7 +317,7 @@ export default function IntelGraphPanel({ onFocus, initialEntityId }: Props) {
       const g: GraphData = await r.json()
       if (!g.found) { setError('Entity not found in graph store.'); setGraphEmpty(true); return }
       renderGraph(g, id)
-    } catch (e: any) { setError(`graph: ${e.message || e}`) }
+    } catch (e: unknown) { setError(`graph: ${(e as Error).message || e}`) }
   }, [renderGraph])
 
   // Drill-down from SITUATIONS / FULL SITUATION: load the requested entity graph.
@@ -341,7 +341,7 @@ export default function IntelGraphPanel({ onFocus, initialEntityId }: Props) {
       setInfo(`✓ feeds +${t.entities ?? 0} entities · ${t.records ?? 0} records${resLine} — loading overview…`)
       fetchFeedStatus()
       await loadOverview()
-    } catch (e: any) { setError(`feeds: ${e.message || e}`) }
+    } catch (e: unknown) { setError(`feeds: ${(e as Error).message || e}`) }
     finally { setBusy(false) }
   }
 
@@ -355,7 +355,7 @@ export default function IntelGraphPanel({ onFocus, initialEntityId }: Props) {
       fetchResolutionStatus()
       if (rootId) await loadGraph(rootId)
       else await loadOverview()
-    } catch (e: any) { setError(`resolution: ${e.message || e}`) }
+    } catch (e: unknown) { setError(`resolution: ${(e as Error).message || e}`) }
     finally { setBusy(false) }
   }
 
@@ -373,7 +373,7 @@ export default function IntelGraphPanel({ onFocus, initialEntityId }: Props) {
       setInfo(`✓ ${d.counts?.entities ?? 0} entities · ${d.counts?.relations ?? 0} relations · ${d.counts?.mentions ?? 0} mentions · ${d.relations_mode ?? '?'}`)
       fetchStatus()
       if (d.root_id) { setRootId(d.root_id); loadGraph(d.root_id) }
-    } catch (e: any) { setError(`ingest: ${e.message || e}`) }
+    } catch (e: unknown) { setError(`ingest: ${(e as Error).message || e}`) }
     finally { setBusy(false) }
   }
 
@@ -389,7 +389,7 @@ export default function IntelGraphPanel({ onFocus, initialEntityId }: Props) {
       setInfo(`✓ ${d.counts?.entities ?? 0} entities · ${d.counts?.relations ?? 0} relations · ${d.device}`)
       fetchStatus()
       if (d.root_id) { setRootId(d.root_id); loadGraph(d.root_id) }
-    } catch (e: any) { setError(`upload: ${e.message || e}`) }
+    } catch (e: unknown) { setError(`upload: ${(e as Error).message || e}`) }
     finally { setBusy(false) }
   }
 

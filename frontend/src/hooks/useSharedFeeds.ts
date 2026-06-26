@@ -8,10 +8,10 @@ import { fetchApi } from '../lib/networkFetch'
  * collapses into a single in-flight request per interval.
  */
 
-async function getJson<T = any>(url: string): Promise<T> {
+async function getJson<T>(url: string): Promise<T> {
   const r = await fetchApi(url)
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
-  return r.json()
+  return r.json() as T
 }
 
 type SharedOpts = {
@@ -19,28 +19,47 @@ type SharedOpts = {
   refetchInterval?: number | false
 }
 
+export type SituationsResponse = {
+  items?: unknown[]
+  count?: number
+  [key: string]: unknown
+}
+
 export function useSituationsQuery(opts?: SharedOpts) {
   return useQuery({
     queryKey: ['situations'],
-    queryFn: () => getJson('/api/situations'),
+    queryFn: () => getJson<SituationsResponse>('/api/situations'),
     refetchInterval: opts?.refetchInterval ?? 60_000,
     enabled: opts?.enabled ?? true,
   })
+}
+
+export type BriefingData = {
+  text?: string
+  agentic?: unknown
+  fusion_hotspots?: unknown[]
+  insights?: unknown[]
+  [key: string]: unknown
 }
 
 export function useBriefingQuery(opts?: SharedOpts) {
   return useQuery({
     queryKey: ['briefing'],
-    queryFn: () => getJson('/api/briefing'),
+    queryFn: () => getJson<BriefingData>('/api/briefing'),
     refetchInterval: opts?.refetchInterval ?? 60_000,
     enabled: opts?.enabled ?? true,
   })
 }
 
+export type InsightsResponse = {
+  insights?: unknown[]
+  [key: string]: unknown
+}
+
 export function useInsightsQuery(top = 10, opts?: SharedOpts) {
   return useQuery({
     queryKey: ['insights', top],
-    queryFn: () => getJson(`/api/insights?top=${top}`),
+    queryFn: () => getJson<InsightsResponse>(`/api/insights?top=${top}`),
     refetchInterval: opts?.refetchInterval ?? 60_000,
     enabled: opts?.enabled ?? true,
   })
@@ -59,10 +78,15 @@ export function useHealthPingQuery(opts?: SharedOpts) {
   })
 }
 
+export type ModelsResponse = {
+  error?: string
+  [key: string]: unknown
+}
+
 export function useModelsQuery(opts?: SharedOpts) {
   return useQuery({
     queryKey: ['models'],
-    queryFn: () => getJson('/api/models'),
+    queryFn: () => getJson<ModelsResponse>('/api/models'),
     refetchInterval: opts?.refetchInterval ?? 60_000,
     enabled: opts?.enabled ?? true,
   })

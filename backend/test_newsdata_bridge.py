@@ -14,12 +14,18 @@ import newsdata_bridge as nd
 
 
 class NewsDataBridgeTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def tearDown(self):
         for key in (
             "NEWSDATA_API_KEY",
             "WORLDBASE_OPERATOR_REGION",
             "WORLDBASE_NEWSDATA_COUNTRIES",
             "WORLDBASE_NEWSDATA_DOMAINURL",
+            "WORLDBASE_NEWSDATA_PRIORITYDOMAIN",
         ):
             if key in os.environ:
                 del os.environ[key]
@@ -123,6 +129,7 @@ class NewsDataBridgeTests(unittest.IsolatedAsyncioTestCase):
 
     def test_default_filter_params_match_preview(self):
         os.environ.pop("WORLDBASE_NEWSDATA_DOMAINURL", None)
+        os.environ.pop("WORLDBASE_NEWSDATA_PRIORITYDOMAIN", None)
 
         params = nd._filter_params()
 

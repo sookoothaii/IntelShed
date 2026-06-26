@@ -12,6 +12,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { Stats, FeedHud } from '../../lib/types';
 
 export function useEnergyLayer({
   viewer,
@@ -25,8 +26,8 @@ export function useEnergyLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
-  setFeedHud: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  setFeedHud: React.Dispatch<React.SetStateAction<FeedHud>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -97,7 +98,7 @@ export function useEnergyLayer({
           price: data.day_ahead_price_eur_mwh,
           load_mw: data.load_mw,
           co2_g_per_kwh: data.co2_g_per_kwh,
-        } as any,
+        },
       });
     }
     
@@ -105,8 +106,8 @@ export function useEnergyLayer({
     
     const activeSources = data.active_sources ?? (data.points || []).length;
     const genGw = data.total_generation_mw != null ? `${Math.round(data.total_generation_mw / 1000)}GW` : '';
-    setStats((p: any) => ({ ...p, energy: activeSources || (data.total_generation_mw ? 1 : 0) }));
-    setFeedHud((p: any) => ({
+    setStats((p: Stats) => ({ ...p, energy: activeSources || (data.total_generation_mw ? 1 : 0) }));
+    setFeedHud((p: FeedHud) => ({
       ...p,
       energy: data.stale ? 'stale' : (genGw || (data.error ? 'err' : 'smard')),
     }));

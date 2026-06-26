@@ -8,33 +8,18 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import ftm_store
+from config import get_config
 
 _DEFAULT_EXCLUDE = ("Airplane", "Thing")
 
 
 def _decay_floor() -> float:
     """Minimum decay_weight for an edge to appear in the prompt subgraph. Default 0.3."""
-    try:
-        return max(
-            0.0,
-            min(
-                1.0,
-                float(
-                    os.getenv("WORLDBASE_INTEL_SUBGRAPH_DECAY_FLOOR", "0.3") or "0.3"
-                ),
-            ),
-        )
-    except ValueError:
-        return 0.3
+    return max(0.0, min(1.0, get_config().intel_subgraph_decay_floor))
 
 
 def _communities_enabled() -> bool:
-    return os.getenv("WORLDBASE_INTEL_SUBGRAPH_COMMUNITIES", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return get_config().intel_subgraph_communities
 
 
 _PROMPT_EDGE_CAP = 20
@@ -42,12 +27,7 @@ _PROMPT_EDGE_CAP = 20
 
 def _edge_decay_half_life_days() -> float:
     """Half-life for temporal edge decay (days). Default 30."""
-    try:
-        return max(
-            1.0, float(os.getenv("WORLDBASE_INTEL_EDGE_DECAY_DAYS", "30") or "30")
-        )
-    except ValueError:
-        return 30.0
+    return max(1.0, get_config().intel_edge_decay_days)
 
 
 def decay_weight(age_days: float, half_life_days: float | None = None) -> float:
@@ -80,45 +60,19 @@ def _edge_age_days(seen_at: str | None) -> float | None:
 
 
 def subgraph_enabled() -> bool:
-    return os.getenv("WORLDBASE_BRIEFING_INTEL_SUBGRAPH", "1").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
+    return get_config().briefing_intel_subgraph_enabled
 
 
 def default_hops() -> int:
-    try:
-        return max(
-            1, min(3, int(os.getenv("WORLDBASE_INTEL_SUBGRAPH_HOPS", "2") or "2"))
-        )
-    except ValueError:
-        return 2
+    return max(1, min(3, get_config().intel_subgraph_hops))
 
 
 def default_seed_limit() -> int:
-    try:
-        return max(
-            5,
-            min(
-                80, int(os.getenv("WORLDBASE_INTEL_SUBGRAPH_SEED_LIMIT", "30") or "30")
-            ),
-        )
-    except ValueError:
-        return 30
+    return max(5, min(80, get_config().intel_subgraph_seed_limit))
 
 
 def default_node_limit() -> int:
-    try:
-        return max(
-            10,
-            min(
-                200, int(os.getenv("WORLDBASE_INTEL_SUBGRAPH_NODE_LIMIT", "80") or "80")
-            ),
-        )
-    except ValueError:
-        return 80
+    return max(10, min(200, get_config().intel_subgraph_node_limit))
 
 
 def parse_bbox(raw: str | None) -> list[float] | None:
@@ -151,7 +105,7 @@ def operator_bbox(region: str | None = None) -> list[float]:
 def _exclude_schemas() -> set[str]:
     raw = os.getenv(
         "WORLDBASE_BRIEFING_INTEL_EXCLUDE_SCHEMAS",
-        ",".join(_DEFAULT_EXCLUDE),
+        get_config().briefing_intel_exclude_schemas,
     )
     return {s.strip() for s in raw.split(",") if s.strip()}
 

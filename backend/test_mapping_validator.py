@@ -16,6 +16,11 @@ import mapping_validator as mv
 class MappingValidatorTests(unittest.TestCase):
     """Test mapping validator against real schemas + mappings."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_all_mappings_pass_validation(self):
         """All existing YAML mappings must pass schema validation."""
         result = mv.validate_all_mappings()

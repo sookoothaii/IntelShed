@@ -5,19 +5,28 @@ import Sparkline from './Sparkline';
 
 interface Sat { id: string; name: string; lat: number; lon: number; alt_km: number; vel_kms: number; tle1?: string; tle2?: string }
 interface Quake { id: string; place: string; mag: number; time: string; lat: number; lon: number; depth: number; tsunami?: number; url?: string }
-interface WEvent { id: string; title: string; date: string; lat: number; lon: number; sources: string[]; category?: string; categories?: any[]; magnitude?: any; unit?: string; points?: any[]; closed?: string; link?: string }
+interface WEvent { id: string; title: string; date: string; lat: number; lon: number; sources: string[]; category?: string; categories?: { id: string; title: string }[]; magnitude?: { mag: number; type: string }; unit?: string; points?: { lat: number; lon: number }[]; closed?: string; link?: string }
 interface Disaster { id: string; type: string; name: string; date: string; lat: number; lon: number; severity: string; source: string; status?: string }
 interface MilitaryAircraft { icao24: string; callsign: string; type: string; desc: string; lat: number; lon: number; alt_m: number; speed_kmh: number; operator: string; hex?: string; flight?: string; alt?: number; speed?: number; squawk?: string }
-interface Situation { id: string; title: string; severity: string; created_at: string; entities: any[]; summary: string; location?: any; type?: string }
+interface Situation { id: string; title: string; severity: string; created_at: string; entities: { id: string; name?: string; type?: string }[]; summary: string; location?: { lat: number; lon: number }; type?: string }
 interface AirQualityCity { city: string; aqi: number; pm25: number; lat: number; lon: number; time: string; pm10?: number }
 interface GDACSAlert { id: string; name: string; type: string; severity: string; date: string; lat: number; lon: number; url: string; title?: string; description?: string; published?: string; link?: string }
 interface RiverGauge { uuid: string; name: string; water: string; lat: number; lon: number; value: number; unit: string; severity: string; timestamp: string; state_mnw_mhw?: string; state_nsw_hsw?: string }
+interface MarketQuote { symbol: string; label: string; name: string; price: number; currency?: string; trend_pct?: number; change_pct?: number; change_1d?: number; change_30d?: number; spark?: number[] }
+interface MarketCoin { id: string; symbol: string; name: string; price: number; market_cap_rank?: number; change_24h?: number; change_7d?: number; spark?: number[] }
+interface EnergyData { total_generation_mw?: number; co2_g_per_kwh?: number; load?: { latest_mw?: number }; day_ahead_price?: { latest_eur_mwh?: number }; generation?: Record<string, { latest_mw?: number }> }
+interface StocksData { count?: number; source?: string; updated?: string; error?: string; indices?: MarketQuote[]; commodities?: MarketQuote[]; rates_fx?: MarketQuote[]; risk?: { level: string; score: number; vix?: number; advancers?: number; decliners?: number; avg_change?: number; notes?: string[] } }
+interface MaritimeVessel { name?: string; mmsi?: string; type?: string; lat?: number; lon?: number; course?: number; speed?: number; destination?: string; flag?: string; length?: number }
+interface EuPriceSlot { position: number; price_eur_mwh?: number }
+interface WebcamEntry { id: string; name?: string; lat?: number; lon?: number; source?: string; category?: string; url?: string; embed?: string | null; detail_url?: string; country?: string }
+interface CveEntry { cve_id: string; vendor?: string; product?: string; date_added?: string; ransomware?: string }
 
 const SAT_GROUPS = ['starlink', 'stations', 'gps-ops', 'weather']
 
 import WebcamSection from './WebcamSection';
 import PegelSparkline from './PegelSparkline';
 import StacPanel from './StacPanel';
+import SatellitePanel from './SatellitePanel';
 import SanctionsPanel from './SanctionsPanel';
 import IntelGraphPanel from './IntelGraphPanel';
 import EdgePanel from './EdgePanel';
@@ -33,6 +42,8 @@ import {
 } from './DataFeedPanels';
 import WildfiresPanel from './WildfiresPanel';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
+import DarkwebPanel from './DarkwebPanel';
+import TelegramPanel from './TelegramPanel';
 import { ErrorBoundary } from './ErrorBoundary';
 import { useHudSessionState } from '../lib/hudSessionState';
 
@@ -40,7 +51,7 @@ export const DATA_TABS = [
   'edge', 'feeds', 'aircraft', 'satellites', 'seismic', 'events', 'spaceweather',
   'geopolitics', 'gdelt', 'gdacs', 'hazards', 'outages', 'military', 'maritime',
   'situations', 'airquality', 'pegel', 'weather', 'wildfires', 'lightning', 'volcanoes',
-  'energy', 'eu-energy', 'stocks', 'traffic', 'webcams', 'cve', 'stac', 'sanctions', 'intel', 'flags',
+  'energy', 'eu-energy', 'stocks', 'traffic', 'webcams', 'cve', 'satellite', 'stac', 'sanctions', 'intel', 'darkweb', 'telegram', 'flags',
 ] as const
 export type DataTab = typeof DATA_TABS[number]
 
@@ -57,11 +68,11 @@ export default function DataPanel({
   onOpenWindyMap?: (lat: number, lon: number) => void
   intelEntityId?: string | null
 }) {
-  const fmtNum = (n: any, digits = 0): string => {
+  const fmtNum = (n: unknown, digits = 0): string => {
     const v = Number(n)
     return Number.isFinite(v) ? v.toFixed(digits) : '—'
   }
-  const fmtCompact = (n: any): string => {
+  const fmtCompact = (n: unknown): string => {
     const v = Number(n)
     if (!Number.isFinite(v)) return '—'
     const abs = Math.abs(v)
@@ -71,15 +82,15 @@ export default function DataPanel({
     if (abs >= 1e3) return (v / 1e3).toFixed(1) + 'K'
     return v.toFixed(0)
   }
-  const fmtPrice = (n: any): string => {
+  const fmtPrice = (n: unknown): string => {
     const v = Number(n)
     if (!Number.isFinite(v)) return '—'
     if (v >= 1000) return v.toLocaleString('en-US', { maximumFractionDigits: 0 })
     if (v >= 1) return v.toLocaleString('en-US', { maximumFractionDigits: 2 })
     return v.toLocaleString('en-US', { maximumFractionDigits: 6 })
   }
-  const pctColor = (v: any): string => (Number(v) >= 0 ? '#00e5a0' : '#ff4d5e')
-  const fmtPct = (v: any, digits = 2): string => {
+  const pctColor = (v: unknown): string => (Number(v) >= 0 ? '#00e5a0' : '#ff4d5e')
+  const fmtPct = (v: unknown, digits = 2): string => {
     const n = Number(v)
     if (!Number.isFinite(n)) return '—'
     return (n >= 0 ? '+' : '') + n.toFixed(digits) + '%'
@@ -94,7 +105,7 @@ export default function DataPanel({
       default: return '#6f8c84'
     }
   }
-  const fngColor = (v: any): string => {
+  const fngColor = (v: unknown): string => {
     const n = Number(v)
     if (!Number.isFinite(n)) return '#6f8c84'
     if (n < 25) return '#ff4d5e'
@@ -113,23 +124,23 @@ export default function DataPanel({
   const [satGroup, setSatGroup] = useHudSessionState('dataSatGroup', 'starlink', (v): v is string => typeof v === 'string' && v.length > 0)
   const [quakes, setQuakes] = useState<Quake[]>([])
   const [events, setEvents] = useState<WEvent[]>([])
-  const [iss, setIss] = useState<any>(null)
-  const [spaceweather, setSpaceweather] = useState<any>(null)
+  const [iss, setIss] = useState<{ latitude?: number; longitude?: number; altitude?: number; velocity?: number; visibility?: string; footprint?: number; lat?: number; lon?: number; alt_km?: number; vel_kms?: number; name?: string } | null>(null)
+  const [spaceweather, setSpaceweather] = useState<{ k_index?: number; kp_index?: number; scale?: string; aurora_visible_midlat?: boolean; hf_radio_impact?: boolean; history?: unknown[]; bz_gsm?: number; solar_wind_speed?: number; density?: number; updated?: string; error?: string } | null>(null)
   const [geopolitics, setGeopolitics] = useState<{ count: number; disasters: Disaster[]; error?: string } | null>(null)
-  const [markets, setMarkets] = useState<any>(null)
+  const [markets, setMarkets] = useState<{ coins?: MarketCoin[]; global?: { total_market_cap_usd?: number; market_cap_change_24h?: number }; risk?: unknown; fear_greed?: { value?: number; label?: string }; source?: string } | null>(null)
   const [military, setMilitary] = useState<MilitaryAircraft[]>([])
   const [situations, setSituations] = useState<Situation[]>([])
   const [airquality, setAirquality] = useState<{ cities: AirQualityCity[]; updated: string; error?: string } | null>(null)
   const [gdacs, setGdacs] = useState<{ count: number; alerts: GDACSAlert[]; error?: string } | null>(null)
   const [pegel, setPegel] = useState<{ count: number; alerts: number; gauges: RiverGauge[]; error?: string } | null>(null)
-  const [energy, setEnergy] = useState<any>(null)
-  const [stocks, setStocks] = useState<any>(null)
-  const [maritime, setMaritime] = useState<{ count: number; vessels: any[]; stream_connected?: boolean; stream_buffer?: number; errors?: string[]; cached_at: string; error?: string } | null>(null)
-  const [euEnergy, setEuEnergy] = useState<{ country: string; prices: any[]; generation_by_source?: Record<string, number>; total_mw?: number; demo_mode?: boolean; error?: string } | null>(null)
+  const [energy, setEnergy] = useState<EnergyData | null>(null)
+  const [stocks, setStocks] = useState<StocksData | null>(null)
+  const [maritime, setMaritime] = useState<{ count: number; vessels: MaritimeVessel[]; stream_connected?: boolean; stream_buffer?: number; errors?: string[]; cached_at: string; error?: string } | null>(null)
+  const [euEnergy, setEuEnergy] = useState<{ country: string; prices: EuPriceSlot[]; generation_by_source?: Record<string, number>; total_mw?: number; demo_mode?: boolean; error?: string } | null>(null)
   const [euCountry, setEuCountry] = useHudSessionState('dataEuCountry', 'de', (v): v is string => typeof v === 'string' && v.length > 0)
-  const [webcams, setWebcams] = useState<{ count: number; categories: string[]; webcams: any[]; cached_at: string } | null>(null)
+  const [webcams, setWebcams] = useState<{ count: number; categories: string[]; webcams: WebcamEntry[]; cached_at: string } | null>(null)
   const [webcamCategory, setWebcamCategory] = useHudSessionState('dataWebcamCategory', '', (v): v is string => typeof v === 'string')
-  const [cve, setCve] = useState<{ count: number; vulnerabilities: any[]; date_released?: string; error?: string } | null>(null)
+  const [cve, setCve] = useState<{ count: number; vulnerabilities: CveEntry[]; date_released?: string; error?: string } | null>(null)
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -148,10 +159,10 @@ export default function DataPanel({
     }
   }
 
-  const loadAircraft = () => fetchFeed('aircraft', '/api/aircraft', (d: any) => setAircraft(d.states || []))
-  const loadSatellites = (g = satGroup) => fetchFeed('satellites', `/api/satellites?group=${g}&limit=500`, (d: any) => setSatellites(d.satellites || []))
-  const loadQuakes = () => fetchFeed('seismic', '/api/earthquakes?period=day&magnitude=2.5', (d: any) => setQuakes(d.earthquakes || []))
-  const loadEvents = () => fetchFeed('events', '/api/events?limit=120', (d: any) => setEvents(d.events || []))
+  const loadAircraft = () => fetchFeed('aircraft', '/api/aircraft', (d: { states?: (string | number | null)[][] }) => setAircraft(d.states || []))
+  const loadSatellites = (g = satGroup) => fetchFeed('satellites', `/api/satellites?group=${g}&limit=500`, (d: { satellites?: Sat[] }) => setSatellites(d.satellites || []))
+  const loadQuakes = () => fetchFeed('seismic', '/api/earthquakes?period=day&magnitude=2.5', (d: { earthquakes?: Quake[] }) => setQuakes(d.earthquakes || []))
+  const loadEvents = () => fetchFeed('events', '/api/events?limit=120', (d: { events?: WEvent[] }) => setEvents(d.events || []))
   const loadSpaceweather = async () => {
     setLoading((l) => ({ ...l, spaceweather: true }))
     setError(null)
@@ -170,13 +181,13 @@ export default function DataPanel({
       setLoading((l) => ({ ...l, spaceweather: false }))
     }
   }
-  const loadGeopolitics = () => fetchFeed('geopolitics', '/api/geopolitics', (d: any) => setGeopolitics(d))
-  const loadMilitary = () => fetchFeed('military', '/api/military', (d: any) => setMilitary(d.aircraft || []))
-  const loadSituations = () => fetchFeed('situations', '/api/correlations', (d: any) => setSituations(d.situations || []))
-  const loadAirquality = () => fetchFeed('airquality', '/api/airquality', (d: any) => setAirquality(d))
-  const loadGdacs = () => fetchFeed('gdacs', '/api/gdacs', (d: any) => setGdacs(d))
-  const loadPegel = () => fetchFeed('pegel', '/api/pegel', (d: any) => setPegel(d))
-  const loadEnergy = () => fetchFeed('energy', '/api/energy/de', (d: any) => setEnergy(d))
+  const loadGeopolitics = () => fetchFeed('geopolitics', '/api/geopolitics', (d: { count: number; disasters: Disaster[]; error?: string }) => setGeopolitics(d))
+  const loadMilitary = () => fetchFeed('military', '/api/military', (d: { aircraft?: MilitaryAircraft[] }) => setMilitary(d.aircraft || []))
+  const loadSituations = () => fetchFeed('situations', '/api/correlations', (d: { situations?: Situation[] }) => setSituations(d.situations || []))
+  const loadAirquality = () => fetchFeed('airquality', '/api/airquality', (d: { cities: AirQualityCity[]; updated: string; error?: string }) => setAirquality(d))
+  const loadGdacs = () => fetchFeed('gdacs', '/api/gdacs', (d: { count: number; alerts: GDACSAlert[]; error?: string }) => setGdacs(d))
+  const loadPegel = () => fetchFeed('pegel', '/api/pegel', (d: { count: number; alerts: number; gauges: RiverGauge[]; error?: string }) => setPegel(d))
+  const loadEnergy = () => fetchFeed('energy', '/api/energy/de', (d: EnergyData) => setEnergy(d))
   const loadStocks = async () => {
     setLoading((l) => ({ ...l, stocks: true }))
     setError(null)
@@ -195,7 +206,7 @@ export default function DataPanel({
       setLoading((l) => ({ ...l, stocks: false }))
     }
   }
-  const loadMaritime = () => fetchFeed('maritime', '/api/maritime', (d: any) => setMaritime(d))
+  const loadMaritime = () => fetchFeed('maritime', '/api/maritime', (d: { count: number; vessels: MaritimeVessel[]; stream_connected?: boolean; stream_buffer?: number; errors?: string[]; cached_at: string; error?: string }) => setMaritime(d))
   const loadEuEnergy = async () => {
     setLoading((l) => ({ ...l, 'eu-energy': true }))
     setError(null)
@@ -219,9 +230,9 @@ export default function DataPanel({
     const url = webcamCategory && webcamCategory !== 'all'
       ? `/api/webcams?category=${encodeURIComponent(webcamCategory)}`
       : '/api/webcams'
-    fetchFeed('webcams', url, (d: any) => setWebcams(d))
+    fetchFeed('webcams', url, (d: { count: number; categories: string[]; webcams: WebcamEntry[]; cached_at: string }) => setWebcams(d))
   }
-  const loadCve = () => fetchFeed('cve', '/api/cve?limit=40', (d: any) => setCve(d))
+  const loadCve = () => fetchFeed('cve', '/api/cve?limit=40', (d: { count: number; vulnerabilities: CveEntry[]; date_released?: string; error?: string }) => setCve(d))
 
   // Auto-load on tab switch
   useEffect(() => {
@@ -630,8 +641,9 @@ export default function DataPanel({
               <table className="data-table">
                 <thead><tr><th>Source</th><th>MW</th><th>Share</th></tr></thead>
                 <tbody>
-                  {Object.entries(energy.generation || {}).map(([key, val]: [string, any]) => {
-                    const share = energy.total_generation_mw ? ((val.latest_mw / energy.total_generation_mw) * 100).toFixed(1) : '—'
+                  {Object.entries(energy.generation || {}).map(([key, val]: [string, { latest_mw?: number }]) => {
+                    const mw = val.latest_mw ?? 0
+                    const share = energy.total_generation_mw ? ((mw / energy.total_generation_mw) * 100).toFixed(1) : '—'
                     const color = ['solar', 'wind_onshore', 'wind_offshore', 'hydro', 'biomass'].includes(key) ? '#00e5a0' : ['natural_gas'].includes(key) ? '#ffd23f' : '#ff6b35'
                     return (
                       <tr key={key}>
@@ -690,7 +702,7 @@ export default function DataPanel({
             <div className="market-section" key={grp.title}>
               <h4>{grp.title}</h4>
               <div className="market-cards">
-                {grp.items.map((q: any) => (
+                {grp.items.map((q: MarketQuote) => (
                   <div className="market-card" key={q.symbol}>
                     <div className="mc-top">
                       <div>
@@ -703,17 +715,17 @@ export default function DataPanel({
                     <div className="mc-chips">
                       <span style={{ color: pctColor(q.change_pct) }}>{fmtPct(q.change_pct)} 24h</span>
                     </div>
-                    <Sparkline data={q.spark} width={150} height={40} />
+                    <Sparkline data={q.spark || []} width={150} height={40} />
                   </div>
                 ))}
               </div>
             </div>
           ) : null))}
 
-          {!stocks?.count && !stocks?.error && <div className="health-status pending">No market data</div>}
+          {(!stocks?.count && !stocks?.error) ? <div className="health-status pending">No market data</div> : null}
           <div style={{ marginTop: 10, fontSize: 11, color: '#6f8c84' }}>Source: {stocks?.source ?? 'yahoo-finance'} · Updated: {stocks?.updated ?? '—'}</div>
 
-          {markets?.risk && (
+          {markets?.risk != null && (
             <>
               <h4 style={{ letterSpacing: 2, fontSize: 12, color: '#8fb7a9', marginTop: 20 }}>CRYPTO</h4>
               <div className="market-head">
@@ -730,7 +742,7 @@ export default function DataPanel({
               </div>
               {markets?.coins?.length ? (
                 <div className="market-cards">
-                  {markets.coins.map((c: any) => (
+                  {markets.coins.map((c: MarketCoin) => (
                     <div className="market-card" key={c.id}>
                       <div className="mc-top">
                         <div>
@@ -744,7 +756,7 @@ export default function DataPanel({
                         <span style={{ color: pctColor(c.change_24h) }}>24h {fmtPct(c.change_24h)}</span>
                         <span style={{ color: pctColor(c.change_7d) }}>7d {fmtPct(c.change_7d)}</span>
                       </div>
-                      <Sparkline data={c.spark} width={150} height={40} />
+                      <Sparkline data={c.spark || []} width={150} height={40} />
                     </div>
                   ))}
                 </div>
@@ -773,7 +785,7 @@ export default function DataPanel({
           <table className="data-table clickable">
             <thead><tr><th>Name</th><th>Type</th><th>Lat</th><th>Lon</th><th>Course</th><th>Speed</th><th>Destination</th><th></th></tr></thead>
             <tbody>
-              {(maritime?.vessels || []).slice(0, 100).map((v: any, i: number) => (
+              {(maritime?.vessels || []).slice(0, 100).map((v: MaritimeVessel, i: number) => (
                 <tr key={i} onClick={() => v.lon != null && v.lat != null && onFocus({ kind: 'maritime', lon: v.lon, lat: v.lat, height: 200000, title: v.name || 'Vessel', lines: [`MMSI: ${v.mmsi || '—'}`, `Type: ${v.type || '—'}`, `Course: ${v.course ?? '—'}°`, `Speed: ${v.speed != null ? v.speed + ' kn' : '—'}`, `Destination: ${v.destination || '—'}`, `Flag: ${v.flag || '—'}`, `Length: ${v.length != null ? v.length + ' m' : '—'}`] })}>
                   <td><strong>{v.name || '—'}</strong></td>
                   <td>{v.type || '—'}</td>
@@ -824,7 +836,7 @@ export default function DataPanel({
               <table className="data-table">
                 <thead><tr><th>Hour</th><th>Price</th><th>Status</th></tr></thead>
                 <tbody>
-                  {euEnergy.prices.slice(0, 24).map((p: any, i: number) => {
+                  {euEnergy.prices.slice(0, 24).map((p: EuPriceSlot, i: number) => {
                     const price = p.price_eur_mwh ?? 0
                     const color = price < 0 ? '#22d3ee' : price < 50 ? '#00e5a0' : price < 100 ? '#ffd23f' : price < 200 ? '#ff6b35' : '#ff2d00'
                     const label = price < 0 ? 'NEGATIVE' : price < 50 ? 'Low' : price < 100 ? 'Normal' : price < 200 ? 'High' : 'Extreme'
@@ -846,7 +858,7 @@ export default function DataPanel({
               <table className="data-table">
                 <thead><tr><th>Source</th><th>MW</th><th>Share</th></tr></thead>
                 <tbody>
-                  {Object.entries(euEnergy.generation_by_source).map(([key, val]: [string, any]) => {
+                  {Object.entries(euEnergy.generation_by_source).map(([key, val]: [string, number]) => {
                     const share = euEnergy.total_mw ? ((val / euEnergy.total_mw) * 100).toFixed(1) : '—'
                     const color = ['Solar', 'Wind Offshore', 'Wind Onshore', 'Hydro Run-of-river', 'Hydro Water Reservoir', 'Biomass', 'Geothermal'].includes(key) ? '#00e5a0' : ['Nuclear'].includes(key) ? '#ffd23f' : '#ff6b35'
                     return (
@@ -874,7 +886,7 @@ export default function DataPanel({
           <table className="data-table">
             <thead><tr><th>CVE</th><th>Vendor</th><th>Product</th><th>Added</th><th>Ransomware</th></tr></thead>
             <tbody>
-              {(cve?.vulnerabilities || []).map((v: any, i: number) => (
+              {(cve?.vulnerabilities || []).map((v: CveEntry, i: number) => (
                 <tr key={i}>
                   <td><strong>{v.cve_id}</strong></td>
                   <td>{v.vendor || '—'}</td>
@@ -900,6 +912,8 @@ export default function DataPanel({
         />
       )}
 
+      {tab === 'satellite' && <SatellitePanel onFocus={onFocus} />}
+
       {tab === 'stac' && (
         <StacPanel onFocus={onFocus} />
       )}
@@ -914,6 +928,8 @@ export default function DataPanel({
         </ErrorBoundary>
       )}
 
+      {tab === 'darkweb' && <DarkwebPanel />}
+      {tab === 'telegram' && <TelegramPanel />}
       {tab === 'flags' && <FeatureFlagsPanel />}
 
     </div>

@@ -110,8 +110,8 @@ function useAlertNotifications() {
         const anomalies = anomRes?.anomalies || []
         const price = energyRes?.day_ahead_price?.latest_eur_mwh
         const titles: string[] = [
-          ...situations.map((s: any) => s.title),
-          ...anomalies.slice(0, 3).map((a: any) => `Anomaly ${a.callsign || a.icao24}`),
+          ...situations.map((s: { title?: string }) => s.title),
+          ...anomalies.slice(0, 3).map((a: { callsign?: string; icao24?: string }) => `Anomaly ${a.callsign || a.icao24}`),
         ]
         if (price != null && price < 0) {
           titles.unshift(`DE power price negative: ${price.toFixed(1)} €/MWh`)
@@ -152,10 +152,10 @@ function HudClock() {
 function useSituationsBadge() {
   const { data } = useSituationsQuery()
   if (!data) return null
-  const items = data.items || []
+  const items = (data.items || []) as { severity?: string }[]
   const count = data.count ?? items.length
   if (count <= 0) return null
-  const high = items.filter((i: { severity?: string }) =>
+  const high = items.filter((i) =>
     i.severity === 'critical' || i.severity === 'high',
   ).length
   return {
@@ -450,15 +450,16 @@ export default function App() {
                 <ChatPanel
                   askAI={askAI}
                   onClearAsk={() => setAskAI(null)}
-                  onClientAction={(act) => {
-                    if (act?.type === 'focus_globe' && act.lat != null && act.lon != null) {
+                  onClientAction={(act: unknown) => {
+                    const a = act as { type?: string; lat?: number; lon?: number; kind?: string; title?: string; lines?: string[] }
+                    if (a?.type === 'focus_globe' && a.lat != null && a.lon != null) {
                       focusOnMap({
-                        kind: act.kind || 'ai_focus',
-                        lat: act.lat,
-                        lon: act.lon,
+                        kind: a.kind || 'ai_focus',
+                        lat: a.lat,
+                        lon: a.lon,
                         height: 400000,
-                        title: act.title || 'AI focus',
-                        lines: act.lines || [],
+                        title: a.title || 'AI focus',
+                        lines: a.lines || [],
                       })
                     }
                   }}

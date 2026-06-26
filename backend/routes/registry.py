@@ -27,6 +27,8 @@ def register_routers(app) -> None:
     import connectors.router as connectors_router
     import credentials.router as credentials_router
     import cve_bridge
+    import darkweb_bridge
+    import ransomware_tracker
     import duckdb_fusion
     import entsoe_bridge
     import entity_resolution
@@ -57,10 +59,12 @@ def register_routers(app) -> None:
     import pmtiles_bridge
     import rag_memory
     import sanctions_bridge
+    import satellite_change
     import situations
     import smard_bridge
     import stac_bridge
     import stock_bridge
+    import telegram_bridge
     import traffic_bridge
     import trust_router
     import volcano_bridge
@@ -91,6 +95,9 @@ def register_routers(app) -> None:
     app.include_router(webcam_bridge.router)
     app.include_router(windy_bridge.router)
     app.include_router(cve_bridge.router)
+    app.include_router(darkweb_bridge.router)
+    app.include_router(ransomware_tracker.router)
+    app.include_router(telegram_bridge.router)
     app.include_router(pegel_bridge.router)
     app.include_router(flowsint_bridge.router)
     app.include_router(gdelt_bridge.router)
@@ -103,6 +110,7 @@ def register_routers(app) -> None:
     app.include_router(volcano_bridge.router)
     app.include_router(pmtiles_bridge.router)
     app.include_router(stac_bridge.router)
+    app.include_router(satellite_change.router)
     app.include_router(sanctions_bridge.router)
     app.include_router(markets_bridge.router)
     app.include_router(aircraft_trails.router)

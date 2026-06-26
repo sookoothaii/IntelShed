@@ -624,9 +624,6 @@ export function buildOsintToolLinks(ctx: OsintContext, opts?: { includeNative?: 
         contextual = built !== tool.homeUrl
       }
     }
-    if (tool.stackRelation === 'native' && url.startsWith('/')) {
-      url = url
-    }
     out.push({
       id: tool.id,
       label: tool.label,

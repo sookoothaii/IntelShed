@@ -239,6 +239,23 @@ async def api_statement_stats():
 # ---------------------------------------------------------------------------
 
 
+@router.get("/intel/edges")
+async def api_list_edges(
+    external: bool = Query(False, description="Only external (review) edges"),
+    confirmed: bool | None = None,
+    limit: int = 100,
+):
+    """List edges; set external=1 for P5+ review queue."""
+    import edge_review
+
+    if external:
+        return {
+            "edges": edge_review.list_external_edges(confirmed=confirmed, limit=limit)
+        }
+    # Default: return graph overview edges (no raw edge list available)
+    return {"edges": [], "note": "external=1 for review queue"}
+
+
 @router.get("/intel/edges/external")
 async def api_list_external_edges(
     confirmed: bool | None = None,

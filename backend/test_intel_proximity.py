@@ -13,6 +13,9 @@ import intel_proximity as ip
 
 class IntelProximityTests(unittest.TestCase):
     def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
         fd, self.path = tempfile.mkstemp(suffix=".duckdb")
         os.close(fd)
         os.remove(self.path)

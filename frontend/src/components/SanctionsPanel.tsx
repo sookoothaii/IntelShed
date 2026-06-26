@@ -62,7 +62,7 @@ export default function SanctionsPanel({ onFocus }: Props) {
     try {
       const r = await fetchApi('/api/sanctions/status')
       setStatus(await r.json())
-    } catch (e: any) { setError(`status: ${e.message || e}`) }
+    } catch (e: unknown) { setError(`status: ${e instanceof Error ? e.message : String(e)}`) }
   }, [])
 
   useEffect(() => { fetchStatus() }, [fetchStatus])
@@ -76,7 +76,7 @@ export default function SanctionsPanel({ onFocus }: Props) {
       const r = await fetchApi(`/api/sanctions/search?${u.toString()}`)
       const d = await r.json()
       setResults(d.results || [])
-    } catch (e: any) { setError(`search: ${e.message || e}`); setResults([]) }
+    } catch (e: unknown) { setError(`search: ${e instanceof Error ? e.message : String(e)}`); setResults([]) }
     finally { setSearching(false) }
   }
 
@@ -85,7 +85,7 @@ export default function SanctionsPanel({ onFocus }: Props) {
     try {
       await fetchApi('/api/sanctions/refresh', { method: 'POST' })
       setTimeout(fetchStatus, 1500)
-    } catch (e: any) { setError(`refresh: ${e.message || e}`) }
+    } catch (e: unknown) { setError(`refresh: ${e instanceof Error ? e.message : String(e)}`) }
     finally { setTimeout(() => setRefreshing(false), 1500) }
   }
 
@@ -95,7 +95,7 @@ export default function SanctionsPanel({ onFocus }: Props) {
       const r = await fetchApi('/api/sanctions/screen/vessels?min_score=0.80&limit=300')
       const d = await r.json()
       setScreenHits(d.matches || [])
-    } catch (e: any) { setError(`screen: ${e.message || e}`); setScreenHits([]) }
+    } catch (e: unknown) { setError(`screen: ${e instanceof Error ? e.message : String(e)}`); setScreenHits([]) }
     finally { setScreenLoading(false) }
   }, [])
 

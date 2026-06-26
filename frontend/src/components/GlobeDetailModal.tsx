@@ -24,7 +24,7 @@ export type GlobeDetailTarget = {
 }
 
 function EntityContextCard({ entityId }: { entityId: string }) {
-  const [ctx, setCtx] = useState<any>(null)
+  const [ctx, setCtx] = useState<{ related?: { id: string; label?: string; type?: string }[]; error?: string } | null>(null)
   useEffect(() => {
     let active = true
     fetchApi(`/api/entity/${entityId}/context`)
@@ -41,7 +41,7 @@ function EntityContextCard({ entityId }: { entityId: string }) {
       <div className="tp-line" style={{ color: '#00ffa3', fontWeight: 'bold' }}>
         RELATED ENTITIES · {related.length}
       </div>
-      {related.slice(0, 8).map((r: any) => (
+      {related.slice(0, 8).map((r: { id: string; label?: string; type?: string }) => (
         <div key={r.id} className="tp-line" style={{ paddingLeft: 6, borderLeft: '2px solid #00ffa3' }}>
           {r.label || r.id} <span style={{ opacity: 0.5 }}>({r.type})</span>
         </div>

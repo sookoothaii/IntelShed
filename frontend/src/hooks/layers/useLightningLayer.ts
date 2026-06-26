@@ -4,10 +4,12 @@ import {
   CustomDataSource,
   Cartesian3,
   Color,
+  Entity,
   Viewer
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { Stats, FeedHud, LightningStrike } from '../../lib/types';
 
 export function useLightningLayer({
   viewer,
@@ -21,11 +23,11 @@ export function useLightningLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
-  setFeedHud: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  setFeedHud: React.Dispatch<React.SetStateAction<FeedHud>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
-  const lightningMapRef = useRef(new Map<string, any>());
+  const lightningMapRef = useRef(new Map<string, { entity: Entity; ts: number }>());
 
   const { data } = useQuery({
     queryKey: ['lightning'],
@@ -59,7 +61,7 @@ export function useLightningLayer({
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
     const lightningMap = lightningMapRef.current;
-    const strikes: any[] = data.strikes || [];
+    const strikes: LightningStrike[] = data.strikes || [];
     const now = Date.now();
     
     src.entities.suspendEvents();
@@ -95,7 +97,7 @@ export function useLightningLayer({
           time: s.time,
           stations: s.stations,
           participants: s.participants,
-        } as any,
+        },
       });
       lightningMap.set(id, { entity: e, ts });
     }
@@ -103,11 +105,11 @@ export function useLightningLayer({
     src.entities.resumeEvents();
     
     if (data.error) {
-      setStats((p: any) => ({ ...p, lightning: 0 }));
-      setFeedHud((p: any) => ({ ...p, lightning: 'N/A' }));
+      setStats((p: Stats) => ({ ...p, lightning: 0 }));
+      setFeedHud((p: FeedHud) => ({ ...p, lightning: 'N/A' }));
     } else {
-      setStats((p: any) => ({ ...p, lightning: lightningMap.size }));
-      setFeedHud((p: any) => ({ ...p, lightning: '' }));
+      setStats((p: Stats) => ({ ...p, lightning: lightningMap.size }));
+      setFeedHud((p: FeedHud) => ({ ...p, lightning: '' }));
     }
   }, [viewer, data, active, setStats, setFeedHud]);
 }

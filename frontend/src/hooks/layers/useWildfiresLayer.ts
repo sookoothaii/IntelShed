@@ -10,19 +10,8 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import type { GlobePrimitivePick } from '../../lib/globePick';
+import type { Stats, FeedHud, WildfiresApiResponse, WildfireRow } from '../../lib/types';
 import { requestSceneRender, viewerAlive } from './layerUtils';
-
-type WildfireRow = {
-  lon?: number | null;
-  lat?: number | null;
-  confidence?: number | null;
-  confidence_label?: string | null;
-  brightness?: number | null;
-  frp?: number | null;
-  satellite?: string | null;
-  zone?: string | null;
-  acq_date?: string | null;
-};
 
 const CLUSTER_MIN_FIRES = 800
 const CLUSTER_MIN_HEIGHT_M = 400_000
@@ -173,11 +162,11 @@ export function useWildfiresLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
-  setFeedHud: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  setFeedHud: React.Dispatch<React.SetStateAction<FeedHud>>;
 }) {
   const collectionRef = useRef<PointPrimitiveCollection | null>(null);
-  const dataRef = useRef<any>(null);
+  const dataRef = useRef<WildfiresApiResponse | null>(null);
   const cameraHRef = useRef(0);
 
   const { data } = useQuery({
@@ -216,9 +205,9 @@ export function useWildfiresLayer({
     renderWildfires(viewer, collectionRef.current, fires, h);
 
     const mapped = fires.filter((f) => f.lon != null && f.lat != null).length;
-    setStats((p: any) => ({ ...p, wildfires: data.count ?? mapped }));
+    setStats((p: Stats) => ({ ...p, wildfires: data.count ?? mapped }));
     const source = data.source === 'eonet_fallback' ? 'eonet' : (data.source || '');
-    setFeedHud((p: any) => ({ ...p, wildfires: source || (data.errors ? 'degraded' : '') }));
+    setFeedHud((p: FeedHud) => ({ ...p, wildfires: source || (data.errors ? 'degraded' : '') }));
   }, [viewer, data, active, setStats, setFeedHud]);
 
   // Re-cluster when camera altitude crosses cluster thresholds.

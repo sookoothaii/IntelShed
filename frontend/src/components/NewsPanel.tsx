@@ -72,20 +72,20 @@ function relTime(ts: number | null): string {
   return `${days}d ago`
 }
 
-function mapNewsData(d: any): { items: NewsItem[]; state: SourceState } {
+function mapNewsData(d: Record<string, unknown>): { items: NewsItem[]; state: SourceState } {
   const configured = d?.configured !== false
-  const articles: any[] = Array.isArray(d?.articles) ? d.articles : []
+  const articles: Record<string, unknown>[] = Array.isArray(d?.articles) ? d.articles as Record<string, unknown>[] : []
   const items = articles.map((a, i): NewsItem => {
-    const country = Array.isArray(a.country) ? a.country.join(',').toUpperCase() : ''
-    const cat = Array.isArray(a.category) ? a.category[0] : ''
-    const meta = [country, cat].filter(Boolean).join(' · ') || (a.source_id ?? 'newsdata')
+    const country = Array.isArray(a.country) ? (a.country as string[]).join(',').toUpperCase() : ''
+    const cat = Array.isArray(a.category) ? (a.category as string[])[0] : ''
+    const meta = [country, cat].filter(Boolean).join(' · ') || (a.source_id as string ?? 'newsdata')
     return {
       id: `nd:${a.link ?? i}`,
       source: 'newsdata',
-      title: (a.title ?? '').trim(),
-      snippet: (a.description ?? '').trim(),
-      url: a.link ?? null,
-      publishedAt: parseDate(a.pubDate),
+      title: (a.title as string ?? '').trim(),
+      snippet: (a.description as string ?? '').trim(),
+      url: a.link as string ?? null,
+      publishedAt: parseDate(a.pubDate as string),
       meta,
       stale: Boolean(d?.stale),
     }
@@ -95,14 +95,14 @@ function mapNewsData(d: any): { items: NewsItem[]; state: SourceState } {
     state: {
       configured,
       count: items.length,
-      error: d?.error ?? null,
+      error: (d?.error as string) ?? null,
       stale: Boolean(d?.stale),
     },
   }
 }
 
-function mapGdelt(d: any, source: NewsSource): { items: NewsItem[]; state: SourceState } {
-  const articles: any[] = Array.isArray(d?.articles) ? d.articles : []
+function mapGdelt(d: Record<string, unknown>, source: NewsSource): { items: NewsItem[]; state: SourceState } {
+  const articles: Record<string, unknown>[] = Array.isArray(d?.articles) ? d.articles as Record<string, unknown>[] : []
   const region = d?.region ? String(d.region) : ''
   const items = articles.map((a, i): NewsItem => {
     const origin = a.domain || a.sourcecountry || region || 'gdelt'
@@ -110,10 +110,10 @@ function mapGdelt(d: any, source: NewsSource): { items: NewsItem[]; state: Sourc
     return {
       id: `${source}:${a.url ?? i}`,
       source,
-      title: (a.title ?? '').trim(),
+      title: (a.title as string ?? '').trim(),
       snippet: '',
-      url: a.url ?? null,
-      publishedAt: parseDate(a.seendate),
+      url: a.url as string ?? null,
+      publishedAt: parseDate(a.seendate as string),
       meta,
       stale: Boolean(d?.stale),
     }
@@ -123,7 +123,7 @@ function mapGdelt(d: any, source: NewsSource): { items: NewsItem[]; state: Sourc
     state: {
       configured: true,
       count: items.length,
-      error: d?.error ?? null,
+      error: (d?.error as string) ?? null,
       stale: Boolean(d?.stale),
     },
   }

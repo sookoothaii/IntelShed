@@ -12,6 +12,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { Stats } from '../../lib/types';
 
 const aqColor = (pm25: number | null) => {
   if (pm25 == null) return '#6f8c84';
@@ -32,7 +33,7 @@ export function useAirqualityLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -98,11 +99,11 @@ export function useAirqualityLayer({
           pm25: c.pm25,
           pm10: c.pm10,
           time: c.time,
-        } as any,
+        },
       });
     }
     
     src.entities.resumeEvents();
-    setStats((p: any) => ({ ...p, airquality: (data.cities || []).length }));
+    setStats((p: Stats) => ({ ...p, airquality: (data?.cities || []).length }));
   }, [viewer, data, active, setStats]);
 }

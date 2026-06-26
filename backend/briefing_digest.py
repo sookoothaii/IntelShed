@@ -134,6 +134,18 @@ def _resolve_lang(lang: str | None) -> str:
 
 # Wider ASEAN / Southeast Asia bbox when operator home is Thailand
 _ASEAN_BBOX = [92.0, -8.0, 112.0, 24.0]
+_ASEAN_COUNTRY_CODES = {
+    "TH",
+    "MM",
+    "LA",
+    "KH",
+    "VN",
+    "MY",
+    "ID",
+    "SG",
+    "PH",
+    "BN",
+}
 
 _LOCAL_KEYWORDS = (
     "thailand",
@@ -430,6 +442,24 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
                     bucket,
                     sources=["newsdata"],
                     observed_at=art.get("pubDate"),
+                )
+            )
+
+    ransomware_digest = snap.get("ransomware_digest") or {}
+    if ransomware_digest.get("enabled"):
+        for line in (ransomware_digest.get("lines") or [])[:5]:
+            country = line.get("country", "Unknown")
+            bucket = "global"
+            if country in _ASEAN_COUNTRY_CODES or country == "TH":
+                bucket = "regional"
+            if country == "TH":
+                bucket = "local"
+            items.append(
+                _line(
+                    line.get("severity", "high"),
+                    line.get("text", ""),
+                    bucket,
+                    sources=["darkweb_ransomware"],
                 )
             )
 
@@ -837,6 +867,26 @@ def build_watch_items(
             )
         )
 
+    ransomware_digest = snap.get("ransomware_digest") or {}
+    if ransomware_digest.get("enabled"):
+        try:
+            from darkweb_briefing import build_ransomware_watch_items
+
+            for item in build_ransomware_watch_items(ransomware_digest):
+                candidates.append(item)
+        except Exception:
+            pass
+
+    telegram_digest = snap.get("telegram_digest") or {}
+    if telegram_digest.get("enabled"):
+        try:
+            from telegram_briefing import build_telegram_watch_items
+
+            for item in build_telegram_watch_items(telegram_digest):
+                candidates.append(item)
+        except Exception:
+            pass
+
     seen_ids: set[str] = set()
     ranked: list[dict[str, Any]] = []
     for item in sorted(candidates, key=lambda x: -float(x.get("confidence") or 0)):
@@ -942,6 +992,9 @@ def format_digest_sections(
     fusion_deltas: list[dict] | None = None,
     intel_meta: dict | None = None,
     lang: str | None = None,
+    darkweb_digest: dict[str, Any] | None = None,
+    ransomware_digest: dict[str, Any] | None = None,
+    telegram_digest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
@@ -1076,5 +1129,8 @@ def format_digest_sections(
         "cyber": cyber_lines,
         "infra": infra_bits,
         "nodes": node_lines,
+        "darkweb": darkweb_digest or {"enabled": False, "count": 0, "lines": []},
+        "ransomware": ransomware_digest or {"enabled": False, "count": 0, "lines": []},
+        "telegram": telegram_digest or {"enabled": False, "count": 0, "lines": []},
         "_gdelt_collected": gdelt_collected,
     }

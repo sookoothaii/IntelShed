@@ -17,6 +17,7 @@ import {
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource, requestSceneRender } from './layerUtils';
 import { attachPulseEllipse } from './pulseAnimation';
+import type { Stats, MilitaryAircraft } from '../../lib/types';
 
 export function useMilitaryLayer({
   viewer,
@@ -29,7 +30,7 @@ export function useMilitaryLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const milMapRef = useRef(new Map<string, Entity>());
@@ -69,7 +70,7 @@ export function useMilitaryLayer({
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
     const milMap = milMapRef.current;
-    const list: any[] = data.aircraft || [];
+    const list: MilitaryAircraft[] = data.aircraft || [];
     const seen = new Set<string>();
 
     src.entities.suspendEvents();
@@ -110,7 +111,7 @@ export function useMilitaryLayer({
           properties: {
             kind: 'military', hex: a.hex, flight: a.flight || '', type: a.type || '',
             alt: a.alt ?? 0, speed: a.speed ?? 0, squawk: a.squawk || '',
-          } as any,
+          },
         });
         
         if (isEmergency) {
@@ -139,7 +140,7 @@ export function useMilitaryLayer({
     }
     
     src.entities.resumeEvents();
-    setStats((p: any) => ({ ...p, military: milMap.size }));
+    setStats((p: Stats) => ({ ...p, military: milMap.size }));
     requestSceneRender(viewer);
   }, [viewer, data, active, setStats]);
 }

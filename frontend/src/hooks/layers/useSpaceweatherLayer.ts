@@ -12,6 +12,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { Stats } from '../../lib/types';
 
 export function useSpaceweatherLayer({
   viewer,
@@ -24,7 +25,7 @@ export function useSpaceweatherLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -115,6 +116,6 @@ export function useSpaceweatherLayer({
     });
     
     src.entities.resumeEvents();
-    setStats((p: any) => ({ ...p, spaceweather: kp }));
+    setStats((p: Stats) => ({ ...p, spaceweather: kp }));
   }, [viewer, data, active, setStats]);
 }

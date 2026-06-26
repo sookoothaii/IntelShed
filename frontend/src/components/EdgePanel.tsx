@@ -84,8 +84,8 @@ export default function EdgePanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
       const pi = (data.nodes || []).find((n: EdgeNode) => n.node_id === PRIMARY_EDGE_NODE) || null
       setNode(pi)
       if (!pi) setError('No push from offgrid-pi — check worldbase_push on the Pi')
-    } catch (e: any) {
-      setError(e?.message || 'fetch failed')
+    } catch (e: unknown) {
+      setError((e as Error)?.message || 'fetch failed')
       setNode(null)
     } finally {
       setLoading(false)

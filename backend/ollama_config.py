@@ -3,6 +3,8 @@
 import logging
 import os
 
+from config import get_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,21 +19,11 @@ def chat_timeout() -> float:
 
 
 def briefing_autopilot_on() -> bool:
-    return os.getenv("WORLDBASE_BRIEFING_AUTOPILOT", "1").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
+    return get_config().briefing_autopilot
 
 
 def rag_autopilot_on() -> bool:
-    return os.getenv("WORLDBASE_RAG_AUTOPILOT", "1").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-        "off",
-    }
+    return get_config().rag_autopilot
 
 
 def context_length() -> int | None:

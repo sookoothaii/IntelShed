@@ -2,6 +2,7 @@ import {
   Color,
   ColorMaterialProperty,
   ConstantProperty,
+  EllipseGraphics,
   type Entity,
 } from 'cesium';
 
@@ -64,11 +65,11 @@ export function attachPulseEllipse(entity: Entity, config: PulseEllipseConfig): 
   const colorProp = new ConstantProperty(config.color.withAlpha(config.alphaScale));
   const material = new ColorMaterialProperty(colorProp);
 
-  (entity as any).ellipse = {
+  entity.ellipse = new EllipseGraphics({
     semiMajorAxis: semiMajor,
     semiMinorAxis: semiMinor,
     material,
-  };
+  });
 
   return registerPulseUpdater({
     cycleMs,

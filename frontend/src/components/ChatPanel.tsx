@@ -53,8 +53,8 @@ export default function ChatPanel({
 }: {
   askAI?: { id: number; question: string; context: string } | null
   onClearAsk?: () => void
-  onFirewallResult?: (r: any) => void
-  onClientAction?: (act: any) => void
+  onFirewallResult?: (r: unknown) => void
+  onClientAction?: (act: unknown) => void
 }) {
   const [msg, setMsg] = useState('')
   const [history, setHistory] = useState<{ role: string; content: string }[]>([
@@ -73,7 +73,7 @@ export default function ChatPanel({
   const [feedContext, setFeedContext] = useState(false)
   const [useTools, setUseTools] = useState(false)
   const [firewall, setFirewall] = useState(false)
-  const [firewallMeta, setFirewallMeta] = useState<any>(null)
+  const [firewallMeta, setFirewallMeta] = useState<{ action: string; risk_score: number; flags?: string[]; policy_violations?: string[] } | null>(null)
   const [genWaitSec, setGenWaitSec] = useState(0)
   const [showSettings, setShowSettings] = useState(false)
   const [apiKeys, setApiKeys] = useState<Record<string, string>>(() => {
@@ -357,7 +357,7 @@ export default function ChatPanel({
         const sr = await fetchApi(`/api/search?q=${encodeURIComponent(searchQ)}&n=5`)
         const sd = await sr.json()
         if (sd.results && sd.results.length > 0) {
-          searchCtx = sd.results.map((r: any, i: number) =>
+          searchCtx = sd.results.map((r: { title?: string; snippet?: string; url?: string }, i: number) =>
             `[${i + 1}] ${r.title}\n${r.snippet}\nURL: ${r.url}`
           ).join('\n\n')
         }

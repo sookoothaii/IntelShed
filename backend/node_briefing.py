@@ -415,6 +415,33 @@ async def _generate_briefing_unlocked(
         fusion_deltas,
     ) = await fusion_heatmap.top_hotspots_for_llm(top=3)
     intel_meta = await asyncio.to_thread(intel_briefing.gather_for_briefing)
+
+    darkweb_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    ransomware_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    telegram_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    try:
+        import darkweb_bridge
+
+        darkweb_digest = await darkweb_bridge.gather_darkweb_digest()
+    except Exception:
+        pass
+    try:
+        from darkweb_briefing import gather_ransomware_briefing
+
+        ransomware_digest = await gather_ransomware_briefing()
+    except Exception:
+        pass
+    try:
+        from telegram_briefing import gather_telegram_briefing
+
+        telegram_digest = await gather_telegram_briefing()
+    except Exception:
+        pass
+
+    if ransomware_digest:
+        snap["ransomware_digest"] = ransomware_digest
+    if telegram_digest:
+        snap["telegram_digest"] = telegram_digest
     digest = format_digest_sections(
         snap,
         alerts,
@@ -423,6 +450,9 @@ async def _generate_briefing_unlocked(
         fusion_deltas=fusion_deltas,
         intel_meta=intel_meta,
         lang=lang,
+        darkweb_digest=darkweb_digest,
+        ransomware_digest=ransomware_digest,
+        telegram_digest=telegram_digest,
     )
     from briefing_agentic import run_briefing_agentic_loop
 

@@ -125,6 +125,11 @@ class TestP7Functions(unittest.TestCase):
 class TestP7StorePosition(unittest.TestCase):
     """P7 ringbuffer non-blocking ingest."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_store_position_no_crash_when_disabled(self):
         os.environ.pop("WORLDBASE_MARITIME_TRAJECTORY", None)
         from ais_trajectory import store_position, _RINGBUFFER
@@ -162,6 +167,11 @@ class TestP7APIRoutes(unittest.TestCase):
 
 class TestP7AISBridgeIntegration(unittest.TestCase):
     """P7 integration in ais_bridge.py."""
+
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
 
     def test_ais_bridge_has_trajectory_import(self):
         """Check that _ingest_stream_message calls ais_trajectory.store_position."""

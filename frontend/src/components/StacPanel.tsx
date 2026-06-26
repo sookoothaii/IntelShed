@@ -57,8 +57,8 @@ export default function StacPanel({ onFocus }: Props) {
       const d = await r.json()
       if (d.error) throw new Error(d.error)
       setItems(d.items || [])
-    } catch (e: any) {
-      setError(e.message || String(e))
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e))
       setItems([])
     } finally {
       setLoading(false)

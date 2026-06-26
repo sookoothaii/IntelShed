@@ -13,6 +13,7 @@ import {
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint } from './layerUtils';
+import type { Stats, FeedHud } from '../../lib/types';
 
 const hazardColor = (severity: string) => {
   const s = (severity || '').toLowerCase();
@@ -34,8 +35,8 @@ export function useHazardsLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
-  setFeedHud: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  setFeedHud: React.Dispatch<React.SetStateAction<FeedHud>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -110,7 +111,7 @@ export function useHazardsLayer({
           feed: a.feed,
           effective: a.effective,
           expires: a.expires,
-        } as any,
+        },
       });
       n++;
     }
@@ -131,7 +132,7 @@ export function useHazardsLayer({
             title: ev.name,
             url: ev.url,
             date: ev.date,
-          } as any,
+          },
         });
         n++;
       }
@@ -139,7 +140,7 @@ export function useHazardsLayer({
     
     src.entities.resumeEvents();
     
-    setStats((p: any) => ({ ...p, hazards: data.count ?? n }));
-    setFeedHud((p: any) => ({ ...p, hazards: data.geocoded != null && data.geocoded < (data.count ?? n) ? `${data.geocoded} map` : '' }));
+    setStats((p: Stats) => ({ ...p, hazards: data.count ?? n }));
+    setFeedHud((p: FeedHud) => ({ ...p, hazards: data.geocoded != null && data.geocoded < (data.count ?? n) ? `${data.geocoded} map` : '' }));
   }, [viewer, data, active, setStats, setFeedHud]);
 }

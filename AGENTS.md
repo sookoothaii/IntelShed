@@ -76,8 +76,10 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | **CAMS haze (Thailand/ASEAN)** | `GET /api/cams/haze` — PM2.5, dust, AOD via Open-Meteo/CAMS; feeds briefing LOCAL |
 | **HDX humanitarian** | `GET /api/humanitarian` — UN OCHA datasets (Myanmar border, displacement); briefing REGION |
 | **NewsData.io (optional)** | `GET /api/newsdata`, `GET /api/newsdata/sources` — headlines complement GDELT; corroboration family `newsdata`; Free tier ~12h delay; `NEWSDATA_API_KEY` |
+| **Dark Web / Darknet (P8)** | `GET /api/darkweb?q=...` — Ahmia/DarkSearch by default; optional Tor engines; `GET /api/darkweb/engines`, `GET /api/darkweb/mentions`, `GET /api/darkweb/entities?q=...`; `POST /api/darkweb/ingest`, `POST /api/darkweb/scrape`, `POST /api/darkweb/deep_search`; ransomware leak-site intel via `GET /api/darkweb/ransomware/groups`, `GET /api/darkweb/ransomware/victims`, `POST /api/darkweb/ransomware/refresh`, `POST /api/darkweb/ransomware/ingest`; ransomware briefing block (max 5 lines, FTM-correlation prioritised) when `WORLDBASE_BRIEFING_RANSOMWARE=1`; DATA → **DARKWEB** tab + globe layer; `WORLDBASE_DARKWEB=1`, `WORLDBASE_BRIEFING_DARKWEB=1`, `WORLDBASE_RANSOMWARE=1`; docs → [`docs/DARKWEB.md`](docs/DARKWEB.md) |
 | **Maritime AIS** | `GET /api/maritime` — background AISstream WebSocket when `AISSTREAM_API_KEY` set (`stream_connected`, `stream_buffer` in JSON); MyShipTracking/AISHub fallback; Thailand corridor default |
 | **STAC feed snapshots** | `GET /api/stac/feeds/collection`, `GET /api/stac/feeds/items` — connector cache as STAC Items with bbox/geometry, registry links; DATA → **FEEDS** tab: STAC JSON + ⊕ fly-to |
+| **Satellite Change Detection (K4)** | `GET /api/satellite/health`, `GET /api/satellite/change` — Sentinel-2 L2A COG window-read, NDVI/NDWI differencing, GeoJSON anomaly polygons; `WORLDBASE_SATELLITE_CHANGE=1` (default on); `backend/satellite_change.py`; DATA → **SATELLITE** tab |
 | **Connectors** | `GET /api/connectors` — manifest catalog + cache overlay; export via `scripts/export_connectors.py` |
 | **MCP (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — 13 tools when Agent Bus on — [`docs/MCP.md`](docs/MCP.md) |
 | **Agent Bus** | `POST /api/agent/publish`, `GET /api/agent/stream` — globe fly/layer when HUD open — [`docs/MCP.md`](docs/MCP.md#agent-bus) |
@@ -149,6 +151,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | CAMS haze | `backend/cams_bridge.py` — Open-Meteo/CAMS dust + AOD for Thailand/ASEAN cities |
 | Humanitarian (HDX) | `backend/humanitarian_bridge.py` — CKAN search for Southeast Asia crises |
 | NewsData headlines | `backend/newsdata_bridge.py` — optional API key; briefing + corroboration family |
+| **Dark Web / Darknet OSINT (P8)** | `backend/darkweb_bridge.py` + `frontend/src/components/DarkwebPanel.tsx` + `frontend/src/hooks/layers/useDarkwebLayer.ts` + `frontend/src/lib/darkwebApi.ts` — Ahmia/DarkSearch + optional Tor engines; entity extraction; briefing block + insight cards; DATA → **DARKWEB** tab + globe layer; docs → [`docs/DARKWEB.md`](docs/DARKWEB.md) |
 | Ground-truth pilots | `backend/corroboration_ground_truth.py`, `backend/prediction_ground_truth.py`, `backend/subgraph_prompt_ground_truth.py` |
 | Maritime AIS | `backend/ais_bridge.py` — persistent AISstream collector + MyShipTracking; Malacca / Laem Chabang / Bangkok / Phuket / Singapore when operator region is Thailand |
 | Feed drift | `backend/feed_drift.py` — count snapshots + freshness in `/api/trust`; uses `freshness.classify_freshness()` |

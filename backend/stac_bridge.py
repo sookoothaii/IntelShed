@@ -123,6 +123,7 @@ def _slim_item(it: dict) -> dict:
     visual = assets.get("visual") or {}
     nir = assets.get("nir") or assets.get("B08") or {}
     red = assets.get("red") or assets.get("B04") or {}
+    green = assets.get("green") or assets.get("B03") or {}
     return {
         "id": it.get("id"),
         "collection": it.get("collection"),
@@ -136,6 +137,7 @@ def _slim_item(it: dict) -> dict:
         "cog_visual": visual.get("href"),
         "cog_nir": nir.get("href"),
         "cog_red": red.get("href"),
+        "cog_green": green.get("href"),
         # Proxied preview (CORS-safe through our backend)
         "proxy_thumbnail": f"/api/stac/thumbnail?id={it.get('id')}" if thumb else None,
     }

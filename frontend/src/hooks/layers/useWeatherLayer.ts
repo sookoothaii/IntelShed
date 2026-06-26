@@ -13,6 +13,7 @@ import {
 } from 'cesium'
 import { fetchApi } from '../../lib/networkFetch'
 import { attachDataSource, detachDataSource } from './layerUtils'
+import type { Stats, WeatherCell } from '../../lib/types'
 
 function tempColor(c: number | null | undefined): string {
   if (c == null) return '#6f8c84'
@@ -48,7 +49,7 @@ export function useWeatherLayer({
   active: boolean
   feedActive: boolean
   canFetch: boolean
-  setStats: React.Dispatch<React.SetStateAction<any>>
+  setStats: React.Dispatch<React.SetStateAction<Stats>>
   region?: string
 }) {
   const srcRef = useRef<CustomDataSource | null>(null)
@@ -86,7 +87,7 @@ export function useWeatherLayer({
     src.entities.suspendEvents()
     src.entities.removeAll()
 
-    for (const cell of data.cells || []) {
+    for (const cell of (data.cells || []) as WeatherCell[]) {
       if (cell.lon == null || cell.lat == null) continue
       const t = cell.temperature_c as number | null | undefined
       const precip = cell.precip_mm_3h as number | null | undefined
@@ -136,6 +137,6 @@ export function useWeatherLayer({
     }
 
     src.entities.resumeEvents()
-    setStats((p: any) => ({ ...p, weather: data.count ?? 0 }))
+    setStats((p: Stats) => ({ ...p, weather: data.count ?? 0 }))
   }, [data, active, setStats])
 }

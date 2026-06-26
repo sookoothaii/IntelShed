@@ -17,6 +17,7 @@ import {
 import * as satellite from 'satellite.js';
 import { fetchApi } from '../../lib/networkFetch';
 import type { GlobePrimitivePick } from '../../lib/globePick';
+import type { Stats, SatelliteCacheEntry } from '../../lib/types';
 import {
   attachDataSource,
   attachPrimitiveCollection,
@@ -43,7 +44,7 @@ export function useSatellitesLayer({
   orbitsActive: boolean;
   satGroup: string;
   feedActive: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
 }) {
   const pointsRef = useRef<PointPrimitiveCollection | null>(null);
   const labelsRef = useRef<LabelCollection | null>(null);
@@ -55,7 +56,7 @@ export function useSatellitesLayer({
     queryFn: async () => {
       const r = await fetchApi(`/api/satellites?group=${satGroup}&limit=500`);
       const d = await r.json();
-      const cache: { name: string; rec: any }[] = [];
+      const cache: SatelliteCacheEntry[] = [];
       for (const s of d.satellites || []) {
         try {
           cache.push({ name: s.name, rec: satellite.twoline2satrec(s.tle1, s.tle2) });
@@ -141,7 +142,7 @@ export function useSatellitesLayer({
         try {
           const pv = satellite.propagate(rec, now);
           if (!pv || !pv.position || typeof pv.position === 'boolean') continue;
-          const gd = satellite.eciToGeodetic(pv.position as any, gmst);
+          const gd = satellite.eciToGeodetic(pv.position as { x: number; y: number; z: number }, gmst);
           const lon = CMath.toDegrees(gd.longitude);
           const lat = CMath.toDegrees(gd.latitude);
           const alt = gd.height * 1000;
@@ -198,7 +199,7 @@ export function useSatellitesLayer({
               const g = satellite.gstime(t);
               const p = satellite.propagate(rec, t);
               if (!p || !p.position || typeof p.position === 'boolean') continue;
-              const od = satellite.eciToGeodetic(p.position as any, g);
+              const od = satellite.eciToGeodetic(p.position as { x: number; y: number; z: number }, g);
               pts.push(
                 Cartesian3.fromDegrees(
                   CMath.toDegrees(od.longitude),
@@ -234,7 +235,7 @@ export function useSatellitesLayer({
       }
 
       if (drawOrbits) orbitSrc.entities.resumeEvents();
-      setStats((p: any) => ({ ...p, satellites: satMap.size }));
+      setStats((p: Stats) => ({ ...p, satellites: satMap.size }));
       requestSceneRender(viewer);
     };
 

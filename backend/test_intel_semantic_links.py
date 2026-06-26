@@ -13,6 +13,9 @@ import intel_semantic_links as isl
 
 class IntelSemanticLinksTests(unittest.TestCase):
     def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
         fd, self.path = tempfile.mkstemp(suffix=".duckdb")
         os.close(fd)
         os.remove(self.path)

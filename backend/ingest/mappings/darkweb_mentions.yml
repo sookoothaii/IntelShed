@@ -1,0 +1,26 @@
+# FollowTheMoney mapping: dark web search results -> FtM Mention entities.
+# Consumed by the ingest pipeline (T2). Field names match darkweb_bridge output.
+
+darkweb_mentions:
+  rag:
+    strategy: single
+    max_chars: 400
+    source_key: url
+    rag_source: darkweb
+    body:
+      - template: "DARKWEB {engine} mention: {title} URL {url} snippet {snippet}"
+  queries:
+    - entities:
+        mention:
+          schema: Mention
+          keys:
+            - url
+          properties:
+            name:
+              column: title
+            source:
+              column: engine
+            url:
+              column: url
+            notes:
+              column: snippet

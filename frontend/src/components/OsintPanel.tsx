@@ -11,6 +11,26 @@ type OsintMode = typeof OSINT_MODES[number]
 const OSINT_TOOLS = ['ip', 'domain', 'username', 'email', 'reverse'] as const
 type OsintTool = typeof OSINT_TOOLS[number]
 
+interface OsintResult {
+  error?: string
+  crt_sh_url?: string
+  cert_count?: number
+  cert_names?: string[]
+  breach_check_url?: string
+  breach_count?: number
+  breaches?: string[]
+  lat?: number
+  lon?: number
+  ip?: string
+  country?: string
+  region?: string
+  city?: string
+  isp?: string
+  asn?: string
+  locality?: string
+  [key: string]: unknown
+}
+
 function isOsintMode(v: unknown): v is OsintMode {
   return typeof v === 'string' && (OSINT_MODES as readonly string[]).includes(v as OsintMode)
 }
@@ -38,7 +58,7 @@ export default function OsintPanel({
   const [query, setQuery] = useState('')
   const [latInput, setLatInput] = useState('')
   const [lonInput, setLonInput] = useState('')
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<OsintResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [importJson, setImportJson] = useState('')
   const [importMsg, setImportMsg] = useState('')
@@ -340,7 +360,7 @@ export default function OsintPanel({
           {tool === 'domain' && result.crt_sh_url && (
             <div style={{ fontSize: 11, color: '#8fb7a9', marginBottom: 8 }}>
               crt.sh: {result.cert_count ?? 0} hostname(s)
-              {result.cert_names?.length > 0 && ` — e.g. ${result.cert_names.slice(0, 3).join(', ')}`}
+              {result.cert_names && result.cert_names.length > 0 && ` — e.g. ${result.cert_names.slice(0, 3).join(', ')}`}
               {' · '}
               <a href={result.crt_sh_url} target="_blank" rel="noreferrer">OPEN ↗</a>
             </div>
@@ -348,7 +368,7 @@ export default function OsintPanel({
           {tool === 'email' && result.breach_check_url && (
             <div style={{ fontSize: 11, color: '#8fb7a9', marginBottom: 8 }}>
               HIBP: {result.breach_count != null ? `${result.breach_count} breach(es)` : 'link-out only'}
-              {result.breaches?.length > 0 && ` — ${result.breaches.slice(0, 4).join(', ')}`}
+              {result.breaches && result.breaches.length > 0 && ` — ${result.breaches.slice(0, 4).join(', ')}`}
               {' · '}
               <a href={result.breach_check_url} target="_blank" rel="noreferrer">OPEN ↗</a>
             </div>
@@ -356,7 +376,7 @@ export default function OsintPanel({
           {tool === 'ip' && result.lat != null && result.lon != null && (
             <button
               className="locate-mini"
-              onClick={() => showOnGlobe(result.lat, result.lon, `IP ${result.ip}`, [
+              onClick={() => showOnGlobe(result.lat!, result.lon!, `IP ${result.ip || '—'}`, [
                 `Country: ${result.country || '—'}`,
                 `Region: ${result.region || '—'}`,
                 `City: ${result.city || '—'}`,
@@ -370,7 +390,7 @@ export default function OsintPanel({
           {tool === 'reverse' && result.locality && (
             <button
               className="locate-mini"
-              onClick={() => showOnGlobe(result.lat, result.lon, result.locality, [
+              onClick={() => showOnGlobe(result.lat!, result.lon!, result.locality!, [
                 `City: ${result.city || '—'}`,
                 `Region: ${result.region || '—'}`,
                 `Country: ${result.country || '—'}`,

@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import (
 try:
     from backend.db.models import Base
 except ImportError:
-    from models import Base
+    from db.models import Base
 
 
 # Database URL from environment or default for development

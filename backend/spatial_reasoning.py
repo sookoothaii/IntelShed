@@ -19,12 +19,14 @@ import os
 import re
 from typing import Any
 
+from config import get_config
+
 
 _BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 _DATA_DIR = os.path.join(_BACKEND_DIR, "data")
 _GEO_FILE = os.path.join(_DATA_DIR, "geography.json")
 
-_NEAR_DEFAULT_KM = float(os.getenv("WORLDBASE_SPATIAL_NEAR_DEFAULT_KM", "25"))
+_NEAR_DEFAULT_KM = get_config().spatial_near_default_km
 
 
 def _truthy(val: str | None) -> bool:
@@ -32,7 +34,7 @@ def _truthy(val: str | None) -> bool:
 
 
 def spatial_reasoning_enabled() -> bool:
-    return _truthy(os.getenv("WORLDBASE_SPATIAL_REASONING", "0"))
+    return get_config().spatial_reasoning_enabled
 
 
 # ---------------------------------------------------------------------------

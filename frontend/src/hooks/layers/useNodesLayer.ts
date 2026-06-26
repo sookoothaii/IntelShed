@@ -17,6 +17,7 @@ import {
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource, requestSceneRender } from './layerUtils';
 import { attachPulseEllipse } from './pulseAnimation';
+import type { Stats, WbNode } from '../../lib/types';
 
 export function useNodesLayer({
   viewer,
@@ -29,7 +30,7 @@ export function useNodesLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const nodeMapRef = useRef(new Map<string, Entity>());
@@ -74,7 +75,7 @@ export function useNodesLayer({
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
     const nodeMap = nodeMapRef.current;
-    const nodes: any[] = data.nodes || [];
+    const nodes: WbNode[] = data.nodes || [];
     const seen = new Set<string>();
 
     src.entities.suspendEvents();
@@ -124,7 +125,7 @@ export function useNodesLayer({
             mesh_count: (n.mesh || []).length,
             pihole: n.pihole || {},
             age_seconds: n.age_seconds ?? 0,
-          } as any,
+          },
         });
         
         if (isOnline) {
@@ -177,7 +178,7 @@ export function useNodesLayer({
                 snr: m.snr,
                 last_seen: m.last_seen,
                 pi_node: id,
-              } as any,
+              },
             });
             
             src.entities.add({
@@ -204,7 +205,7 @@ export function useNodesLayer({
     }
     
     const allMeshKeys = new Set<string>();
-    src.entities.values.forEach((ent: any) => {
+    src.entities.values.forEach((ent: Entity) => {
       const eid = ent.id;
       if (typeof eid === 'string' && (eid.startsWith('mesh-') || eid.startsWith('link-'))) {
         allMeshKeys.add(eid);
@@ -219,7 +220,7 @@ export function useNodesLayer({
     }
     
     src.entities.resumeEvents();
-    setStats((p: any) => ({ ...p, nodes: nodeMap.size }));
+    setStats((p: Stats) => ({ ...p, nodes: nodeMap.size }));
     requestSceneRender(viewer);
   }, [viewer, data, active, setStats]);
 }

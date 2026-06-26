@@ -953,7 +953,7 @@ async def resolution_train(
         return await asyncio.to_thread(train_model, schema)
     except Exception as exc:
         logger.exception("model training failed for %s", schema)
-        raise HTTPException(status_code=503, detail=f"training failed: {exc}") from exc
+        raise HTTPException(status_code=503, detail="training failed") from exc
 
 
 @router.get("/ambiguous")

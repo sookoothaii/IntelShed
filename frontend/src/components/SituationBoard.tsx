@@ -126,9 +126,9 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
   const briefQ = useBriefingQuery({ refetchInterval: interval })
   const insQ = useInsightsQuery(10, { refetchInterval: interval })
 
-  const items: SituationItem[] = sitQ.data?.items || []
-  const fusionHotspots: FusionHotspot[] = briefQ.data?.fusion_hotspots || []
-  const insights: InsightCard[] = insQ.data?.insights || []
+  const items: SituationItem[] = (sitQ.data?.items || []) as SituationItem[]
+  const fusionHotspots: FusionHotspot[] = (briefQ.data?.fusion_hotspots || []) as FusionHotspot[]
+  const insights: InsightCard[] = (insQ.data?.insights || []) as InsightCard[]
   const loading = sitQ.isLoading || briefQ.isLoading || insQ.isLoading
   const updatedAt = Math.max(sitQ.dataUpdatedAt || 0, briefQ.dataUpdatedAt || 0, insQ.dataUpdatedAt || 0)
 

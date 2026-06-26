@@ -8,6 +8,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { Stats, Volcano } from '../../lib/types';
 
 export function useVolcanoesLayer({
   viewer,
@@ -20,7 +21,7 @@ export function useVolcanoesLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -59,7 +60,7 @@ export function useVolcanoesLayer({
     src.entities.removeAll();
     
     let n = 0;
-    for (const v of data.volcanoes || []) {
+    for (const v of (data.volcanoes || []) as Volcano[]) {
       if (v.lon == null || v.lat == null) continue;
       const col = Color.fromCssColorString(v.active ? '#ff4d5e' : '#6b7280');
       src.entities.add({
@@ -78,12 +79,12 @@ export function useVolcanoesLayer({
           last_eruption: v.last_eruption,
           elevation_m: v.elevation_m,
           active: v.active,
-        } as any,
+        },
       });
       n++;
     }
     
     src.entities.resumeEvents();
-    setStats((p: any) => ({ ...p, volcanoes: n }));
+    setStats((p: Stats) => ({ ...p, volcanoes: n }));
   }, [viewer, data, active, setStats]);
 }

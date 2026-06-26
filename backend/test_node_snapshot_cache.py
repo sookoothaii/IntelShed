@@ -5,10 +5,16 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+import node_briefing
 import node_sync
 
 
 class SnapshotCacheTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     async def asyncSetUp(self):
         node_sync.invalidate_snapshot_cache()
 
@@ -20,9 +26,11 @@ class SnapshotCacheTests(unittest.IsolatedAsyncioTestCase):
             return {"earthquakes": {"earthquakes": []}}
 
         with patch.object(
-            node_sync, "_gather_snapshot_uncached", side_effect=fake_uncached
+            node_briefing, "_gather_snapshot_uncached", side_effect=fake_uncached
         ):
-            with patch.object(node_sync, "_snapshot_cache_ttl_sec", return_value=90.0):
+            with patch.object(
+                node_briefing, "_snapshot_cache_ttl_sec", return_value=90.0
+            ):
                 first = await node_sync._gather_snapshot()
                 second = await node_sync._gather_snapshot()
 
@@ -37,20 +45,22 @@ class SnapshotCacheTests(unittest.IsolatedAsyncioTestCase):
             return {"nodes": {"nodes": []}}
 
         with patch.object(
-            node_sync, "_gather_snapshot_uncached", side_effect=fake_uncached
+            node_briefing, "_gather_snapshot_uncached", side_effect=fake_uncached
         ):
-            with patch.object(node_sync, "_snapshot_cache_ttl_sec", return_value=90.0):
+            with patch.object(
+                node_briefing, "_snapshot_cache_ttl_sec", return_value=90.0
+            ):
                 await node_sync._gather_snapshot()
                 await node_sync._gather_snapshot(force=True)
 
         self.assertEqual(calls["n"], 2)
 
     async def test_invalidate_clears_cache(self):
-        node_sync._SNAPSHOT_CACHE = {"cve": {}}
-        node_sync._SNAPSHOT_CACHE_AT = 1.0
+        node_briefing._SNAPSHOT_CACHE = {"cve": {}}
+        node_briefing._SNAPSHOT_CACHE_AT = 1.0
         node_sync.invalidate_snapshot_cache()
-        self.assertIsNone(node_sync._SNAPSHOT_CACHE)
-        self.assertEqual(node_sync._SNAPSHOT_CACHE_AT, 0.0)
+        self.assertIsNone(node_briefing._SNAPSHOT_CACHE)
+        self.assertEqual(node_briefing._SNAPSHOT_CACHE_AT, 0.0)
 
 
 if __name__ == "__main__":

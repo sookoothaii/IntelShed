@@ -138,6 +138,26 @@ def build_security_advisor_prompt(
         f"Fusion hotspots (spatial grid):\n{digest['fusion']}\n\n"
         f"Cyber (CISA KEV):\n" + "\n".join(digest["cyber"]) + "\n\n"
         "Infra:\n" + "\n".join(f"- {x}" for x in digest["infra"]) + "\n\n"
+    )
+    darkweb = digest.get("darkweb") or {}
+    if darkweb.get("enabled") and darkweb.get("lines"):
+        if is_de:
+            prompt += "DARK WEB / Darknet:\n" + "\n".join(darkweb["lines"]) + "\n\n"
+        else:
+            prompt += "DARK WEB / Darknet:\n" + "\n".join(darkweb["lines"]) + "\n\n"
+    ransomware = digest.get("ransomware") or {}
+    if ransomware.get("enabled") and ransomware.get("lines"):
+        prompt += "RANSOMWARE VICTIMS (24h, passive metadata only):\n"
+        for line in ransomware["lines"]:
+            prompt += f"  - {line.get('text')}\n"
+        prompt += "\n"
+    telegram = digest.get("telegram") or {}
+    if telegram.get("enabled") and telegram.get("lines"):
+        prompt += "TELEGRAM SOCMINT (24h, allow-listed public channels only):\n"
+        for line in telegram["lines"]:
+            prompt += f"  - {line}\n"
+        prompt += "\n"
+    prompt += (
         "Edge nodes:\n"
         + "\n".join(digest["nodes"])
         + "\n\n"

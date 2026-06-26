@@ -12,6 +12,7 @@ import {
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint } from './layerUtils';
+import type { Stats, GeopoliticsDisaster } from '../../lib/types';
 
 export function useGeopoliticsLayer({
   viewer,
@@ -24,7 +25,7 @@ export function useGeopoliticsLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -58,7 +59,7 @@ export function useGeopoliticsLayer({
   useEffect(() => {
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
-    const disasters: any[] = data.disasters || [];
+    const disasters: GeopoliticsDisaster[] = data.disasters || [];
     
     src.entities.suspendEvents();
     src.entities.removeAll();
@@ -89,11 +90,11 @@ export function useGeopoliticsLayer({
           id: dis.id,
           source: dis.source || 'crisis',
           url: dis.url || '',
-        } as any,
+        },
       });
     }
     
     src.entities.resumeEvents();
-    setStats((p: any) => ({ ...p, geopolitics: disasters.length }));
+    setStats((p: Stats) => ({ ...p, geopolitics: disasters.length }));
   }, [viewer, data, active, setStats]);
 }

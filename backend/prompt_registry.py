@@ -18,6 +18,8 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
+from config import get_config
+
 _DB_PATH = os.getenv("WORLDBASE_DB_PATH", "") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
 )
@@ -28,7 +30,7 @@ def _truthy(val: str | None) -> bool:
 
 
 def prompt_registry_enabled() -> bool:
-    return _truthy(os.getenv("WORLDBASE_PROMPT_REGISTRY", "0"))
+    return get_config().prompt_registry_enabled
 
 
 def _get_conn() -> sqlite3.Connection:

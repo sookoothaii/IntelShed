@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from auth.security import API_KEY, lan_exposed
+from config import get_config
 
 router = APIRouter(tags=["websocket"])
 
@@ -27,12 +27,7 @@ _heartbeat_interval = 30.0  # seconds
 
 
 def ws_enabled() -> bool:
-    return os.getenv("WORLDBASE_WEBSOCKET", "0").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    return get_config().websocket_enabled
 
 
 class WSConnection:

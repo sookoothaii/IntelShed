@@ -191,6 +191,16 @@ _KNOWN_FLAGS: list[str] = [
     "prediction_ledger",
     "briefing_agentic_loop",
     "rag_autopilot",
+    "spatial_reasoning",
+    "maritime_trajectory",
+    "dynamic_graph",
+    "ftm_statements",
+    "lineage",
+    "prompt_registry",
+    "websocket",
+    "rbac",
+    "darkweb",
+    "briefing_darkweb",
 ]
 
 

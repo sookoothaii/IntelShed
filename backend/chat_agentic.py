@@ -16,9 +16,10 @@ Env:
 
 from __future__ import annotations
 
-import os
 import re
 from typing import Any
+
+from config import get_config
 
 _MAX_ROUNDS = 3
 _MIN_BLOCK_CHARS = 200
@@ -43,19 +44,11 @@ _STRONG_MARKERS = (
 
 
 def chat_agentic_enabled() -> bool:
-    return os.getenv("WORLDBASE_CHAT_AGENTIC", "0").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    return get_config().chat_agentic_enabled
 
 
 def max_rounds() -> int:
-    try:
-        return int(os.getenv("WORLDBASE_CHAT_AGENTIC_MAX_ROUNDS", "3"))
-    except ValueError:
-        return _MAX_ROUNDS
+    return get_config().chat_agentic_max_rounds
 
 
 # --- Phase 1: Coverage ---

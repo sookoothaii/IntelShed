@@ -12,6 +12,7 @@ import {
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint, timelineCutoffMs, parseEventMs } from './layerUtils';
+import type { Stats } from '../../lib/types';
 
 const eventColor = (cat: string) => {
   const c = (cat || '').toLowerCase();
@@ -36,7 +37,7 @@ export function useEventsLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
   scrubT: number;
   timelineHours: number;
 }) {
@@ -74,7 +75,7 @@ export function useEventsLayer({
     const src = srcRef.current;
     
     const cutoff = timelineCutoffMs(scrubT, timelineHours);
-    const list = (data.events || []).filter((ev: any) => parseEventMs(ev.date) <= cutoff);
+    const list = (data.events || []).filter((ev: Record<string, unknown>) => parseEventMs(ev.date as string) <= cutoff);
     
     src.entities.suspendEvents();
     src.entities.removeAll();
@@ -98,11 +99,11 @@ export function useEventsLayer({
           pixelOffset: new Cartesian2(0, -10),
           distanceDisplayCondition: new DistanceDisplayCondition(0, 1.5e7),
         },
-        properties: { kind: 'event', title: ev.title, category: ev.category, date: ev.date } as any,
+        properties: { kind: 'event', title: ev.title, category: ev.category, date: ev.date },
       });
     }
     
     src.entities.resumeEvents();
-    setStats((p: any) => ({ ...p, events: n }));
+    setStats((p: Stats) => ({ ...p, events: n }));
   }, [viewer, data, active, scrubT, timelineHours, setStats]);
 }

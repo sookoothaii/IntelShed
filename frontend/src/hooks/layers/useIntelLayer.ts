@@ -12,6 +12,7 @@ import {
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint } from './layerUtils';
+import type { Stats } from '../../lib/types';
 
 const SCHEMA_COLORS: Record<string, string> = {
   Person: '#00ffa3',
@@ -39,7 +40,7 @@ export function useIntelLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -103,12 +104,12 @@ export function useIntelLayer({
           caption,
           datasets: ent.datasets || [],
           last_seen: ent.last_seen,
-        } as any,
+        },
       });
       plotted += 1;
     }
 
     src.entities.resumeEvents();
-    setStats((p: any) => ({ ...p, intelFt: plotted }));
+    setStats((p: Stats) => ({ ...p, intelFt: plotted }));
   }, [data, active, setStats]);
 }

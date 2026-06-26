@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import type { Viewer, Globe } from 'cesium'
+import type { CesiumRenderErrorEvent, CesiumTileLoadErrorEvent } from '../lib/types'
+
+/** Cesium Globe has tileLoadErrorEvent at runtime but it's missing from type defs in some versions. */
+type GlobeWithTileError = Globe & { tileLoadErrorEvent?: { addEventListener(fn: (e: CesiumTileLoadErrorEvent) => void): void; removeEventListener(fn: (e: CesiumTileLoadErrorEvent) => void): void } }
 
 /**
  * Hook to attach Cesium crash handlers to a Viewer instance.
@@ -10,12 +15,12 @@ import { useEffect, useRef, useState, type MutableRefObject } from 'react'
  *   useCesiumErrorHandler(viewerRef, visible)
  */
 export function useCesiumErrorHandler(
-  viewerRef: MutableRefObject<any>,
+  viewerRef: MutableRefObject<Viewer | null>,
   visible: boolean,
 ): { cesiumError: Error | null; clearError: () => void } {
   const [cesiumError, setCesiumError] = useState<Error | null>(null)
-  const renderErrorListenerRef = useRef<((e: any) => void) | null>(null)
-  const tileLoadErrorListenerRef = useRef<((e: any) => void) | null>(null)
+  const renderErrorListenerRef = useRef<((e: CesiumRenderErrorEvent) => void) | null>(null)
+  const tileLoadErrorListenerRef = useRef<((e: CesiumTileLoadErrorEvent) => void) | null>(null)
 
   const clearError = () => setCesiumError(null)
 
@@ -27,7 +32,7 @@ export function useCesiumErrorHandler(
     const scene = v.scene
 
     // renderError: Cesium's own crash event — rethrow into React tree
-    const onRenderError = (e: any) => {
+    const onRenderError = (e: CesiumRenderErrorEvent) => {
       const err = new Error(
         `Cesium renderError: ${e?.message ?? e?.error?.message ?? 'GPU context lost or malformed data'}`,
       )
@@ -38,7 +43,7 @@ export function useCesiumErrorHandler(
     }
 
     // tileLoadError: suppress tile 404s (don't crash)
-    const onTileLoadError = (e: any) => {
+    const onTileLoadError = (e: CesiumTileLoadErrorEvent) => {
       // Silently suppress — tile errors are expected (stale providers, CDN hiccups)
       // Only log to console at debug level to avoid spam
       if (typeof console !== 'undefined' && console.debug) {
@@ -52,7 +57,7 @@ export function useCesiumErrorHandler(
     } catch { /* older Cesium */ }
 
     try {
-      scene.globe.tileLoadErrorEvent.addEventListener(onTileLoadError)
+      ;(scene.globe as GlobeWithTileError).tileLoadErrorEvent?.addEventListener(onTileLoadError)
       tileLoadErrorListenerRef.current = onTileLoadError
     } catch { /* globe not ready */ }
 
@@ -64,7 +69,7 @@ export function useCesiumErrorHandler(
       } catch { /* torn down */ }
       try {
         if (tileLoadErrorListenerRef.current && !v.isDestroyed?.()) {
-          scene.globe.tileLoadErrorEvent.removeEventListener(tileLoadErrorListenerRef.current)
+          ;(scene.globe as GlobeWithTileError).tileLoadErrorEvent?.removeEventListener(tileLoadErrorListenerRef.current)
         }
       } catch { /* torn down */ }
       renderErrorListenerRef.current = null

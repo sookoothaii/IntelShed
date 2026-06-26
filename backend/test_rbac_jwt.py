@@ -87,6 +87,11 @@ class TestJWT(unittest.TestCase):
 class TestRBAC(unittest.TestCase):
     """RBAC middleware."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_rbac_disabled_by_default(self):
         from middleware.rbac import rbac_enabled
 

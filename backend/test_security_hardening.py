@@ -11,6 +11,8 @@ Covers:
 
 from __future__ import annotations
 
+import io
+import logging
 import unittest
 from unittest.mock import patch
 from unittest.mock import MagicMock
@@ -19,35 +21,56 @@ from unittest.mock import MagicMock
 class TestBootstrapEnvWarnings(unittest.TestCase):
     """6.1 — Auth-by-default enforcement."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
+    def _capture_log(self, bootstrap_env):
+        """Patch the bootstrap_env logger's handler stream and return a buffer."""
+        buf = io.StringIO()
+        for handler in bootstrap_env.log._logger.handlers:
+            if isinstance(handler, logging.StreamHandler):
+                handler.stream = buf
+        return buf
+
     def test_warns_when_no_tokens_set(self):
         import bootstrap_env
 
         with patch.dict("os.environ", {}, clear=True):
-            with patch("builtins.print") as mock_print:
-                bootstrap_env.log_security_startup()
-        printed = " ".join(str(c) for c in mock_print.call_args_list)
+            buf = self._capture_log(bootstrap_env)
+            bootstrap_env.log_security_startup()
+        printed = buf.getvalue()
         self.assertIn("WARNING", printed)
-        self.assertIn("unauthenticated", printed)
+        self.assertIn("security_no_auth", printed)
 
     def test_no_warning_when_api_key_set(self):
         import bootstrap_env
 
-        with patch.dict("os.environ", {"WORLDBASE_API_KEY": "test-key"}, clear=True):
-            with patch("builtins.print") as mock_print:
-                bootstrap_env.log_security_startup()
-        printed = " ".join(str(c) for c in mock_print.call_args_list)
+        with patch.dict(
+            "os.environ",
+            {"WORLDBASE_API_KEY": "test-key", "NODE_INGEST_TOKEN": "ingest-secret"},
+            clear=True,
+        ):
+            buf = self._capture_log(bootstrap_env)
+            bootstrap_env.log_security_startup()
+        printed = buf.getvalue()
         self.assertNotIn("WARNING", printed)
-        self.assertIn("API key auth enabled", printed)
+        self.assertIn("security_api_key_set", printed)
 
     def test_dev_mode_suppresses_warning(self):
         import bootstrap_env
 
-        with patch.dict("os.environ", {"WORLDBASE_INSECURE_DEV": "1"}, clear=True):
-            with patch("builtins.print") as mock_print:
-                bootstrap_env.log_security_startup()
-        printed = " ".join(str(c) for c in mock_print.call_args_list)
-        self.assertIn("INSECURE DEV MODE", printed)
-        self.assertNotIn("WARNING", printed)
+        with patch.dict(
+            "os.environ",
+            {"WORLDBASE_INSECURE_DEV": "1"},
+            clear=True,
+        ):
+            buf = self._capture_log(bootstrap_env)
+            bootstrap_env.log_security_startup()
+        printed = buf.getvalue()
+        self.assertIn("security_insecure_dev", printed)
+        self.assertNotIn("security_no_auth", printed)
 
     def test_require_node_token_raises_without_token(self):
         import bootstrap_env
@@ -117,6 +140,11 @@ class TestAdminTokenSeparation(unittest.TestCase):
 
 class TestErrorSanitization(unittest.TestCase):
     """6.3 — Error messages don't leak exception details."""
+
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
 
     def test_duckdb_fusion_errors_are_generic(self):
         import duckdb_fusion as df

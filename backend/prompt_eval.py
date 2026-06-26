@@ -80,7 +80,7 @@ def evaluate_experiment(experiment_name: str) -> dict[str, Any]:
     except Exception:
         p_value = 1.0
 
-    significant = p_value < 0.05
+    significant = bool(p_value < 0.05)
     winner = None
     auto_promoted = False
 

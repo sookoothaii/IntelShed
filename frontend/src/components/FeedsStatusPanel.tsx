@@ -47,6 +47,29 @@ type StacFeedFeature = {
   }
 }
 
+type HealthResponse = {
+  status?: string
+  feeds_fresh?: number
+  feeds_stale?: number
+  feed_count?: number | string
+  feeds?: Record<string, Record<string, unknown>>
+  ftm?: { ready?: boolean; entities?: number | string }
+  [key: string]: unknown
+}
+
+type CredentialsResponse = {
+  providers?: ProviderRow[]
+  configured?: number | string
+  count?: number | string
+  [key: string]: unknown
+}
+
+type ConnectorsResponse = {
+  connectors?: ConnectorRow[]
+  count?: number
+  [key: string]: unknown
+}
+
 function statusColor(status?: string, fresh?: boolean): string {
   if (status === 'error') return '#ff4d5e'
   if (fresh === false || status === 'stale' || status === 'warn') return '#ffd23f'
@@ -86,9 +109,9 @@ export default function FeedsStatusPanel({
 }: {
   onFocus?: (f: Omit<FocusTarget, 'ts'>) => void
 }) {
-  const [health, setHealth] = useState<any>(null)
-  const [credentials, setCredentials] = useState<any>(null)
-  const [connectors, setConnectors] = useState<any>(null)
+  const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [credentials, setCredentials] = useState<CredentialsResponse | null>(null)
+  const [connectors, setConnectors] = useState<ConnectorsResponse | null>(null)
   const [stacByConnector, setStacByConnector] = useState<Record<string, StacFeedFeature>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -106,9 +129,9 @@ export default function FeedsStatusPanel({
       if (!hRes.ok) throw new Error(`health ${hRes.status}`)
       if (!cRes.ok) throw new Error(`credentials ${cRes.status}`)
       if (!connRes.ok) throw new Error(`connectors ${connRes.status}`)
-      setHealth(await hRes.json())
-      setCredentials(await cRes.json())
-      setConnectors(await connRes.json())
+      setHealth(await hRes.json() as HealthResponse)
+      setCredentials(await cRes.json() as CredentialsResponse)
+      setConnectors(await connRes.json() as ConnectorsResponse)
       if (stacRes.ok) {
         const stacPayload = await stacRes.json()
         const map: Record<string, StacFeedFeature> = {}
@@ -128,7 +151,7 @@ export default function FeedsStatusPanel({
   useEffect(() => { load() }, [load])
 
   const feeds: FeedRow[] = health?.feeds
-    ? Object.entries(health.feeds).map(([key, val]: [string, any]) => ({ key, ...val }))
+    ? Object.entries(health.feeds as Record<string, Record<string, unknown>>).map(([key, val]) => ({ key, ...val }))
     : []
   feeds.sort((a, b) => {
     const rank = (f: FeedRow) => (f.fresh === false || f.status === 'stale' ? 0 : f.status === 'warn' ? 1 : 2)

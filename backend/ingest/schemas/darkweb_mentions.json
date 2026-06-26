@@ -1,0 +1,12 @@
+{
+  "title": "Dark web mention",
+  "type": "object",
+  "required": ["title", "url", "snippet", "engine"],
+  "properties": {
+    "title": { "type": "string" },
+    "url": { "type": "string" },
+    "snippet": { "type": "string" },
+    "engine": { "type": "string" },
+    "first_seen": { "type": "string" }
+  }
+}

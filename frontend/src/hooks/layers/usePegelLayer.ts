@@ -12,8 +12,9 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { Stats, FeedHud, PegelGauge } from '../../lib/types';
 
-const pegelColor = (sev: string) => {
+const pegelColor = (sev?: string) => {
   if (sev === 'critical') return '#ff2d00';
   if (sev === 'high') return '#ff6b35';
   if (sev === 'low') return '#88aaff';
@@ -32,8 +33,8 @@ export function usePegelLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
-  setFeedHud: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  setFeedHud: React.Dispatch<React.SetStateAction<FeedHud>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -71,7 +72,7 @@ export function usePegelLayer({
     src.entities.suspendEvents();
     src.entities.removeAll();
     
-    for (const g of data.gauges || []) {
+    for (const g of (data.gauges || []) as PegelGauge[]) {
       if (g.lon == null || g.lat == null) continue;
       const col = Color.fromCssColorString(pegelColor(g.severity));
       src.entities.add({
@@ -104,13 +105,13 @@ export function usePegelLayer({
           state_mnw_mhw: g.state_mnw_mhw,
           state_nsw_hsw: g.state_nsw_hsw,
           timestamp: g.timestamp,
-        } as any,
+        },
       });
     }
     
     src.entities.resumeEvents();
     
-    setStats((p: any) => ({ ...p, pegel: data.count ?? (data.gauges || []).length }));
-    setFeedHud((p: any) => ({ ...p, pegel: data.error ? 'err' : (data.source ? 'pegel' : '') }));
+    setStats((p: Stats) => ({ ...p, pegel: data.count ?? (data.gauges || []).length }));
+    setFeedHud((p: FeedHud) => ({ ...p, pegel: data.error ? 'err' : (data.source ? 'pegel' : '') }));
   }, [viewer, data, active, setStats, setFeedHud]);
 }

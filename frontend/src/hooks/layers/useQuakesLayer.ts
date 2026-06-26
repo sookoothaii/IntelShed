@@ -10,6 +10,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import type { GlobePrimitivePick } from '../../lib/globePick';
+import type { Stats, Earthquake } from '../../lib/types';
 import {
   attachDataSource,
   detachDataSource,
@@ -52,7 +53,7 @@ export function useQuakesLayer({
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
   scrubT: number;
   timelineHours: number;
 }) {
@@ -100,7 +101,7 @@ export function useQuakesLayer({
     const pulseSrc = pulseSrcRef.current;
 
     const cutoff = timelineCutoffMs(scrubT, timelineHours);
-    const list = (data.earthquakes || []).filter((q: any) => (q.time ?? 0) <= cutoff);
+    const list = (data.earthquakes || []).filter((q: Earthquake) => (q.time ?? 0) <= cutoff);
 
     clearPulseCleanups(pulseCleanupsRef.current);
     points.removeAll();
@@ -141,7 +142,7 @@ export function useQuakesLayer({
             mag,
             depth: q.depth,
             time: q.time,
-          } as any,
+          },
         });
         pulseCleanupsRef.current.push(
           attachPulseEllipse(ent, {
@@ -157,6 +158,6 @@ export function useQuakesLayer({
 
     pulseSrc.entities.resumeEvents();
     requestSceneRender(viewer);
-    setStats((p: any) => ({ ...p, quakes: list.length }));
+    setStats((p: Stats) => ({ ...p, quakes: list.length }));
   }, [viewer, data, active, scrubT, timelineHours, setStats]);
 }

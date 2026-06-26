@@ -6,6 +6,11 @@ import fusion_heatmap as fh
 
 
 class TestFusionOperatorRank(unittest.TestCase):
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_rank_cells_for_operator_prefers_thailand_over_us(self):
         cells = [
             {

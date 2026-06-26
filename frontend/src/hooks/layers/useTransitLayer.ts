@@ -16,6 +16,7 @@ import {
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { Stats, TransitVehicle } from '../../lib/types';
 
 export function useTransitLayer({
   viewer,
@@ -30,7 +31,7 @@ export function useTransitLayer({
   feedActive: boolean;
   canFetch: boolean;
   transitCity: string;
-  setStats: React.Dispatch<React.SetStateAction<any>>;
+  setStats: React.Dispatch<React.SetStateAction<Stats>>;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const transitMapRef = useRef(new Map<string, Entity>());
@@ -73,11 +74,11 @@ export function useTransitLayer({
         src.entities.remove(e);
         transitMap.delete(id);
       }
-      setStats((p: any) => ({ ...p, transit: 0 }));
+      setStats((p: Stats) => ({ ...p, transit: 0 }));
       return;
     }
     
-    const vehicles: any[] = data.vehicles || [];
+    const vehicles: TransitVehicle[] = data.vehicles || [];
     const seen = new Set<string>();
 
     src.entities.suspendEvents();
@@ -121,7 +122,7 @@ export function useTransitLayer({
             bearing: v.bearing,
             speed: v.speed,
             label: v.label,
-          } as any,
+          },
         });
         transitMap.set(id, e);
       }
@@ -135,6 +136,6 @@ export function useTransitLayer({
     }
     
     src.entities.resumeEvents();
-    setStats((p: any) => ({ ...p, transit: transitMap.size }));
+    setStats((p: Stats) => ({ ...p, transit: transitMap.size }));
   }, [viewer, data, active, setStats]);
 }

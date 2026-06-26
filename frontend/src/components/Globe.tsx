@@ -181,8 +181,8 @@ async function applyGlobeMapMode(
   mode: MapViewMode,
   refs: {
     labelOverlay: MutableRefObject<ImageryLayer | null>
-    osmBuildings: MutableRefObject<any>
-    photoreal: MutableRefObject<any>
+    osmBuildings: MutableRefObject<Cesium3DTileset | null>
+    photoreal: MutableRefObject<Cesium3DTileset | null>
     gibsOverlay: MutableRefObject<ImageryLayer | null>
   },
 ) {
@@ -343,6 +343,7 @@ type Stats = {
   pegel: number
   osint: number
   intelFt: number
+  darkweb: number
   energy: number
   fps: number
 }
@@ -372,6 +373,7 @@ type GlobeLayers = {
   energy: boolean
   osint: boolean
   intelFt: boolean
+  darkweb: boolean
 }
 
 type LayerKey = keyof GlobeLayers
@@ -571,6 +573,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       energy: false,
       osint: true,
       intelFt: false,
+      darkweb: false,
     },
     collapsed: { motion: false, geo: false, env: false, infra: true, intel: true },
     trails: false,
@@ -604,6 +607,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       energy: true,
       osint: false,
       intelFt: false,
+      darkweb: false,
     },
     collapsed: { motion: true, geo: false, env: true, infra: false, intel: true },
     trails: false,
@@ -637,6 +641,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       energy: false,
       osint: true,
       intelFt: true,
+      darkweb: true,
     },
     collapsed: { motion: true, geo: true, env: true, infra: true, intel: false },
     trails: false,
@@ -670,6 +675,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       energy: false,
       osint: true,
       intelFt: true,
+      darkweb: true,
     },
     collapsed: { motion: false, geo: false, env: false, infra: false, intel: false },
     trails: true,
@@ -793,6 +799,19 @@ type Target = {
 
 type Cursor = { lon: string; lat: string; alt: string }
 
+interface GlobeApi {
+  applyVision?: (mode: VisionMode) => void
+  flyTo?: (poi: { lon: number; lat: number; height: number; heading?: number; pitch?: number; name: string }) => void
+  unlock?: () => void
+  focusOn?: (f: FocusTarget) => void
+  applyTimeline?: () => void
+  applyMapMode?: () => void
+  setSatGroup?: (g: string) => void
+  setHeatmap?: (on: boolean) => void
+}
+
+interface CesiumMovement { endPosition?: Cartesian2; position?: Cartesian2 }
+
 function readEntityDegrees(ent: Entity): { lat: number; lon: number } | undefined {
   try {
     const pos = ent.position?.getValue(JulianDate.now())
@@ -846,22 +865,22 @@ export default function Globe({
   const [viewer, setViewer] = useState<Viewer | null>(null)
   const { cesiumError: _cesiumError } = useCesiumErrorHandler(viewerRef, visible ?? true)
   void _cesiumError // Cesium render errors are rethrown into ErrorBoundary
-  const apiRef = useRef<any>({})
+  const apiRef = useRef<GlobeApi>({})
   const osintSrcRef = useRef<CustomDataSource | null>(null)
   const focusRef = useRef<FocusTarget | null>(focus ?? null)
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, trafficCams: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, intelFt: 0, energy: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, trafficCams: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, intelFt: 0, darkweb: 0, energy: 0, fps: 0 })
   const [gibsLayer, setGibsLayer] = useState<'off' | 'fires' | 'goes' | 'viirs'>('off')
-  const gibsImageryRef = useRef<any>(null)
+  const gibsImageryRef = useRef<ImageryLayer | null>(null)
   const gibsDateRef = useRef<string>('')
   const labelOverlayRef = useRef<ImageryLayer | null>(null)
-  const osmBuildingsRef = useRef<any>(null)
-  const photorealRef = useRef<any>(null)
+  const osmBuildingsRef = useRef<Cesium3DTileset | null>(null)
+  const photorealRef = useRef<Cesium3DTileset | null>(null)
   const mapModeRef = useRef(mapMode)
   useEffect(() => { mapModeRef.current = mapMode }, [mapMode])
-  const [mvtProvider, setMvtProvider] = useState<any>(null)
+  const [mvtProvider, setMvtProvider] = useState<ImageryLayer | null>(null)
   const [transitCity, setTransitCity] = useState('helsinki')
   const [target, setTarget] = useState<Target>(null)
   const [detailOpen, setDetailOpen] = useState(false)
@@ -874,7 +893,7 @@ export default function Globe({
     setTarget(null)
     apiRef.current.unlock?.()
     const v = viewerRef.current
-    if (v && !(v as any).isDestroyed?.()) {
+    if (v && !(v as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) {
       try {
         v.resize()
         v.scene.requestRender()
@@ -1023,7 +1042,7 @@ export default function Globe({
   useEffect(() => {
     if (!visible) return
     const v = viewerRef.current
-    if (!v || (v as any).isDestroyed?.()) return
+    if (!v || (v as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return
     const resize = () => {
       try {
         v.resize()
@@ -1043,7 +1062,7 @@ export default function Globe({
 
   useEffect(() => {
     const v = viewerRef.current
-    if (!v || (v as any).isDestroyed?.()) return
+    if (!v || (v as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return
     v.useDefaultRenderLoop = visible
     applyPowerRef.current?.()
     if (visible) {
@@ -1073,7 +1092,7 @@ export default function Globe({
   useEffect(() => {
     if (!visible) return
     const v = viewerRef.current
-    if (!v || (v as any).isDestroyed?.()) return
+    if (!v || (v as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return
     try {
       v.resolutionScale = globeResolutionScale()
       applyPowerRef.current?.()
@@ -1139,13 +1158,13 @@ export default function Globe({
       scene.globe.preloadSiblings = false
       scene.fog.enabled = true
       if (scene.skyAtmosphere) scene.skyAtmosphere.show = true
-      ;(scene.globe as any).atmosphereLightIntensity = 12.0
+      ;(scene.globe as unknown as { atmosphereLightIntensity?: number }).atmosphereLightIntensity = 12.0
       if (scene.postProcessStages?.fxaa) scene.postProcessStages.fxaa.enabled = true
       if (GLOBE_TARGET_FPS > 0) viewer.targetFrameRate = GLOBE_TARGET_FPS
 
       const syncPowerSettings = () => {
         const v = viewerRef.current
-        if (!v || (v as any).isDestroyed?.()) return
+        if (!v || (v as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return
         try {
           applyGlobePowerSettings(v, visibleRef.current, layersRef.current, powerStateRef.current)
         } catch {
@@ -1203,7 +1222,7 @@ export default function Globe({
       // OSM 3D buildings — free via Cesium Ion (same token as terrain)
       viewer.camera.moveEnd.addEventListener(() => {
         const v = viewerRef.current
-        if (!v || (v as any).isDestroyed?.()) return
+        if (!v || (v as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return
         if (shouldSyncCamera()) return
         if (cameraSyncingRef.current) return
         const c = Cartographic.fromCartesian(v.camera.position)
@@ -1219,7 +1238,7 @@ export default function Globe({
 
       resizeObserver = new ResizeObserver(() => {
         const v = viewerRef.current
-        if (!containerRef.current || !v || (v as any).isDestroyed?.()) return
+        if (!containerRef.current || !v || (v as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) return
         if (!containerHasSize(containerRef.current)) return
         try {
           v.resize()
@@ -1245,7 +1264,7 @@ export default function Globe({
         // is not delayed by the throttled (idle-fps) pump cadence.
         if (GLOBE_IDLE_FPS <= 0) return
         const v = viewerRef.current
-        if (v && !(v as any).isDestroyed?.() && v.targetFrameRate === GLOBE_IDLE_FPS) {
+        if (v && !(v as unknown as { isDestroyed?: () => boolean }).isDestroyed?.() && v.targetFrameRate === GLOBE_IDLE_FPS) {
           v.targetFrameRate = GLOBE_IDLE_RESTORE_FPS
           try { v.scene.requestRender() } catch { /* teardown */ }
         }
@@ -1288,7 +1307,7 @@ export default function Globe({
       const pump = () => {
         pumpRaf = requestAnimationFrame(pump)
         const v = viewerRef.current
-        if (!v || (v as any).isDestroyed?.() || !visibleRef.current) return
+        if (!v || (v as unknown as { isDestroyed?: () => boolean }).isDestroyed?.() || !visibleRef.current) return
         const L = layersRef.current
         const motionLayer = !!(L.aircraft || L.satellites)
         const hasFocusRing = focusSrc.entities.values.length > 0
@@ -1321,7 +1340,7 @@ export default function Globe({
         if (GLOBE_IDLE_FPS > 0) {
           const desired = quiescent ? GLOBE_IDLE_FPS : GLOBE_IDLE_RESTORE_FPS
           if (v.targetFrameRate !== desired) v.targetFrameRate = desired
-          const globe = v.scene.globe as any
+          const globe = v.scene.globe as unknown as { loadingDescendantLimit?: number }
           const descLimit = quiescent ? 0 : 20
           if (globe.loadingDescendantLimit !== descLimit) {
             globe.loadingDescendantLimit = descLimit
@@ -1338,7 +1357,8 @@ export default function Globe({
       // ---------- Interaction ----------
 
       const handler = new ScreenSpaceEventHandler(scene.canvas)
-      handler.setInputAction((m: any) => {
+      handler.setInputAction((m: CesiumMovement) => {
+        if (!m.endPosition) return
         const ray = viewer!.camera.getPickRay(m.endPosition)
         if (ray) {
           const cart = scene.globe.pick(ray, scene)
@@ -1369,24 +1389,34 @@ export default function Globe({
       }, ScreenSpaceEventType.MOUSE_MOVE)
 
       const selectEntity = (ent: Entity) => {
-        const props = ent.properties as any
-        const prop = (k: string) => {
-          const p = props?.[k]
+        const rawProps = ent.properties as unknown as Record<string, { getValue?: () => unknown } | undefined> | undefined
+        const propRaw = (k: string): unknown => {
+          const p = rawProps?.[k]
           return typeof p?.getValue === 'function' ? p.getValue() : p
+        }
+        const prop = (k: string): string | undefined => {
+          const v = propRaw(k)
+          return v == null ? undefined : String(v)
+        }
+        const propNum = (k: string): number | undefined => {
+          const v = propRaw(k)
+          if (v == null) return undefined
+          const n = Number(v)
+          return Number.isFinite(n) ? n : undefined
         }
         const pick = (payload: NonNullable<Target>) => applyTarget(payload, ent)
         const kind = prop('kind')
         if (kind === 'aircraft') {
-          const icao = (props.icao?.getValue?.() || '').toLowerCase()
+          const icao = (prop('icao') || '').toLowerCase()
           pick({
-            kind, title: `✈ ${props.callsign?.getValue?.()}`,
+            kind, title: `✈ ${prop('callsign')}`,
             entityId: icao ? `aircraft:${icao}` : undefined,
             lines: [
               `ICAO24: ${icao}`,
-              `COUNTRY: ${props.country?.getValue?.()}`,
-              `ALTITUDE: ${Math.round(props.alt?.getValue?.() ?? 0)} m`,
-              `VELOCITY: ${Math.round(props.vel?.getValue?.() ?? 0)} m/s`,
-              `HEADING: ${Math.round(props.heading?.getValue?.() ?? 0)}°`,
+              `COUNTRY: ${prop('country')}`,
+              `ALTITUDE: ${Math.round(propNum('alt') ?? 0)} m`,
+              `VELOCITY: ${Math.round(propNum('vel') ?? 0)} m/s`,
+              `HEADING: ${Math.round(propNum('heading') ?? 0)}°`,
               trailsEnabledRef.current ? 'TRAIL: fetching…' : 'TRAIL: disabled',
             ],
           })
@@ -1394,70 +1424,70 @@ export default function Globe({
           if (trailsEnabledRef.current && icao) trailsApi.fetchTrail(icao)
         } else if (kind === 'satellite') {
           pick({
-            kind, title: `🛰 ${props.name?.getValue?.()}`,
-            lines: [`ALTITUDE: ${Math.round(props.alt?.getValue?.() ?? 0)} m`, 'ORBIT: TRACKING'],
+            kind, title: `🛰 ${prop('name')}`,
+            lines: [`ALTITUDE: ${Math.round(propNum('alt') ?? 0)} m`, 'ORBIT: TRACKING'],
           })
           viewer!.trackedEntity = ent
         } else if (kind === 'quake') {
-          const place = props.place?.getValue?.() || 'Unknown location'
-          const mag = props.mag?.getValue?.()
+          const place = prop('place') || 'Unknown location'
+          const mag = prop('mag')
           pick({
             kind, title: `⊕ M${mag} SEISMIC — ${place}`,
             lines: [
-              `DEPTH: ${props.depth?.getValue?.()} km`,
-              `TIME: ${new Date(props.time?.getValue?.()).toLocaleString()}`,
+              `DEPTH: ${prop('depth')} km`,
+              `TIME: ${new Date(prop('time') ?? '').toLocaleString()}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'event') {
-          const evTitle = props.title?.getValue?.() || 'Event'
-          const category = props.category?.getValue?.()
+          const evTitle = prop('title') || 'Event'
+          const category = prop('category')
           pick({
             kind, title: `⚠ ${evTitle}`,
             lines: [
               ...(category ? [`CATEGORY: ${category}`] : []),
-              `DATE: ${new Date(props.date?.getValue?.()).toLocaleString()}`,
+              `DATE: ${new Date(prop('date') ?? '').toLocaleString()}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'military') {
-          const sq = props.squawk?.getValue?.()
+          const sq = prop('squawk')
           pick({
-            kind, title: `🎖 ${props.flight?.getValue?.() || props.hex?.getValue?.()}`,
+            kind, title: `🎖 ${prop('flight') || prop('hex')}`,
             lines: [
-              `HEX: ${props.hex?.getValue?.()}`,
-              `TYPE: ${props.type?.getValue?.() || '—'}`,
-              `ALTITUDE: ${Math.round(props.alt?.getValue?.() ?? 0)} m`,
-              `SPEED: ${(props.speed?.getValue?.() ?? 0).toFixed(1)} m/s`,
+              `HEX: ${prop('hex')}`,
+              `TYPE: ${prop('type') || '—'}`,
+              `ALTITUDE: ${Math.round(propNum('alt') ?? 0)} m`,
+              `SPEED: ${(propNum('speed') ?? 0).toFixed(1)} m/s`,
               ...(sq ? [`SQUAWK: ${sq}${['7500', '7600', '7700'].includes(sq) ? ' ⚠ EMERGENCY' : ''}`] : []),
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'transit') {
           pick({
-            kind, title: `🚌 TRANSIT ${props.route_id?.getValue?.() || '—'}`,
+            kind, title: `🚌 TRANSIT ${prop('route_id') || '—'}`,
             lines: [
-              `ID: ${props.id?.getValue?.() ?? '—'}`,
-              `ROUTE: ${props.route_id?.getValue?.() ?? '—'}`,
-              `BEARING: ${props.bearing?.getValue?.() ?? '—'}°`,
-              `SPEED: ${props.speed?.getValue?.() != null ? props.speed.getValue() + ' m/s' : '—'}`,
-              `LABEL: ${props.label?.getValue?.() ?? '—'}`,
+              `ID: ${prop('id') ?? '—'}`,
+              `ROUTE: ${prop('route_id') ?? '—'}`,
+              `BEARING: ${prop('bearing') ?? '—'}°`,
+              `SPEED: ${prop('speed') != null ? `${prop('speed')} m/s` : '—'}`,
+              `LABEL: ${prop('label') ?? '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'maritime') {
-          const mmsi = String(props.mmsi?.getValue?.() ?? '')
+          const mmsi = prop('mmsi') ?? ''
           const flagged = sanctionedRef.current.has(mmsi)
           pick({
-            kind, title: `🚢 ${flagged ? '⚠ ' : ''}${props.name?.getValue?.() || 'Vessel'}`,
+            kind, title: `🚢 ${flagged ? '⚠ ' : ''}${prop('name') || 'Vessel'}`,
             lines: [
               `MMSI: ${mmsi || '—'}`,
-              `TYPE: ${props.type?.getValue?.() ?? '—'}`,
-              `COURSE: ${props.course?.getValue?.() ?? '—'}°`,
-              `SPEED: ${props.speed?.getValue?.() != null ? props.speed.getValue() + ' kn' : '—'}`,
-              `DESTINATION: ${props.destination?.getValue?.() ?? '—'}`,
-              `FLAG: ${props.flag?.getValue?.() ?? '—'}`,
-              `LENGTH: ${props.length?.getValue?.() != null ? props.length.getValue() + ' m' : '—'}`,
+              `TYPE: ${prop('type') ?? '—'}`,
+              `COURSE: ${prop('course') ?? '—'}°`,
+              `SPEED: ${prop('speed') != null ? `${prop('speed')} kn` : '—'}`,
+              `DESTINATION: ${prop('destination') ?? '—'}`,
+              `FLAG: ${prop('flag') ?? '—'}`,
+              `LENGTH: ${prop('length') != null ? `${prop('length')} m` : '—'}`,
               ...(flagged ? ['⚠ ON OPENSANCTIONS WATCHLIST'] : []),
             ],
           })
@@ -1466,21 +1496,21 @@ export default function Globe({
           pick({
             kind, title: `⛶ FUSION CELL`,
             lines: [
-              `INTENSITY: ${props.intensity?.getValue?.()}`,
-              `SCORE: ${(props.score?.getValue?.() ?? 0).toFixed(2)}`,
-              `SOURCES: ${props.sources?.getValue?.() || '—'}`,
-              `SAMPLES: ${(props.samples?.getValue?.() || '').slice(0, 120) || '—'}`,
+              `INTENSITY: ${prop('intensity')}`,
+              `SCORE: ${(propNum('score') ?? 0).toFixed(2)}`,
+              `SOURCES: ${prop('sources') || '—'}`,
+              `SAMPLES: ${(prop('samples') || '').slice(0, 120) || '—'}`,
             ],
           })
         } else if (kind === 'wildfire') {
           pick({
-            kind, title: `🔥 WILDFIRE (${props.confidence_label?.getValue?.() || 'unknown'})`,
+            kind, title: `🔥 WILDFIRE (${prop('confidence_label') || 'unknown'})`,
             lines: [
-              `CONFIDENCE: ${props.confidence?.getValue?.() ?? '—'}%`,
-              `BRIGHTNESS: ${props.brightness?.getValue?.() ?? '—'}K`,
-              `FRP: ${props.frp?.getValue?.() ?? '—'} MW`,
-              `SATELLITE: ${props.satellite?.getValue?.() ?? '—'}`,
-              `DATE: ${props.acq_date?.getValue?.() ?? '—'}`,
+              `CONFIDENCE: ${prop('confidence') ?? '—'}%`,
+              `BRIGHTNESS: ${prop('brightness') ?? '—'}K`,
+              `FRP: ${prop('frp') ?? '—'} MW`,
+              `SATELLITE: ${prop('satellite') ?? '—'}`,
+              `DATE: ${prop('acq_date') ?? '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
@@ -1488,39 +1518,39 @@ export default function Globe({
           pick({
             kind, title: `⚡ LIGHTNING STRIKE`,
             lines: [
-              `TIME: ${props.time?.getValue?.() ?? '—'}`,
-              `STATIONS: ${props.stations?.getValue?.() ?? '—'}`,
-              `PARTICIPANTS: ${props.participants?.getValue?.() ?? '—'}`,
+              `TIME: ${prop('time') ?? '—'}`,
+              `STATIONS: ${prop('stations') ?? '—'}`,
+              `PARTICIPANTS: ${prop('participants') ?? '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'intel_ftm') {
-          const datasets = props.datasets?.getValue?.() || []
+          const datasets = propRaw('datasets')
           pick({
             kind,
-            title: props.caption?.getValue?.() || 'Intel entity',
+            title: prop('caption') || 'Intel entity',
             lines: [
-              `SCHEMA: ${props.schema?.getValue?.() ?? '—'}`,
-              `ID: ${props.id?.getValue?.() ?? '—'}`,
-              `DATASETS: ${Array.isArray(datasets) ? datasets.join(', ') : '—'}`,
-              `LAST SEEN: ${props.last_seen?.getValue?.() ?? '—'}`,
+              `SCHEMA: ${prop('schema') ?? '—'}`,
+              `ID: ${prop('id') ?? '—'}`,
+              `DATASETS: ${Array.isArray(datasets) ? (datasets as unknown[]).join(', ') : '—'}`,
+              `LAST SEEN: ${prop('last_seen') ?? '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'node') {
-          const svcs = props.services?.getValue?.() || {}
+          const svcs = (propRaw('services') ?? {}) as Record<string, unknown>
           const svcLines = Object.entries(svcs).map(([k, v]) => `  ${k}: ${v}`)
-          const s = props.sensors?.getValue?.() || {}
+          const s = (propRaw('sensors') ?? {}) as Record<string, unknown>
           const sensorLines = Object.entries(s).map(([k, v]) => `  ${k}: ${v}`)
-          const ph = props.pihole?.getValue?.() || {}
+          const ph = (propRaw('pihole') ?? {}) as { blocked?: number; percent?: number }
           pick({
-            kind, title: `📡 ${props.name?.getValue?.()}`,
-            nodeId: String(props.node_id?.getValue?.() || ''),
+            kind, title: `📡 ${prop('name')}`,
+            nodeId: String(prop('node_id') ?? ''),
             lines: [
-              `CPU TEMP: ${props.temp?.getValue?.()}°C`,
-              `STATUS: ${props.online?.getValue?.() ? 'ONLINE' : 'OFFLINE'}`,
-              `AGE: ${Math.round(props.age_seconds?.getValue?.() ?? 0)}s`,
-              `MESH NODES: ${props.mesh_count?.getValue?.() ?? 0}`,
+              `CPU TEMP: ${prop('temp')}°C`,
+              `STATUS: ${propRaw('online') ? 'ONLINE' : 'OFFLINE'}`,
+              `AGE: ${Math.round(propNum('age_seconds') ?? 0)}s`,
+              `MESH NODES: ${prop('mesh_count') ?? 0}`,
               ...(ph.blocked ? [`PI-HOLE: ${ph.blocked} blocked (${ph.percent}%)`] : []),
               ...(sensorLines.length ? ['SENSORS:', ...sensorLines] : []),
               ...(svcLines.length ? ['SERVICES:', ...svcLines] : []),
@@ -1529,129 +1559,129 @@ export default function Globe({
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'mesh_node') {
           pick({
-            kind, title: `📻 MESH ${props.name?.getValue?.() || 'Node'}`,
+            kind, title: `📻 MESH ${prop('name') || 'Node'}`,
             lines: [
-              `ID: ${props.id?.getValue?.() ?? '—'}`,
-              `SNR: ${props.snr?.getValue?.() ?? '—'} dB`,
-              `LAST SEEN: ${props.last_seen?.getValue?.() ?? '—'}`,
-              `PI GATEWAY: ${props.pi_node?.getValue?.() ?? '—'}`,
+              `ID: ${prop('id') ?? '—'}`,
+              `SNR: ${prop('snr') ?? '—'} dB`,
+              `LAST SEEN: ${prop('last_seen') ?? '—'}`,
+              `PI GATEWAY: ${prop('pi_node') ?? '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'gdacs') {
           pick({
             kind,
-            title: props.title?.getValue?.() || 'GDACS Alert',
+            title: prop('title') || 'GDACS Alert',
             lines: [
-              (props.description?.getValue?.() || '').slice(0, 160),
-              `PUBLISHED: ${props.published?.getValue?.() ?? '—'}`,
+              (prop('description') || '').slice(0, 160),
+              `PUBLISHED: ${prop('published') ?? '—'}`,
             ],
-            link: props.link?.getValue?.(),
+            link: prop('link'),
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'outage') {
           pick({
             kind,
-            title: `📡 ${props.title?.getValue?.() || 'Outage'}`,
+            title: `📡 ${prop('title') || 'Outage'}`,
             lines: [
-              `SOURCE: ${props.source?.getValue?.() ?? '—'}`,
-              `LEVEL: ${props.level?.getValue?.() ?? '—'}`,
-              `DATASOURCE: ${props.datasource?.getValue?.() ?? '—'}`,
-              props.duration_h?.getValue?.() != null ? `DURATION: ${props.duration_h.getValue()} h` : 'DURATION: —',
+              `SOURCE: ${prop('source') ?? '—'}`,
+              `LEVEL: ${prop('level') ?? '—'}`,
+              `DATASOURCE: ${prop('datasource') ?? '—'}`,
+              prop('duration_h') != null ? `DURATION: ${prop('duration_h')} h` : 'DURATION: —',
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'volcano') {
-          const name = props.name?.getValue?.() || ''
+          const name = prop('name') || ''
           pick({
             kind,
             title: `🌋 ${name || 'Volcano'}`,
             entityId: name ? `volcano:${name}` : undefined,
             lines: [
-              `COUNTRY: ${props.country?.getValue?.() ?? '—'}`,
-              `TYPE: ${props.type?.getValue?.() ?? '—'}`,
-              `LAST ERUPTION: ${props.last_eruption?.getValue?.() ?? '—'}`,
-              `ELEV: ${props.elevation_m?.getValue?.() ?? '—'} m`,
-              `ACTIVE: ${props.active?.getValue?.() ? 'yes' : 'no'}`,
+              `COUNTRY: ${prop('country') ?? '—'}`,
+              `TYPE: ${prop('type') ?? '—'}`,
+              `LAST ERUPTION: ${prop('last_eruption') ?? '—'}`,
+              `ELEV: ${prop('elevation_m') ?? '—'} m`,
+              `ACTIVE: ${propRaw('active') ? 'yes' : 'no'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'hazard' || kind === 'gdelt_geo') {
           pick({
             kind,
-            title: props.event?.getValue?.() || props.title?.getValue?.() || 'Hazard',
+            title: prop('event') || prop('title') || 'Hazard',
             lines: [
-              `SEVERITY: ${props.severity?.getValue?.() ?? '—'}`,
-              `AREA: ${(props.area_desc?.getValue?.() || '').slice(0, 120)}`,
-              `FEED: ${props.feed?.getValue?.() ?? 'gdelt'}`,
-              `EFFECTIVE: ${props.effective?.getValue?.() ?? props.date?.getValue?.() ?? '—'}`,
+              `SEVERITY: ${prop('severity') ?? '—'}`,
+              `AREA: ${(prop('area_desc') || '').slice(0, 120)}`,
+              `FEED: ${prop('feed') ?? 'gdelt'}`,
+              `EFFECTIVE: ${prop('effective') ?? prop('date') ?? '—'}`,
             ],
-            link: props.url?.getValue?.(),
+            link: prop('url'),
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'airquality') {
           pick({
             kind,
-            title: `💨 ${props.city?.getValue?.()}`,
+            title: `💨 ${prop('city')}`,
             lines: [
-              `PM2.5: ${props.pm25?.getValue?.() ?? '—'} µg/m³`,
-              `PM10: ${props.pm10?.getValue?.() ?? '—'} µg/m³`,
-              `TIME: ${props.time?.getValue?.() ?? '—'}`,
+              `PM2.5: ${prop('pm25') ?? '—'} µg/m³`,
+              `PM10: ${prop('pm10') ?? '—'} µg/m³`,
+              `TIME: ${prop('time') ?? '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'energy') {
           pick({
             kind,
-            title: `⚡ ${props.label?.getValue?.()}`,
+            title: `⚡ ${prop('label')}`,
             lines: [
-              `OUTPUT: ${props.mw?.getValue?.() ?? '—'} MW`,
-              `DE LOAD: ${props.load_mw?.getValue?.() ?? '—'} MW`,
-              `PRICE: ${props.price?.getValue?.() ?? '—'} €/MWh`,
-              `CO₂: ${props.co2_g_per_kwh?.getValue?.() ?? '—'} g/kWh`,
+              `OUTPUT: ${prop('mw') ?? '—'} MW`,
+              `DE LOAD: ${prop('load_mw') ?? '—'} MW`,
+              `PRICE: ${prop('price') ?? '—'} €/MWh`,
+              `CO₂: ${prop('co2_g_per_kwh') ?? '—'} g/kWh`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'pegel') {
-          const uuid = props.uuid?.getValue?.() || ''
+          const uuid = prop('uuid') || ''
           pick({
             kind,
-            title: `🌊 ${props.name?.getValue?.()} (${props.water?.getValue?.()})`,
+            title: `🌊 ${prop('name')} (${prop('water')})`,
             entityId: uuid ? `pegel:${uuid}` : undefined,
             pegelUuid: uuid || undefined,
             lines: [
-              `LEVEL: ${props.value?.getValue?.() ?? '—'} ${props.unit?.getValue?.() ?? ''}`,
-              `STATUS: ${props.severity?.getValue?.() ?? '—'}`,
-              `${props.state_mnw_mhw?.getValue?.() ?? '—'} / ${props.state_nsw_hsw?.getValue?.() ?? '—'}`,
-              `TIME: ${props.timestamp?.getValue?.() ?? '—'}`,
+              `LEVEL: ${prop('value') ?? '—'} ${prop('unit') ?? ''}`,
+              `STATUS: ${prop('severity') ?? '—'}`,
+              `${prop('state_mnw_mhw') ?? '—'} / ${prop('state_nsw_hsw') ?? '—'}`,
+              `TIME: ${prop('timestamp') ?? '—'}`,
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'geopolitics') {
           pick({
             kind,
-            title: props.name?.getValue?.() || 'Crisis',
-            lines: [`STATUS: ${props.status?.getValue?.() ?? '—'}`, `ID: ${props.id?.getValue?.() ?? '—'}`],
+            title: prop('name') || 'Crisis',
+            lines: [`STATUS: ${prop('status') ?? '—'}`, `ID: ${prop('id') ?? '—'}`],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         } else if (kind === 'weather') {
-          const lat = Number(prop('lat'))
-          const lon = Number(prop('lon'))
+          const lat = propNum('lat') ?? 0
+          const lon = propNum('lon') ?? 0
           pick({
             kind,
             title: '🌡 WEATHER CELL',
             lines: [
               `LAT/LON: ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
-              `TEMP: ${prop('temperature_c') != null ? `${Math.round(prop('temperature_c'))}°C` : '—'}`,
+              `TEMP: ${prop('temperature_c') != null ? `${Math.round(propNum('temperature_c') ?? 0)}°C` : '—'}`,
               `WIND: ${prop('wind_speed_ms') != null ? `${prop('wind_speed_ms')} m/s` : '—'}`,
-              `RAIN 3H: ${prop('precip_mm_3h') != null ? `${Number(prop('precip_mm_3h')).toFixed(1)} mm` : '—'}`,
+              `RAIN 3H: ${prop('precip_mm_3h') != null ? `${(propNum('precip_mm_3h') ?? 0).toFixed(1)} mm` : '—'}`,
             ],
             weatherCell: {
               lat,
               lon,
-              temperature_c: prop('temperature_c'),
-              wind_speed_ms: prop('wind_speed_ms'),
-              precip_mm_3h: prop('precip_mm_3h'),
+              temperature_c: propNum('temperature_c'),
+              wind_speed_ms: propNum('wind_speed_ms'),
+              precip_mm_3h: propNum('precip_mm_3h'),
             },
           })
           viewer!.camera.flyTo({
@@ -1661,8 +1691,8 @@ export default function Globe({
           })
         } else if (kind === 'traffic_cam') {
           const camId = String(prop('cam_id') ?? ent.id ?? '')
-          const lat = Number(prop('lat') ?? 0)
-          const lon = Number(prop('lon') ?? 0)
+          const lat = propNum('lat') ?? 0
+          const lon = propNum('lon') ?? 0
           const imageUrl = String(prop('image_url') ?? '')
           const cam: TrafficCamRef = {
             id: camId,
@@ -1672,7 +1702,7 @@ export default function Globe({
             image_url: imageUrl,
             source: String(prop('source') ?? ''),
             country: String(prop('country') ?? ''),
-            refresh_ms: Number(prop('refresh_ms') ?? 120_000),
+            refresh_ms: propNum('refresh_ms') ?? 120_000,
           }
           pick({
             kind,
@@ -1694,20 +1724,21 @@ export default function Globe({
         } else if (kind === 'osint') {
           pick({
             kind,
-            title: props.title?.getValue?.() || 'OSINT',
+            title: prop('title') || 'OSINT',
             lines: [
-              `TOOL: ${props.tool?.getValue?.() ?? '—'}`,
-              `QUERY: ${props.query?.getValue?.() ?? '—'}`,
-              ...(props.line1?.getValue?.() ? [props.line1.getValue()] : []),
-              ...(props.line2?.getValue?.() ? [props.line2.getValue()] : []),
-              ...(props.line3?.getValue?.() ? [props.line3.getValue()] : []),
+              `TOOL: ${prop('tool') ?? '—'}`,
+              `QUERY: ${prop('query') ?? '—'}`,
+              ...(prop('line1') ? [prop('line1')!] : []),
+              ...(prop('line2') ? [prop('line2')!] : []),
+              ...(prop('line3') ? [prop('line3')!] : []),
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
         }
       }
 
-      handler.setInputAction((click: any) => {
+      handler.setInputAction((click: CesiumMovement) => {
+        if (!click.position) return
         const gp = resolveGlobePick(scene.pick(click.position))
         if (gp?.entity) {
           selectEntity(gp.entity)
@@ -1807,7 +1838,7 @@ export default function Globe({
         if (!viewer) return
         if (activeStage) { scene.postProcessStages.remove(activeStage); activeStage = null }
         let frag: string | null = null
-        let uniforms: any
+        let uniforms: Record<string, unknown> = {}
         if (mode === 'nvg') frag = NVG_FRAGMENT
         else if (mode === 'thermal') frag = THERMAL_FRAGMENT
         else if (mode === 'crt') { frag = CRT_FRAGMENT; uniforms = { aberration: 1.0 } }
@@ -1889,7 +1920,7 @@ export default function Globe({
       
       
 
-      if (focusRef.current) apiRef.current.focusOn(focusRef.current)
+      if (focusRef.current) apiRef.current.focusOn?.(focusRef.current)
 
       
       recoverAfterOnline = () => {
@@ -1947,7 +1978,7 @@ export default function Globe({
         clearTimeout(id)
         clearInterval(id)
       })
-      if (viewer && !(viewer as any).isDestroyed?.()) {
+      if (viewer && !(viewer as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) {
         try { viewer.destroy() } catch { /* already torn down */ }
       }
       viewerRef.current = null
@@ -2005,31 +2036,11 @@ export default function Globe({
       setMvtProvider(null)
     } else {
       try {
-        const mvt = await MVTDataProvider.fromUrl(`http://127.0.0.1:8088/thailand/{z}/{x}/{y}.mvt`, {
-           style: {
-             version: 8,
-             sources: {
-               protomaps: {
-                 type: "vector",
-                 tiles: [`http://127.0.0.1:8088/thailand/{z}/{x}/{y}.mvt`]
-               }
-             },
-             layers: [{
-               id: "water",
-               type: "fill",
-               source: "protomaps",
-               "source-layer": "water",
-               paint: { "fill-color": "rgba(0, 100, 200, 0.4)" }
-             }, {
-               id: "roads",
-               type: "line",
-               source: "protomaps",
-               "source-layer": "roads",
-               paint: { "line-color": "rgba(255, 255, 255, 0.6)" }
-             }]
-           }
-        } as any)
-        const layer = viewer.imageryLayers.addImageryProvider(mvt as any)
+        const mvt = await (MVTDataProvider.fromUrl as unknown as (url: string, options?: Record<string, unknown>) => Promise<MVTDataProvider>)(`http://127.0.0.1:8088/thailand/{z}/{x}/{y}.mvt`, {
+           minZoom: 0,
+           maxZoom: 16,
+        })
+        const layer = viewer.imageryLayers.addImageryProvider(mvt as unknown as Parameters<Viewer['imageryLayers']['addImageryProvider']>[0])
         setMvtProvider(layer)
       } catch (err) {
         console.error("MVTDataProvider error:", err)
@@ -2111,7 +2122,7 @@ export default function Globe({
           line1: lines[0] || '',
           line2: lines[1] || '',
           line3: lines[2] || '',
-        } as any,
+        },
       })
     }
     setStats((s) => ({ ...s, osint: osintPins.length }))
@@ -2335,7 +2346,7 @@ export default function Globe({
           </button>
           {layersPanelOpen && (
             <>
-              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'intelFt', 'osint'] as const).map((k) => (
+              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'intelFt', 'osint', 'darkweb'] as const).map((k) => (
                 <label key={k} className={layers[k] ? 'on' : ''}>
                   <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
                 </label>

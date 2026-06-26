@@ -45,6 +45,11 @@ class TestP5Statements(unittest.TestCase):
 class TestP5PlusExternalEdges(unittest.TestCase):
     """P5+ — Dynamic Knowledge Graph external edges."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_dynamic_graph_disabled_by_default(self):
         os.environ.pop("WORLDBASE_DYNAMIC_GRAPH", None)
         from edge_review import dynamic_graph_enabled

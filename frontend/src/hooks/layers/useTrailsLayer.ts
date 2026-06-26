@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { CustomDataSource, Entity, Cartesian3, Color, PolylineGlowMaterialProperty, Viewer } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
+import type { TrailPoint } from '../../lib/types';
 
 export interface TrailsApi {
   fetchTrail: (icao: string) => Promise<void>;
@@ -43,7 +44,7 @@ export function useTrailsLayer({
       const r = await fetchApi(`/api/aircraft/trails?icao24=${encodeURIComponent(icao)}&minutes=30`);
       if (!r.ok) return;
       const d = await r.json();
-      const pts: any[] = d.points || [];
+      const pts: TrailPoint[] = d.points || [];
       if (pts.length < 2) return;
       
       const positions: Cartesian3[] = pts.map(p => Cartesian3.fromDegrees(p.lon, p.lat, Math.max(p.alt ?? 0, 0)));
@@ -60,7 +61,7 @@ export function useTrailsLayer({
         },
       });
       trailEntities.current.set(icao, ent);
-    } catch (e) {
+    } catch {
       // best effort
     }
   };

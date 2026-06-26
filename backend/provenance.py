@@ -15,17 +15,13 @@ Env:
 from __future__ import annotations
 
 import hashlib
-import os
 from typing import Any
+
+from config import get_config
 
 
 def provenance_enabled() -> bool:
-    return os.getenv("WORLDBASE_PROVENANCE", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
+    return get_config().provenance_enabled
 
 
 # --- Static source reliability table ---
@@ -62,6 +58,7 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "intel-ingest": 0.70,
     "intel_ingest": 0.70,
     "osint": 0.60,
+    "darkweb": 0.30,
     "blog": 0.30,
     "social": 0.35,
     "unknown": 0.40,

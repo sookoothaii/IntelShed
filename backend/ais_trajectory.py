@@ -26,6 +26,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from config import get_config
+
 
 _BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 _DATA_DIR = os.path.join(_BACKEND_DIR, "data")
@@ -35,10 +37,8 @@ _TRAJECTORY_DB = os.getenv(
     os.path.join(_DATA_DIR, "ais_trajectory.db"),
 )
 
-_RETENTION_SEC = (
-    int(os.getenv("WORLDBASE_MARITIME_TRAJECTORY_RETENTION_H", "24")) * 3600
-)
-_ANOMALY_THRESHOLD = float(os.getenv("WORLDBASE_MARITIME_ANOMALY_THRESHOLD", "0.6"))
+_RETENTION_SEC = get_config().maritime_trajectory_retention_h * 3600
+_ANOMALY_THRESHOLD = get_config().maritime_anomaly_threshold
 
 
 def _truthy(val: str | None) -> bool:
@@ -46,7 +46,7 @@ def _truthy(val: str | None) -> bool:
 
 
 def trajectory_enabled() -> bool:
-    return _truthy(os.getenv("WORLDBASE_MARITIME_TRAJECTORY", "0"))
+    return get_config().maritime_trajectory_enabled
 
 
 def _ensure_data_dir() -> None:

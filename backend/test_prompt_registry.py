@@ -9,6 +9,11 @@ import unittest
 class TestPromptRegistry(unittest.TestCase):
     """Prompt registry SQLite operations."""
 
+    def setUp(self):
+        import config
+
+        config.get_config.cache_clear()
+
     def test_registry_disabled_by_default(self):
         from prompt_registry import prompt_registry_enabled
 
@@ -112,12 +117,13 @@ class TestPromptEval(unittest.TestCase):
         from prompt_eval import evaluate_experiment
 
         init_prompt_db()
+        name = f"test_eval_1_{id(self)}"
         id_a = save_prompt("test_eval", "a")
         id_b = save_prompt("test_eval", "b")
-        create_experiment("test_eval_1", id_a, id_b)
-        record_result("test_eval_1", "a", 0.8)
-        record_result("test_eval_1", "b", 0.7)
-        result = evaluate_experiment("test_eval_1")
+        create_experiment(name, id_a, id_b)
+        record_result(name, "a", 0.8)
+        record_result(name, "b", 0.7)
+        result = evaluate_experiment(name)
         self.assertFalse(result["significant"])
         self.assertIn("message", result)
 

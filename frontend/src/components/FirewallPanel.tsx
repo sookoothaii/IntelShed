@@ -16,16 +16,61 @@ interface FirewallEntry {
     rule_id?: string
     detector_id?: string
   }
-  routing_metadata?: any
-  semantic_intelligence?: any
-  cognitive_probes?: any
+  routing_metadata?: RoutingMetadata
+  semantic_intelligence?: SemanticIntelligence
+  cognitive_probes?: CognitiveProbes
   tags?: string[]
   matched_patterns?: string[]
   category?: string
   should_block?: boolean
   mirage_active?: boolean
   mirage_response_type?: string
-  decision_trace?: any
+  decision_trace?: Record<string, unknown>
+}
+
+interface RoutingMetadata {
+  perimeter_fast_path?: boolean
+  perimeter_processing_time_ms?: number
+  zedd_latency_ms?: number
+  request_queue?: { processing_ms?: number }
+  bypassed_checks?: string[]
+  execution_context?: string
+}
+
+interface SemanticIntelligence {
+  primary_intent?: string
+  intent_confidence?: number
+  router_decision?: string
+  all_scores?: Record<string, { vector_score: number }>
+}
+
+interface CognitiveProbes {
+  decision?: string
+  risk_score?: number
+  confidence?: number
+  tier_used?: string
+  tier?: string
+  latency_ms?: number
+}
+
+interface FirewallTestResult {
+  blocked?: boolean
+  should_block?: boolean
+  risk_score?: number
+  confidence?: number
+  evidence_type?: string
+  source?: string
+  engine?: string
+  score_origin?: {
+    layer?: string
+    primary_cause?: string
+    rule_id?: string
+    detector_id?: string
+  }
+  tags?: string[]
+  error?: string
+  mirage_active?: boolean
+  mirage_response_type?: string
 }
 
 function StatusBadge({ status, label }: { status: 'online' | 'offline' | 'warn'; label: string }) {
@@ -120,16 +165,16 @@ function normalizeHistoryEntry(item: Record<string, unknown>): FirewallEntry {
     source,
     engine: item.engine ? String(item.engine) : undefined,
     score_origin: item.score_origin as FirewallEntry['score_origin'],
-    routing_metadata: item.routing_metadata,
-    semantic_intelligence: item.semantic_intelligence,
-    cognitive_probes: item.cognitive_probes,
+    routing_metadata: item.routing_metadata as RoutingMetadata | undefined,
+    semantic_intelligence: item.semantic_intelligence as SemanticIntelligence | undefined,
+    cognitive_probes: item.cognitive_probes as CognitiveProbes | undefined,
     tags: item.tags as string[] | undefined,
     matched_patterns: matched,
     category: item.category ? String(item.category) : undefined,
     should_block: item.should_block as boolean | undefined,
     mirage_active: item.mirage_active as boolean | undefined,
     mirage_response_type: item.mirage_response_type as string | undefined,
-    decision_trace: item.decision_trace,
+    decision_trace: item.decision_trace as Record<string, unknown> | undefined,
   }
 }
 
@@ -138,7 +183,7 @@ export default function FirewallPanel() {
   const [selected, setSelected] = useState<FirewallEntry | null>(null)
   const [filter, setFilter] = useState<'all' | 'blocked' | 'allowed'>('all')
   const [testQuery, setTestQuery] = useState('')
-  const [testResult, setTestResult] = useState<any>(null)
+  const [testResult, setTestResult] = useState<FirewallTestResult | null>(null)
   const [testBusy, setTestBusy] = useState(false)
   const [firewallStatus, setFirewallStatus] = useState<'online' | 'offline' | 'warn'>('offline')
   const [slimGuardOn, setSlimGuardOn] = useState(true)
@@ -427,7 +472,7 @@ function StatBox({ label, value, color }: { label: string; value: string | numbe
   )
 }
 
-function TestResultView({ result }: { result: any }) {
+function TestResultView({ result }: { result: FirewallTestResult }) {
   const blocked = result.blocked || result.should_block
   const risk = result.risk_score ?? 0
   const confidence = result.confidence ?? 0
@@ -531,7 +576,7 @@ function DetailPanel({ entry, onClose }: { entry: FirewallEntry; onClose: () => 
           <DetailRow label="Router Decision" value={entry.semantic_intelligence.router_decision || '—'} />
           {entry.semantic_intelligence.all_scores && (
             <div style={{ marginTop: 6 }}>
-              {Object.entries(entry.semantic_intelligence.all_scores).map(([k, v]: [string, any]) => (
+              {Object.entries(entry.semantic_intelligence.all_scores).map(([k, v]: [string, { vector_score: number }]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 10 }}>
                   <span style={{ color: '#8a9a94' }}>{k}</span>
                   <span style={{ color: '#c8d4cf', fontFamily: 'monospace' }}>
