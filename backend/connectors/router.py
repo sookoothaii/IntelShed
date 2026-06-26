@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 
 import connector_registry
 
@@ -28,11 +28,24 @@ async def connector_catalog():
 
 @router.get("/export")
 async def export_connectors(
-    format: str = Query("json", pattern="^(json|yaml)$"),
+    format: str = Query("json", pattern="^(json|yaml|xlsx)$"),
     runtime: bool = Query(False, description="Merge feed_cache runtime fields"),
 ):
     """Export manifest for scripts, CI, or community packaging."""
     if format == "yaml":
         body = connector_registry.export_manifest_yaml(include_runtime=runtime)
         return PlainTextResponse(body, media_type="text/yaml; charset=utf-8")
+    if format == "xlsx":
+        snap = connector_registry.connectors_snapshot(include_unlisted=True)
+        feeds = snap.get("connectors") or []
+        from doc_export import feeds_to_xlsx
+
+        data = feeds_to_xlsx(feeds)
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": 'attachment; filename="worldbase-feeds.xlsx"'
+            },
+        )
     return connector_registry.export_manifest(include_runtime=runtime)

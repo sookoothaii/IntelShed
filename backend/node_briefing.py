@@ -168,7 +168,7 @@ def _compile_alerts(snap: dict) -> list:
             {
                 "severity": "high" if sw["kp_index"] >= 7 else "medium",
                 "kind": "space_weather",
-                "text": f"Geomagnetic {sw.get('scale','storm')} (Kp={sw['kp_index']}). "
+                "text": f"Geomagnetic {sw.get('scale', 'storm')} (Kp={sw['kp_index']}). "
                 f"HF radio/GPS may degrade.",
             }
         )
@@ -631,6 +631,46 @@ async def latest_briefing(_auth: str | None = Depends(verify_lan_auth)):
         "agentic": sources.get("agentic"),
         "insights": sources.get("insights") or [],
     }
+
+
+@router.get("/briefing/export")
+async def export_briefing(
+    format: str = Query("pdf", regex="^(pdf|docx)$"),
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Export the latest briefing as a downloadable PDF or DOCX document."""
+    with _db() as conn:
+        row = conn.execute(
+            "SELECT created_at, text, sources FROM briefings ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    if not row:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "No briefing available. POST /api/briefing/generate first."
+            },
+        )
+    import doc_export
+
+    briefing = doc_export._briefing_from_db_row(row)
+    if format == "pdf":
+        data = doc_export.briefing_to_pdf(briefing)
+        return Response(
+            content=data,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="worldbase-briefing-{briefing["created_at"][:10] if briefing["created_at"] else "latest"}.pdf"',
+            },
+        )
+    elif format == "docx":
+        data = doc_export.briefing_to_docx(briefing)
+        return Response(
+            content=data,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f'attachment; filename="worldbase-briefing-{briefing["created_at"][:10] if briefing["created_at"] else "latest"}.docx"',
+            },
+        )
 
 
 @router.get("/predictions")

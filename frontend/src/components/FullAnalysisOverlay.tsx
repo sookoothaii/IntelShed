@@ -1185,6 +1185,22 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                       >
                         {briefBusy ? 'GENERATING…' : 'GENERATE'}
                       </button>
+                      <button
+                        type="button"
+                        className="brief-export"
+                        onClick={() => window.open('/api/briefing/export?format=pdf', '_blank')}
+                        title="Download briefing as PDF"
+                      >
+                        PDF
+                      </button>
+                      <button
+                        type="button"
+                        className="brief-export"
+                        onClick={() => window.open('/api/briefing/export?format=docx', '_blank')}
+                        title="Download briefing as Word document"
+                      >
+                        DOCX
+                      </button>
                     </div>
                   </div>
                   {briefError && <div className="brief-error">{briefError}</div>}

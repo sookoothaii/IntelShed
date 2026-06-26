@@ -2937,6 +2937,24 @@ html, body, #root {
   cursor: progress;
 }
 
+.brief-export {
+  padding: 4px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  background: rgba(255, 180, 84, 0.08);
+  border: 1px solid rgba(255, 180, 84, 0.3);
+  color: var(--amber);
+  border-radius: 3px;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+.brief-export:hover {
+  background: rgba(255, 180, 84, 0.18);
+  border-color: var(--amber);
+}
+
 .brief-error {
   margin-bottom: 10px;
   padding: 6px 10px;

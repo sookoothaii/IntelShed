@@ -41,6 +41,11 @@ alembic>=1.13.0
 # Environment variables
 python-dotenv>=1.0.0
 
+# Document export (briefing PDF/DOCX, feed status XLSX)
+reportlab>=5.0
+python-docx>=1.1
+openpyxl>=3.1
+
 # Optional: document intel ingest (GLiNER NER; GLiREL relations opt-in).
 # PC-only / GPU — NOT on the Raspberry Pi. Lazy import: backend runs without these.
 # License: see THIRD_PARTY_NOTICES.md — GLiREL is NOT in the default install.
