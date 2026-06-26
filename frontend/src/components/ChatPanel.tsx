@@ -6,6 +6,7 @@ import FirewallMonitor from './FirewallMonitor';
 const CHAT_SESSION_KEY = 'worldbase_chat_session_id'
 const CUSTOM_MODELS_KEY = 'worldbase_custom_models'
 const SELECTED_MODELS_KEY = 'worldbase_selected_models'
+const SELECTED_PROVIDER_KEY = 'worldbase_selected_provider'
 
 function loadJsonRecord(key: string): Record<string, string> {
   try {
@@ -61,7 +62,13 @@ export default function ChatPanel({
     { role: 'system', content: 'Select a model and start chatting.' },
   ])
   const [providers, setProviders] = useState<{ id: string; name: string; models: string[]; requires_key: boolean; key_set?: boolean; base_url_set?: boolean; default_base_url?: string | null; supports_tools?: boolean }[]>([])
-  const [provider, setProvider] = useState('ollama')
+  const [provider, setProvider] = useState(() => {
+    try {
+      return localStorage.getItem(SELECTED_PROVIDER_KEY) || 'ollama'
+    } catch {
+      return 'ollama'
+    }
+  })
   const [models, setModels] = useState<{ name: string; parameter_size?: string }[]>([])
   const [model, setModel] = useState('')
   const [busy, setBusy] = useState(false)
@@ -187,6 +194,7 @@ export default function ChatPanel({
   const customModelPlaceholder = (pid: string) => {
     if (pid === 'openrouter') return 'anthropic/claude-sonnet-4, google/gemini-2.5-pro-preview'
     if (pid === 'openai') return 'gpt-4o or custom deployment name'
+    if (pid === 'nvidia') return 'qwen/qwen3.5-122b-a10b, deepseek-ai/deepseek-v4-flash'
     return 'model slug (comma-separated ok)'
   }
 
@@ -242,6 +250,25 @@ export default function ChatPanel({
       .then((d) => {
         const list = d.providers || []
         setProviders(list.length ? list : [{ id: 'ollama', name: 'Ollama (Local)', models: [], requires_key: false }])
+        const storedProvider = (() => {
+          try {
+            return localStorage.getItem(SELECTED_PROVIDER_KEY)
+          } catch {
+            return null
+          }
+        })()
+        const defaultProvider = d.default_provider || 'ollama'
+        const nextProvider = storedProvider || defaultProvider
+        if (list.some((p: { id: string }) => p.id === nextProvider)) {
+          setProvider(nextProvider)
+        }
+        if (d.default_model && !model) {
+          const p = list.find((x: { id: string }) => x.id === nextProvider)
+          const merged = [...(p?.models || []), ...(customModels[nextProvider] || [])]
+          if (merged.includes(d.default_model)) {
+            setModel(d.default_model)
+          }
+        }
       })
       .catch(() => {
         setProviders([{ id: 'ollama', name: 'Ollama (Local)', models: [], requires_key: false }])
@@ -538,6 +565,11 @@ export default function ChatPanel({
           onChange={(e) => {
             const pid = e.target.value
             setProvider(pid)
+            try {
+              localStorage.setItem(SELECTED_PROVIDER_KEY, pid)
+            } catch {
+              // ignore storage quota / privacy mode
+            }
             setShowAddModel(false)
             setNewModelDraft('')
             const p = providers.find((x) => x.id === pid)

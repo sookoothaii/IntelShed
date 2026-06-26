@@ -10,6 +10,8 @@ import {
   getRansomwareVictims,
   refreshRansomware,
   ingestRansomwareVictims,
+  scrapeDarkwebUrl,
+  deepSearchDarkweb,
   type DarkwebResult,
   type DarkwebEngineInfo,
   type DarkwebMention,
@@ -30,11 +32,19 @@ export default function DarkwebPanel() {
   const [mentions, setMentions] = useState<DarkwebMention[]>([])
   const [status, setStatus] = useState<{ enabled: boolean; engines: string[]; modes?: string[]; tor_proxy: string | null } | null>(null)
   const [engineList, setEngineList] = useState<DarkwebEngineInfo[]>([])
-  const [activeTab, setActiveTab] = useState<'search' | 'mentions' | 'ransomware'>('search')
+  const [activeTab, setActiveTab] = useState<'search' | 'browse' | 'deep' | 'mentions' | 'ransomware'>('search')
   const [ransomwareGroups, setRansomwareGroups] = useState<Array<{ name: string; url: string; tor_url: string; description: string; source: string; active: boolean }>>([])
   const [selectedRansomwareGroup, setSelectedRansomwareGroup] = useState('')
   const [ransomwareVictims, setRansomwareVictims] = useState<Array<{ victim: string; group: string; discovered?: string; published?: string; country?: string; activity?: string; description?: string; post_url?: string; website?: string; screenshot?: string; source: string }>>([])
   const [ransomwareLoading, setRansomwareLoading] = useState(false)
+  const [browseUrl, setBrowseUrl] = useState('')
+  const [browseLoading, setBrowseLoading] = useState(false)
+  const [browseResult, setBrowseResult] = useState<{ url: string; ok: boolean; error?: string; text: string; entities: Record<string, string[]> } | null>(null)
+  const [browseHistory, setBrowseHistory] = useState<string[]>([])
+  const [deepLoading, setDeepLoading] = useState(false)
+  const [deepResults, setDeepResults] = useState<Array<{ result: DarkwebResult; scrape: { ok: boolean; error?: string; text: string; entities: Record<string, string[]> }; entity_ids: string[]; matched_names: string[] }>>([])
+  const [deepQuery, setDeepQuery] = useState('')
+  const [deepScrapeLimit, setDeepScrapeLimit] = useState(3)
 
   const loadStatus = useCallback(async () => {
     try {
@@ -146,6 +156,47 @@ export default function DarkwebPanel() {
     }
   }
 
+  const handleBrowse = async (url?: string) => {
+    const target = (url || browseUrl).trim()
+    if (!target) return
+    setBrowseLoading(true)
+    setError(null)
+    setBrowseResult(null)
+    try {
+      const data = await scrapeDarkwebUrl(target, true)
+      setBrowseResult(data)
+      if (data.ok && !browseHistory.includes(target)) {
+        setBrowseHistory((prev) => [target, ...prev].slice(0, 10))
+      }
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBrowseLoading(false)
+    }
+  }
+
+  const openInBrowse = (url: string) => {
+    setBrowseUrl(url)
+    setActiveTab('browse')
+    handleBrowse(url)
+  }
+
+  const handleDeepSearch = async () => {
+    const q = deepQuery.trim()
+    if (!q) return
+    setDeepLoading(true)
+    setError(null)
+    setDeepResults([])
+    try {
+      const data = await deepSearchDarkweb(q, engines, 20, deepScrapeLimit, mode)
+      setDeepResults(data.matches || [])
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setDeepLoading(false)
+    }
+  }
+
   const handleIngest = async (q?: string) => {
     const target = (q || query).trim()
     if (!target) return
@@ -209,12 +260,24 @@ export default function DarkwebPanel() {
 
       {renderEngineBadges()}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <button
           className={activeTab === 'search' ? 'hud-button active' : 'hud-button'}
           onClick={() => setActiveTab('search')}
         >
           SEARCH
+        </button>
+        <button
+          className={activeTab === 'browse' ? 'hud-button active' : 'hud-button'}
+          onClick={() => setActiveTab('browse')}
+        >
+          BROWSE
+        </button>
+        <button
+          className={activeTab === 'deep' ? 'hud-button active' : 'hud-button'}
+          onClick={() => setActiveTab('deep')}
+        >
+          DEEP SEARCH
         </button>
         <button
           className={activeTab === 'mentions' ? 'hud-button active' : 'hud-button'}
@@ -324,6 +387,15 @@ export default function DarkwebPanel() {
                   <div style={{ fontSize: 10, color: '#6f8c84', wordBreak: 'break-all', marginTop: 4 }}>
                     {r.url}
                   </div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                    <button
+                      className="hud-button"
+                      style={{ fontSize: 10, padding: '2px 8px' }}
+                      onClick={() => openInBrowse(r.url)}
+                    >
+                      BROWSE
+                    </button>
+                  </div>
                   {r.extracted_entities && Object.keys(r.extracted_entities).length > 0 && (
                     <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {Object.entries(r.extracted_entities).map(([k, vals]) => (
@@ -344,6 +416,231 @@ export default function DarkwebPanel() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {activeTab === 'browse' && (
+        <>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <input
+              className="hud-input"
+              style={{ flex: 1 }}
+              placeholder="Enter .onion URL or any URL to scrape"
+              value={browseUrl}
+              onChange={(e) => setBrowseUrl(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleBrowse()}
+            />
+            <button className="hud-button" onClick={() => handleBrowse()} disabled={browseLoading}>
+              {browseLoading ? '...' : 'SCRAPE'}
+            </button>
+          </div>
+
+          {browseHistory.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: '#6f8c84', marginBottom: 4 }}>RECENT</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {browseHistory.map((h, idx) => (
+                  <button
+                    key={idx}
+                    className="hud-button"
+                    style={{ fontSize: 10, padding: '2px 6px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    title={h}
+                    onClick={() => { setBrowseUrl(h); handleBrowse(h) }}
+                  >
+                    {h}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {error && <div style={{ color: '#ff4d5e', marginBottom: 12 }}>{error}</div>}
+
+          {browseResult && (
+            <div>
+              {browseResult.ok ? (
+                <>
+                  <div style={{ fontSize: 11, color: '#00e5a0', marginBottom: 6 }}>
+                    Scraped: {browseResult.url} ({browseResult.text.length} chars)
+                  </div>
+                  {browseResult.entities && Object.keys(browseResult.entities).length > 0 && (
+                    <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {Object.entries(browseResult.entities).map(([k, vals]) => (
+                        <span
+                          key={k}
+                          style={{
+                            fontSize: 10,
+                            padding: '2px 6px',
+                            borderRadius: 3,
+                            background: '#ffd23f22',
+                            color: '#ffd23f',
+                          }}
+                        >
+                          {k}: {vals.slice(0, 3).join(', ')}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <pre
+                    style={{
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      fontSize: 11,
+                      color: '#b0c4bf',
+                      background: '#00000044',
+                      padding: 8,
+                      borderRadius: 4,
+                      maxHeight: '60vh',
+                      overflow: 'auto',
+                      margin: 0,
+                    }}
+                  >
+                    {browseResult.text}
+                  </pre>
+                </>
+              ) : (
+                <div style={{ color: '#ff4d5e' }}>
+                  Failed to scrape: {browseResult.error || 'Unknown error'}
+                </div>
+              )}
+            </div>
+          )}
+
+          {!browseResult && !browseLoading && !error && (
+            <div style={{ color: '#6f8c84' }}>
+              Enter a URL above to scrape and view page content. Works with .onion URLs when Tor proxy is configured.
+            </div>
+          )}
+        </>
+      )}
+
+      {activeTab === 'deep' && (
+        <>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+            <input
+              className="hud-input"
+              style={{ flex: 1, minWidth: 200 }}
+              placeholder="Deep search query — searches + scrapes top results"
+              value={deepQuery}
+              onChange={(e) => setDeepQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleDeepSearch()}
+            />
+            <input
+              className="hud-input"
+              style={{ width: 160 }}
+              placeholder="ahmia,darksearch"
+              value={engines}
+              onChange={(e) => setEngines(e.target.value)}
+              title="Comma-separated engines"
+            />
+            <select
+              className="hud-input"
+              style={{ width: 100 }}
+              value={mode}
+              onChange={(e) => setMode(e.target.value as 'auto' | 'clear' | 'tor')}
+            >
+              <option value="auto">AUTO</option>
+              <option value="clear">CLEAR</option>
+              <option value="tor">TOR</option>
+            </select>
+            <input
+              className="hud-input"
+              style={{ width: 80 }}
+              type="number"
+              min={1}
+              max={10}
+              value={deepScrapeLimit}
+              onChange={(e) => setDeepScrapeLimit(Number(e.target.value))}
+              title="Number of results to scrape"
+            />
+            <button className="hud-button" onClick={handleDeepSearch} disabled={deepLoading}>
+              {deepLoading ? '...' : 'DEEP SEARCH'}
+            </button>
+          </div>
+
+          {error && <div style={{ color: '#ff4d5e', marginBottom: 12 }}>{error}</div>}
+
+          {deepResults.length > 0 && (
+            <div>
+              <h3 style={{ fontSize: 13, color: '#00e5a0', marginBottom: 6 }}>
+                DEEP RESULTS ({deepResults.length})
+              </h3>
+              {deepResults.map((d, idx) => (
+                <div
+                  key={idx}
+                  style={{
+                    padding: 8,
+                    marginBottom: 8,
+                    borderLeft: '2px solid #00e5a0',
+                    background: '#ffffff08',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: 12, color: '#e0f2f1' }}>{d.result.title}</span>
+                    <span style={{ fontSize: 10, color: '#8fb7a9' }}>{d.result.engine}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: '#6f8c84', wordBreak: 'break-all', marginTop: 2 }}>
+                    {d.result.url}
+                  </div>
+                  {d.matched_names.length > 0 && (
+                    <div style={{ fontSize: 10, color: '#ffd23f', marginTop: 2 }}>
+                      Entities: {d.matched_names.join(', ')}
+                    </div>
+                  )}
+                  {d.scrape.ok && (
+                    <>
+                      {d.scrape.entities && Object.keys(d.scrape.entities).length > 0 && (
+                        <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {Object.entries(d.scrape.entities).map(([k, vals]) => (
+                            <span
+                              key={k}
+                              style={{
+                                fontSize: 10,
+                                padding: '1px 4px',
+                                borderRadius: 3,
+                                background: '#ffd23f22',
+                                color: '#ffd23f',
+                              }}
+                            >
+                              {k}: {vals.slice(0, 3).join(', ')}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <pre
+                        style={{
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          fontSize: 10,
+                          color: '#b0c4bf',
+                          background: '#00000033',
+                          padding: 6,
+                          borderRadius: 3,
+                          maxHeight: '200px',
+                          overflow: 'auto',
+                          margin: '4px 0 0 0',
+                        }}
+                      >
+                        {d.scrape.text.slice(0, 2000)}
+                        {d.scrape.text.length > 2000 ? '\n...[truncated]' : ''}
+                      </pre>
+                    </>
+                  )}
+                  {d.scrape.ok === false && (
+                    <div style={{ fontSize: 10, color: '#ff4d5e', marginTop: 4 }}>
+                      Scrape failed: {d.scrape.error}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {deepResults.length === 0 && !deepLoading && !error && (
+            <div style={{ color: '#6f8c84' }}>
+              Deep search runs a normal search, then scrapes the top results and extracts entities from each page.
             </div>
           )}
         </>

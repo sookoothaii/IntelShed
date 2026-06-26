@@ -6,13 +6,16 @@ from typing import Any
 
 from urllib.parse import urlparse
 
-SUPPORTED_PROVIDERS = frozenset({"ollama", "openai", "anthropic", "groq", "openrouter"})
+SUPPORTED_PROVIDERS = frozenset(
+    {"ollama", "openai", "anthropic", "groq", "openrouter", "nvidia"}
+)
 
 PROVIDER_ENV_KEYS = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "groq": "GROQ_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "nvidia": "NVIDIA_API_KEY",
 }
 
 PROVIDER_ENV_BASE_URLS = {
@@ -20,6 +23,7 @@ PROVIDER_ENV_BASE_URLS = {
     "anthropic": "ANTHROPIC_BASE_URL",
     "groq": "GROQ_BASE_URL",
     "openrouter": "OPENROUTER_BASE_URL",
+    "nvidia": "NVIDIA_BASE_URL",
 }
 
 DEFAULT_BASE_URLS = {
@@ -27,10 +31,11 @@ DEFAULT_BASE_URLS = {
     "anthropic": "https://api.anthropic.com/v1",
     "groq": "https://api.groq.com/openai/v1",
     "openrouter": "https://openrouter.ai/api/v1",
+    "nvidia": "https://integrate.api.nvidia.com/v1",
 }
 
 
-_OPENAI_COMPATIBLE = frozenset({"openai", "groq", "openrouter"})
+_OPENAI_COMPATIBLE = frozenset({"openai", "groq", "openrouter", "nvidia"})
 
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 

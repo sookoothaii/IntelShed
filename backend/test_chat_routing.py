@@ -79,7 +79,14 @@ class ChatRoutingTests(unittest.TestCase):
         self.assertTrue(cr.provider_supports_tools("openai"))
         self.assertTrue(cr.provider_supports_tools("groq"))
         self.assertTrue(cr.provider_supports_tools("openrouter"))
+        self.assertTrue(cr.provider_supports_tools("nvidia"))
         self.assertFalse(cr.provider_supports_tools("anthropic"))
+
+    def test_nvidia_base_url_allowed(self):
+        url = cr.assert_safe_provider_base_url(
+            "nvidia", "https://integrate.api.nvidia.com/v1"
+        )
+        self.assertEqual(url, "https://integrate.api.nvidia.com/v1")
 
     def test_select_api_key_prefers_request(self):
         key = cr.select_api_key("openai", {"openai": "sk-ui"}, "sk-env")

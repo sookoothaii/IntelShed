@@ -229,6 +229,9 @@ async def _prepare_chat_messages(
             **{"rag_integrity": rag_integrity_meta},
         }
 
+    provider = payload.get("provider", "ollama")
+    host_label = "local Ollama" if provider == "ollama" else provider
+
     if ctx or entity_context or search_results or rag_block:
         parts = []
         if ctx:
@@ -260,7 +263,7 @@ async def _prepare_chat_messages(
         system_msg = {
             "role": "system",
             "content": (
-                "You are WorldBase AI — local Ollama on a spatial intelligence workstation.\n\n"
+                f"You are WorldBase AI — {host_label} on a spatial intelligence workstation.\n\n"
                 "CAPABILITIES (be honest if asked):\n"
                 "- Direct internet: only when the operator enabled web search (🔍); "
                 "then you receive DuckDuckGo snippets below — not live browsing.\n"
@@ -294,7 +297,7 @@ async def _prepare_chat_messages(
             {
                 "role": "system",
                 "content": (
-                    "You are WorldBase AI (local Ollama). No live feeds or web search are "
+                    f"You are WorldBase AI ({host_label}). No live feeds or web search are "
                     "attached to this message unless the operator enables CTX or 🔍. "
                     "Answer honestly and concisely in the user's language. "
                     "Do not invent URLs or claim internet access you do not have."
@@ -327,7 +330,7 @@ async def chat_proxy(
 ):
     """Proxy chat requests to LLM providers. Supports SSE streaming.
 
-    Providers: ollama (default), openai, anthropic, groq, openrouter.
+    Providers: ollama (default), openai, anthropic, groq, openrouter, nvidia.
     Set payload['context'] = True to inject live WorldBase state as a system message.
     Set payload['firewall'] = True to route user messages through the LLM-Security-Firewall.
     """
@@ -575,6 +578,21 @@ async def chat_proxy(
             ),
             "key": chat_routing.select_api_key(
                 "openrouter", api_keys, os.getenv("OPENROUTER_API_KEY")
+            ),
+            "header": "Authorization",
+            "prefix": "Bearer ",
+        },
+        "nvidia": {
+            "url": chat_routing.openai_chat_completions_url(
+                chat_routing.select_base_url(
+                    "nvidia",
+                    api_base_urls,
+                    os.getenv("NVIDIA_BASE_URL"),
+                    chat_routing.DEFAULT_BASE_URLS["nvidia"],
+                )
+            ),
+            "key": chat_routing.select_api_key(
+                "nvidia", api_keys, os.getenv("NVIDIA_API_KEY")
             ),
             "header": "Authorization",
             "prefix": "Bearer ",
@@ -901,6 +919,19 @@ def list_providers():
             "env_base": "OPENROUTER_BASE_URL",
             "default_base_url": chat_routing.DEFAULT_BASE_URLS["openrouter"],
         },
+        {
+            "id": "nvidia",
+            "name": "NVIDIA NIM",
+            "models": [
+                "qwen/qwen3.5-122b-a10b",
+                "qwen/qwen3.5-397b-a17b",
+                "deepseek-ai/deepseek-v4-flash",
+            ],
+            "requires_key": True,
+            "env_key": "NVIDIA_API_KEY",
+            "env_base": "NVIDIA_BASE_URL",
+            "default_base_url": chat_routing.DEFAULT_BASE_URLS["nvidia"],
+        },
     ]
     providers = []
     for p in catalog:
@@ -916,4 +947,15 @@ def list_providers():
                 "supports_tools": chat_routing.provider_supports_tools(p["id"]),
             }
         )
-    return {"providers": providers}
+    default_provider = os.getenv("WORLDBASE_CHAT_PROVIDER", "ollama")
+    default_model = os.getenv(
+        "WORLDBASE_CHAT_MODEL", os.getenv("OLLAMA_MODEL", "qwen3:8b")
+    )
+    if default_provider not in chat_routing.SUPPORTED_PROVIDERS:
+        default_provider = "ollama"
+        default_model = os.getenv("OLLAMA_MODEL", "qwen3:8b")
+    return {
+        "providers": providers,
+        "default_provider": default_provider,
+        "default_model": default_model,
+    }
