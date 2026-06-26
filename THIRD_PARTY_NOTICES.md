@@ -42,6 +42,18 @@ WorldBase does **not** redistribute GLiREL weights or code. Downloading the mode
 
 OpenSanctions CSV, STAC imagery, external feeds, etc. have their own terms—see feed-specific docs in `LLM_HANDOFF.md` and source URLs in the API responses.
 
+## AI models — stepfun-ai / step-3.7-flash
+
+WorldBase's chat and entity-analysis pipeline is powered in part by **[stepfun-ai/step-3.7-flash](https://github.com/stepfun-ai)**, a ~37B-parameter reasoning model available **free of charge** via the [NVIDIA NIM API](https://build.nvidia.com/).
+
+We are grateful to the stepfun-ai team for:
+- Making step-3.7-flash freely accessible through NVIDIA's hosted inference — no local GPU required for high-quality reasoning.
+- Excellent instruction-following and tool-use capabilities, which made it straightforward to integrate as a sixth chat provider in WorldBase.
+- Fast response times (~6–8 s for globe geocoding, 30–90 s for full context-grounded analysis with CTX/🔍/TOOLS enabled).
+- The flexibility to work within a strict anti-hallucination protocol — when given a positive "RAW DATA INTERPRETER" role with explicit context-block listing, the model reliably grounds its output in provided data and flags data gaps honestly.
+
+This model has been instrumental in building WorldBase's intelligence workstation workflow, and we sincerely thank stepfun-ai for their contribution to the open AI ecosystem.
+
 ## Disclaimer
 
 This file is engineering guidance, not legal advice. If you ship a product built on WorldBase, review licenses for every optional dependency you enable.
