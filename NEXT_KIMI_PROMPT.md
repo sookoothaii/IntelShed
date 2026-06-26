@@ -10,12 +10,12 @@ You are a pedantic but fair senior engineer reviewing the WorldBase project. You
 
 ## Context
 
-- **Project**: WorldBase — spatial intelligence workstation (React + Cesium globe, FastAPI backend, 30+ live feeds, local Ollama chat, optional Pi edge sync).
+- **Project**: WorldBase — spatial intelligence workstation (React + Cesium globe, FastAPI backend, 30+ live feeds, local Ollama + NVIDIA NIM chat (6 providers), 3-layer anti-hallucination stack, FtM entity graph, optional Pi edge sync).
 - **Repo**: `d:\MCP Mods\worldbase`, branch `main`.
-- **Current HEAD**: `4b79c00` on origin/main.
+- **Current HEAD**: `d3dfc8f` on origin/main.
 - **Verified smoke test**: 33 PASS / 0 FAIL / 1 WARN (intel ingest auth gate — expected when no API key is set for that check).
 - **Operator region**: `WORLDBASE_OPERATOR_REGION=thailand` (LOCAL / REGION / GLOBAL buckets).
-- **Chat default model**: `qwen3:8b` (Ollama); `qwen3:14b` also available.
+- **Chat default model**: `qwen3:8b` (Ollama); NVIDIA NIM `stepfun-ai/step-3.7-flash` also available (free tier, fast tool-use).
 
 ## Default work focus (unless operator says otherwise)
 
@@ -47,6 +47,14 @@ You are a pedantic but fair senior engineer reviewing the WorldBase project. You
 - **J7**: 4-layer prompt injection defense (prompt_guard, rag_integrity, session_guard, output_guard).
 - **J8**: Mapping Schema Drift validator.
 - **90-day assessment batch**: frontend CI, pre-commit hook, config rollout, structured JSON logging, async DB wrappers.
+- **NVIDIA NIM Chat Provider**: 6th provider (OpenAI-compatible), `NVIDIA_API_KEY`, models: `stepfun-ai/step-3.7-flash`, `deepseek-ai/deepseek-v4-flash`, `qwen/qwen3.5-122b-a10b`.
+- **Chat Context Enrichment**: `backend/chat_context_enricher.py` — query-aware enrichment (places, event types, keywords → filtered live feed caches → injected into chat context). Synthesis directive with SATs.
+- **Anti-Hallucination Stack (3 layers)**: (1) Prompt Protocol — positive "RAW DATA INTERPRETER" role replaces negative rules; (2) NIM Parameter Tweaks — `temperature=0.15`, `top_p=0.4` for NVIDIA; (3) Claim Auditor — post-generation verification against context blocks (source names, URLs, timestamps).
+- **P7 Maritime Anomaly**: AIS trajectory storage + behavioural anomaly detection + briefing bridge + FtM Vessel correlation.
+- **P3+ Multi-Agent Orchestrator**: 5 agents (Coverage/Retrieval/Spatial/Corroboration/Synthesis), rule-based dispatcher, 0 VRAM.
+- **K4 Satellite Change Detection**: Sentinel-2 L2A COG window-read, NDVI/NDWI differencing, GeoJSON anomaly polygons.
+- **P8 Dark Web OSINT**: 8-engine darknet search, entity extraction, ransomware leak-site intel, briefing integration.
+- **K3 Telegram SOCMINT**: Telethon channel scanner, SEA geo enrichment, threat-keyword scoring, briefing integration.
 
 ## Task
 
@@ -108,6 +116,8 @@ Then a numbered list of **recommended actions** (highest priority first). Keep i
 - P6 Spatial Reasoning live verified: `GET /api/intel/spatial/query?q=within%2050km%20of%20Bangkok` returns 30+ entities.
 - The `.gitignore` ignores `backend/data/models/` (ONNX reranker weights).
 - `docs/WORLDBASE_ROADMAP_2026.md`, `progress.txt`, `NEXT_INSTANCE_WORKPLAN.md`, `LLM_HANDOFF.md` are intentionally local-only / handoff docs; do not expect them to be tracked.
+- Anti-hallucination stack, NVIDIA NIM provider, and chat context enrichment are all committed (`09f2ae3`, `2472b32`, `d3dfc8f`).
+- `stepfun-ai/step-3.7-flash` is the recommended NVIDIA NIM model (free tier, ~6-8s tool-use, good geocoding).
 
 ---
 

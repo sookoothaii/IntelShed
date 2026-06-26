@@ -6,7 +6,7 @@
 
 ## One sentence
 
-**WorldBase** is a spatial intelligence workstation: React + Cesium globe, FastAPI with 30+ live feeds, local Ollama chat, and optional Pi↔PC sync for offline briefing on the edge node.
+**WorldBase** is a spatial intelligence workstation: React + Cesium globe, FastAPI with 30+ live feeds, local Ollama + NVIDIA NIM chat (6 providers), 3-layer anti-hallucination stack, FtM entity graph, 24h security briefing with agentic loop, and optional Pi↔PC sync for offline briefing on the edge node.
 
 ---
 
@@ -18,6 +18,7 @@
 | **API** | http://127.0.0.1:8002 | OpenAPI: `/docs` |
 | **Fast health** | `GET /api/health/ping` | Use before/after changes |
 | **Ollama** | http://127.0.0.1:11434 | Default chat: `qwen3:8b` |
+| **NVIDIA NIM** | https://integrate.api.nvidia.com/v1 | Free tier: `stepfun-ai/step-3.7-flash`; `NVIDIA_API_KEY` |
 | **Start** | `.\start.ps1` | Waits for `/api/health/ping` before Vite (avoids proxy ECONNREFUSED); paths with spaces → `-LiteralPath`. Uvicorn reload excludes runtime DB/JSON files: `worldbase.db`, `data/entities.duckdb`, `data/ais_trajectory.db`, `data/intel_subgraph_latest.json` (literal paths, no globs) |
 | **Verify** | `.\scripts\smoke-test.ps1` | 33 checks — run before claiming “done” (includes live feed envelope contract when API is up) |
 
