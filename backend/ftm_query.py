@@ -477,95 +477,127 @@ def get_entity_full(entity_id: str) -> dict | None:
 def graph_view(entity_id: str, depth: int = 1, limit: int = 200) -> dict:
     """BFS over edges up to ``depth`` hops. Returns nodes + edges for INTEL view.
 
-    Uses a thread-local secondary DuckDB connection without the global write lock
-    so graph reads can overlap with concurrent ingest/upsert operations.
+    Uses a single recursive CTE with DuckDB's USING KEY (upsert semantics)
+    so the frontier never exceeds `limit` entries per hop. Thread-local
+    secondary DuckDB connection bypasses the global write lock.
     """
-    # Existence check on the lock-free read connection
-    row = run_query_ro(
-        "SELECT 1 FROM entities WHERE id = ?",
-        [entity_id],
-    )
-    if not row:
-        return {"root": entity_id, "found": False, "nodes": [], "edges": []}
+    from ftm_connection import _ro_conn
 
-    seen_nodes: dict[str, dict] = {}
-    seen_edges: list[dict] = []
-    edge_keys: set[tuple] = set()
-    frontier = {entity_id}
-    visited: set[str] = set()
-    edge_cap = max(limit * 5, 200)  # cap total edges to prevent hub explosion
+    con = _ro_conn()
 
-    for _ in range(max(1, depth)):
-        if not frontier or len(seen_nodes) >= limit:
-            break
-        if len(seen_edges) >= edge_cap:
-            break
-        # Batch edge query for all frontier nodes at once.
-        frontier_list = list(frontier)
-        placeholders = ", ".join("?" * len(frontier_list))
-        remaining = edge_cap - len(seen_edges)
-        rows = run_query_ro(
+    # Single SQL query: recursive BFS + entity fetch + edge fetch, column-pruned
+    df = con.execute(
+        """
+        WITH RECURSIVE
+            bfs(node_id, hop) USING KEY (node_id) AS (
+                SELECT ?, 0
+                UNION ALL
+                SELECT * FROM (
+                    SELECT
+                        CASE WHEN e.source_id = b.node_id
+                             THEN e.target_id ELSE e.source_id END,
+                        b.hop + 1
+                    FROM bfs b
+                    JOIN edges e
+                      ON e.source_id = b.node_id OR e.target_id = b.node_id
+                    WHERE b.hop < ?
+                    LIMIT ?
+                )
+            )
+        SELECT
+            e.id, e.schema, e.caption, e.lat, e.lon,
+            e.first_seen, e.last_seen,
+            b.hop
+        FROM bfs b
+        JOIN entities e ON e.id = b.node_id
+        ORDER BY b.hop, e.id
+        """,
+        [entity_id, depth, limit],
+    ).fetchdf()
+
+    if df.empty:
+        # Check if entity exists at all
+        row = run_query_ro(
+            "SELECT 1 FROM entities WHERE id = ?",
+            [entity_id],
+        )
+        if not row:
+            return {"root": entity_id, "found": False, "nodes": [], "edges": []}
+        return {
+            "root": entity_id,
+            "found": True,
+            "depth": depth,
+            "nodes": [
+                {
+                    "id": entity_id,
+                    "schema": None,
+                    "caption": None,
+                    "properties": {},
+                    "datasets": [],
+                    "first_seen": None,
+                    "last_seen": None,
+                    "lat": None,
+                    "lon": None,
+                }
+            ],
+            "edges": [],
+        }
+
+    node_ids = set(df["id"].tolist())
+    nodes = []
+    for _, row in df.iterrows():
+        nodes.append(
+            {
+                "id": row["id"],
+                "schema": row["schema"],
+                "caption": row["caption"],
+                "properties": {},
+                "datasets": [],
+                "first_seen": row["first_seen"],
+                "last_seen": row["last_seen"],
+                "lat": row["lat"],
+                "lon": row["lon"],
+            }
+        )
+
+    # Fetch edges between discovered nodes (column-pruned, no JSON)
+    if len(node_ids) > 1:
+        id_list = list(node_ids)
+        placeholders = ", ".join("?" * len(id_list))
+        edge_rows = run_query_ro(
             f"""
             SELECT source_id, target_id, kind, confidence, dataset, seen_at
             FROM edges
-            WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})
-            LIMIT {remaining}
+            WHERE source_id IN ({placeholders}) AND target_id IN ({placeholders})
             """,
-            [*frontier_list, *frontier_list],
+            [*id_list, *id_list],
         )
-        next_frontier: set[str] = set()
-        for e in rows:
-            key = (e[0], e[1], e[2], e[4])
-            if key not in edge_keys:
-                edge_keys.add(key)
-                seen_edges.append(
-                    {
-                        "source_id": e[0],
-                        "target_id": e[1],
-                        "kind": e[2],
-                        "confidence": e[3],
-                        "dataset": e[4],
-                        "seen_at": e[5],
-                    }
-                )
-            for other in (e[0], e[1]):
-                if other not in visited:
-                    next_frontier.add(other)
-        visited.update(frontier)
-        frontier = next_frontier
+    else:
+        edge_rows = []
 
-    # Batch entity fetch for all visited nodes
-    all_ids = list(visited | frontier)
-    if len(all_ids) > limit:
-        all_ids = all_ids[:limit]
-    if all_ids:
-        placeholders = ", ".join("?" * len(all_ids))
-        ent_rows = run_query_ro(
-            f"""
-            SELECT id, schema, caption, properties, datasets, first_seen, last_seen, lat, lon
-            FROM entities WHERE id IN ({placeholders})
-            """,
-            all_ids,
-        )
-        for row in ent_rows:
-            seen_nodes[row[0]] = {
-                "id": row[0],
-                "schema": row[1],
-                "caption": row[2],
-                "properties": json.loads(row[3] or "{}"),
-                "datasets": json.loads(row[4] or "[]"),
-                "first_seen": row[5],
-                "last_seen": row[6],
-                "lat": row[7],
-                "lon": row[8],
-            }
+    edges = []
+    seen_keys: set[tuple] = set()
+    for e in edge_rows:
+        key = (e[0], e[1], e[2], e[4])
+        if key not in seen_keys:
+            seen_keys.add(key)
+            edges.append(
+                {
+                    "source_id": e[0],
+                    "target_id": e[1],
+                    "kind": e[2],
+                    "confidence": e[3],
+                    "dataset": e[4],
+                    "seen_at": e[5],
+                }
+            )
 
     return {
         "root": entity_id,
         "found": True,
         "depth": depth,
-        "nodes": list(seen_nodes.values()),
-        "edges": seen_edges,
+        "nodes": nodes,
+        "edges": edges,
     }
 
 
