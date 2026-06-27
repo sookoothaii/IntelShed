@@ -27,6 +27,16 @@ from typing import Any
 
 from config import get_config
 
+# P1 — Blackboard (optional, opt-in via WORLDBASE_BLACKBOARD=1)
+from agent_blackboard import (
+    Blackboard,
+    blackboard_enabled,
+    conflicts_block_to_text,
+    evidence_block_to_text,
+    extract_entities_from_query,
+    timeline_block_to_text,
+)
+
 _VALID_ROUTES = ("vector", "graph", "spatial", "hybrid", "live")
 
 
@@ -36,6 +46,41 @@ class AgentPhase(str, Enum):
     SPATIAL = "spatial"
     CORROBORATION = "corroboration"
     SYNTHESIS = "synthesis"
+
+
+# P7 — Agent Role Personas (0 VRAM, prompt-prefix only)
+_PERSONAS: dict[str, str] = {
+    AgentPhase.COVERAGE.value: (
+        "You are a geospatial OSINT analyst. "
+        "Extract entities, locations, and actors with precision. "
+        "Identify the operational area and any named entities in the query."
+    ),
+    AgentPhase.RETRIEVAL.value: (
+        "You are a provenance clerk. "
+        "Prioritize evidence by source reliability and recency. "
+        "Tag each piece of evidence with its source and a confidence level."
+    ),
+    AgentPhase.SPATIAL.value: (
+        "You are a spatial intelligence analyst. "
+        "Assess geographic proximity and co-location patterns. "
+        "Highlight any spatial correlations between entities and events."
+    ),
+    AgentPhase.CORROBORATION.value: (
+        "You are a red-team reviewer. "
+        "Flag unsupported claims and demand additional evidence. "
+        "Mark each claim as [corroborated] or [uncorroborated] with supporting evidence IDs."
+    ),
+    AgentPhase.SYNTHESIS.value: (
+        "You are an intelligence editor. "
+        "Produce concise, actionable assessments with clear sourcing. "
+        "Prefix every claim with evidence IDs and a confidence tag (HIGH/MEDIUM/LOW)."
+    ),
+}
+
+
+def persona_prefix(phase: str) -> str:
+    """Return the persona prompt prefix for a given phase (empty if none)."""
+    return _PERSONAS.get(phase, "")
 
 
 # ---------------------------------------------------------------------------
@@ -204,8 +249,13 @@ async def _coverage_agent(
     query: str,
     route: str,
     initial_block: str,
+    bb: Blackboard | None = None,
 ) -> dict[str, Any]:
     """Phase 1 — assess whether the initial retrieval block is sufficient."""
+    # P1 — extract entities into the blackboard
+    if bb is not None:
+        bb.extracted_entities = extract_entities_from_query(query)
+
     if _circuit_open("coverage"):
         return {
             "phase": AgentPhase.COVERAGE.value,
@@ -259,6 +309,7 @@ async def _retrieval_agent(
     route: str,
     base_block: str,
     gaps: list[str],
+    bb: Blackboard | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Phase 2 — targeted retrieval to fill coverage gaps."""
     from query_router import route_retrieval
@@ -290,6 +341,12 @@ async def _retrieval_agent(
         meta["retrieved"] = len(hits)
         meta["route"] = result.get("route", route)
         meta.update(timing)
+        # P1/P3 — register evidence in the blackboard
+        if bb is not None:
+            _register_evidence(bb, hits, route)
+            bb.retrieval_decisions.append(
+                _make_retrieval_decision(route, query, len(hits))
+            )
         merged = _unique_lines(base_block, block)
         if not _is_thin_block(merged) or route == "hybrid":
             return merged, meta
@@ -311,6 +368,12 @@ async def _retrieval_agent(
         meta["retrieved"] += len(hits2)
         meta["secondary_route"] = secondary
         meta.update(timing2)
+        # P1/P3 — register secondary evidence
+        if bb is not None:
+            _register_evidence(bb, hits2, secondary)
+            bb.retrieval_decisions.append(
+                _make_retrieval_decision(secondary, query, len(hits2))
+            )
         merged = _unique_lines(base_block, block2)
         return merged, meta
     except Exception as exc:
@@ -321,6 +384,7 @@ async def _retrieval_agent(
 async def _spatial_agent(
     query: str,
     base_block: str,
+    bb: Blackboard | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Phase 3 — bbox-filtered spatial retrieval + proximity context."""
     from query_router import route_retrieval
@@ -351,6 +415,12 @@ async def _spatial_agent(
         meta["retrieved"] = len(hits)
         meta["route"] = result.get("route", "spatial")
         meta.update(timing)
+        # P1/P3 — register spatial evidence
+        if bb is not None:
+            _register_evidence(bb, hits, "spatial")
+            bb.retrieval_decisions.append(
+                _make_retrieval_decision("spatial", query, len(hits))
+            )
         merged = _unique_lines(base_block, block)
         return merged, meta
     except Exception as exc:
@@ -363,6 +433,7 @@ async def _spatial_agent(
 
 async def _corroboration_agent(
     block: str,
+    bb: Blackboard | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Phase 4 — tag claims with corroboration status."""
     if _circuit_open("corroboration"):
@@ -382,6 +453,9 @@ async def _corroboration_agent(
             )
             meta["phase"] = AgentPhase.CORROBORATION.value
             meta.update(timing)
+            # P1 — register claims in the blackboard
+            if bb is not None:
+                _register_claims(bb, tagged, meta)
             return tagged, meta
     except Exception as exc:
         return block, {
@@ -402,6 +476,7 @@ async def _synthesis_agent(
     block: str,
     route: str,
     phases: list[dict[str, Any]],
+    bb: Blackboard | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Phase 5 — deterministic merge of context into a final response block."""
     start = time.monotonic()
@@ -426,7 +501,31 @@ async def _synthesis_agent(
         lines.append(note)
 
     header = "\n".join(lines)
+
+    # P1/P3/P7 — enrich with blackboard content when available
+    extra_blocks: list[str] = []
+    if bb is not None:
+        # P7 — persona prefix for synthesis
+        persona = persona_prefix(AgentPhase.SYNTHESIS.value)
+        if persona:
+            extra_blocks.append(f"--- PERSONA\n{persona}")
+        # P3 — evidence registry
+        ev_block = evidence_block_to_text(bb)
+        if ev_block:
+            extra_blocks.append(f"--- EVIDENCE REGISTRY\n{ev_block}")
+        # P4 — conflicts (if any were detected)
+        conf_block = conflicts_block_to_text(bb)
+        if conf_block:
+            extra_blocks.append(conf_block)
+        # P3 — temporal timeline
+        tl_block = timeline_block_to_text(bb)
+        if tl_block:
+            extra_blocks.append(tl_block)
+        bb.synthesis_draft = block
+
     final = f"{header}\n\n{block.lstrip()}"
+    if extra_blocks:
+        final += "\n\n" + "\n\n".join(extra_blocks)
     duration_ms = int((time.monotonic() - start) * 1000)
     meta = {
         "phase": AgentPhase.SYNTHESIS.value,
@@ -434,7 +533,83 @@ async def _synthesis_agent(
         "phase_count": len(phases),
         "duration_ms": duration_ms,
     }
+    if bb is not None:
+        meta["evidence_count"] = len(bb.evidence_registry)
+        meta["conflict_count"] = len(bb.conflicts)
+        meta["entity_count"] = len(bb.extracted_entities)
     return final, meta
+
+
+# ---------------------------------------------------------------------------
+# P1/P3 — Blackboard helper functions
+# ---------------------------------------------------------------------------
+
+
+def _register_evidence(
+    bb: Blackboard,
+    hits: list[dict[str, Any]],
+    route: str,
+) -> None:
+    """Register retrieval hits as evidence items in the blackboard."""
+    from provenance import score_provenance
+
+    for hit in hits:
+        if not isinstance(hit, dict):
+            continue
+        text = str(hit.get("text") or hit.get("content") or "")[:500]
+        if not text.strip():
+            continue
+        source = str(hit.get("source") or hit.get("feed") or route)
+        url = str(hit.get("url") or hit.get("link") or "")
+        retrieved_at = str(hit.get("timestamp") or hit.get("date") or "")
+        # Compute provenance score
+        try:
+            p_score = score_provenance(source=source)
+        except Exception:
+            p_score = 0.5
+        bb.add_evidence(
+            source=source,
+            text=text,
+            url=url,
+            retrieved_at=retrieved_at,
+            provenance_score=p_score,
+        )
+
+
+def _make_retrieval_decision(
+    route: str,
+    query: str,
+    hits: int,
+) -> Any:
+    """Create a RetrievalDecision record for the blackboard."""
+    from agent_blackboard import RetrievalDecision
+
+    return RetrievalDecision(
+        route=route,
+        query=query,
+        hits=hits,
+    )
+
+
+def _register_claims(
+    bb: Blackboard,
+    tagged_block: str,
+    meta: dict[str, Any],
+) -> None:
+    """Extract claims from the corroboration-tagged block and register them."""
+    import re
+
+    # Extract [corroborated] and [uncorroborated] tagged lines
+    pattern = r"\[(corroborated|uncorroborated)\]\s*(.+)"
+    matches = re.findall(pattern, tagged_block, re.IGNORECASE)
+    for tag, text in matches:
+        is_uncorroborated = tag.lower() == "uncorroborated"
+        confidence = "LOW" if is_uncorroborated else "MEDIUM"
+        bb.add_claim(
+            claim=text.strip()[:300],
+            confidence=confidence,
+            uncorroborated=is_uncorroborated,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +656,11 @@ async def orchestrate(
     }
     hud_delivered = 0
 
+    # P1 — Create shared blackboard when enabled
+    bb: Blackboard | None = None
+    if blackboard_enabled():
+        bb = Blackboard(query=query, route=resolved_route)
+
     # Phase 0: initial route retrieval (required for coverage)
     try:
         initial, _ = await _run_with_timeout(
@@ -488,12 +668,15 @@ async def orchestrate(
             "route_retrieval",
         )
         block = initial.get("block", "")
+        # P1/P3 — register initial evidence
+        if bb is not None:
+            _register_evidence(bb, initial.get("hits") or [], resolved_route)
     except Exception as exc:
         trace["initial_error"] = str(exc)[:200]
         block = ""
 
     # Phase 1: Coverage
-    coverage = await _coverage_agent(query, resolved_route, block)
+    coverage = await _coverage_agent(query, resolved_route, block, bb=bb)
     trace["phases"].append(coverage)
     hud_delivered += await _publish_phase(
         "Coverage",
@@ -512,10 +695,12 @@ async def orchestrate(
     pending_tasks: list[asyncio.Task[tuple[str, dict[str, Any]]]] = []
     if needs_retrieve:
         pending_tasks.append(
-            asyncio.create_task(_retrieval_agent(query, resolved_route, block, gaps))
+            asyncio.create_task(
+                _retrieval_agent(query, resolved_route, block, gaps, bb=bb)
+            )
         )
     if run_spatial:
-        pending_tasks.append(asyncio.create_task(_spatial_agent(query, block)))
+        pending_tasks.append(asyncio.create_task(_spatial_agent(query, block, bb=bb)))
 
     if pending_tasks:
         try:
@@ -542,7 +727,7 @@ async def orchestrate(
             trace["phases"].append({"phase": "agent_error", "error": str(exc)[:200]})
 
     # Phase 4: Corroboration
-    block, corro_meta = await _corroboration_agent(block)
+    block, corro_meta = await _corroboration_agent(block, bb=bb)
     trace["phases"].append(corro_meta)
     hud_delivered += await _publish_phase(
         "Corroboration",
@@ -552,9 +737,26 @@ async def orchestrate(
         ],
     )
 
+    # P4 — Conflict detection (after evidence is registered)
+    if bb is not None and bb.evidence_registry:
+        try:
+            import conflict_detection
+
+            detected = conflict_detection.detect_conflicts(bb.evidence_registry)
+            for cp in detected:
+                bb.add_conflict(
+                    eid_a=cp["evidence_id_a"],
+                    eid_b=cp["evidence_id_b"],
+                    conflict_type=cp["conflict_type"],
+                    description=cp["description"],
+                    severity=cp["severity"],
+                )
+        except Exception:
+            pass  # fail-soft
+
     # Phase 5: Synthesis
     final_block, synth_meta = await _synthesis_agent(
-        block, resolved_route, trace["phases"]
+        block, resolved_route, trace["phases"], bb=bb
     )
     trace["phases"].append(synth_meta)
     trace["final_block_chars"] = len(final_block)
@@ -562,7 +764,7 @@ async def orchestrate(
     trace["hud_delivered"] = hud_delivered
     trace["circuit_breakers"] = _circuit_summary()
 
-    return {
+    result: dict[str, Any] = {
         "query": query,
         "route": resolved_route,
         "enabled": True,
@@ -579,6 +781,12 @@ async def orchestrate(
             else {}
         ),
     }
+
+    # P1 — Include blackboard state when enabled
+    if bb is not None:
+        result["blackboard"] = bb.condensed()
+
+    return result
 
 
 async def agent_status() -> dict[str, Any]:
@@ -604,4 +812,5 @@ async def agent_status() -> dict[str, Any]:
         "supported_routes": list(_VALID_ROUTES),
         "supported_phases": [p.value for p in AgentPhase],
         "globe_layers": layers,
+        "blackboard_enabled": blackboard_enabled(),
     }

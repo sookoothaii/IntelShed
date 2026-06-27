@@ -76,6 +76,7 @@ class WorldBaseConfig(BaseModel):
     agent_orchestrator_phase_timeout: float = 10.0
     agent_orchestrator_circuit_breaker_threshold: int = 3
     agent_orchestrator_circuit_breaker_window: int = 60
+    blackboard_enabled: bool = False
     dynamic_graph_enabled: bool = False
     dynamic_graph_max_confidence: float = 0.7
     maritime_trajectory_enabled: bool = False
@@ -269,6 +270,7 @@ class WorldBaseConfig(BaseModel):
                 os.getenv("WORLDBASE_TELEGRAM_RETENTION_DAYS", "90")
             ),
             briefing_telegram=_truthy(os.getenv("WORLDBASE_BRIEFING_TELEGRAM", "0")),
+            blackboard_enabled=_truthy(os.getenv("WORLDBASE_BLACKBOARD", "0")),
         )
 
 
