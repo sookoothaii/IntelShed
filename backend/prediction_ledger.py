@@ -52,7 +52,8 @@ def init_prediction_db() -> None:
                 bucket TEXT,
                 outcome TEXT,
                 outcome_at TEXT,
-                hit INTEGER
+                hit INTEGER,
+                confidence REAL
             );
             CREATE INDEX IF NOT EXISTS idx_briefing_pred_issued
                 ON briefing_predictions(issued_at);
@@ -61,6 +62,11 @@ def init_prediction_db() -> None:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_briefing_pred_watch_issue
                 ON briefing_predictions(watch_id, issued_at);
         """)
+        # Migration: add confidence column if missing (existing DBs)
+        try:
+            conn.execute("ALTER TABLE briefing_predictions ADD COLUMN confidence REAL")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         conn.commit()
 
 
@@ -122,8 +128,8 @@ def record_watch_items(watch_items: list[dict[str, Any]], issued_at: str) -> int
                     """
                     INSERT OR IGNORE INTO briefing_predictions (
                         watch_id, prefix, issued_at, horizon_h, claim, sources,
-                        cell_id, bucket, outcome, outcome_at, hit
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+                        cell_id, bucket, outcome, outcome_at, hit, confidence
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)
                     """,
                     (
                         watch_id,
@@ -134,6 +140,7 @@ def record_watch_items(watch_items: list[dict[str, Any]], issued_at: str) -> int
                         json.dumps(list(item.get("sources") or [])),
                         item.get("cell_id"),
                         item.get("bucket"),
+                        adjust_confidence(item.get("confidence")),
                     ),
                 )
                 if conn.total_changes:
@@ -487,6 +494,208 @@ def accuracy_30d(*, window_days: int | None = None) -> dict[str, Any]:
     }
 
 
+def calibration_curve(
+    *,
+    window_days: int | None = None,
+    n_bins: int = 5,
+) -> dict[str, Any]:
+    """Bin resolved predictions by confidence, compute actual accuracy per bin.
+
+    Returns a list of bins with:
+    - bin_label: e.g. "0.0-0.2"
+    - bin_low, bin_high: float edges
+    - count: total predictions in bin
+    - hits, misses: outcome counts
+    - actual_accuracy: hits / count (None if count=0)
+    - mean_confidence: avg confidence of predictions in bin
+    - calibration_gap: mean_confidence - actual_accuracy (positive = overconfident)
+    """
+    init_prediction_db()
+    days = window_days if window_days is not None else _WINDOW_DAYS
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    n_bins = max(2, min(10, int(n_bins)))
+
+    with _conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT confidence, hit FROM briefing_predictions
+            WHERE hit IS NOT NULL AND issued_at >= ? AND confidence IS NOT NULL
+            """,
+            (cutoff,),
+        ).fetchall()
+
+    if not rows:
+        return {
+            "window_days": days,
+            "n_bins": n_bins,
+            "total_resolved": 0,
+            "bins": [],
+            "overall_accuracy": None,
+            "mean_confidence": None,
+            "calibration_error": None,
+        }
+
+    edge = 1.0 / n_bins
+    bins: list[dict[str, Any]] = []
+    for i in range(n_bins):
+        low = round(i * edge, 2)
+        high = round((i + 1) * edge, 2)
+        in_bin = [
+            r
+            for r in rows
+            if low <= float(r["confidence"] or 0) < high
+            or (i == n_bins - 1 and float(r["confidence"] or 0) == high)
+        ]
+        count = len(in_bin)
+        hits = sum(1 for r in in_bin if r["hit"] == 1)
+        misses = count - hits
+        actual = round(hits / count, 3) if count else None
+        mean_conf = (
+            round(sum(float(r["confidence"] or 0) for r in in_bin) / count, 3)
+            if count
+            else None
+        )
+        gap = (
+            round(mean_conf - actual, 3)
+            if actual is not None and mean_conf is not None
+            else None
+        )
+        bins.append(
+            {
+                "bin_label": f"{low:.1f}-{high:.1f}",
+                "bin_low": low,
+                "bin_high": high,
+                "count": count,
+                "hits": hits,
+                "misses": misses,
+                "actual_accuracy": actual,
+                "mean_confidence": mean_conf,
+                "calibration_gap": gap,
+            }
+        )
+
+    total = len(rows)
+    total_hits = sum(1 for r in rows if r["hit"] == 1)
+    overall_acc = round(total_hits / total, 3) if total else None
+    mean_conf_all = (
+        round(sum(float(r["confidence"] or 0) for r in rows) / total, 3)
+        if total
+        else None
+    )
+    # Expected Calibration Error (ECE): weighted average of |gap| per bin
+    ece = (
+        round(
+            sum(
+                abs(b["calibration_gap"]) * b["count"]
+                for b in bins
+                if b["calibration_gap"] is not None
+            )
+            / total,
+            3,
+        )
+        if total
+        else None
+    )
+
+    return {
+        "window_days": days,
+        "n_bins": n_bins,
+        "total_resolved": total,
+        "bins": bins,
+        "overall_accuracy": overall_acc,
+        "mean_confidence": mean_conf_all,
+        "calibration_error": ece,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 3.3 Step 2 — Fusion weight adjustment from calibration
+# ---------------------------------------------------------------------------
+
+_CAL_SMOOTHING_K = float(os.getenv("WORLDBASE_CALIBRATION_SMOOTHING_K", "5"))
+_CAL_MIN_SAMPLES = int(os.getenv("WORLDBASE_CALIBRATION_MIN_SAMPLES", "10"))
+
+
+def calibration_map(
+    *, window_days: int | None = None, n_bins: int = 5
+) -> dict[str, Any]:
+    """Compute a Bayesian calibration map: raw confidence → adjusted confidence.
+
+    For each bin with N samples and actual accuracy A:
+        adjusted = (N * A + k * raw) / (N + k)
+
+    With k=5 pseudo-counts, this smoothly interpolates between
+    "no data → keep raw" and "lots of data → use actual accuracy".
+
+    Returns the map + per-bin details for transparency.
+    """
+    curve = calibration_curve(window_days=window_days, n_bins=n_bins)
+    bins = curve.get("bins") or []
+    k = _CAL_SMOOTHING_K
+
+    adjustments: list[dict[str, Any]] = []
+    for b in bins:
+        count = b.get("count") or 0
+        actual = b.get("actual_accuracy")
+        mean_conf = b.get("mean_confidence")
+        if actual is not None and mean_conf is not None and count > 0:
+            # Bayesian shrinkage: pull mean_conf toward actual_accuracy
+            adjusted = round((count * actual + k * mean_conf) / (count + k), 3)
+            factor = round(adjusted / mean_conf, 3) if mean_conf > 0 else 1.0
+        else:
+            adjusted = mean_conf
+            factor = 1.0
+        adjustments.append(
+            {
+                "bin_label": b.get("bin_label"),
+                "bin_low": b.get("bin_low"),
+                "bin_high": b.get("bin_high"),
+                "count": count,
+                "raw_confidence": mean_conf,
+                "actual_accuracy": actual,
+                "adjusted_confidence": adjusted,
+                "adjustment_factor": factor,
+                "samples_sufficient": count >= _CAL_MIN_SAMPLES,
+            }
+        )
+
+    return {
+        "window_days": curve.get("window_days"),
+        "n_bins": curve.get("n_bins"),
+        "total_resolved": curve.get("total_resolved"),
+        "smoothing_k": k,
+        "min_samples": _CAL_MIN_SAMPLES,
+        "overall_accuracy": curve.get("overall_accuracy"),
+        "calibration_error": curve.get("calibration_error"),
+        "bins": adjustments,
+    }
+
+
+def adjust_confidence(
+    confidence: float | None, *, window_days: int | None = None
+) -> float | None:
+    """Apply Bayesian calibration adjustment to a raw confidence value.
+
+    Returns adjusted confidence, or raw if no calibration data available.
+    """
+    if confidence is None:
+        return None
+    raw = float(confidence)
+    if raw <= 0 or raw >= 1:
+        return raw
+    cmap = calibration_map(window_days=window_days)
+    bins = cmap.get("bins") or []
+    for b in bins:
+        low = b.get("bin_low") or 0
+        high = b.get("bin_high") or 1
+        if low <= raw < high or (high == 1.0 and raw == 1.0):
+            if b.get("samples_sufficient"):
+                factor = b.get("adjustment_factor") or 1.0
+                return round(max(0.01, min(1.0, raw * factor)), 3)
+            return raw
+    return raw
+
+
 def _serialize_row(row: sqlite3.Row) -> dict[str, Any]:
     issued = _parse_ts(row["issued_at"])
     horizon = int(row["horizon_h"] or 48)
@@ -601,6 +810,14 @@ def enrich_quality_meta(quality: dict[str, Any] | None) -> dict[str, Any] | None
     meta["prediction_accuracy_30d"] = stats.get("accuracy")
     meta["prediction_sample_30d"] = stats.get("sample_size")
     meta["prediction_pending"] = stats.get("pending")
+    # 3.3 — include calibration error if confidence data available
+    try:
+        curve = calibration_curve()
+        if curve.get("calibration_error") is not None:
+            meta["prediction_calibration_error"] = curve["calibration_error"]
+            meta["prediction_mean_confidence"] = curve.get("mean_confidence")
+    except Exception:
+        pass
     out["meta"] = meta
     return out
 
@@ -622,7 +839,18 @@ def format_accuracy_line(lang: str | None = None) -> str:
             f"(pending: {stats.get('pending', 0)})."
         )
     pct = round(float(acc) * 100)
+    # 3.3 — add calibration error if available
+    ece_str = ""
+    try:
+        curve = calibration_curve()
+        ece = curve.get("calibration_error")
+        if ece is not None and ece > 0.1:
+            ece_str = (
+                f" [calibration gap: {ece:.2f} — overconfident]" if ece > 0.15 else ""
+            )
+    except Exception:
+        pass
     lang_norm = (lang or "en").strip().lower()
     if lang_norm.startswith("de"):
-        return f"30-Tage-Watch-Trefferquote: {pct}% (n={sample}) — keine Überbewertung."
-    return f"30d watch hit rate: {pct}% (n={sample}) — do not overclaim beyond this track record."
+        return f"30-Tage-Watch-Trefferquote: {pct}% (n={sample}) — keine Überbewertung.{ece_str}"
+    return f"30d watch hit rate: {pct}% (n={sample}) — do not overclaim beyond this track record.{ece_str}"

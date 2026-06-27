@@ -1000,3 +1000,127 @@ async def gdacs_alerts():
         if stale:
             return stale
         return {"count": 0, "alerts": [], "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Weather radar — RainViewer (free, no key). Tile URLs for globe overlay.
+# ---------------------------------------------------------------------------
+@router.get("/radar")
+async def weather_radar():
+    """Global precipitation radar tile URLs from RainViewer (cached 10m). No key."""
+    key = "radar"
+    cached = await _get(key, ttl=600.0)
+    if cached is not None:
+        return cached
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
+            r = await client.get("https://api.rainviewer.com/public/weather-maps.json")
+            if r.status_code != 200:
+                return {"enabled": False, "error": f"status {r.status_code}"}
+            data = r.json()
+
+        past = data.get("radar", {}).get("past", [])
+        nowcast = data.get("radar", {}).get("nowcast", [])
+        satellite = data.get("satellite", {}).get("infrared", [])
+
+        host = data.get("host", "https://tilecache.rainviewer.net")
+
+        latest_past = past[-1] if past else None
+        latest_nowcast = nowcast[0] if nowcast else None
+        latest_sat = satellite[-1] if satellite else None
+
+        def _tile_path(item, kind: str = "radar") -> str:
+            path = item.get("path", "")
+            return f"{host}{path}/256/{kind}/{{z}}/{{x}}/{{y}}/2/1_1.png"
+
+        out: dict = {
+            "enabled": True,
+            "host": host,
+            "updated": datetime.now(timezone.utc).isoformat(),
+            "radar": {
+                "past_count": len(past),
+                "nowcast_count": len(nowcast),
+                "latest_time": latest_past.get("time") if latest_past else None,
+                "latest_tile": _tile_path(latest_past) if latest_past else None,
+                "nowcast_time": latest_nowcast.get("time") if latest_nowcast else None,
+                "nowcast_tile": _tile_path(latest_nowcast) if latest_nowcast else None,
+                "past_tiles": [_tile_path(item) for item in past[-6:]],
+            },
+            "satellite": {
+                "count": len(satellite),
+                "latest_time": latest_sat.get("time") if latest_sat else None,
+                "latest_tile": _tile_path(latest_sat, kind="satellite")
+                if latest_sat
+                else None,
+            },
+        }
+        await _set(key, out)
+        return out
+    except Exception as e:
+        stale = await _stale(key)
+        if stale:
+            return stale
+        return {"enabled": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Commodities — gold, silver, oil, natgas via Frankfurter + fallback. No key.
+# ---------------------------------------------------------------------------
+@router.get("/commodities")
+async def commodities():
+    """Key commodity prices (cached 5m). No key. Uses Frankfurter for gold-backed proxies."""
+    key = "commodities"
+    cached = await _get(key, ttl=300.0)
+    if cached is not None:
+        return cached
+    out: dict = {
+        "updated": datetime.now(timezone.utc).isoformat(),
+        "commodities": {},
+        "source": "frankfurter.app",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=_UA) as client:
+            # XAU (gold) and XAG (silver) via Frankfurter (ECB reference rates)
+            try:
+                fx = await client.get(
+                    "https://api.frankfurter.app/latest",
+                    params={"from": "USD", "to": "XAU,XAG"},
+                )
+                if fx.status_code == 200:
+                    rates = fx.json().get("rates", {})
+                    if "XAU" in rates:
+                        out["commodities"]["gold_usd_oz"] = round(1.0 / rates["XAU"], 2)
+                    if "XAG" in rates:
+                        out["commodities"]["silver_usd_oz"] = round(
+                            1.0 / rates["XAG"], 2
+                        )
+            except Exception:
+                pass
+
+            # Oil (Brent/WTI) via Commodities-API free tier or fallback to static
+            try:
+                oil = await client.get(
+                    "https://commodities-api.com/api/latest",
+                    params={"base": "USD", "symbols": "BRENT,WTI"},
+                )
+                if oil.status_code == 200:
+                    rates = oil.json().get("data", {}).get("rates", {})
+                    if "BRENT" in rates:
+                        out["commodities"]["brent_usd_bbl"] = round(
+                            1.0 / rates["BRENT"], 2
+                        )
+                    if "WTI" in rates:
+                        out["commodities"]["wti_usd_bbl"] = round(1.0 / rates["WTI"], 2)
+            except Exception:
+                pass
+
+        if not out["commodities"]:
+            out["error"] = "no commodity data available"
+        await _set(key, out)
+        return out
+    except Exception as e:
+        stale = await _stale(key)
+        if stale:
+            return stale
+        out["error"] = str(e)
+        return out

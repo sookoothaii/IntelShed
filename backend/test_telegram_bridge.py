@@ -123,5 +123,128 @@ class TelegramBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["posts"][0]["id"], "p1")
 
 
+class TelegramEntityMatchingTests(unittest.TestCase):
+    """3.5 — Telegram → FtM Mention deep integration tests."""
+
+    def test_match_post_to_entities_by_name(self):
+        """Post text containing entity name should match."""
+        entities = [
+            {
+                "id": "ent1",
+                "schema": "Person",
+                "name": "Prayut Chan-o-cha",
+                "properties": {},
+            },
+            {"id": "ent2", "schema": "Organization", "name": "PTT", "properties": {}},
+        ]
+        post = {"text": "Prayut Chan-o-cha announces new policy today", "hashtags": []}
+        matches = telegram_bridge.match_post_to_entities(post, entities)
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["entity_id"], "ent1")
+        self.assertEqual(matches[0]["schema"], "Person")
+
+    def test_match_post_to_entities_by_alias(self):
+        """Post text containing alias should match."""
+        entities = [
+            {
+                "id": "ent1",
+                "schema": "Person",
+                "name": "Hun Sen",
+                "properties": {"alias": ["Hun Xen", "PM Hun Sen"]},
+            },
+        ]
+        post = {"text": "Hun Xen visits Bangkok for trade talks", "hashtags": []}
+        matches = telegram_bridge.match_post_to_entities(post, entities)
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0]["matched_alias"], "Hun Xen")
+
+    def test_match_post_no_match(self):
+        """Post text with no entity names should return empty list."""
+        entities = [
+            {
+                "id": "ent1",
+                "schema": "Person",
+                "name": "Prayut Chan-o-cha",
+                "properties": {},
+            },
+        ]
+        post = {"text": "Weather update for Bangkok today", "hashtags": []}
+        matches = telegram_bridge.match_post_to_entities(post, entities)
+        self.assertEqual(len(matches), 0)
+
+    def test_match_post_case_insensitive(self):
+        """Matching should be case-insensitive."""
+        entities = [
+            {"id": "ent1", "schema": "Organization", "name": "PTT", "properties": {}},
+        ]
+        post = {"text": "ptt announces new pipeline project", "hashtags": []}
+        matches = telegram_bridge.match_post_to_entities(post, entities)
+        self.assertEqual(len(matches), 1)
+
+    def test_match_post_skips_short_names(self):
+        """Names shorter than 3 chars should be skipped to avoid false positives."""
+        entities = [
+            {"id": "ent1", "schema": "Person", "name": "Li", "properties": {}},
+        ]
+        post = {"text": "Li visits Bangkok", "hashtags": []}
+        matches = telegram_bridge.match_post_to_entities(post, entities)
+        self.assertEqual(len(matches), 0)
+
+    def test_match_post_with_hashtags(self):
+        """Hashtags should be included in matching text."""
+        entities = [
+            {
+                "id": "ent1",
+                "schema": "Organization",
+                "name": "Thailand",
+                "properties": {},
+            },
+        ]
+        post = {"text": "News update today", "hashtags": ["#bangkok", "#thailand"]}
+        matches = telegram_bridge.match_post_to_entities(post, entities)
+        self.assertEqual(len(matches), 1)
+
+    def test_list_person_org_entities_empty(self):
+        """Should return empty list when ftm_query unavailable (fail-soft)."""
+        import builtins
+
+        orig_import = builtins.__import__
+
+        def _fail_import(name, *args, **kwargs):
+            if name == "ftm_query":
+                raise ImportError("no ftm")
+            return orig_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=_fail_import):
+            result = telegram_bridge._list_person_org_entities()
+        self.assertEqual(result, [])
+
+    def test_ingest_returns_linked_entities(self):
+        """Ingest should return linked_entities list (even if empty)."""
+        import ftm_query as real_ftm
+
+        with patch.object(
+            telegram_bridge._tg_config, "configured", return_value=True
+        ), patch.object(
+            telegram_bridge, "_list_person_org_entities", return_value=[]
+        ), patch.object(
+            real_ftm, "upsert", side_effect=lambda e, **kw: e
+        ), patch.object(real_ftm, "add_edge", side_effect=lambda **kw: None):
+            posts = [
+                {
+                    "id": "p1",
+                    "text": "Test post",
+                    "channel": "test",
+                    "date": "2026-06-27T00:00:00Z",
+                    "url": "https://t.me/test/1",
+                    "channel_title": "Test",
+                }
+            ]
+            result = telegram_bridge.ingest_posts(posts, dataset="telegram")
+        self.assertTrue(result["enabled"])
+        self.assertIn("linked_entities", result)
+        self.assertIsInstance(result["linked_entities"], list)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,64 @@
+{
+  "timestamp": "2026-06-27T14:47:11.269145+00:00",
+  "mode": "direct_duckdb",
+  "graph_baseline": {
+    "entities": 48484,
+    "statements": 102762,
+    "edges": 4423,
+    "by_schema": {
+      "Airplane": 46628,
+      "Address": 750,
+      "Vessel": 557,
+      "Event": 470,
+      "Thing": 67,
+      "Person": 5,
+      "Document": 5,
+      "Company": 1,
+      "UserAccount": 1
+    },
+    "by_dataset": {
+      "anomalies": 98353,
+      "ais": 2268,
+      "gdelt-pulse": 803,
+      "gdacs": 712,
+      "eonet": 452,
+      "stresstest": 105,
+      "intel-ingest": 50,
+      "correlations": 9,
+      "test_queue": 4,
+      "test-doc": 4,
+      "identity_osint": 2
+    }
+  },
+  "results": [
+    {
+      "test": "upsert_latency",
+      "passed": false,
+      "p50_ms": 30.9,
+      "p95_ms": 43.4,
+      "n": 50
+    },
+    {
+      "test": "subgraph_traversal",
+      "passed": true,
+      "p50_ms": 135.4,
+      "p95_ms": 195.5,
+      "n": 10
+    },
+    {
+      "test": "entity_graph",
+      "passed": true,
+      "p50_ms": 33.8,
+      "p95_ms": 40.9,
+      "n": 9
+    },
+    {
+      "test": "concurrent_ingest",
+      "passed": true,
+      "total_ingested": 120,
+      "total_target": 120,
+      "duration_s": 3.81,
+      "throughput_per_s": 32.0
+    }
+  ]
+}

@@ -28,6 +28,7 @@ const DataPanel = lazy(() => import('./components/DataPanel'))
 const NewsPanel = lazy(() => import('./components/NewsPanel'))
 const OsintPanel = lazy(() => import('./components/OsintPanel'))
 const SituationBoard = lazy(() => import('./components/SituationBoard'))
+const CalibrationTriggersPanel = lazy(() => import('./components/CalibrationTriggersPanel'))
 const FullAnalysisOverlay = lazy(() => import('./components/FullAnalysisOverlay'))
 const WindyMapOverlay = lazy(() => import('./components/WindyMapOverlay'))
 
@@ -196,6 +197,7 @@ export default function App() {
   const [askAI, setAskAI] = useState<{ id: number; question: string; context: string } | null>(null)
   const [analysisOpen, setAnalysisOpen] = useHudSessionState('analysisOpen', false, isBool)
   const [situationOpen, setSituationOpen] = useHudSessionState('situationOpen', false, isBool)
+  const [calTrigOpen, setCalTrigOpen] = useState(false)
   const [osintPins, setOsintPins] = useState<OsintPin[]>(() => loadOsintPins())
   const [syncCamera, setSyncCamera] = useState<{ lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null>(null)
   const [mapMode, setMapMode] = useHudSessionState<MapViewMode>('mapMode', DEFAULT_MAP_VIEW, isMapViewMode)
@@ -390,6 +392,13 @@ export default function App() {
               </span>
             )}
           </button>
+          <button
+            className="mega-analysis-btn secondary"
+            onClick={() => setCalTrigOpen(true)}
+            title="Calibration curve & trigger rules"
+          >
+            CAL & TRIG
+          </button>
           <SystemStatus />
           <HudClock />
         </div>
@@ -407,6 +416,11 @@ export default function App() {
             onAskAI={handleAskAI}
             onOpenIntel={openIntel}
           />
+        </Suspense>
+      )}
+      {calTrigOpen && (
+        <Suspense fallback={<TabFallback label="CAL & TRIG" />}>
+          <ErrorBoundary name="CalibrationTriggers"><CalibrationTriggersPanel onClose={() => setCalTrigOpen(false)} /></ErrorBoundary>
         </Suspense>
       )}
       {analysisOpen && (

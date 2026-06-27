@@ -343,6 +343,232 @@ class PredictionLedgerTests(unittest.TestCase):
         self.assertIsNone(rows[0]["hit"])
         self.assertIsNotNone(rows[1]["hit"])
 
+    def test_calibration_curve_empty(self):
+        curve = pl.calibration_curve()
+        self.assertEqual(curve["total_resolved"], 0)
+        self.assertEqual(curve["bins"], [])
+        self.assertIsNone(curve["calibration_error"])
+
+    def test_calibration_curve_well_calibrated(self):
+        """All predictions at confidence 0.8, all hit → gap near 0.2 (overconfident)."""
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        for i in range(5):
+            self._insert_row(
+                watch_id=f"cal_hit_{i}",
+                issued_at=old,
+                prefix="gdelt",
+            )
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "UPDATE briefing_predictions SET confidence = 0.8 WHERE watch_id = ?",
+                    (f"cal_hit_{i}",),
+                )
+                conn.commit()
+        pl.resolve_pending(
+            {
+                "gdelt_pulse_local": {"articles": [{}, {}, {}, {}, {}]},
+                "gdelt_geo_local": {"events": [{}, {}, {}]},
+            },
+            [],
+        )
+        curve = pl.calibration_curve(n_bins=5)
+        self.assertEqual(curve["total_resolved"], 5)
+        self.assertEqual(curve["overall_accuracy"], 1.0)
+        # All in the 0.8-1.0 bin
+        high_bin = [b for b in curve["bins"] if b["bin_low"] == 0.8][0]
+        self.assertEqual(high_bin["count"], 5)
+        self.assertEqual(high_bin["hits"], 5)
+        self.assertEqual(high_bin["actual_accuracy"], 1.0)
+        self.assertAlmostEqual(high_bin["mean_confidence"], 0.8)
+        # Gap = 0.8 - 1.0 = -0.2 (underconfident)
+        self.assertAlmostEqual(high_bin["calibration_gap"], -0.2)
+
+    def test_calibration_curve_overconfident(self):
+        """Predictions at confidence 0.9 but all miss → gap = 0.9 (overconfident)."""
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        for i in range(3):
+            self._insert_row(
+                watch_id=f"cal_miss_{i}",
+                issued_at=old,
+                prefix="gdelt",
+            )
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "UPDATE briefing_predictions SET confidence = 0.9 WHERE watch_id = ?",
+                    (f"cal_miss_{i}",),
+                )
+                conn.commit()
+        pl.resolve_pending(
+            {
+                "gdelt_pulse_local": {"articles": [{}]},
+                "gdelt_geo_local": {"events": []},
+            },
+            [],
+        )
+        curve = pl.calibration_curve(n_bins=5)
+        self.assertEqual(curve["overall_accuracy"], 0.0)
+        high_bin = [b for b in curve["bins"] if b["bin_low"] == 0.8][0]
+        self.assertEqual(high_bin["count"], 3)
+        self.assertEqual(high_bin["misses"], 3)
+        self.assertAlmostEqual(high_bin["calibration_gap"], 0.9)
+
+    def test_calibration_curve_ece(self):
+        """Expected Calibration Error: weighted average of |gap|."""
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        # 2 hits at conf 0.5, 2 misses at conf 0.5
+        for i in range(4):
+            self._insert_row(
+                watch_id=f"ece_{i}",
+                issued_at=old,
+                prefix="gdelt",
+            )
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "UPDATE briefing_predictions SET confidence = 0.5 WHERE watch_id = ?",
+                    (f"ece_{i}",),
+                )
+                conn.commit()
+        # 2 hit, 2 miss → actual accuracy 0.5, gap = 0.0
+        # Resolve first 2 as hits
+        with sqlite3.connect(self._db_path) as conn:
+            conn.execute(
+                "UPDATE briefing_predictions SET hit = 1, outcome = 'hit' WHERE watch_id IN ('ece_0', 'ece_1')"
+            )
+            conn.execute(
+                "UPDATE briefing_predictions SET hit = 0, outcome = 'miss' WHERE watch_id IN ('ece_2', 'ece_3')"
+            )
+            conn.commit()
+        curve = pl.calibration_curve(n_bins=5)
+        # All in 0.4-0.6 bin, accuracy 0.5, conf 0.5, gap 0.0
+        mid_bin = [b for b in curve["bins"] if b["bin_low"] == 0.4][0]
+        self.assertEqual(mid_bin["count"], 4)
+        self.assertAlmostEqual(mid_bin["calibration_gap"], 0.0)
+        self.assertAlmostEqual(curve["calibration_error"], 0.0)
+
+    def test_record_watch_items_stores_confidence(self):
+        issued = datetime.now(timezone.utc).isoformat()
+        items = [
+            {
+                "id": "conf001",
+                "prefix": "gdelt",
+                "title": "Test confidence storage",
+                "horizon_h": 24,
+                "confidence": 0.75,
+                "sources": ["gdelt_pulse_local"],
+                "bucket": "local",
+            }
+        ]
+        pl.record_watch_items(items, issued)
+        with sqlite3.connect(self._db_path) as conn:
+            row = conn.execute(
+                "SELECT confidence FROM briefing_predictions WHERE watch_id = ?",
+                ("conf001",),
+            ).fetchone()
+            self.assertAlmostEqual(row[0], 0.75)
+
+    def test_calibration_map_empty(self):
+        """No resolved predictions → all bins have factor=1.0."""
+        cmap = pl.calibration_map()
+        self.assertEqual(cmap["total_resolved"], 0)
+        for b in cmap["bins"]:
+            self.assertFalse(b["samples_sufficient"])
+
+    def test_calibration_map_overconfident_bin(self):
+        """Bin with high confidence but low accuracy → factor < 1.0."""
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        # 10 predictions at confidence 0.9, all miss
+        for i in range(10):
+            self._insert_row(
+                watch_id=f"map_miss_{i}",
+                issued_at=old,
+                prefix="gdelt",
+            )
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "UPDATE briefing_predictions SET confidence = 0.9 WHERE watch_id = ?",
+                    (f"map_miss_{i}",),
+                )
+                conn.commit()
+        pl.resolve_pending(
+            {
+                "gdelt_pulse_local": {"articles": [{}]},
+                "gdelt_geo_local": {"events": []},
+            },
+            [],
+        )
+        cmap = pl.calibration_map(n_bins=5)
+        high_bin = [b for b in cmap["bins"] if b["bin_low"] == 0.8][0]
+        self.assertEqual(high_bin["count"], 10)
+        self.assertEqual(high_bin["actual_accuracy"], 0.0)
+        self.assertTrue(high_bin["samples_sufficient"])
+        # adjusted = (10*0 + 5*0.9) / (10+5) = 4.5/15 = 0.3
+        self.assertAlmostEqual(high_bin["adjusted_confidence"], 0.3)
+        # factor = 0.3 / 0.9 = 0.333
+        self.assertAlmostEqual(high_bin["adjustment_factor"], 0.333, places=2)
+
+    def test_adjust_confidence_no_data(self):
+        """No resolved predictions → adjust_confidence returns raw."""
+        result = pl.adjust_confidence(0.8)
+        self.assertAlmostEqual(result, 0.8)
+
+    def test_adjust_confidence_overconfident(self):
+        """With calibration data showing overconfidence, adjust down."""
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        # 15 predictions at confidence 0.9, all miss → bin is overconfident
+        for i in range(15):
+            self._insert_row(
+                watch_id=f"adj_miss_{i}",
+                issued_at=old,
+                prefix="gdelt",
+            )
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "UPDATE briefing_predictions SET confidence = 0.9 WHERE watch_id = ?",
+                    (f"adj_miss_{i}",),
+                )
+                conn.commit()
+        pl.resolve_pending(
+            {
+                "gdelt_pulse_local": {"articles": [{}]},
+                "gdelt_geo_local": {"events": []},
+            },
+            [],
+        )
+        # Raw 0.9 should be adjusted down
+        adjusted = pl.adjust_confidence(0.9)
+        self.assertLess(adjusted, 0.9)
+        self.assertGreater(adjusted, 0.0)
+
+    def test_adjust_confidence_insufficient_samples(self):
+        """With < min_samples, adjust_confidence returns raw."""
+        old = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+        # Only 2 predictions — below _CAL_MIN_SAMPLES (10)
+        for i in range(2):
+            self._insert_row(
+                watch_id=f"insuf_{i}",
+                issued_at=old,
+                prefix="gdelt",
+            )
+            with sqlite3.connect(self._db_path) as conn:
+                conn.execute(
+                    "UPDATE briefing_predictions SET confidence = 0.9 WHERE watch_id = ?",
+                    (f"insuf_{i}",),
+                )
+                conn.commit()
+        pl.resolve_pending(
+            {
+                "gdelt_pulse_local": {"articles": [{}]},
+                "gdelt_geo_local": {"events": []},
+            },
+            [],
+        )
+        result = pl.adjust_confidence(0.9)
+        self.assertAlmostEqual(result, 0.9)
+
+    def test_adjust_confidence_none(self):
+        """None input → None output."""
+        self.assertIsNone(pl.adjust_confidence(None))
+
 
 if __name__ == "__main__":
     unittest.main()

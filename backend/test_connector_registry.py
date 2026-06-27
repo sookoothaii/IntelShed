@@ -10,7 +10,7 @@ import connector_registry
 
 class ConnectorRegistryTests(unittest.TestCase):
     def test_catalog_non_empty(self):
-        self.assertGreaterEqual(len(connector_registry.CONNECTOR_CATALOG), 27)
+        self.assertGreaterEqual(len(connector_registry.CONNECTOR_CATALOG), 29)
 
     def test_catalog_ids_unique(self):
         ids = connector_registry.catalog_ids()
@@ -32,7 +32,7 @@ class ConnectorRegistryTests(unittest.TestCase):
     def test_export_static_json(self):
         doc = connector_registry.export_manifest(include_runtime=False)
         self.assertEqual(doc["version"], 1)
-        self.assertGreaterEqual(len(doc["connectors"]), 27)
+        self.assertGreaterEqual(len(doc["connectors"]), 29)
         json.dumps(doc)
 
     def test_export_yaml_roundtrip_shape(self):

@@ -13,10 +13,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 os.environ.setdefault("WORLDBASE_DOMAIN_INTEL", "1")
 
-from domain_intel import (
+from config import get_config  # noqa: E402
+
+get_config.cache_clear()
+
+from domain_intel import (  # noqa: E402
     _domain_cache_get,
     _domain_cache_set,
     _enabled,
+    _enrich_ftm,
     _fetch_crt_sh,
     _fetch_rdap,
     _fetch_wayback,
@@ -346,6 +351,168 @@ class TestEndpointValidation(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resp.status_code, 200)
             data = resp.json()
             self.assertIn("error", data)
+
+
+class TestFtmEnrichment(unittest.TestCase):
+    """FtM Domain entity enrichment."""
+
+    def test_enrich_creates_domain_entity(self):
+        """_enrich_ftm should create a Domain entity and link to Organization."""
+        mock_entity = MagicMock()
+        mock_entity.id = "domain-entity-id"
+
+        mock_ftm = MagicMock()
+        mock_ftm.make_entity.return_value = mock_entity
+
+        with patch.dict("sys.modules", {"ftm_query": mock_ftm}):
+            results = {
+                "domain": "example.com",
+                "rdap": {
+                    "enabled": True,
+                    "registered": True,
+                    "registration_date": "2020-01-01T00:00:00Z",
+                    "expiration_date": "2025-01-01T00:00:00Z",
+                    "registrar": "Test Registrar",
+                    "nameservers": ["ns1.example.com", "ns2.example.com"],
+                },
+                "certs": {
+                    "enabled": True,
+                    "unique_subdomains": [
+                        "www.example.com",
+                        "api.example.com",
+                        "example.com",
+                    ],
+                },
+            }
+            enrich = _enrich_ftm("org-id-123", results)
+
+        self.assertEqual(enrich["count"], 3)  # 1 domain + 2 subdomains
+        self.assertEqual(len(enrich["ids"]), 3)
+        self.assertIsNone(enrich["error"])
+        # make_entity called for domain + 2 subdomains
+        self.assertEqual(mock_ftm.make_entity.call_count, 3)
+        # upsert called for each
+        self.assertEqual(mock_ftm.upsert.call_count, 3)
+        # add_edge: org→domain (owns) + domain→sub1 (parent) + domain→sub2 (parent) = 3
+        self.assertEqual(mock_ftm.add_edge.call_count, 3)
+
+    def test_enrich_no_domain_in_results(self):
+        """_enrich_ftm should return error when no domain in results."""
+        enrich = _enrich_ftm("org-id", {"domain": ""})
+        self.assertEqual(enrich["count"], 0)
+        self.assertIsNotNone(enrich["error"])
+
+    def test_enrich_fail_soft_on_exception(self):
+        """_enrich_ftm should fail-soft on ftm_query errors."""
+        mock_ftm = MagicMock()
+        mock_ftm.make_entity.side_effect = RuntimeError("DB locked")
+
+        with patch.dict("sys.modules", {"ftm_query": mock_ftm}):
+            results = {"domain": "example.com", "rdap": {}, "certs": {}}
+            enrich = _enrich_ftm("org-id", results)
+
+        self.assertEqual(enrich["count"], 0)
+        self.assertIsNotNone(enrich["error"])
+        self.assertIn("DB locked", enrich["error"])
+
+    def test_enrich_skips_subdomain_equal_to_domain(self):
+        """Subdomain equal to the parent domain should not be duplicated."""
+        mock_entity = MagicMock()
+        mock_entity.id = "domain-entity-id"
+
+        mock_ftm = MagicMock()
+        mock_ftm.make_entity.return_value = mock_entity
+
+        with patch.dict("sys.modules", {"ftm_query": mock_ftm}):
+            results = {
+                "domain": "example.com",
+                "rdap": {},
+                "certs": {
+                    "enabled": True,
+                    "unique_subdomains": ["example.com"],  # same as domain
+                },
+            }
+            enrich = _enrich_ftm("org-id", results)
+
+        self.assertEqual(enrich["count"], 1)  # only the domain entity
+        self.assertEqual(mock_ftm.make_entity.call_count, 1)
+
+
+class TestIngestEndpoint(unittest.IsolatedAsyncioTestCase):
+    """POST /api/domain/ingest endpoint."""
+
+    def _client(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        import domain_intel
+
+        app = FastAPI()
+        app.include_router(domain_intel.router)
+        return TestClient(app)
+
+    def test_ingest_invalid_domain(self):
+        client = self._client()
+        resp = client.post(
+            "/api/domain/ingest",
+            params={"domain": "invalid", "organization_id": "org-1"},
+        )
+        data = resp.json()
+        self.assertEqual(data["count"], 0)
+        self.assertIn("error", data)
+        self.assertIn("invalid", data["error"])
+
+    def test_ingest_disabled(self):
+        with patch.dict(os.environ, {"WORLDBASE_DOMAIN_INTEL": "0"}):
+            from config import get_config
+
+            get_config.cache_clear()
+            client = self._client()
+            resp = client.post(
+                "/api/domain/ingest",
+                params={"domain": "example.com", "organization_id": "org-1"},
+            )
+            data = resp.json()
+            self.assertEqual(data["count"], 0)
+            self.assertIn("disabled", data["error"])
+        get_config.cache_clear()
+
+    def test_ingest_success_with_mocked_gather(self):
+        """Test ingest with mocked _gather_domain_intel and _enrich_ftm."""
+        mock_results = {
+            "domain": "example.com",
+            "summary": {
+                "subdomains_found": 3,
+                "wayback_snapshots": 5,
+                "registered": True,
+            },
+            "rdap": {"enabled": True, "registered": True},
+            "certs": {"enabled": True, "unique_subdomains": ["a.example.com"]},
+        }
+        mock_enrich = {"count": 2, "ids": ["id1", "id2"], "error": None}
+
+        with patch(
+            "domain_intel._gather_domain_intel", new_callable=AsyncMock
+        ) as mock_gather, patch("domain_intel._enrich_ftm") as mock_enrich_fn:
+            mock_gather.return_value = mock_results
+            mock_enrich_fn.return_value = mock_enrich
+
+            client = self._client()
+            resp = client.post(
+                "/api/domain/ingest",
+                params={
+                    "domain": "example.com",
+                    "organization_id": "org-123",
+                    "refresh": "true",
+                },
+            )
+            data = resp.json()
+            self.assertEqual(data["domain"], "example.com")
+            self.assertEqual(data["subdomains_found"], 3)
+            self.assertEqual(data["wayback_snapshots"], 5)
+            self.assertTrue(data["registered"])
+            self.assertEqual(data["ingested"], 2)
+            self.assertEqual(data["ids"], ["id1", "id2"])
+            self.assertIsNone(data["error"])
 
 
 if __name__ == "__main__":

@@ -58,6 +58,7 @@ from ftm_query import (  # noqa: F401
     detect_value_conflicts,
     entities_for_briefing,
     get_entity,
+    get_entities_batch,
     get_entity_full,
     get_entity_provenance,
     get_statements,

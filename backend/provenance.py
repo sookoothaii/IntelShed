@@ -61,6 +61,9 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "darkweb": 0.30,
     "blog": 0.30,
     "social": 0.35,
+    "radar": 0.80,
+    "rainviewer": 0.80,
+    "commodities": 0.70,
     "unknown": 0.40,
 }
 

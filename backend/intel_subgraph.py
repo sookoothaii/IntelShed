@@ -295,11 +295,15 @@ def build_subgraph(
 
     seed_map = {s["id"]: s for s in seeds}
     nodes: list[dict[str, Any]] = []
-    for nid in sorted(visited, key=lambda x: (hop_depth.get(x, 99), x))[:cap]:
+    # Batch fetch all non-seed entities in one query (avoids N+1)
+    sorted_ids = sorted(visited, key=lambda x: (hop_depth.get(x, 99), x))[:cap]
+    non_seed_ids = [nid for nid in sorted_ids if nid not in seed_map]
+    batch_entities = ftm_store.get_entities_batch(non_seed_ids) if non_seed_ids else {}
+    for nid in sorted_ids:
         if nid in seed_map:
             nodes.append(dict(seed_map[nid]))
             continue
-        ent = ftm_store.get_entity(nid)
+        ent = batch_entities.get(nid)
         if not ent:
             continue
         nodes.append(

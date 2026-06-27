@@ -770,6 +770,167 @@ async def predictions_status(
     return out
 
 
+@router.get("/predictions/calibration")
+async def predictions_calibration(
+    window_days: int = Query(30, ge=1, le=365),
+    n_bins: int = Query(5, ge=2, le=10),
+):
+    """3.3 — Calibration curve: actual accuracy per confidence bin."""
+    import prediction_ledger
+
+    if not prediction_ledger.autopilot_on():
+        return {"enabled": False, "bins": [], "calibration_error": None}
+    curve = prediction_ledger.calibration_curve(window_days=window_days, n_bins=n_bins)
+    curve["enabled"] = True
+    return curve
+
+
+@router.get("/predictions/calibration/map")
+async def predictions_calibration_map(
+    window_days: int = Query(30, ge=1, le=365),
+    n_bins: int = Query(5, ge=2, le=10),
+):
+    """3.3 Step 2 — Calibration map: raw confidence → adjusted confidence per bin."""
+    import prediction_ledger
+
+    if not prediction_ledger.autopilot_on():
+        return {"enabled": False, "bins": [], "calibration_error": None}
+    cmap = prediction_ledger.calibration_map(window_days=window_days, n_bins=n_bins)
+    cmap["enabled"] = True
+    return cmap
+
+
+# --- 3.4 Trigger-Response Engine ---
+
+
+@router.get("/triggers")
+async def trigger_list(
+    limit: int = Query(20, ge=1, le=100),
+    include_dismissed: bool = Query(False),
+):
+    """3.4 — List recent trigger fires."""
+    import trigger_engine
+
+    return {
+        "triggers": trigger_engine.list_recent_triggers(
+            limit=limit, include_dismissed=include_dismissed
+        ),
+        "stats": trigger_engine.trigger_stats(),
+    }
+
+
+@router.get("/triggers/rules")
+async def trigger_rules_list(
+    include_disabled: bool = Query(False),
+):
+    """3.4 — List all trigger rules."""
+    import trigger_engine
+
+    return {"rules": trigger_engine.list_rules(include_disabled=include_disabled)}
+
+
+@router.post("/triggers/rules")
+async def trigger_rules_create(
+    name: str = Query(..., min_length=1, max_length=80),
+    condition: str = Query(..., min_length=1, max_length=500),
+    min_confidence: float = Query(0.5, ge=0.0, le=1.0),
+    bucket_filter: str | None = Query(None),
+    severity: str = Query("warning", pattern="^(info|warning|critical)$"),
+    cooldown_min: int = Query(60, ge=1, le=1440),
+    enabled: bool = Query(True),
+):
+    """3.4 — Create or update a trigger rule."""
+    import trigger_engine
+
+    return trigger_engine.create_rule(
+        name=name,
+        condition=condition,
+        min_confidence=min_confidence,
+        bucket_filter=bucket_filter,
+        severity=severity,
+        cooldown_min=cooldown_min,
+        enabled=enabled,
+    )
+
+
+@router.delete("/triggers/rules/{name}")
+async def trigger_rules_delete(name: str):
+    """3.4 — Delete a trigger rule."""
+    import trigger_engine
+
+    return trigger_engine.delete_rule(name)
+
+
+@router.post("/triggers/{log_id}/dismiss")
+async def trigger_dismiss(
+    log_id: int,
+    reason: str | None = Query(None),
+):
+    """3.4 — Operator dismisses a trigger (feeds back into calibration)."""
+    import trigger_engine
+
+    return trigger_engine.dismiss_trigger(log_id, reason=reason)
+
+
+@router.post("/triggers/evaluate")
+async def trigger_evaluate():
+    """3.4 — Manually evaluate triggers against current fusion + watch data."""
+    import trigger_engine
+    import fusion_heatmap
+
+    # Get current fusion cells
+    try:
+        grid = await fusion_heatmap.fusion_heatmap(
+            cell_deg=2.0, top=60, include_geojson=0
+        )
+        cells = list(grid.get("cells") or [])
+    except Exception:
+        cells = []
+
+    # Get current watch items from latest briefing
+    watches: list[dict] = []
+    try:
+        import prediction_ledger
+
+        preds = prediction_ledger.list_predictions(pending_limit=20, resolved_limit=0)
+        watches = [
+            {
+                "id": p.get("watch_id"),
+                "prefix": p.get("prefix"),
+                "title": p.get("claim"),
+                "confidence": 0.5,  # pending items don't have resolved confidence
+                "bucket": p.get("bucket"),
+                "cell_id": p.get("cell_id"),
+                "sources": p.get("sources", []),
+            }
+            for p in (preds.get("pending") or [])
+        ]
+    except Exception:
+        pass
+
+    fired = trigger_engine.evaluate_triggers(cells, watches)
+
+    # Post webhooks for fired triggers
+    try:
+        import alerting
+
+        for t in fired:
+            payload = {
+                "alert": t["rule_name"],
+                "severity": t["severity"],
+                "message": t["context"],
+                "confidence": t["confidence"],
+                "cell_id": t.get("cell_id"),
+                "source": "worldbase-pc",
+                "timestamp": t["fired_at"],
+            }
+            alerting._post_webhook(payload)
+    except Exception:
+        pass
+
+    return {"fired": fired, "evaluated_rules": len(trigger_engine.list_rules())}
+
+
 def _compress_briefing(text: str, alerts: list) -> str:
     """Shrink briefing to <230 bytes for Meshtastic/LoRa TX.
     Format: [SEV]alert1|[SEV]alert2|...|brief_snippet

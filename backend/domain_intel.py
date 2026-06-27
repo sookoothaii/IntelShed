@@ -14,15 +14,19 @@ Env:
 from __future__ import annotations
 
 import asyncio
-import os
+import logging
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 from fastapi import APIRouter, Query
 
+from config import get_config
 from feeds.envelope import utc_now_iso
 from feeds.runner import FeedConnector
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/domain", tags=["domain-intel"])
 
@@ -39,12 +43,7 @@ _DOMAIN_TTL = 3600.0  # 1 hour
 
 
 def _enabled() -> bool:
-    return os.getenv("WORLDBASE_DOMAIN_INTEL", "1").strip() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    return get_config().domain_intel_enabled
 
 
 def _domain_cache_get(domain: str) -> dict[str, Any] | None:
@@ -436,3 +435,121 @@ async def domain_rdap(
         return result
     except Exception as e:
         return _CONNECTOR.empty_payload(str(e))
+
+
+# ---------------------------------------------------------------------------
+# FtM enrichment — Domain entities linked to Organization
+# ---------------------------------------------------------------------------
+
+
+def _enrich_ftm(organization_id: str, results: dict[str, Any]) -> dict[str, Any]:
+    """Upsert a Domain entity and link to Organization via 'owns' edge.
+
+    Also creates sub-domain entities when crt.sh discovers them.
+    """
+    try:
+        import ftm_query
+
+        seen_at = datetime.now(timezone.utc).isoformat()
+        dataset = "domain_intel"
+        ids: list[str] = []
+
+        domain = results.get("domain", "")
+        if not domain:
+            return {"count": 0, "ids": [], "error": "no domain in results"}
+
+        # Build Domain entity properties from RDAP + summary
+        rdap = results.get("rdap", {})
+        props: dict[str, Any] = {
+            "name": [domain],
+        }
+        if rdap.get("registered"):
+            props["registrationDate"] = (
+                [rdap["registration_date"]] if rdap.get("registration_date") else []
+            )
+            props["expirationDate"] = (
+                [rdap["expiration_date"]] if rdap.get("expiration_date") else []
+            )
+            if rdap.get("registrar"):
+                props["registrar"] = [rdap["registrar"]]
+            if rdap.get("nameservers"):
+                props["nameservers"] = rdap["nameservers"][:10]
+
+        entity = ftm_query.make_entity("Domain", [domain], props)
+        ftm_query.upsert(entity, dataset=dataset, seen_at=seen_at)
+        ids.append(entity.id)
+
+        # Link Organization → Domain (owns)
+        ftm_query.add_edge(
+            organization_id,
+            entity.id,
+            "owns",
+            dataset=dataset,
+            confidence=0.8,
+            seen_at=seen_at,
+        )
+
+        # Create sub-domain entities for discovered subdomains
+        certs = results.get("certs", {})
+        for sub in certs.get("unique_subdomains", [])[:20]:
+            if sub == domain:
+                continue
+            sub_props = {"name": [sub]}
+            sub_entity = ftm_query.make_entity("Domain", [sub], sub_props)
+            ftm_query.upsert(sub_entity, dataset=dataset, seen_at=seen_at)
+            ids.append(sub_entity.id)
+            # Link parent Domain → sub-Domain (parent)
+            ftm_query.add_edge(
+                entity.id,
+                sub_entity.id,
+                "parent",
+                dataset=dataset,
+                confidence=0.9,
+                seen_at=seen_at,
+            )
+
+        return {"count": len(ids), "ids": ids, "error": None}
+    except Exception as exc:
+        logger.warning("domain FtM enrichment failed: %s", exc)
+        return {"count": 0, "ids": [], "error": str(exc)}
+
+
+@router.post("/ingest")
+async def domain_ingest(
+    domain: str = Query(..., description="Domain to investigate and ingest"),
+    organization_id: str = Query(
+        ..., description="FtM Organization entity ID to link domain to"
+    ),
+    wayback_limit: int = Query(50, ge=1, le=200),
+    refresh: bool = Query(False, description="Bypass cache"),
+):
+    """Run domain intel lookup and ingest results as FtM Domain entities."""
+    if not _enabled():
+        return {"count": 0, "ids": [], "error": "domain_intel disabled"}
+
+    domain = domain.strip().lower().lstrip("*.")
+    if not domain or "." not in domain:
+        return {"count": 0, "ids": [], "error": "invalid domain"}
+
+    # Check cache first
+    if not refresh:
+        cached = _domain_cache_get(domain)
+        if cached:
+            results = cached
+        else:
+            results = await _gather_domain_intel(domain, wayback_limit=wayback_limit)
+            _domain_cache_set(domain, results)
+    else:
+        results = await _gather_domain_intel(domain, wayback_limit=wayback_limit)
+        _domain_cache_set(domain, results)
+
+    enrich = _enrich_ftm(organization_id, results)
+    return {
+        "domain": domain,
+        "subdomains_found": results.get("summary", {}).get("subdomains_found", 0),
+        "wayback_snapshots": results.get("summary", {}).get("wayback_snapshots", 0),
+        "registered": results.get("summary", {}).get("registered"),
+        "ingested": enrich.get("count", 0),
+        "ids": enrich.get("ids", []),
+        "error": enrich.get("error"),
+    }

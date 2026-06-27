@@ -108,6 +108,7 @@ class WorldBaseConfig(BaseModel):
     identity_osint_max_platforms: int = 50
     identity_osint_cache_sec: int = 86400
     briefing_identity: bool = False
+    domain_intel_enabled: bool = True
 
     @classmethod
     def from_env(cls) -> Self:
@@ -289,6 +290,7 @@ class WorldBaseConfig(BaseModel):
                 os.getenv("WORLDBASE_IDENTITY_OSINT_CACHE_SEC", "86400")
             ),
             briefing_identity=_truthy(os.getenv("WORLDBASE_BRIEFING_IDENTITY", "0")),
+            domain_intel_enabled=_truthy(os.getenv("WORLDBASE_DOMAIN_INTEL", "1")),
             blackboard_enabled=_truthy(os.getenv("WORLDBASE_BLACKBOARD", "0")),
             two_pass_enabled=_truthy(os.getenv("WORLDBASE_TWO_PASS", "0")),
             route_ledger_enabled=_truthy(os.getenv("WORLDBASE_ROUTE_LEDGER", "1")),

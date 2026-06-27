@@ -353,6 +353,65 @@ async def _briefing_autopilot() -> None:
                 log.warning("quota_alert", **qa)
         except Exception as exc:
             log.debug("quota_alert_check_failed", error=str(exc))
+        # 3.4: trigger-response engine evaluation
+        try:
+            import fusion_heatmap
+            import trigger_engine
+
+            grid = await fusion_heatmap.fusion_heatmap(
+                cell_deg=2.0, top=60, include_geojson=0
+            )
+            cells = list(grid.get("cells") or [])
+            # Get watch items from latest briefing digest
+            watches: list[dict] = []
+            try:
+                import prediction_ledger
+
+                preds = prediction_ledger.list_predictions(
+                    pending_limit=20, resolved_limit=0
+                )
+                watches = [
+                    {
+                        "id": p.get("watch_id"),
+                        "prefix": p.get("prefix"),
+                        "title": p.get("claim"),
+                        "confidence": 0.5,
+                        "bucket": p.get("bucket"),
+                        "cell_id": p.get("cell_id"),
+                        "sources": p.get("sources", []),
+                    }
+                    for p in (preds.get("pending") or [])
+                ]
+            except Exception:
+                pass
+            fired = trigger_engine.evaluate_triggers(cells, watches)
+            for t in fired:
+                log.warning("trigger_fired", **t)
+                # Post webhook
+                try:
+                    import alerting
+
+                    alerting._post_webhook(
+                        {
+                            "alert": t["rule_name"],
+                            "severity": t["severity"],
+                            "message": t["context"],
+                            "confidence": t["confidence"],
+                            "source": "worldbase-pc",
+                            "timestamp": t["fired_at"],
+                        }
+                    )
+                except Exception:
+                    pass
+            # Push to Pi nodes via command queue + SSE
+            try:
+                pushed = trigger_engine.push_trigger_to_nodes(fired)
+                if pushed:
+                    log.info("trigger_pushed_to_nodes", count=pushed)
+            except Exception:
+                pass
+        except Exception as exc:
+            log.debug("trigger_eval_failed", error=str(exc))
         # I6: tiered storage maintenance (every 24h — runs when briefing interval >= 6h, otherwise every loop)
         try:
             import ftm_archive

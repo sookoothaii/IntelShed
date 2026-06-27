@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import re
@@ -563,8 +564,61 @@ def _parse_iso(value: str | None) -> datetime:
 
 
 # ---------------------------------------------------------------------------
-# FtM ingest
+# FtM ingest + entity matching (3.5)
 # ---------------------------------------------------------------------------
+
+
+def _list_person_org_entities(limit: int = 2000) -> list[dict[str, Any]]:
+    """Load Person and Organization entities for matching."""
+    try:
+        import ftm_query
+
+        rows = ftm_query.list_entities(limit=limit)
+        return [r for r in rows if r.get("schema") in ("Person", "Organization")]
+    except Exception:
+        return []
+
+
+def match_post_to_entities(
+    post: dict[str, Any], entities: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Match a Telegram post text against FtM Person/Organization names.
+
+    Returns list of {entity_id, schema, name, matched_alias}.
+    """
+    text = (post.get("text", "") + " " + " ".join(post.get("hashtags", []))).lower()
+    if not text.strip():
+        return []
+
+    matches: list[dict[str, Any]] = []
+    for ent in entities:
+        name = (ent.get("name") or ent.get("caption") or "").strip()
+        if not name or len(name) < 3:
+            continue
+        aliases = [name]
+        raw_props = ent.get("properties") or {}
+        if isinstance(raw_props, dict):
+            for key in ("alias", "weakAlias", "previousName"):
+                vals = raw_props.get(key)
+                if isinstance(vals, list):
+                    aliases.extend(
+                        v.strip() for v in vals if isinstance(v, str) and v.strip()
+                    )
+                elif isinstance(vals, str) and vals.strip():
+                    aliases.append(vals.strip())
+
+        for alias in aliases:
+            if alias.lower() in text:
+                matches.append(
+                    {
+                        "entity_id": ent.get("id", ""),
+                        "schema": ent.get("schema", ""),
+                        "name": name,
+                        "matched_alias": alias,
+                    }
+                )
+                break
+    return matches
 
 
 def ingest_posts(
@@ -589,6 +643,11 @@ def ingest_posts(
 
     seen_at = datetime.now(timezone.utc).isoformat()
     ids: list[str] = []
+    linked_entities: list[dict[str, Any]] = []
+
+    # Load Person/Organization entities for matching
+    entities = _list_person_org_entities()
+
     for p in posts:
         try:
             event = _post_to_event(p)
@@ -597,11 +656,44 @@ def ingest_posts(
             mention = _post_to_mention(p, event.id)
             ftm_query.upsert(mention, dataset=dataset, seen_at=seen_at)
             ids.append(mention.id)
+
+            # 3.5: Match post to Person/Organization entities and create edges
+            matches = match_post_to_entities(p, entities)
+            for m in matches:
+                try:
+                    ftm_query.add_edge(
+                        source_id=mention.id,
+                        target_id=m["entity_id"],
+                        kind="mentioned",
+                        dataset=dataset,
+                        confidence=0.7,
+                        properties={"matched_alias": m["matched_alias"]},
+                        seen_at=seen_at,
+                    )
+                    linked_entities.append(
+                        {
+                            "post_id": p.get("id"),
+                            "mention_id": mention.id,
+                            "entity_id": m["entity_id"],
+                            "entity_name": m["name"],
+                            "entity_schema": m["schema"],
+                            "matched_alias": m["matched_alias"],
+                        }
+                    )
+                except Exception as exc:
+                    logger.debug("telegram edge failed: %s", exc)
+
             p["ingested"] = True
         except Exception as exc:
             logger.warning("telegram ingest post %s failed: %s", p.get("id"), exc)
 
-    return {"enabled": True, "count": len(ids), "ids": ids, "error": None}
+    return {
+        "enabled": True,
+        "count": len(ids),
+        "ids": ids,
+        "linked_entities": linked_entities,
+        "error": None,
+    }
 
 
 def _post_to_event(p: dict[str, Any]) -> Any:
@@ -740,6 +832,115 @@ async def api_telegram_ingest(
     if result.get("error"):
         raise HTTPException(status_code=500, detail=result["error"])
     return result
+
+
+@router.get("/mentions")
+@rate_limit_general()
+async def api_telegram_mentions(
+    request: Request,
+    entity_id: str | None = Query(None, description="Filter by linked FtM entity ID"),
+    channel: str | None = Query(None, description="Filter by Telegram channel"),
+    limit: int = Query(50, ge=1, le=500),
+    api_key: str = Depends(verify_api_key),
+):
+    """Query Telegram Mention entities and their linked Person/Organization entities.
+
+    3.5 Graph query integration: traverses `mentioned` edges from Mention → Person/Org.
+    """
+    try:
+        import ftm_query
+    except Exception:
+        return {"enabled": False, "mentions": [], "error": "ftm unavailable"}
+
+    with ftm_query._LOCK if hasattr(ftm_query, "_LOCK") else _noop_ctx():
+        con = ftm_query._conn()
+        # Find Mention entities from telegram dataset
+        schema_clause = "schema = 'Mention'"
+        dataset_clause = ""
+        if channel:
+            dataset_clause = " AND EXISTS (SELECT 1 FROM json_each(datasets) je WHERE TRIM(je.value::VARCHAR, '\"') = 'telegram')"
+        else:
+            dataset_clause = " AND EXISTS (SELECT 1 FROM json_each(datasets) je WHERE TRIM(je.value::VARCHAR, '\"') = 'telegram')"
+
+        rows = con.execute(
+            f"""
+            SELECT id, caption, properties, datasets, first_seen, last_seen
+            FROM entities
+            WHERE {schema_clause}{dataset_clause}
+            ORDER BY last_seen DESC
+            LIMIT ?
+            """,
+            [limit],
+        ).fetchall()
+
+    mentions: list[dict[str, Any]] = []
+    for r in rows:
+        mid = r[0]
+        # Get edges for this mention
+        edge_rows = con.execute(
+            "SELECT target_id, kind, properties, confidence FROM edges WHERE source_id = ? AND kind = 'mentioned'",
+            [mid],
+        ).fetchall()
+
+        linked: list[dict[str, Any]] = []
+        for e in edge_rows:
+            ent = ftm_query.get_entity(e[0])
+            if ent:
+                linked.append(
+                    {
+                        "entity_id": e[0],
+                        "schema": ent.get("schema", ""),
+                        "name": ent.get("name") or ent.get("caption", ""),
+                        "confidence": e[3],
+                        "matched_alias": (
+                            json.loads(e[2] or "{}").get("matched_alias")
+                            if e[2]
+                            else None
+                        ),
+                    }
+                )
+
+        # Filter by entity_id if provided
+        if entity_id and not any(lnk["entity_id"] == entity_id for lnk in linked):
+            continue
+
+        props = json.loads(r[2] or "{}")
+        mentions.append(
+            {
+                "mention_id": mid,
+                "name": r[1] or "",
+                "source": (props.get("source") or [""])[0]
+                if isinstance(props.get("source"), list)
+                else props.get("source", ""),
+                "url": (props.get("url") or [""])[0]
+                if isinstance(props.get("url"), list)
+                else props.get("url", ""),
+                "snippet": (props.get("snippet") or [""])[0]
+                if isinstance(props.get("snippet"), list)
+                else props.get("snippet", ""),
+                "published_at": (props.get("publishedAt") or [""])[0]
+                if isinstance(props.get("publishedAt"), list)
+                else props.get("publishedAt", ""),
+                "first_seen": r[4],
+                "last_seen": r[5],
+                "linked_entities": linked,
+            }
+        )
+
+    return {
+        "enabled": True,
+        "count": len(mentions),
+        "mentions": mentions,
+        "error": None,
+    }
+
+
+class _noop_ctx:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
 
 
 # ---------------------------------------------------------------------------

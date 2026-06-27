@@ -203,6 +203,7 @@ _KNOWN_FLAGS: list[str] = [
     "briefing_darkweb",
     "identity_osint",
     "briefing_identity",
+    "domain_intel",
 ]
 
 

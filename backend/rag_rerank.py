@@ -9,7 +9,7 @@ Backend chain (tried in order):
 
 Environment variables:
   RAG_RERANK=1              — enable reranking
-  RAG_RERANK_MODEL          — HF model name (default: BAAI/bge-reranker-base)
+  RAG_RERANK_MODEL          — HF model name (default: BAAI/bge-reranker-v2-m3)
   RAG_RERANK_DEVICE         — torch device (default: cpu)
   RAG_RERANK_BACKEND=onnx   — preferred backend: onnx | torch | auto
   RAG_RERANK_WARMUP=1       — warm model during _stack_warmup()
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 _RERANK_ENABLED = os.getenv("RAG_RERANK", "0").strip().lower() in ("1", "true", "yes")
-_RERANK_MODEL = os.getenv("RAG_RERANK_MODEL", "BAAI/bge-reranker-base")
+_RERANK_MODEL = os.getenv("RAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 _RERANK_DEVICE = os.getenv("RAG_RERANK_DEVICE", "cpu")
 _RERANK_BACKEND = os.getenv("RAG_RERANK_BACKEND", "auto").strip().lower()
 _RERANK_WARMUP = os.getenv("RAG_RERANK_WARMUP", "1").strip().lower() in (

@@ -64,6 +64,7 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
     _migrate_statements_schema(con)
     _ensure_edge_indexes(con)
+    _ensure_entity_geo_indexes(con)
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +131,19 @@ def _ensure_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
         CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
         """
     )
+
+
+def _ensure_entity_geo_indexes(con: duckdb.DuckDBPyConnection) -> None:
+    """Indexes for bbox + last_seen seed queries in intel_subgraph."""
+    try:
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entities_lat_lon ON entities(lat, lon)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entities_last_seen ON entities(last_seen)"
+        )
+    except Exception:
+        pass
 
 
 def _drop_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:

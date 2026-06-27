@@ -375,6 +375,39 @@ def get_entity(entity_id: str) -> dict | None:
     }
 
 
+def get_entities_batch(entity_ids: list[str]) -> dict[str, dict]:
+    """Fetch multiple entities in a single query (avoids N+1)."""
+    if not entity_ids:
+        return {}
+    with _LOCK:
+        placeholders = ", ".join("?" * len(entity_ids))
+        rows = (
+            _conn()
+            .execute(
+                f"""
+            SELECT id, schema, caption, properties, datasets, first_seen, last_seen, lat, lon
+            FROM entities WHERE id IN ({placeholders})
+            """,
+                entity_ids,
+            )
+            .fetchall()
+        )
+    return {
+        row[0]: {
+            "id": row[0],
+            "schema": row[1],
+            "caption": row[2],
+            "properties": json.loads(row[3] or "{}"),
+            "datasets": json.loads(row[4] or "[]"),
+            "first_seen": row[5],
+            "last_seen": row[6],
+            "lat": row[7],
+            "lon": row[8],
+        }
+        for row in rows
+    }
+
+
 def get_entity_full(entity_id: str) -> dict | None:
     ent = get_entity(entity_id)
     if not ent:
@@ -435,44 +468,62 @@ def graph_view(entity_id: str, depth: int = 1, limit: int = 200) -> dict:
         for _ in range(max(1, depth)):
             if not frontier or len(seen_nodes) >= limit:
                 break
+            # Batch edge query for all frontier nodes at once
+            frontier_list = list(frontier)
+            placeholders = ", ".join("?" * len(frontier_list))
+            rows = con.execute(
+                f"""
+                SELECT source_id, target_id, kind, confidence, dataset, seen_at
+                FROM edges
+                WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})
+                """,
+                [*frontier_list, *frontier_list],
+            ).fetchall()
             next_frontier: set[str] = set()
-            for nid in frontier:
-                if nid in visited:
-                    continue
-                visited.add(nid)
-                rows = con.execute(
-                    """
-                    SELECT source_id, target_id, kind, confidence, dataset, seen_at
-                    FROM edges WHERE source_id = ? OR target_id = ?
-                    """,
-                    [nid, nid],
-                ).fetchall()
-                for e in rows:
-                    key = (e[0], e[1], e[2], e[4])
-                    if key not in edge_keys:
-                        edge_keys.add(key)
-                        seen_edges.append(
-                            {
-                                "source_id": e[0],
-                                "target_id": e[1],
-                                "kind": e[2],
-                                "confidence": e[3],
-                                "dataset": e[4],
-                                "seen_at": e[5],
-                            }
-                        )
-                    for other in (e[0], e[1]):
-                        if other not in visited:
-                            next_frontier.add(other)
+            for e in rows:
+                key = (e[0], e[1], e[2], e[4])
+                if key not in edge_keys:
+                    edge_keys.add(key)
+                    seen_edges.append(
+                        {
+                            "source_id": e[0],
+                            "target_id": e[1],
+                            "kind": e[2],
+                            "confidence": e[3],
+                            "dataset": e[4],
+                            "seen_at": e[5],
+                        }
+                    )
+                for other in (e[0], e[1]):
+                    if other not in visited:
+                        next_frontier.add(other)
+            visited.update(frontier)
             frontier = next_frontier
-        for nid in visited | frontier:
-            if len(seen_nodes) >= limit:
-                break
-            if nid in seen_nodes:
-                continue
-            node = get_entity(nid)
-            if node:
-                seen_nodes[nid] = node
+        # Batch entity fetch for all visited nodes
+        all_ids = list(visited | frontier)
+        if len(all_ids) > limit:
+            all_ids = all_ids[:limit]
+        if all_ids:
+            placeholders = ", ".join("?" * len(all_ids))
+            ent_rows = con.execute(
+                f"""
+                SELECT id, schema, caption, properties, datasets, first_seen, last_seen, lat, lon
+                FROM entities WHERE id IN ({placeholders})
+                """,
+                all_ids,
+            ).fetchall()
+            for row in ent_rows:
+                seen_nodes[row[0]] = {
+                    "id": row[0],
+                    "schema": row[1],
+                    "caption": row[2],
+                    "properties": json.loads(row[3] or "{}"),
+                    "datasets": json.loads(row[4] or "[]"),
+                    "first_seen": row[5],
+                    "last_seen": row[6],
+                    "lat": row[7],
+                    "lon": row[8],
+                }
     return {
         "root": entity_id,
         "found": True,
