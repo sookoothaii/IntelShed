@@ -29,6 +29,7 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | **NEWS** | HUD **NEWS** tab — NewsData + GDELT local/global headline feed |
 | **Dark Web** | Passive `.onion` OSINT (Ahmia, DarkSearch, optional Tor engines) → entity matching, FtM `Mention` ingest, DARK WEB panel |
 | **Ransomware Intel** | Ransomware.live + RansomLook leak-site monitoring → FtM `Event` mapping, briefing block, watch items |
+| **Identity OSINT (P9)** | Passive email/username enumeration across 92 platforms → FtM `UserAccount` enrichment with `owns` edge, audit log, briefing block |
 | **Telegram SOCMINT** | Allow-listed public channels → SEA scoring, FtM `Event`/`Mention` ingest, DATA → TELEGRAM panel |
 | **Satellite CD (K4)** | Sentinel-2 L2A COG window-read — NDVI/NDWI change detection, GeoJSON anomaly polygons, DATA → SATELLITE panel |
 | **Maritime Anomaly (P7)** | AIS trajectory storage + behavioural anomaly detection (speed variance, AIS gaps, night port visits, risk zone proximity) |
@@ -143,6 +144,20 @@ WORLDBASE_BRIEFING_DARKWEB=1
 ```
 
 Restart backend. The DARK WEB panel appears under **DATA → DARK WEB**. The bridge searches for operator queries and high-value FtM entities, matches results against the entity graph, and ingests them as `Mention` entities. It feeds a dedicated digest block and Situation cards when `WORLDBASE_BRIEFING_DARKWEB=1`. Details, engine list, and OPSEC guardrails → [`docs/DARKWEB.md`](docs/DARKWEB.md).
+
+### Optional: Identity OSINT (email / username enumeration)
+
+Passive existence checks across 92 social platforms — no credential stuffing, no profile scraping, only HTTP status checks.
+
+```env
+WORLDBASE_IDENTITY_OSINT=1
+WORLDBASE_BRIEFING_IDENTITY=1
+# WORLDBASE_IDENTITY_OSINT_RATE_LIMIT_SEC=2     # 2s between checks per platform
+# WORLDBASE_IDENTITY_OSINT_MAX_PLATFORMS=50     # cap per lookup
+# WORLDBASE_IDENTITY_OSINT_CACHE_SEC=86400      # 24h cache TTL
+```
+
+Restart backend. API: `GET /api/osint/identity?email=...` or `?username=...` → platform existence list. `POST /api/osint/identity/ingest?person_id=...` links results to FtM `Person` entities via `UserAccount` + `owns` edge. All lookups logged in SQLite audit table (`GET /api/osint/identity/audit`). Guardrails: opt-in only, rate-limited (2s/platform, 50 cap, 30s pause every 50), 24h cache, no PII stored, fail-soft.
 
 ### Optional: Thailand briefing enrichment (no extra keys)
 
