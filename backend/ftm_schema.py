@@ -65,6 +65,7 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
     _migrate_statements_schema(con)
     _ensure_edge_indexes(con)
     _ensure_entity_geo_indexes(con)
+    _repair_pk_index_drift(con)
 
 
 # ---------------------------------------------------------------------------
@@ -207,3 +208,48 @@ def _delete_entity_rows(con: duckdb.DuckDBPyConnection, entity_id: str) -> None:
             con.execute("INSERT INTO entities SELECT * FROM _ftm_entities_keep")
             con.execute("DROP TABLE IF EXISTS _ftm_entities_keep")
         _ensure_entity_schema_index(con)
+
+
+def _repair_pk_index_drift(con: duckdb.DuckDBPyConnection) -> None:
+    """One-time repair: recreate entities table to fix DuckDB 1.5.x PK index drift.
+
+    DuckDB 1.5.x has a bug where the internal PK index drifts after many
+    DELETE+INSERT cycles, causing FATAL errors and severe latency degradation.
+    The PK index cannot be dropped directly, so we recreate the table.
+
+    Fast (~100ms for 49k rows), runs once at startup.
+    """
+    import logging
+
+    log = logging.getLogger("ftm_schema")
+    try:
+        con.execute("BEGIN TRANSACTION")
+        con.execute(
+            "CREATE OR REPLACE TEMP TABLE _entities_repair AS SELECT * FROM entities"
+        )
+        con.execute("DROP TABLE entities")
+        con.execute(
+            """
+            CREATE TABLE entities (
+                id          VARCHAR PRIMARY KEY,
+                schema      VARCHAR NOT NULL,
+                caption     VARCHAR,
+                properties  VARCHAR,
+                datasets    VARCHAR,
+                lat         DOUBLE,
+                lon         DOUBLE,
+                first_seen  VARCHAR,
+                last_seen   VARCHAR
+            )
+            """
+        )
+        con.execute("INSERT INTO entities SELECT * FROM _entities_repair")
+        con.execute("DROP TABLE _entities_repair")
+        con.execute("COMMIT")
+        log.info("pk_index_drift_repaired", entities="recreated")
+    except Exception as exc:
+        try:
+            con.execute("ROLLBACK")
+        except Exception:
+            pass
+        log.warning("pk_index_drift_repair_skipped", error=str(exc)[:200])
