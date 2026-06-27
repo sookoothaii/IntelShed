@@ -493,18 +493,27 @@ def graph_view(entity_id: str, depth: int = 1, limit: int = 200) -> dict:
     edge_keys: set[tuple] = set()
     frontier = {entity_id}
     visited: set[str] = set()
+    edge_cap = max(limit * 20, 500)  # cap total edges to prevent hub explosion
 
     for _ in range(max(1, depth)):
         if not frontier or len(seen_nodes) >= limit:
             break
-        # Batch edge query for all frontier nodes at once
+        if len(seen_edges) >= edge_cap:
+            break
+        # Batch edge query for all frontier nodes at once.
+        # Split OR into UNION so DuckDB can use idx_edges_source / idx_edges_target.
         frontier_list = list(frontier)
         placeholders = ", ".join("?" * len(frontier_list))
+        remaining = edge_cap - len(seen_edges)
         rows = run_query_ro(
             f"""
-            SELECT source_id, target_id, kind, confidence, dataset, seen_at
-            FROM edges
-            WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})
+            SELECT source_id, target_id, kind, confidence, dataset, seen_at FROM (
+                SELECT source_id, target_id, kind, confidence, dataset, seen_at
+                FROM edges WHERE source_id IN ({placeholders})
+                UNION
+                SELECT source_id, target_id, kind, confidence, dataset, seen_at
+                FROM edges WHERE target_id IN ({placeholders})
+            ) LIMIT {remaining}
             """,
             [*frontier_list, *frontier_list],
         )

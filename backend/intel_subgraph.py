@@ -194,9 +194,13 @@ def _expand_edges(
     now = datetime.now(timezone.utc)
     rows = ftm_store.run_query_ro(
         f"""
-        SELECT source_id, target_id, kind, confidence, dataset, seen_at
-        FROM edges
-        WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})
+        SELECT source_id, target_id, kind, confidence, dataset, seen_at FROM (
+            SELECT source_id, target_id, kind, confidence, dataset, seen_at
+            FROM edges WHERE source_id IN ({placeholders})
+            UNION
+            SELECT source_id, target_id, kind, confidence, dataset, seen_at
+            FROM edges WHERE target_id IN ({placeholders})
+        )
         """,
         params,
     )
