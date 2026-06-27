@@ -191,11 +191,18 @@ async def get_iss():
     """Precise ISS position (cached 4s)."""
     data = cache_get("iss", ttl=4.0)
     if data is None:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get("https://api.wheretheiss.at/v1/satellites/25544")
-            r.raise_for_status()
-            data = r.json()
-        cache_set("iss", data)
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get("https://api.wheretheiss.at/v1/satellites/25544")
+                r.raise_for_status()
+                data = r.json()
+            cache_set("iss", data)
+        except httpx.TimeoutException as exc:
+            raise HTTPException(status_code=503, detail=f"ISS upstream timeout: {exc}")
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=502, detail=f"ISS upstream unreachable: {exc}"
+            )
     return data
 
 
