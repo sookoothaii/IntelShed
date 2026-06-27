@@ -62,7 +62,60 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
         );
         """
     )
+    _migrate_statements_schema(con)
     _ensure_edge_indexes(con)
+
+
+# ---------------------------------------------------------------------------
+# P5 — FtM 4.0 StatementEntity schema migration
+# ---------------------------------------------------------------------------
+
+_STMT_NEW_COLUMNS: list[tuple[str, str]] = [
+    ("stmt_id", "VARCHAR"),
+    ("canonical_id", "VARCHAR"),
+    ("schema", "VARCHAR"),
+    ("original_value", "VARCHAR"),
+    ("external", "BOOLEAN DEFAULT FALSE"),
+    ("first_seen", "VARCHAR"),
+    ("last_seen", "VARCHAR"),
+    ("origin", "VARCHAR"),
+]
+
+
+def _migrate_statements_schema(con: duckdb.DuckDBPyConnection) -> None:
+    """Add FtM 4.0 StatementEntity columns to the statements table (idempotent).
+
+    The original statements table has: entity_id, prop, value, dataset, seen_at, lang.
+    P5 adds: stmt_id, canonical_id, schema, original_value, external,
+    first_seen, last_seen, origin.
+    """
+    try:
+        cols = {
+            r[0]
+            for r in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'statements'"
+            ).fetchall()
+        }
+    except Exception:
+        cols = set()
+
+    for col_name, col_type in _STMT_NEW_COLUMNS:
+        if col_name not in cols:
+            try:
+                con.execute(f"ALTER TABLE statements ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
+
+    try:
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stmt_dataset ON statements(dataset)"
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stmt_entity_prop ON statements(entity_id, prop)"
+        )
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------

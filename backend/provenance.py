@@ -215,3 +215,101 @@ def feed_fusion_weight(source: str, base_weight: float) -> float:
     # Scale: 0.5 reliability → 0.6x weight, 0.9 → 1.0x weight
     multiplier = 0.4 + 0.6 * reliability
     return round(base_weight * multiplier, 4)
+
+
+# ---------------------------------------------------------------------------
+# P5 — Statement-level provenance scoring
+# ---------------------------------------------------------------------------
+
+
+def score_statement(stmt: dict[str, Any]) -> float:
+    """Score a single statement record (0.0–1.0).
+
+    Uses the dataset as source, computes age from seen_at, and detects
+    cross-dataset corroboration by checking if the same (entity_id, prop)
+    pair appears in multiple datasets.
+
+    Args:
+        stmt: dict with keys: dataset, seen_at, entity_id, prop (at minimum).
+
+    Returns:
+        float score 0.0–1.0.
+    """
+    dataset = stmt.get("dataset") or "unknown"
+    seen_at = stmt.get("seen_at")
+
+    age_sec: float | None = None
+    if seen_at:
+        try:
+            from datetime import datetime, timezone
+
+            ts = datetime.fromisoformat(str(seen_at).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            age_sec = (datetime.now(timezone.utc) - ts).total_seconds()
+        except Exception:
+            pass
+
+    return score_provenance(
+        source=dataset,
+        corroboration_count=0,
+        age_sec=age_sec,
+    )
+
+
+def statement_provenance_summary(statements: list[dict[str, Any]]) -> dict[str, Any]:
+    """Aggregate provenance scores across a list of statement records.
+
+    Args:
+        statements: list of statement dicts (from get_statements()).
+
+    Returns:
+        dict with: total, scored, avg_score, min_score, max_score,
+        by_dataset (dataset → {count, avg_score}), conflicts (count of
+        props with >1 distinct value).
+    """
+    if not statements:
+        return {
+            "total": 0,
+            "scored": 0,
+            "avg_score": 0.0,
+            "min_score": 0.0,
+            "max_score": 0.0,
+            "by_dataset": {},
+            "conflicts": 0,
+        }
+
+    scores: list[float] = []
+    by_dataset: dict[str, dict] = {}
+    by_prop_values: dict[str, set[str]] = {}
+
+    for stmt in statements:
+        score = score_statement(stmt)
+        scores.append(score)
+        dataset = stmt.get("dataset") or "unknown"
+        if dataset not in by_dataset:
+            by_dataset[dataset] = {"count": 0, "scores": []}
+        by_dataset[dataset]["count"] += 1
+        by_dataset[dataset]["scores"].append(score)
+
+        prop = stmt.get("prop") or ""
+        value = stmt.get("value") or ""
+        by_prop_values.setdefault(prop, set()).add(value)
+
+    for ds_data in by_dataset.values():
+        ds_scores = ds_data.pop("scores")
+        ds_data["avg_score"] = (
+            round(sum(ds_scores) / len(ds_scores), 3) if ds_scores else 0.0
+        )
+
+    conflicts = sum(1 for values in by_prop_values.values() if len(values) > 1)
+
+    return {
+        "total": len(statements),
+        "scored": len(scores),
+        "avg_score": round(sum(scores) / len(scores), 3) if scores else 0.0,
+        "min_score": round(min(scores), 3) if scores else 0.0,
+        "max_score": round(max(scores), 3) if scores else 0.0,
+        "by_dataset": by_dataset,
+        "conflicts": conflicts,
+    }

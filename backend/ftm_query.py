@@ -91,6 +91,17 @@ def _merge_props(existing: dict, incoming: dict) -> dict:
     return merged
 
 
+def _make_stmt_id(dataset: str, entity_id: str, prop: str, value: str) -> str:
+    """Deterministic statement ID (SHA1 of dataset.entity_id.prop.value).
+
+    Mirrors followthemoney.statement.Statement.make_key for compatibility.
+    """
+    import hashlib
+
+    key = f"{dataset}.{entity_id}.{prop}.{value}"
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # Core write/read
 # ---------------------------------------------------------------------------
@@ -166,13 +177,28 @@ def _upsert_impl(
                 for v in values:
                     if v is None or v == "":
                         continue
+                    sv = str(v)
+                    stmt_id = _make_stmt_id(dataset, eid, prop, sv)
                     con.execute(
                         """
                         INSERT OR IGNORE INTO statements
-                            (entity_id, prop, value, dataset, seen_at, lang)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                            (entity_id, prop, value, dataset, seen_at, lang,
+                             stmt_id, canonical_id, schema, first_seen, last_seen)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                        [eid, prop, str(v), dataset, seen_at, None],
+                        [
+                            eid,
+                            prop,
+                            sv,
+                            dataset,
+                            seen_at,
+                            None,
+                            stmt_id,
+                            eid,
+                            schema_name,
+                            first_seen,
+                            seen_at,
+                        ],
                     )
             return eid
         finally:
@@ -1023,14 +1049,20 @@ except ImportError:
 
 
 def get_statements(entity_id: str) -> list[dict]:
-    """Get all per-value statements for an entity.
+    """Get all per-value statements for an entity (full StatementEntity fields).
 
-    Returns list of {prop, value, dataset, seen_at, lang} dicts.
+    Returns list of dicts with: prop, value, dataset, seen_at, lang,
+    stmt_id, canonical_id, schema, first_seen, last_seen, origin.
     """
 
     def _do(con):
         rows = con.execute(
-            "SELECT prop, value, dataset, seen_at, lang FROM statements WHERE entity_id = ? ORDER BY prop, dataset",
+            """
+            SELECT prop, value, dataset, seen_at, lang,
+                   stmt_id, canonical_id, schema, first_seen, last_seen, origin
+            FROM statements WHERE entity_id = ?
+            ORDER BY prop, dataset
+            """,
             [entity_id],
         ).fetchall()
         return [
@@ -1040,9 +1072,101 @@ def get_statements(entity_id: str) -> list[dict]:
                 "dataset": r[2],
                 "seen_at": r[3],
                 "lang": r[4],
+                "stmt_id": r[5],
+                "canonical_id": r[6],
+                "schema": r[7],
+                "first_seen": r[8],
+                "last_seen": r[9],
+                "origin": r[10],
             }
             for r in rows
         ]
+
+    return _run_with_recovery(_do) or []
+
+
+def get_entity_provenance(entity_id: str) -> dict:
+    """Per-entity provenance summary: datasets, statement count, per-prop breakdown.
+
+    Returns dict with: entity_id, datasets, total_statements,
+    by_prop (prop → count + datasets), by_dataset (dataset → count).
+    """
+
+    def _do(con):
+        rows = con.execute(
+            """
+            SELECT prop, dataset, COUNT(*) as cnt
+            FROM statements WHERE entity_id = ?
+            GROUP BY prop, dataset
+            ORDER BY prop, dataset
+            """,
+            [entity_id],
+        ).fetchall()
+        datasets: set[str] = set()
+        by_prop: dict[str, dict] = {}
+        by_dataset: dict[str, int] = {}
+        total = 0
+        for prop, dataset, cnt in rows:
+            datasets.add(dataset)
+            total += cnt
+            if prop not in by_prop:
+                by_prop[prop] = {"count": 0, "datasets": []}
+            by_prop[prop]["count"] += cnt
+            by_prop[prop]["datasets"].append(dataset)
+            by_dataset[dataset] = by_dataset.get(dataset, 0) + cnt
+        return {
+            "entity_id": entity_id,
+            "datasets": sorted(datasets),
+            "total_statements": total,
+            "by_prop": by_prop,
+            "by_dataset": by_dataset,
+        }
+
+    return _run_with_recovery(_do) or {
+        "entity_id": entity_id,
+        "datasets": [],
+        "total_statements": 0,
+        "by_prop": {},
+        "by_dataset": {},
+    }
+
+
+def detect_value_conflicts(entity_id: str) -> list[dict]:
+    """Detect per-value conflicts: same prop, different values from different datasets.
+
+    Returns list of conflict dicts with: prop, values (list of {value, dataset, seen_at}),
+    conflict_type ('value_dispute').
+    """
+
+    def _do(con):
+        rows = con.execute(
+            """
+            SELECT prop, value, dataset, seen_at
+            FROM statements WHERE entity_id = ?
+            ORDER BY prop, seen_at DESC
+            """,
+            [entity_id],
+        ).fetchall()
+        by_prop: dict[str, list[tuple]] = {}
+        for prop, value, dataset, seen_at in rows:
+            by_prop.setdefault(prop, []).append((value, dataset, seen_at))
+
+        conflicts: list[dict] = []
+        for prop, entries in by_prop.items():
+            values = {e[0] for e in entries}
+            datasets = {e[1] for e in entries}
+            if len(values) > 1 and len(datasets) > 1:
+                conflicts.append(
+                    {
+                        "prop": prop,
+                        "conflict_type": "value_dispute",
+                        "values": [
+                            {"value": v, "dataset": d, "seen_at": s}
+                            for v, d, s in entries
+                        ],
+                    }
+                )
+        return conflicts
 
     return _run_with_recovery(_do) or []
 

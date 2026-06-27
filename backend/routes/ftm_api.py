@@ -214,6 +214,29 @@ async def api_statements(entity_id: str):
     return {"statements": ftm_query.get_statements(entity_id)}
 
 
+@router.get("/intel/statements/conflicts")
+async def api_statement_conflicts(entity_id: str):
+    """Detect per-value conflicts for an entity (P5)."""
+    import ftm_query
+
+    return {
+        "entity_id": entity_id,
+        "conflicts": ftm_query.detect_value_conflicts(entity_id),
+    }
+
+
+@router.get("/intel/statements/provenance/summary")
+async def api_statement_provenance_summary(entity_id: str):
+    """Per-entity provenance summary with scored statements (P5)."""
+    import ftm_query
+    from provenance import statement_provenance_summary
+
+    statements = ftm_query.get_statements(entity_id)
+    summary = statement_provenance_summary(statements)
+    summary["entity_id"] = entity_id
+    return summary
+
+
 @router.get("/intel/statements/provenance")
 async def api_query_provenance(
     dataset: str,
@@ -232,6 +255,14 @@ async def api_statement_stats():
     import ftm_query
 
     return ftm_query.statement_stats()
+
+
+@router.get("/intel/entity/{entity_id}/provenance")
+async def api_entity_provenance(entity_id: str):
+    """Full per-entity provenance breakdown (P5)."""
+    import ftm_query
+
+    return ftm_query.get_entity_provenance(entity_id)
 
 
 # ---------------------------------------------------------------------------
