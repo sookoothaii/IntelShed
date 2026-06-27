@@ -49,7 +49,10 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
             seen_at     VARCHAR,
             UNIQUE (source_id, target_id, kind, dataset)
         );
-        CREATE INDEX IF NOT EXISTS idx_entities_schema ON entities(schema);
+        -- idx_entities_schema intentionally NOT created: DuckDB 1.5.x ART index
+        -- drift bug (duckdb/duckdb#21394) causes FATAL on DELETE. The schema
+        -- column is low-cardinality; columnar scan on 49k rows is <1ms.
+        DROP INDEX IF EXISTS idx_entities_schema;
         CREATE INDEX IF NOT EXISTS idx_stmt_entity ON statements(entity_id);
         CREATE TABLE IF NOT EXISTS resolution_labels (
             pair_id     VARCHAR PRIMARY KEY,
@@ -161,15 +164,11 @@ def _drop_entity_schema_index(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def _ensure_entity_schema_index(con: duckdb.DuckDBPyConnection) -> None:
-    # Fast path: check metadata before issuing DDL. DuckDB 1.5.x parses/plans the
-    # CREATE INDEX statement even with IF NOT EXISTS, which adds ~20-30ms per call.
-    row = con.execute(
-        "SELECT 1 FROM duckdb_indexes() WHERE index_name = 'idx_entities_schema'"
-    ).fetchone()
-    if not row:
-        con.execute(
-            "CREATE INDEX IF NOT EXISTS idx_entities_schema ON entities(schema)"
-        )
+    """No-op: idx_entities_schema was removed due to DuckDB 1.5.x index drift.
+
+    Kept for backward compatibility with callers in ftm_query.py.
+    """
+    pass
 
 
 def _is_index_delete_error(exc: BaseException) -> bool:

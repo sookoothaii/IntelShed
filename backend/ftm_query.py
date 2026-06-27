@@ -206,7 +206,7 @@ def _upsert_impl(
             if stmt_rows:
                 con.executemany(
                     """
-                    INSERT INTO statements
+                    INSERT OR REPLACE INTO statements
                         (entity_id, prop, value, dataset, seen_at, lang,
                          stmt_id, canonical_id, schema, first_seen, last_seen)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
