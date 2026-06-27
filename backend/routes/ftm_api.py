@@ -81,7 +81,8 @@ async def api_intel_subgraph(
 
     try:
         parsed = intel_subgraph.parse_bbox(bbox)
-        result = intel_subgraph.build_subgraph(
+        result = await asyncio.to_thread(
+            intel_subgraph.build_subgraph,
             bbox=parsed,
             region=region,
             hops=hops,
@@ -155,7 +156,7 @@ async def api_entity_graph(
     if cached is not None:
         return cached
     try:
-        result = graph_view(entity_id, depth, limit)
+        result = await asyncio.to_thread(graph_view, entity_id, depth, limit)
         cache_set(cache_key, result)
         return result
     except Exception as exc:

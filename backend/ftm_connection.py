@@ -26,6 +26,10 @@ _CONN: duckdb.DuckDBPyConnection | None = None
 _LOCK = threading.RLock()
 _INIT_ERROR: str | None = None
 
+# Thread-local secondary connections for lock-free reads. DuckDB supports
+# multiple in-process connections; a single connection is not thread-safe.
+_RO_CONN_LOCAL = threading.local()
+
 
 # ---------------------------------------------------------------------------
 # Path configuration
@@ -41,11 +45,24 @@ def set_db_path(path: str | None = None) -> None:
     """Configure the DuckDB file path (call before init_store)."""
     global _DB_PATH
     _DB_PATH = path or os.getenv("WORLDBASE_FTM_DB_PATH") or _default_db_path()
+    # Invalidate any thread-local read connections pointing at the old path
+    _clear_ro_connections()
 
 
 # ---------------------------------------------------------------------------
 # Connection lifecycle
 # ---------------------------------------------------------------------------
+
+
+def _clear_ro_connections() -> None:
+    """Close and clear all thread-local read connections (called on path change/reset)."""
+    con = getattr(_RO_CONN_LOCAL, "con", None)
+    if con is not None:
+        try:
+            con.close()
+        except Exception:
+            pass
+        _RO_CONN_LOCAL.con = None
 
 
 def _configure_connection(con: duckdb.DuckDBPyConnection) -> None:
@@ -151,6 +168,7 @@ def reset_store() -> bool:
                 pass
             _CONN = None
         _INIT_ERROR = None
+    _clear_ro_connections()
     return init_store()
 
 
@@ -191,8 +209,32 @@ def _run_with_recovery(fn):
     raise RuntimeError("ftm store unavailable")
 
 
+def _ro_conn() -> duckdb.DuckDBPyConnection:
+    """Return a thread-local secondary connection for lock-free reads.
+
+    A single DuckDB connection is not thread-safe; each thread that needs to
+    read concurrently with the writer gets its own connection to the same
+    on-disk database. DuckDB MVCC keeps this consistent.
+    """
+    con = getattr(_RO_CONN_LOCAL, "con", None)
+    if con is None:
+        if not _DB_PATH:
+            set_db_path()
+        # Ensure the main connection (and therefore schema) exists first.
+        _conn()
+        con = duckdb.connect(_DB_PATH)
+        _configure_connection(con)
+        _RO_CONN_LOCAL.con = con
+    return con
+
+
 def run_query(sql: str, params: list[Any] | tuple[Any, ...] | None = None) -> list:
     """Run a read query on the process store connection (same thread as init_store)."""
     return _run_with_recovery(
         lambda con: con.execute(sql, list(params or ())).fetchall()
     )
+
+
+def run_query_ro(sql: str, params: list[Any] | tuple[Any, ...] | None = None) -> list:
+    """Run a read query on a thread-local secondary connection without the global lock."""
+    return _ro_conn().execute(sql, list(params or ())).fetchall()

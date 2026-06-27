@@ -158,7 +158,7 @@ def _seed_entities_in_bbox(
         ORDER BY e.last_seen DESC
         LIMIT ?
     """
-    rows = ftm_store.run_query(sql, params)
+    rows = ftm_store.run_query_ro(sql, params)
     seeds: list[dict[str, Any]] = []
     for row in rows:
         seeds.append(
@@ -192,7 +192,7 @@ def _expand_edges(
     placeholders = ", ".join("?" * len(frontier))
     params = [*frontier, *frontier]
     now = datetime.now(timezone.utc)
-    rows = ftm_store.run_query(
+    rows = ftm_store.run_query_ro(
         f"""
         SELECT source_id, target_id, kind, confidence, dataset, seen_at
         FROM edges
@@ -301,10 +301,29 @@ def build_subgraph(
 
     seed_map = {s["id"]: s for s in seeds}
     nodes: list[dict[str, Any]] = []
-    # Batch fetch all non-seed entities in one query (avoids N+1)
+    # Batch fetch all non-seed entities in one query (avoids N+1), lock-free
     sorted_ids = sorted(visited, key=lambda x: (hop_depth.get(x, 99), x))[:cap]
     non_seed_ids = [nid for nid in sorted_ids if nid not in seed_map]
-    batch_entities = ftm_store.get_entities_batch(non_seed_ids) if non_seed_ids else {}
+    batch_entities: dict[str, dict] = {}
+    if non_seed_ids:
+        placeholders = ", ".join("?" * len(non_seed_ids))
+        rows = ftm_store.run_query_ro(
+            f"""
+            SELECT id, schema, caption, properties, datasets, lat, lon
+            FROM entities WHERE id IN ({placeholders})
+            """,
+            non_seed_ids,
+        )
+        for row in rows:
+            batch_entities[row[0]] = {
+                "id": row[0],
+                "schema": row[1],
+                "caption": row[2] or row[0][:12],
+                "properties": json.loads(row[3] or "{}"),
+                "datasets": json.loads(row[4] or "[]"),
+                "lat": _json_num(row[5]),
+                "lon": _json_num(row[6]),
+            }
     for nid in sorted_ids:
         if nid in seed_map:
             nodes.append(dict(seed_map[nid]))
