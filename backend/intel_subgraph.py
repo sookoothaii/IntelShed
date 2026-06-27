@@ -46,7 +46,7 @@ def decay_weight(age_days: float, half_life_days: float | None = None) -> float:
     return round(0.5 ** (age_days / max(1.0, hl)), 4)
 
 
-def _edge_age_days(seen_at: str | None) -> float | None:
+def _edge_age_days(seen_at: str | None, now: datetime | None = None) -> float | None:
     """Parse seen_at ISO timestamp and return age in days, or None if unparseable."""
     if not seen_at:
         return None
@@ -54,7 +54,7 @@ def _edge_age_days(seen_at: str | None) -> float | None:
         ts = datetime.fromisoformat(seen_at.replace("Z", "+00:00"))
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=timezone.utc)
-        return (datetime.now(timezone.utc) - ts).total_seconds() / 86400.0
+        return ((now or datetime.now(timezone.utc)) - ts).total_seconds() / 86400.0
     except (ValueError, TypeError):
         return None
 
@@ -184,12 +184,14 @@ def _expand_edges(
     edges_out: list[dict[str, Any]],
     edge_keys: set[tuple[str, str, str, str]],
     node_limit: int,
+    half_life_days: float,
 ) -> set[str]:
     if not frontier:
         return set()
     next_frontier: set[str] = set()
     placeholders = ", ".join("?" * len(frontier))
     params = [*frontier, *frontier]
+    now = datetime.now(timezone.utc)
     rows = ftm_store.run_query(
         f"""
         SELECT source_id, target_id, kind, confidence, dataset, seen_at
@@ -203,8 +205,10 @@ def _expand_edges(
         if key not in edge_keys:
             edge_keys.add(key)
             raw_conf = _json_num(confidence) or 1.0
-            age_days = _edge_age_days(seen_at)
-            decay = decay_weight(age_days) if age_days is not None else 1.0
+            age_days = _edge_age_days(seen_at, now)
+            decay = (
+                decay_weight(age_days, half_life_days) if age_days is not None else 1.0
+            )
             decayed_conf = round(raw_conf * decay, 4)
             edges_out.append(
                 {
@@ -273,6 +277,7 @@ def build_subgraph(
     frontier: set[str] = set(visited)
     edges: list[dict[str, Any]] = []
     edge_keys: set[tuple[str, str, str, str]] = set()
+    half_life_days = _edge_decay_half_life_days()
 
     for hop in range(1, hop_n + 1):
         if not frontier or len(visited) >= cap:
@@ -283,6 +288,7 @@ def build_subgraph(
             edges_out=edges,
             edge_keys=edge_keys,
             node_limit=cap,
+            half_life_days=half_life_days,
         )
         next_frontier: set[str] = set()
         for nid in next_ids:

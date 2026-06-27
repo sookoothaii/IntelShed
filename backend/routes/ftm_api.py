@@ -23,6 +23,7 @@ from ftm_query import (
     stats,
 )
 from ftm_sanctions import import_sanctions_csv
+from runtime_cache import cache_get, cache_set
 
 router = APIRouter(prefix="/api", tags=["intel"])
 
@@ -73,14 +74,21 @@ async def api_intel_subgraph(
     """2-hop FtM subgraph seeded by geolocated entities in bbox (Track 3)."""
     import intel_subgraph
 
+    cache_key = f"subgraph:{bbox}:{hops}:{window_hours}:{region}"
+    cached = cache_get(cache_key, ttl=30.0)
+    if cached is not None:
+        return cached
+
     try:
         parsed = intel_subgraph.parse_bbox(bbox)
-        return intel_subgraph.build_subgraph(
+        result = intel_subgraph.build_subgraph(
             bbox=parsed,
             region=region,
             hops=hops,
             window_hours=window_hours,
         )
+        cache_set(cache_key, result)
+        return result
     except Exception as exc:
         return {
             "available": False,
@@ -142,8 +150,14 @@ async def api_entity_graph(
     depth: int = Query(1, ge=1, le=3),
     limit: int = Query(200, ge=1, le=1000),
 ):
+    cache_key = f"entity_graph:{entity_id}:{depth}:{limit}"
+    cached = cache_get(cache_key, ttl=30.0)
+    if cached is not None:
+        return cached
     try:
-        return graph_view(entity_id, depth, limit)
+        result = graph_view(entity_id, depth, limit)
+        cache_set(cache_key, result)
+        return result
     except Exception as exc:
         return {
             "root": entity_id,
