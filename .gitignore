@@ -80,6 +80,7 @@ docs/**
 briefs/
 research/
 KIMI.md
+NEXT_KIMI_PROMPT.md
 LLM_HANDOFF.md
 worldbase.code-workspace
 GAP_REPORT.md

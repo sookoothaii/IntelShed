@@ -26,6 +26,8 @@ WorldBase uses a layered architecture with clear separation of concerns:
 │ • Feed bridges (18x data sources)                            │
 │ • AI chat tools                                               │
 │ • Anomaly detection (River ML)                                │
+│ • Context budget manager (token budget + provenance truncation)│
+│ • News feeds background ingest (ReliefWeb + RSS)              │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
@@ -52,6 +54,8 @@ backend/
 ├── main.py                    # FastAPI application entry point
 ├── node_sync.py               # Pi↔PC synchronization (refactored with Pydantic)
 ├── feed_registry.py           # Unified cache: SQLite or PostgreSQL
+├── context_budget.py          # Token budget manager (provenance truncation + refuse path)
+├── news_feeds.py              # Background ReliefWeb + RSS ingest (no live HTTP in chat path)
 │
 ├── models/                    # 🆕 Pydantic v2 validation schemas
 │   ├── __init__.py           # Central exports

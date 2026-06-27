@@ -403,6 +403,9 @@ def register_lifecycle(app) -> None:
         import prediction_ledger
 
         prediction_ledger.init_prediction_db()
+        import route_ledger
+
+        route_ledger.init_route_ledger_db()
         aircraft_trails.init_trail_db()
         import features
 

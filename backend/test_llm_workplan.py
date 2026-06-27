@@ -581,6 +581,7 @@ class TestOrchestratorBlackboardIntegration(unittest.IsolatedAsyncioTestCase):
             circuit_breaker_threshold: int = 3,
             circuit_breaker_window: int = 60,
             blackboard_enabled: bool = True,
+            two_pass_enabled: bool = False,
         ):
             self.agent_orchestrator_enabled = enabled
             self.agent_orchestrator_max_workers = max_workers
@@ -590,6 +591,7 @@ class TestOrchestratorBlackboardIntegration(unittest.IsolatedAsyncioTestCase):
             )
             self.agent_orchestrator_circuit_breaker_window = circuit_breaker_window
             self.blackboard_enabled = blackboard_enabled
+            self.two_pass_enabled = two_pass_enabled
 
     def _patch_modules(
         self, route_block: str = "context", route_hits: list | None = None
@@ -757,6 +759,443 @@ class TestOrchestratorBlackboardIntegration(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("blackboard_enabled", status)
         self.assertTrue(status["blackboard_enabled"])
+
+
+# ---------------------------------------------------------------------------
+# P5 — Critique-Refine tests
+# ---------------------------------------------------------------------------
+
+
+class TestCritiqueRefine(unittest.TestCase):
+    """Tests for two-pass synthesis (critique → revise)."""
+
+    def test_two_pass_enabled_default_off(self) -> None:
+        import agent_orchestrator
+
+        self.assertFalse(agent_orchestrator.two_pass_enabled())
+
+    def test_is_analyze_command_explicit(self) -> None:
+        import agent_orchestrator
+
+        self.assertTrue(
+            agent_orchestrator._is_analyze_command("/analyze Bangkok situation")
+        )
+        self.assertTrue(
+            agent_orchestrator._is_analyze_command("/ANALYZE earthquake impact")
+        )
+
+    def test_is_analyze_command_markers(self) -> None:
+        import agent_orchestrator
+
+        self.assertTrue(
+            agent_orchestrator._is_analyze_command("assess the situation in Bangkok")
+        )
+        self.assertTrue(
+            agent_orchestrator._is_analyze_command("investigate maritime activity")
+        )
+        self.assertTrue(
+            agent_orchestrator._is_analyze_command("evaluate the threat level")
+        )
+
+    def test_is_analyze_command_negative(self) -> None:
+        import agent_orchestrator
+
+        self.assertFalse(agent_orchestrator._is_analyze_command("what is the weather"))
+        self.assertFalse(agent_orchestrator._is_analyze_command("show me Bangkok"))
+        self.assertFalse(agent_orchestrator._is_analyze_command(""))
+
+    def test_critique_checklist_items(self) -> None:
+        import agent_orchestrator
+
+        self.assertIn("evidence", agent_orchestrator._CRITIQUE_CHECKLIST)
+        self.assertIn("conflict", agent_orchestrator._CRITIQUE_CHECKLIST)
+        self.assertGreaterEqual(len(agent_orchestrator._CRITIQUE_CHECKLIST), 8)
+
+    def test_critique_finds_gaps_in_thin_draft(self) -> None:
+        import agent_orchestrator
+
+        # Thin draft missing most checklist items
+        gaps, meta = __import__("asyncio").run(
+            agent_orchestrator._critique_agent("short draft", bb=None)
+        )
+        self.assertGreater(len(gaps), 0)
+        self.assertIn("evidence", gaps)
+        self.assertEqual(meta["phase"], "critique")
+
+    def test_critique_no_gaps_in_complete_draft(self) -> None:
+        import agent_orchestrator
+
+        draft = (
+            "This report presents evidence from multiple sources. "
+            "A blind spot exists in maritime coverage. "
+            "An assumption was made about vessel intent. "
+            "Recommended action: monitor AIS. "
+            "A competing hypothesis suggests civilian traffic. "
+            "The devil's advocate view questions the threat level. "
+            "A conflict exists between two sources. "
+            "Fusion data shows a hotspot. "
+            "Temporal analysis reveals a pattern. "
+            "An indicator of concern is the speed change."
+        )
+        gaps, meta = __import__("asyncio").run(
+            agent_orchestrator._critique_agent(draft, bb=None)
+        )
+        self.assertEqual(len(gaps), 0)
+        self.assertEqual(meta["gap_count"], 0)
+
+    def test_critique_detects_missing_evidence_refs(self) -> None:
+        import agent_orchestrator
+        from agent_blackboard import Blackboard
+
+        bb = Blackboard(query="test")
+        bb.add_evidence(source="usgs", text="M4.5 quake", provenance_score=0.9)
+        gaps, meta = __import__("asyncio").run(
+            agent_orchestrator._critique_agent("no evidence refs here", bb=bb)
+        )
+        self.assertIn("evidence_id_reference", gaps)
+        self.assertEqual(meta["evidence_count"], 1)
+
+    def test_critique_detects_missing_conflict_refs(self) -> None:
+        import agent_orchestrator
+        from agent_blackboard import Blackboard
+
+        bb = Blackboard(query="test")
+        bb.add_conflict("[EVIDENCE-001]", "[EVIDENCE-002]", "existence", "test")
+        gaps, meta = __import__("asyncio").run(
+            agent_orchestrator._critique_agent("all sources agree here", bb=bb)
+        )
+        self.assertIn("conflict_mention", gaps)
+
+    def test_critique_stores_notes_in_blackboard(self) -> None:
+        import agent_orchestrator
+        from agent_blackboard import Blackboard
+
+        bb = Blackboard(query="test")
+        __import__("asyncio").run(
+            agent_orchestrator._critique_agent("thin draft", bb=bb)
+        )
+        self.assertIsNotNone(bb.critique_notes)
+        self.assertIn("Gaps found", bb.critique_notes)
+
+    def test_revise_no_gaps_returns_unchanged(self) -> None:
+        import agent_orchestrator
+
+        draft = "original draft"
+        revised, meta = __import__("asyncio").run(
+            agent_orchestrator._revise_synthesis(draft, [], "query", "vector", bb=None)
+        )
+        self.assertEqual(revised, draft)
+        self.assertEqual(meta["gaps_addressed"], 0)
+
+
+class TestVerifyClaimTool(unittest.IsolatedAsyncioTestCase):
+    """Tests for the verify_claim tool in chat_tools.py."""
+
+    async def test_verify_claim_empty_claim(self) -> None:
+        import chat_tools
+
+        result = await chat_tools._verify_claim("")
+        self.assertEqual(result["result"]["confidence"], "unknown")
+        self.assertEqual(result["result"]["snippets"], [])
+
+    async def test_verify_claim_returns_dict_structure(self) -> None:
+        import chat_tools
+
+        # Mock both rag_memory and httpx to avoid network calls
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_rag = MagicMock()
+        mock_rag.search = AsyncMock(return_value=[])
+        with patch.dict("sys.modules", {"rag_memory": mock_rag}):
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                mock_client = MagicMock()
+                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+                mock_client.__aexit__ = AsyncMock(return_value=None)
+                mock_resp = MagicMock()
+                mock_resp.raise_for_status = MagicMock()
+                mock_resp.json = MagicMock(return_value={})
+                mock_client.get = AsyncMock(return_value=mock_resp)
+                mock_client_cls.return_value = mock_client
+
+                result = await chat_tools._verify_claim("test claim")
+                self.assertIn("tool", result)
+                self.assertEqual(result["tool"], "verify_claim")
+                self.assertIn("confidence", result["result"])
+                self.assertIn("snippets", result["result"])
+
+    async def test_verify_claim_rag_snippets(self) -> None:
+        import chat_tools
+
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_rag = MagicMock()
+        mock_rag.search = AsyncMock(
+            return_value=[
+                {
+                    "text": "quake near Bangkok",
+                    "source": "usgs",
+                    "url": "https://example.com",
+                },
+                {"text": "protest in Bangkok", "source": "gdelt"},
+            ]
+        )
+        with patch.dict("sys.modules", {"rag_memory": mock_rag}):
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                mock_client = MagicMock()
+                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+                mock_client.__aexit__ = AsyncMock(return_value=None)
+                mock_resp = MagicMock()
+                mock_resp.raise_for_status = MagicMock()
+                mock_resp.json = MagicMock(return_value={})
+                mock_client.get = AsyncMock(return_value=mock_resp)
+                mock_client_cls.return_value = mock_client
+
+                result = await chat_tools._verify_claim(
+                    "Bangkok earthquake", suggested_sources=["usgs"]
+                )
+                self.assertEqual(len(result["result"]["snippets"]), 2)
+                self.assertEqual(result["result"]["confidence"], "HIGH")
+
+    async def test_verify_claim_tool_definition(self) -> None:
+        import chat_tools
+
+        tool_names = [t["function"]["name"] for t in chat_tools.OLLAMA_TOOLS]
+        self.assertIn("verify_claim", tool_names)
+
+    async def test_verify_claim_execute_tool(self) -> None:
+        import chat_tools
+
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        mock_rag = MagicMock()
+        mock_rag.search = AsyncMock(return_value=[])
+        with patch.dict("sys.modules", {"rag_memory": mock_rag}):
+            with patch("httpx.AsyncClient") as mock_client_cls:
+                mock_client = MagicMock()
+                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+                mock_client.__aexit__ = AsyncMock(return_value=None)
+                mock_resp = MagicMock()
+                mock_resp.raise_for_status = MagicMock()
+                mock_resp.json = MagicMock(return_value={})
+                mock_client.get = AsyncMock(return_value=mock_resp)
+                mock_client_cls.return_value = mock_client
+
+                result = await chat_tools.execute_tool(
+                    "verify_claim", {"claim": "test claim"}
+                )
+                self.assertEqual(result["tool"], "verify_claim")
+
+
+class TestTwoPassOrchestration(unittest.IsolatedAsyncioTestCase):
+    """Integration tests for two-pass synthesis in orchestrate()."""
+
+    def setUp(self) -> None:
+        for mod in list(sys.modules):
+            if mod in (
+                "agent_orchestrator",
+                "query_router",
+                "chat_agentic",
+                "agent_bus",
+                "agent_blackboard",
+                "conflict_detection",
+                "config",
+            ):
+                del sys.modules[mod]
+
+    class _ConfigStub:
+        def __init__(
+            self,
+            enabled: bool = True,
+            max_workers: int = 4,
+            phase_timeout: float = 10.0,
+            circuit_breaker_threshold: int = 3,
+            circuit_breaker_window: int = 60,
+            blackboard_enabled: bool = True,
+            two_pass_enabled: bool = False,
+        ):
+            self.agent_orchestrator_enabled = enabled
+            self.agent_orchestrator_max_workers = max_workers
+            self.agent_orchestrator_phase_timeout = phase_timeout
+            self.agent_orchestrator_circuit_breaker_threshold = (
+                circuit_breaker_threshold
+            )
+            self.agent_orchestrator_circuit_breaker_window = circuit_breaker_window
+            self.blackboard_enabled = blackboard_enabled
+            self.two_pass_enabled = two_pass_enabled
+
+    def _patch_modules(
+        self, route_block: str = "context", route_hits: list | None = None
+    ) -> dict:
+        from unittest.mock import AsyncMock, MagicMock
+
+        route_hits = route_hits or []
+        query_router = MagicMock()
+        query_router.classify_query = MagicMock(return_value="vector")
+        query_router.route_retrieval = AsyncMock(
+            return_value={
+                "route": "vector",
+                "block": route_block,
+                "hits": route_hits,
+                "meta": {},
+            }
+        )
+        query_router.VALID_ROUTES = ("vector", "graph", "spatial", "hybrid", "live")
+
+        chat_agentic = MagicMock()
+        chat_agentic.chat_agentic_enabled = MagicMock(return_value=True)
+        chat_agentic.assess_coverage = MagicMock(
+            return_value={
+                "phase": "coverage",
+                "char_count": len(route_block),
+                "unique_sources": 1,
+                "has_strong": True,
+                "has_thin": False,
+                "gaps": [],
+                "needs_retrieve": False,
+            }
+        )
+        chat_agentic.apply_corroboration_tags = MagicMock(
+            return_value=(
+                route_block,
+                {
+                    "phase": "corroboration",
+                    "source_count": 1,
+                    "corroborated": 0,
+                    "uncorroborated": 0,
+                    "tagged_lines": 0,
+                },
+            )
+        )
+
+        agent_bus = MagicMock()
+        agent_bus.agent_bus_enabled = MagicMock(return_value=False)
+        agent_bus.publish_action = AsyncMock(return_value={"ok": True, "delivered": 0})
+        agent_bus.GLOBE_LAYER_KEYS = frozenset()
+        agent_bus.AgentPublishBody = MagicMock()
+        agent_bus.subscriber_count = MagicMock(return_value=0)
+
+        return {
+            "query_router": query_router,
+            "chat_agentic": chat_agentic,
+            "agent_bus": agent_bus,
+        }
+
+    async def test_two_pass_triggered_for_analyze(self) -> None:
+        import agent_orchestrator
+        import agent_blackboard
+
+        modules = self._patch_modules(route_block="thin context")
+        with patch.dict(
+            sys.modules,
+            {
+                "query_router": modules["query_router"],
+                "chat_agentic": modules["chat_agentic"],
+                "agent_bus": modules["agent_bus"],
+            },
+        ), patch.object(
+            agent_orchestrator,
+            "get_config",
+            return_value=self._ConfigStub(
+                blackboard_enabled=True, two_pass_enabled=True
+            ),
+        ), patch.object(
+            agent_blackboard,
+            "get_config",
+            return_value=self._ConfigStub(
+                blackboard_enabled=True, two_pass_enabled=True
+            ),
+        ):
+            result = await agent_orchestrator.orchestrate("/analyze Bangkok situation")
+
+        self.assertTrue(result["two_pass"])
+        phase_names = [p.get("phase") for p in result["phases"]]
+        self.assertIn("critique", phase_names)
+
+    async def test_two_pass_not_triggered_for_non_analyze(self) -> None:
+        import agent_orchestrator
+        import agent_blackboard
+
+        modules = self._patch_modules(route_block="test context")
+        with patch.dict(
+            sys.modules,
+            {
+                "query_router": modules["query_router"],
+                "chat_agentic": modules["chat_agentic"],
+                "agent_bus": modules["agent_bus"],
+            },
+        ), patch.object(
+            agent_orchestrator,
+            "get_config",
+            return_value=self._ConfigStub(
+                blackboard_enabled=True, two_pass_enabled=True
+            ),
+        ), patch.object(
+            agent_blackboard,
+            "get_config",
+            return_value=self._ConfigStub(
+                blackboard_enabled=True, two_pass_enabled=True
+            ),
+        ):
+            result = await agent_orchestrator.orchestrate("what is the weather")
+
+        self.assertFalse(result["two_pass"])
+
+    async def test_two_pass_not_triggered_when_disabled(self) -> None:
+        import agent_orchestrator
+        import agent_blackboard
+
+        modules = self._patch_modules(route_block="test context")
+        with patch.dict(
+            sys.modules,
+            {
+                "query_router": modules["query_router"],
+                "chat_agentic": modules["chat_agentic"],
+                "agent_bus": modules["agent_bus"],
+            },
+        ), patch.object(
+            agent_orchestrator,
+            "get_config",
+            return_value=self._ConfigStub(
+                blackboard_enabled=True, two_pass_enabled=False
+            ),
+        ), patch.object(
+            agent_blackboard,
+            "get_config",
+            return_value=self._ConfigStub(
+                blackboard_enabled=True, two_pass_enabled=False
+            ),
+        ):
+            result = await agent_orchestrator.orchestrate("/analyze Bangkok situation")
+
+        self.assertFalse(result["two_pass"])
+
+    async def test_agent_status_includes_two_pass(self) -> None:
+        import agent_orchestrator
+        import agent_blackboard
+
+        modules = self._patch_modules()
+        with patch.dict(
+            sys.modules,
+            {
+                "agent_bus": modules["agent_bus"],
+            },
+        ), patch.object(
+            agent_orchestrator,
+            "get_config",
+            return_value=self._ConfigStub(
+                blackboard_enabled=True, two_pass_enabled=True
+            ),
+        ), patch.object(
+            agent_blackboard,
+            "get_config",
+            return_value=self._ConfigStub(
+                blackboard_enabled=True, two_pass_enabled=True
+            ),
+        ):
+            status = await agent_orchestrator.agent_status()
+
+        self.assertIn("two_pass_enabled", status)
+        self.assertTrue(status["two_pass_enabled"])
 
 
 if __name__ == "__main__":

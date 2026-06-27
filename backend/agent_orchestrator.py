@@ -140,6 +140,28 @@ def orchestrator_enabled() -> bool:
     return get_config().agent_orchestrator_enabled
 
 
+def two_pass_enabled() -> bool:
+    return get_config().two_pass_enabled
+
+
+def _is_analyze_command(query: str) -> bool:
+    """Check if the query is an explicit /analyze command or analysis-class query."""
+    q = (query or "").strip().lower()
+    if q.startswith("/analyze"):
+        return True
+    analysis_markers = (
+        "analyze",
+        "assess",
+        "investigate",
+        "evaluate",
+        "what is the situation",
+        "give me an intelligence",
+        "intelligence assessment",
+        "in-depth analysis",
+    )
+    return any(marker in q for marker in analysis_markers)
+
+
 def _max_workers() -> int:
     return max(1, min(64, get_config().agent_orchestrator_max_workers))
 
@@ -541,8 +563,168 @@ async def _synthesis_agent(
 
 
 # ---------------------------------------------------------------------------
-# P1/P3 — Blackboard helper functions
+# P5 — Critique-Refine (two-pass synthesis, opt-in)
 # ---------------------------------------------------------------------------
+
+# Checklist items that the critique agent verifies in the synthesis draft
+_CRITIQUE_CHECKLIST: tuple[str, ...] = (
+    "evidence",
+    "blind spot",
+    "assumption",
+    "recommended action",
+    "competing hypothesis",
+    "devil",
+    "conflict",
+    "fusion",
+    "temporal",
+    "indicator",
+)
+
+
+async def _critique_agent(
+    draft: str,
+    bb: Blackboard | None = None,
+) -> tuple[list[str], dict[str, Any]]:
+    """P5 — Critique the synthesis draft against a coverage checklist.
+
+    Returns (gaps, meta) where gaps is a list of missing checklist items.
+    """
+    start = time.monotonic()
+    if _circuit_open("critique"):
+        return [], {
+            "phase": "critique",
+            "skipped": True,
+            "reason": "circuit_open",
+        }
+
+    draft_lower = (draft or "").lower()
+    gaps: list[str] = []
+
+    for item in _CRITIQUE_CHECKLIST:
+        if item not in draft_lower:
+            gaps.append(item)
+
+    # Check evidence coverage from blackboard
+    if bb is not None:
+        # If we have evidence but the draft doesn't reference any [EVIDENCE-NNN]
+        if bb.evidence_registry:
+            has_evidence_ref = "[evidence-" in draft_lower
+            if not has_evidence_ref:
+                gaps.append("evidence_id_reference")
+
+        # If we have conflicts but draft doesn't mention them
+        if bb.conflicts:
+            has_conflict_ref = any(
+                kw in draft_lower for kw in ("conflict", "contradict", "however")
+            )
+            if not has_conflict_ref:
+                gaps.append("conflict_mention")
+
+    # Store critique notes in the blackboard
+    if bb is not None:
+        bb.critique_notes = (
+            f"Gaps found: {', '.join(gaps)}" if gaps else "No gaps detected."
+        )
+
+    duration_ms = int((time.monotonic() - start) * 1000)
+    meta: dict[str, Any] = {
+        "phase": "critique",
+        "gaps": gaps,
+        "gap_count": len(gaps),
+        "checklist_size": len(_CRITIQUE_CHECKLIST),
+        "duration_ms": duration_ms,
+    }
+    if bb is not None:
+        meta["evidence_count"] = len(bb.evidence_registry)
+        meta["conflict_count"] = len(bb.conflicts)
+    return gaps, meta
+
+
+async def _revise_synthesis(
+    draft: str,
+    gaps: list[str],
+    query: str,
+    route: str,
+    bb: Blackboard | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """P5 — Targeted re-retrieval for identified gaps, then revise the draft.
+
+    If gaps are found, performs one additional retrieval round focused on
+    the gap topics, then appends the new evidence to the synthesis block.
+    """
+    start = time.monotonic()
+    if not gaps:
+        return draft, {
+            "phase": "revise",
+            "retrieved": 0,
+            "gaps_addressed": 0,
+            "duration_ms": 0,
+        }
+
+    from query_router import route_retrieval
+
+    new_block = draft
+    retrieved = 0
+
+    # Build a targeted query from gaps
+    gap_query = f"{query} {' '.join(gaps[:3])}"
+
+    try:
+        result, timing = await _run_with_timeout(
+            route_retrieval(gap_query, route="hybrid"),
+            "revise",
+        )
+        block = result.get("block", "")
+        hits = result.get("hits") or []
+        retrieved = len(hits)
+        if block:
+            new_block = _unique_lines(draft, block)
+        # Register new evidence in blackboard
+        if bb is not None and hits:
+            _register_evidence(bb, hits, "hybrid")
+    except Exception as exc:
+        return draft, {
+            "phase": "revise",
+            "error": str(exc)[:200],
+            "retrieved": 0,
+            "gaps_addressed": 0,
+            "duration_ms": int((time.monotonic() - start) * 1000),
+            "timed_out": isinstance(exc, asyncio.TimeoutError),
+        }
+
+    # Re-enrich with blackboard content after additional retrieval
+    if bb is not None:
+        extra_blocks: list[str] = []
+        ev_block = evidence_block_to_text(bb)
+        if ev_block:
+            extra_blocks.append(f"--- EVIDENCE REGISTRY (revised)\n{ev_block}")
+        conf_block = conflicts_block_to_text(bb)
+        if conf_block:
+            extra_blocks.append(conf_block)
+        tl_block = timeline_block_to_text(bb)
+        if tl_block:
+            extra_blocks.append(tl_block)
+        if extra_blocks:
+            new_block += "\n\n" + "\n\n".join(extra_blocks)
+
+    # Add a critique summary header
+    gap_summary = ", ".join(gaps[:5])
+    new_block = (
+        f"=== CRITIQUE-REFINE (two-pass) ===\n"
+        f"Gaps identified: {gap_summary}\n"
+        f"Re-retrieval: {retrieved} hits\n"
+        f"{'=' * 40}\n\n"
+        f"{new_block}"
+    )
+
+    duration_ms = int((time.monotonic() - start) * 1000)
+    meta = {
+        "phase": "revise",
+        "retrieved": retrieved,
+        "gaps_addressed": len(gaps),
+        "duration_ms": duration_ms,
+    }
+    return new_block, meta
 
 
 def _register_evidence(
@@ -759,6 +941,28 @@ async def orchestrate(
         block, resolved_route, trace["phases"], bb=bb
     )
     trace["phases"].append(synth_meta)
+
+    # P5 — Critique-Refine (two-pass synthesis, opt-in)
+    two_pass = two_pass_enabled() and _is_analyze_command(query)
+    if two_pass:
+        try:
+            gaps, critique_meta = await _critique_agent(final_block, bb=bb)
+            trace["phases"].append(critique_meta)
+            if gaps:
+                revised_block, revise_meta = await _revise_synthesis(
+                    final_block, gaps, query, resolved_route, bb=bb
+                )
+                trace["phases"].append(revise_meta)
+                final_block = revised_block
+        except Exception as exc:
+            trace["phases"].append(
+                {
+                    "phase": "critique",
+                    "error": str(exc)[:200],
+                    "skipped": True,
+                }
+            )
+
     trace["final_block_chars"] = len(final_block)
     trace["finished_at"] = _now_utc()
     trace["hud_delivered"] = hud_delivered
@@ -770,6 +974,7 @@ async def orchestrate(
         "enabled": True,
         "final_block": final_block,
         "final_block_chars": len(final_block),
+        "two_pass": two_pass,
         "phases": trace["phases"],
         "hud_delivered": hud_delivered,
         "started_at": trace["started_at"],
@@ -813,4 +1018,5 @@ async def agent_status() -> dict[str, Any]:
         "supported_phases": [p.value for p in AgentPhase],
         "globe_layers": layers,
         "blackboard_enabled": blackboard_enabled(),
+        "two_pass_enabled": two_pass_enabled(),
     }

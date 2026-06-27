@@ -19,12 +19,16 @@ class _ConfigStub:
         phase_timeout: float = 10.0,
         circuit_breaker_threshold: int = 3,
         circuit_breaker_window: int = 60,
+        blackboard_enabled: bool = False,
+        two_pass_enabled: bool = False,
     ):
         self.agent_orchestrator_enabled = enabled
         self.agent_orchestrator_max_workers = max_workers
         self.agent_orchestrator_phase_timeout = phase_timeout
         self.agent_orchestrator_circuit_breaker_threshold = circuit_breaker_threshold
         self.agent_orchestrator_circuit_breaker_window = circuit_breaker_window
+        self.blackboard_enabled = blackboard_enabled
+        self.two_pass_enabled = two_pass_enabled
 
 
 class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):

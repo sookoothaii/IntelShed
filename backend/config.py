@@ -77,6 +77,9 @@ class WorldBaseConfig(BaseModel):
     agent_orchestrator_circuit_breaker_threshold: int = 3
     agent_orchestrator_circuit_breaker_window: int = 60
     blackboard_enabled: bool = False
+    two_pass_enabled: bool = False
+    route_ledger_enabled: bool = True
+    route_ledger_recompute_n: int = 50
     dynamic_graph_enabled: bool = False
     dynamic_graph_max_confidence: float = 0.7
     maritime_trajectory_enabled: bool = False
@@ -271,6 +274,11 @@ class WorldBaseConfig(BaseModel):
             ),
             briefing_telegram=_truthy(os.getenv("WORLDBASE_BRIEFING_TELEGRAM", "0")),
             blackboard_enabled=_truthy(os.getenv("WORLDBASE_BLACKBOARD", "0")),
+            two_pass_enabled=_truthy(os.getenv("WORLDBASE_TWO_PASS", "0")),
+            route_ledger_enabled=_truthy(os.getenv("WORLDBASE_ROUTE_LEDGER", "1")),
+            route_ledger_recompute_n=max(
+                10, int(os.getenv("WORLDBASE_ROUTE_LEDGER_RECOMPUTE_N", "50"))
+            ),
         )
 
 

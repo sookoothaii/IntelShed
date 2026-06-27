@@ -1,0 +1,105 @@
+{
+  "measured_at": "2026-06-26T14:08:28.057198+00:00",
+  "base_url": "http://127.0.0.1:8002",
+  "repeat": 3,
+  "run_chat": true,
+  "endpoints": {
+    "health": {
+      "status": 200,
+      "latency_ms": 168.71,
+      "latency_min_ms": 2.35,
+      "latency_max_ms": 501.27,
+      "size_bytes": 57,
+      "ok": true,
+      "error": null
+    },
+    "briefing": {
+      "status": 200,
+      "latency_ms": 10.16,
+      "latency_min_ms": 7.06,
+      "latency_max_ms": 11.85,
+      "size_bytes": 16687,
+      "ok": true,
+      "error": null
+    },
+    "trust": {
+      "status": 200,
+      "latency_ms": 1572.56,
+      "latency_min_ms": 1205.96,
+      "latency_max_ms": 2200.65,
+      "size_bytes": 4092,
+      "ok": true,
+      "error": null
+    },
+    "intel_stats": {
+      "status": 200,
+      "latency_ms": 9.99,
+      "latency_min_ms": 8.89,
+      "latency_max_ms": 11.07,
+      "size_bytes": 316,
+      "ok": true,
+      "error": null
+    },
+    "intel_subgraph": {
+      "status": 200,
+      "latency_ms": 840.18,
+      "latency_min_ms": 742.7,
+      "latency_max_ms": 999.73,
+      "size_bytes": 508030,
+      "ok": true,
+      "error": null
+    },
+    "connectors": {
+      "status": 200,
+      "latency_ms": 22.32,
+      "latency_min_ms": 18.51,
+      "latency_max_ms": 29.72,
+      "size_bytes": 19830,
+      "ok": true,
+      "error": null
+    }
+  },
+  "chat": {
+    "simple": {
+      "status": 200,
+      "latency_ms": 29531.84,
+      "latency_min_ms": 29531.84,
+      "latency_max_ms": 29531.84,
+      "size_bytes": 1823,
+      "ok": true,
+      "error": null
+    },
+    "analysis": {
+      "status": 200,
+      "latency_ms": 50912.65,
+      "latency_min_ms": 50912.65,
+      "latency_max_ms": 50912.65,
+      "size_bytes": 3676,
+      "ok": true,
+      "error": null
+    },
+    "operator_region": {
+      "status": 200,
+      "latency_ms": 41747.84,
+      "latency_min_ms": 41747.84,
+      "latency_max_ms": 41747.84,
+      "size_bytes": 1782,
+      "ok": true,
+      "error": null
+    }
+  },
+  "ollama": {
+    "ok": true,
+    "model_count": 3,
+    "model_names": [
+      "qwen3:14b",
+      "nomic-embed-text:latest",
+      "qwen3:8b"
+    ]
+  },
+  "system": {
+    "python_memory_mb": null,
+    "cpu_percent": null,
+    "error": "No module named 'psutil'"
+  }
+}

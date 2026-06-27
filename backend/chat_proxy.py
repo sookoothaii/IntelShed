@@ -1253,7 +1253,11 @@ async def chat_proxy(
                                     delta = (chunk.get("choices") or [{}])[0].get(
                                         "delta", {}
                                     )
-                                    content = delta.get("content", "")
+                                    content = (
+                                        delta.get("content")
+                                        or delta.get("reasoning_content")
+                                        or ""
+                                    )
                                     if content:
                                         yield f"data: {json.dumps({'token': content})}\n\n"
                             yield f"data: {json.dumps({'done': True})}\n\n"
@@ -1269,8 +1273,12 @@ async def chat_proxy(
                 r.raise_for_status()
                 data = r.json()
                 choice = data.get("choices", [{}])[0]
-                resp_text = choice.get("message", {}).get("content", "") or choice.get(
-                    "text", ""
+                msg = choice.get("message", {})
+                resp_text = (
+                    msg.get("content")
+                    or msg.get("reasoning_content")
+                    or choice.get("text", "")
+                    or ""
                 )
                 resp_text, og_meta = _apply_output_guard(resp_text, user_text)
                 resp_text, ca_meta = _claim_auditor(resp_text, context_blocks)

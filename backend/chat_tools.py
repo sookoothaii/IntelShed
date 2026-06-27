@@ -15,6 +15,114 @@ _UA = {"User-Agent": "WorldBase/1.0"}
 
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 
+_DDG_URL = "https://api.duckduckgo.com/"
+
+
+async def _verify_claim(
+    claim: str,
+    suggested_sources: list[str] | None = None,
+) -> dict[str, Any]:
+    """Verify a claim via RAG memory + DuckDuckGo (fail-soft).
+
+    Returns relevant snippets with source attribution and a confidence
+    assessment.  Network errors return ``confidence: "unknown"`` with empty
+    lists — never raises.
+    """
+    suggested_sources = suggested_sources or []
+    snippets: list[dict[str, Any]] = []
+    confidence = "unknown"
+
+    if not claim:
+        return {
+            "tool": "verify_claim",
+            "result": {
+                "claim": "",
+                "confidence": "unknown",
+                "snippets": [],
+                "error": "empty claim",
+            },
+        }
+
+    # Phase 1: RAG memory search
+    try:
+        import rag_memory
+
+        results = await rag_memory.search(claim, k=4)
+        for r in results:
+            text = str(r.get("text") or r.get("content") or "")[:300]
+            source = str(r.get("source") or r.get("feed") or "rag_memory")
+            snippets.append(
+                {
+                    "text": text,
+                    "source": source,
+                    "url": str(r.get("url") or r.get("link") or ""),
+                    "backend": "rag",
+                }
+            )
+    except Exception:
+        pass
+
+    # Phase 2: DuckDuckGo instant answer API (fail-soft)
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(
+                _DDG_URL,
+                params={
+                    "q": claim,
+                    "format": "json",
+                    "no_html": "1",
+                    "skip_disambig": "1",
+                },
+                headers=_UA,
+            )
+            r.raise_for_status()
+            data = r.json()
+            abstract = str(data.get("Abstract") or "").strip()
+            if abstract:
+                snippets.append(
+                    {
+                        "text": abstract[:300],
+                        "source": str(data.get("AbstractSource") or "DuckDuckGo"),
+                        "url": str(data.get("AbstractURL") or ""),
+                        "backend": "duckduckgo",
+                    }
+                )
+            for topic in (data.get("RelatedTopics") or [])[:3]:
+                if isinstance(topic, dict) and topic.get("Text"):
+                    snippets.append(
+                        {
+                            "text": str(topic["Text"])[:300],
+                            "source": "DuckDuckGo",
+                            "url": str(topic.get("FirstURL") or ""),
+                            "backend": "duckduckgo",
+                        }
+                    )
+    except Exception:
+        pass
+
+    # Confidence assessment (rule-based, 0 VRAM)
+    if snippets:
+        source_match = any(
+            any(s.lower() in snip.get("source", "").lower() for s in suggested_sources)
+            for snip in snippets
+        )
+        if source_match and len(snippets) >= 2:
+            confidence = "HIGH"
+        elif len(snippets) >= 2:
+            confidence = "MEDIUM"
+        else:
+            confidence = "LOW"
+
+    return {
+        "tool": "verify_claim",
+        "result": {
+            "claim": claim[:300],
+            "confidence": confidence,
+            "snippets": snippets[:6],
+            "suggested_sources": suggested_sources,
+        },
+    }
+
 
 async def _geocode_place(query: str) -> dict[str, Any] | None:
     """Resolve a place name to lat/lon via OpenStreetMap Nominatim (fail-soft)."""
@@ -194,6 +302,28 @@ OLLAMA_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "verify_claim",
+            "description": "Verify a claim by searching RAG memory and optionally DuckDuckGo. Returns relevant snippets with source attribution and a confidence assessment. Use this to cross-check claims during analysis.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "claim": {
+                        "type": "string",
+                        "description": "The claim text to verify",
+                    },
+                    "suggested_sources": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of source names to look for (e.g. ['GDELT', 'USGS'])",
+                    },
+                },
+                "required": ["claim"],
+            },
+        },
+    },
 ]
 
 
@@ -364,6 +494,12 @@ async def execute_tool(name: str, arguments: dict) -> dict[str, Any]:
                 ],
             },
         }
+
+    if name == "verify_claim":
+        return await _verify_claim(
+            str(args.get("claim", "")).strip(),
+            args.get("suggested_sources") or [],
+        )
 
     return {"tool": name, "error": f"unknown tool: {name}"}
 

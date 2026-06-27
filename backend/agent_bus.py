@@ -196,12 +196,20 @@ def _verify_stream_auth(request: Request, token: str | None = None) -> None:
 
 @router.get("/status")
 async def agent_status():
-    return {
+    base = {
         "enabled": agent_bus_enabled(),
         "subscribers": len(_subscribers),
         "camera": get_camera_state() or None,
         "layers": sorted(GLOBE_LAYER_KEYS),
     }
+    try:
+        import agent_orchestrator
+
+        orch = await agent_orchestrator.agent_status()
+        base.update(orch)
+    except Exception:
+        pass
+    return base
 
 
 @router.post("/publish")

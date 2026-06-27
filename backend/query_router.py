@@ -155,6 +155,20 @@ def classify_query(query: str) -> str:
     # Single dominant signal
     best_route = max(scores, key=lambda k: scores[k])
     if scores[best_route] >= 1.0:
+        # P6a — Boost by empirical route weights from the ledger
+        try:
+            from route_ledger import get_route_weights
+
+            weights = get_route_weights()
+            if weights:
+                boosted = {
+                    r: scores.get(r, 0.0) * (0.5 + weights.get(r, 0.2)) for r in scores
+                }
+                boosted_best = max(boosted, key=lambda k: boosted[k])
+                if boosted[boosted_best] >= boosted[best_route] * 1.1:
+                    return boosted_best
+        except Exception:
+            pass
         return best_route
 
     # No strong signal → fallback
@@ -199,6 +213,9 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
       - hits: list[dict] (raw search results, if any)
       - meta: dict (extra metadata like subgraph stats)
     """
+    import time as _time
+
+    _start = _time.monotonic()
     if not router_enabled():
         route = fallback_route()
     elif route is None:
@@ -223,7 +240,9 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
                     )
         except Exception:
             pass
-        return {"route": route, "block": "\n".join(lines), "hits": hits, "meta": meta}
+        block = "\n".join(lines)
+        _record_route_outcome(query, route, hits, block, _start)
+        return {"route": route, "block": block, "hits": hits, "meta": meta}
 
     if route == "graph":
         # Graph retrieval — subgraph BFS
@@ -237,7 +256,9 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
             lines.extend(_format_graph_block(sg))
         except Exception:
             lines.append("=== GRAPH RETRIEVAL (unavailable) ===")
-        return {"route": route, "block": "\n".join(lines), "hits": hits, "meta": meta}
+        block = "\n".join(lines)
+        _record_route_outcome(query, route, hits, block, _start)
+        return {"route": route, "block": block, "hits": hits, "meta": meta}
 
     if route == "spatial":
         # Spatial retrieval — bbox-filtered vector search + proximity edges
@@ -259,7 +280,9 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
                 lines.extend(format_rag_hits(results))
         except Exception:
             lines.append("=== SPATIAL RETRIEVAL (unavailable) ===")
-        return {"route": route, "block": "\n".join(lines), "hits": hits, "meta": meta}
+        block = "\n".join(lines)
+        _record_route_outcome(query, route, hits, block, _start)
+        return {"route": route, "block": block, "hits": hits, "meta": meta}
 
     if route == "hybrid":
         # Hybrid — vector + graph in parallel, merge
@@ -289,7 +312,9 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
         except Exception:
             pass
 
-        return {"route": route, "block": "\n".join(lines), "hits": hits, "meta": meta}
+        block = "\n".join(lines)
+        _record_route_outcome(query, route, hits, block, _start)
+        return {"route": route, "block": block, "hits": hits, "meta": meta}
 
     # Default: vector
     try:
@@ -305,7 +330,33 @@ async def route_retrieval(query: str, route: str | None = None) -> dict[str, Any
     except Exception:
         pass
 
-    return {"route": route, "block": "\n".join(lines), "hits": hits, "meta": meta}
+    block = "\n".join(lines)
+    _record_route_outcome(query, route, hits, block, _start)
+    return {"route": route, "block": block, "hits": hits, "meta": meta}
+
+
+def _record_route_outcome(
+    query: str,
+    route: str,
+    hits: list[dict],
+    block: str,
+    start: float,
+) -> None:
+    """P6a — Record routing outcome to the route ledger (fail-soft)."""
+    try:
+        import time as _time
+
+        from route_ledger import record_outcome
+
+        record_outcome(
+            query,
+            route,
+            hit_count=len(hits),
+            block_chars=len(block),
+            duration_ms=int((_time.monotonic() - start) * 1000),
+        )
+    except Exception:
+        pass
 
 
 def route_label(route: str) -> str:
