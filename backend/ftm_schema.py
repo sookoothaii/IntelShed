@@ -65,7 +65,6 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
     _migrate_statements_schema(con)
     _ensure_edge_indexes(con)
     _ensure_entity_geo_indexes(con)
-    _repair_pk_index_drift(con)
 
 
 # ---------------------------------------------------------------------------
