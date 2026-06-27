@@ -54,6 +54,57 @@ We are grateful to the stepfun-ai team for:
 
 This model has been instrumental in building WorldBase's intelligence workstation workflow, and we sincerely thank stepfun-ai for their contribution to the open AI ecosystem.
 
+## Standing on the shoulders of giants
+
+WorldBase is not a standalone invention. It is glue, configuration, and operator workflow on top of decades of open-source and open-data labour. We are deeply humbled by that fact and **profoundly grateful** to everyone who wrote the code, published the datasets, and answered questions in issue trackers so strangers could build on their work.
+
+**To the giants whose shoulders we stand on: thank you.**
+
+### Lineage & UX inspiration
+
+| Project / person | Why we are grateful |
+|------------------|---------------------|
+| **[Bilawal Sidhu](https://www.youtube.com/watch?v=rXvU7bPJ8n4)** · *WorldView* | The original spark — tactical globe UX, vision modes, and multi-feed fusion on Cesium. |
+| **[K-AI-STACK/WorldView](https://github.com/K-AI-STACK/WorldView)** | Open layer catalog and Cesium-first OSINT dashboard structure. |
+| **[kevtoe/worldview](https://github.com/kevtoe/worldview)** | Full-stack proxy pattern, tactical UI tokens, Resium + Vite references. |
+| **[petieclark/worldview](https://github.com/petieclark/worldview)** | Backend key proxying, health endpoints, Docker deployment patterns. |
+| **[Reconurge/Flowsint](https://github.com/reconurge/flowsint)** | OSINT graph visualization — threat intel made approachable. |
+
+### Core stack (we would not run without these)
+
+| Project | Role in WorldBase |
+|---------|-------------------|
+| **[CesiumJS](https://cesium.com/)** & **[MapLibre](https://maplibre.org/)** | 3D/2D globe and offline map rendering. |
+| **[React](https://react.dev/)** & **[Vite](https://vite.dev/)** | HUD, panels, dev server. |
+| **[FastAPI](https://fastapi.tiangolo.com/)**, **[Pydantic](https://docs.pydantic.dev/)**, **[Uvicorn](https://www.uvicorn.org/)** | API, validation, async server. |
+| **[SQLite](https://sqlite.org/)** & **[sqlite-vec](https://github.com/asg017/sqlite-vec)** | Local cache, briefing store, hybrid vector + FTS RAG — no cloud lock-in. |
+| **[DuckDB](https://duckdb.org/)** | FtM entity graph storage when intel ingest is enabled. |
+| **[Ollama](https://ollama.com/)** & **[Qwen](https://qwenlm.github.io/)** | Local LLM chat and briefing generation on operator hardware. |
+| **[NVIDIA NIM](https://build.nvidia.com/)** & **[stepfun-ai](https://github.com/stepfun-ai)** | Cloud reasoning models (step-3.7-flash) via free NIM API — no local GPU required. |
+| **[FollowTheMoney](https://followthemoney.tech/)** / **[aleph](https://github.com/alephdata/aleph)** ecosystem | Entity schema and graph patterns for OSINT ingest. |
+| **[sentence-transformers](https://www.sbert.net/)** & **[BAAI/bge-reranker](https://huggingface.co/BAAI/bge-reranker-base)** | Optional CPU reranker after RRF (Track R0). |
+| **[GLiNER](https://github.com/urchade/GLiNER)** (optional) | Zero-shot entity extraction for document intel — Apache-2.0. |
+
+### Open data & civic APIs
+
+We do not own the feeds. We fetch, cache, and fuse what others maintain — often on volunteer or public budget:
+
+**USGS**, **NASA** (EONET, FIRMS, GIBS), **NOAA SWPC**, **GDACS**, **GDELT Project**, **SMARD**, **IODA**, **Open-Meteo**, **CAMS**, **HDX / UN OCHA**, **CelesTrak**, **adsb.lol / adsb.fi**, **Element84 STAC**, **Pegelonline**, **OpenSanctions**, **ReliefWeb**, and every engineer keeping civic endpoints alive. **You are the lifeblood of situational awareness.**
+
+### Matching & compliance
+
+| Project | Role |
+|---------|------|
+| **[OpenSanctions](https://www.opensanctions.org/)** & **[Yente](https://github.com/opensanctions/yente)** | Public CC-BY datasets and entity matching — transparency work we do not take for granted. |
+
+### Maps & tiles
+
+| Project | Role |
+|---------|------|
+| **[Protomaps](https://protomaps.com/)** / **PMTiles** | Offline regional and planet-scale basemaps. |
+
+If we missed a dependency you rely on, please open an issue — attribution should be complete and honest.
+
 ## Disclaimer
 
 This file is engineering guidance, not legal advice. If you ship a product built on WorldBase, review licenses for every optional dependency you enable.

@@ -23,27 +23,19 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | | |
 |---|---|
 | **Globe** | 30+ live layers — aircraft, quakes, disasters, energy, maritime, transit |
-| **MAP** | Offline Protomaps via PMTiles — regional (`thailand`) or full planet (`planet_full` ~130 GB) |
-| **Intelligence** | Situations, FtM entity graph (INTEL globe layer), OpenSanctions via Yente, hybrid RAG (sqlite-vec + FTS5 + RRF + optional BGE rerank) |
-| **Briefing** | 24h security digest (LOCAL / REGION / GLOBAL), watch items, prediction ledger, **agentic loop** (coverage → RAG retrieve → corroboration) |
-| **NEWS** | HUD **NEWS** tab — NewsData + GDELT local/global headline feed |
-| **Dark Web** | Passive `.onion` OSINT (Ahmia, DarkSearch, optional Tor engines) → entity matching, FtM `Mention` ingest, DARK WEB panel |
-| **Ransomware Intel** | Ransomware.live + RansomLook leak-site monitoring → FtM `Event` mapping, briefing block, watch items |
-| **Identity OSINT (P9)** | Passive email/username enumeration across 92 platforms → FtM `UserAccount` enrichment with `owns` edge, audit log, briefing block |
-| **Telegram SOCMINT** | Allow-listed public channels → SEA scoring, FtM `Event`/`Mention` ingest, DATA → TELEGRAM panel |
-| **Satellite CD (K4)** | Sentinel-2 L2A COG window-read — NDVI/NDWI change detection, GeoJSON anomaly polygons, DATA → SATELLITE panel |
-| **Maritime Anomaly (P7)** | AIS trajectory storage + behavioural anomaly detection (speed variance, AIS gaps, night port visits, risk zone proximity) |
-| **Entity Resolution** | Per-dataset dedupe → cross-dataset link (Splink), dual-pipeline (batch train + predict), human-in-the-loop labelling |
-| **Multi-Agent (P3+)** | 5-agent orchestrator (Coverage → Retrieval → Spatial → Corroboration → Synthesis), rule-based dispatcher, 0 VRAM |
-| **Track R** | **R0 + R1.1–R1.4 shipped** — rerank, spatial bbox, CRAG-lite chat, adaptive YAML chunking, briefing agentic loop — [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) |
-| **Connectors** | Manifest registry + cache overlay — `GET /api/connectors`, DATA → **FEEDS**, STAC feed items |
-| **AI** | Local chat via Ollama (`qwen3:8b` default); 6 providers incl. NVIDIA NIM (`stepfun-ai/step-3.7-flash`); spatial reasoning tool for "within X km of Y" queries; **query-aware context enrichment** — extracts entities from user query → filters live feeds → injects relevant data + synthesis directive; **3-layer anti-hallucination stack** — positive prompt protocol (RAW DATA INTERPRETER), NIM-specific parameter tweaks (temp 0.15, top_p 0.4), post-generation Claim Auditor (source/URL/timestamp verification against context blocks, 0 VRAM) |
+| **MAP** | Offline Protomaps via PMTiles — regional or full planet (~130 GB) |
+| **Briefing** | 24h security digest (LOCAL / REGION / GLOBAL), watch items, prediction ledger, agentic loop |
+| **Intelligence** | FtM entity graph, OpenSanctions, hybrid RAG (sqlite-vec + FTS5 + RRF + optional BGE rerank) |
+| **AI** | Ollama (`qwen3:8b`) + 5 cloud providers; 3-layer anti-hallucination stack (prompt protocol + NIM tweaks + Claim Auditor) |
+| **OSINT** | Dark web (P8), ransomware intel, identity enumeration (P9), Telegram SOCMINT, satellite change detection |
+| **Entity resolution** | Per-dataset dedupe → cross-dataset link (Splink), dual-pipeline, human-in-the-loop labelling |
+| **Multi-agent** | 5-agent orchestrator (Coverage → Retrieval → Spatial → Corroboration → Synthesis), 0 VRAM |
 | **Edge** | Off-grid Pi pushes sensors → PC fuses → hardened briefing pull back to Pi |
-| **Trust** | Rule-based briefing quality + field trust score (FULL SITUATION panel; feed drift + connector provenance) |
-| **Thailand operator** | CAMS haze, HDX humanitarian, GDELT local, maritime Malacca corridor — enriched LOCAL/REGION briefing blocks |
-| **MCP** | Cursor/Claude: **13 tools** — briefing, nodes, feeds, generate, optional globe control — [`docs/MCP.md`](docs/MCP.md) |
-| **Agent Bus** | MCP/REST → fly globe + toggle layers when HUD open at `:5176` |
+| **Trust** | Rule-based briefing quality + feed drift + connector provenance (`GET /api/trust`) |
+| **MCP** | Cursor/Claude: 13 tools — briefing, nodes, feeds, globe control — [`docs/MCP.md`](docs/MCP.md) |
 | **Philosophy** | Positive intelligence — better decisions, not attacks |
+
+Full feature catalog with env vars and setup → [`docs/FEATURES.md`](docs/FEATURES.md)
 
 ---
 
@@ -99,102 +91,6 @@ pip install sentence-transformers   # when RAG_RERANK=1 in backend/.env
 **Verify stack:** `.\scripts\smoke-test.ps1` → expect **33 PASS / 0 FAIL / 1 WARN** (health, credentials, connectors, trust probes, live feed envelope contract, STAC, satellite health, Vite proxy, Ollama chat, frontend build). The WARN is the expected intel-ingest auth gate when no API key is set for that check.
 
 `.\start.ps1` waits for `GET /api/health/ping` before starting Vite (avoids proxy `ECONNREFUSED`). ~**6 s** after backend boot, a feed warm-up refreshes GDELT local + **global** pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
-
-### Optional: slim prompt guard (no HAK_GAL required)
-
-A small regex layer (`backend/prompt_guard.py`, 0 VRAM) may reduce obvious abuse on **MCP write tools** and on **chat** when the 🛡️ toggle is on. It is **not** a substitute for API keys or network isolation, and it does not change briefing quality or trust scores.
-
-HAK_GAL on port `:8001` is an **optional** second opinion when a lean orchestrator happens to be running — full stack alongside Ollama on 16 GB VRAM is assumed unreliable unless you measure otherwise. Details → [`docs/FIREWALL.md`](docs/FIREWALL.md).
-
-```env
-# backend/.env — defaults; slim guard on without FIREWALL_HOST
-WORLDBASE_SLIM_GUARD=1
-WORLDBASE_SLIM_GUARD_MCP=1
-```
-
-HUD: chat 🛡️ toggle (optional slim guard) · API: `GET /api/firewall/status`, `GET /api/firewall/history` · top-level nav: **NEWS** tab (headlines)
-
-### Optional: live maritime AIS (Thailand corridor)
-
-Free key at [aisstream.io](https://aisstream.io) → `backend/.env`:
-
-```env
-AISSTREAM_API_KEY=your-key
-# WORLDBASE_MARITIME_AISSTREAM=1          # background WebSocket collector (default on when key set)
-# WORLDBASE_MARITIME_COLLECT_SEC=30       # one-shot snapshot when collector off
-# WORLDBASE_MARITIME_STREAM_STALE_SEC=1800
-# WORLDBASE_MARITIME_MAX_VESSELS=800
-# WORLDBASE_MARITIME_REGIONS=malacca,laem_chabang,bangkok_port,phuket,singapore  # default when WORLDBASE_OPERATOR_REGION=thailand
-```
-
-Restart backend. The API reads a **background AISstream buffer** (non-blocking); JSON includes `stream_connected` and `stream_buffer`. Without the key, `/api/maritime` falls back to MyShipTracking or demo fleet.
-
-**STAC feed items:** `GET /api/stac/feeds/items` exposes connector snapshots with bbox/geometry and registry links. In the HUD: **DATA → FEEDS** — STAC JSON link and ⊕ fly-to per connector.
-
-### Optional: Dark Web / Darknet OSINT (no extra keys)
-
-Passive `.onion` search via clearnet APIs — no Tor relay required for the default engines.
-
-```env
-WORLDBASE_DARKWEB=1
-WORLDBASE_DARKWEB_ENGINES=ahmia,darksearch
-WORLDBASE_BRIEFING_DARKWEB=1
-# Optional: route .onion requests through a local Tor SOCKS5 proxy
-# WORLDBASE_DARKWEB_TOR_PROXY=socks5://127.0.0.1:9050
-```
-
-Restart backend. The DARK WEB panel appears under **DATA → DARK WEB**. The bridge searches for operator queries and high-value FtM entities, matches results against the entity graph, and ingests them as `Mention` entities. It feeds a dedicated digest block and Situation cards when `WORLDBASE_BRIEFING_DARKWEB=1`. Details, engine list, and OPSEC guardrails → [`docs/DARKWEB.md`](docs/DARKWEB.md).
-
-### Optional: Identity OSINT (email / username enumeration)
-
-Passive existence checks across 92 social platforms — no credential stuffing, no profile scraping, only HTTP status checks.
-
-```env
-WORLDBASE_IDENTITY_OSINT=1
-WORLDBASE_BRIEFING_IDENTITY=1
-# WORLDBASE_IDENTITY_OSINT_RATE_LIMIT_SEC=2     # 2s between checks per platform
-# WORLDBASE_IDENTITY_OSINT_MAX_PLATFORMS=50     # cap per lookup
-# WORLDBASE_IDENTITY_OSINT_CACHE_SEC=86400      # 24h cache TTL
-```
-
-Restart backend. API: `GET /api/osint/identity?email=...` or `?username=...` → platform existence list. `POST /api/osint/identity/ingest?person_id=...` links results to FtM `Person` entities via `UserAccount` + `owns` edge. All lookups logged in SQLite audit table (`GET /api/osint/identity/audit`). Guardrails: opt-in only, rate-limited (2s/platform, 50 cap, 30s pause every 50), 24h cache, no PII stored, fail-soft.
-
-### Optional: Thailand briefing enrichment (no extra keys)
-
-| Endpoint | Role |
-|----------|------|
-| `GET /api/cams/haze` | CAMS dust / AOD for Bangkok, Chiang Mai, ASEAN cities |
-| `GET /api/humanitarian` | HDX datasets (Myanmar border, displacement) |
-| `GET /api/gdelt/pulse/local` | Operator-region GDELT headlines |
-| `GET /api/chat/context?q=...` | Query-aware chat context enrichment (smoke test endpoint) |
-
-These feed the 24h security digest LOCAL / REGION blocks automatically. The chat context enricher (`backend/chat_context_enricher.py`) extracts entities from user queries and filters live feed caches (quakes, GDELT local, fusion hotspots) to inject relevant data into chat context, along with a synthesis directive (Structured Analytic Techniques, evidence weighting, red-team review, actionable intelligence).
-
-### Offline maps (PMTiles)
-
-```powershell
-# Regional stack (~500 MB) — default for fast MAP load
-.\scripts\download-pmtiles.ps1 -Region stack
-
-# Full planet (~130 GB, resumable BITS)
-.\scripts\download-pmtiles.ps1 -Region world-full -Force
-
-# Optional ZXY MVT tiles (experimental Globe MVT layer)
-.\scripts\start-pmtiles-serve.ps1   # http://127.0.0.1:8088
-```
-
-In **MAP** view, pick the archive in the dropdown. Default is **`thailand`** for speed; select **`planet_full`** for global offline detail when the ~130 GB file is present.
-
-### Split view
-
-**◫ SPLIT** in the HUD shows Globe (left) and Map (right) with linked camera sync.
-
-- Both panes stay **mounted** (no remount on toggle — MapLibre keeps its state).
-- CSS **grid** layout (`hud-main--split`) — no overlapping absolute layers over the WebGL canvas.
-- On the globe half, heavy chrome (telemetry, controls, timeline) is hidden for a larger interactive area.
-- First split open may briefly load PMTiles on the right; later toggles are instant.
-
-Use for tactical overview (3D feeds) + precise 2D basemap side by side.
 
 ### Screenshots
 
@@ -263,68 +159,16 @@ Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](do
 | Doc | Purpose |
 |-----|---------|
 | [`AGENTS.md`](AGENTS.md) | Runtime, endpoints, key files, troubleshooting |
-| [`docs/RAG_OSINT_ROADMAP.md`](docs/RAG_OSINT_ROADMAP.md) | Track R — hybrid RAG + FtM OSINT enhancement plan |
+| [`docs/FEATURES.md`](docs/FEATURES.md) | Optional features — env vars, setup, guardrails |
 | [`docs/WORLDBASE_ROADMAP_2026.md`](docs/WORLDBASE_ROADMAP_2026.md) | Full 2026 roadmap — P3–P10, J1–J6, K3–K4 changelog |
 | [`docs/MCP.md`](docs/MCP.md) | Cursor MCP tools, Agent Bus, Docker gateway |
-| [`docs/FIREWALL.md`](docs/FIREWALL.md) | Slim prompt guard (default) + optional HAK_GAL bridge (`:8001`) |
-| [`docs/DARKWEB.md`](docs/DARKWEB.md) | Dark Web / Darknet OSINT module (P8) — engines, Tor proxy, OPSEC |
-| [`docs/TELEGRAM.md`](docs/TELEGRAM.md) | Telegram SOCMINT bridge (K3) — allow-listed public channels, SEA scoring, OPSEC |
+| [`docs/FIREWALL.md`](docs/FIREWALL.md) | Slim prompt guard + optional HAK_GAL bridge |
+| [`docs/DARKWEB.md`](docs/DARKWEB.md) | Dark Web OSINT (P8) — engines, Tor proxy, OPSEC |
+| [`docs/TELEGRAM.md`](docs/TELEGRAM.md) | Telegram SOCMINT (K3) — channels, SEA scoring |
 | [`docs/GLOBE.md`](docs/GLOBE.md) | Click-to-detail, layers, INTEL FtM, traffic cams |
 | [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md) | Optional document intel ingest (GLiNER) |
+| [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Optional ML licenses, attribution, lineage |
 | [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) | Pi ↔ PC sync |
-
----
-
-## Standing on the shoulders of giants
-
-WorldBase is not a standalone invention. It is glue, configuration, and operator workflow on top of decades of open-source and open-data labour. We are deeply humbled by that fact and **profoundly grateful** to everyone who wrote the code, published the datasets, and answered questions in issue trackers so strangers could build on their work.
-
-**To the giants whose shoulders we stand on: thank you.**
-
-### Lineage & UX inspiration
-
-| Project / person | Why we are grateful |
-|------------------|---------------------|
-| **[Bilawal Sidhu](https://www.youtube.com/watch?v=rXvU7bPJ8n4)** · *WorldView* | The original spark — tactical globe UX, vision modes, and multi-feed fusion on Cesium. |
-| **[K-AI-STACK/WorldView](https://github.com/K-AI-STACK/WorldView)** | Open layer catalog and Cesium-first OSINT dashboard structure. |
-| **[kevtoe/worldview](https://github.com/kevtoe/worldview)** | Full-stack proxy pattern, tactical UI tokens, Resium + Vite references. |
-| **[petieclark/worldview](https://github.com/petieclark/worldview)** | Backend key proxying, health endpoints, Docker deployment patterns. |
-| **[Reconurge/Flowsint](https://github.com/reconurge/flowsint)** | OSINT graph visualization — threat intel made approachable. |
-
-### Core stack (we would not run without these)
-
-| Project | Role in WorldBase |
-|---------|-------------------|
-| **[CesiumJS](https://cesium.com/)** & **[MapLibre](https://maplibre.org/)** | 3D/2D globe and offline map rendering. |
-| **[React](https://react.dev/)** & **[Vite](https://vite.dev/)** | HUD, panels, dev server. |
-| **[FastAPI](https://fastapi.tiangolo.com/)**, **[Pydantic](https://docs.pydantic.dev/)**, **[Uvicorn](https://www.uvicorn.org/)** | API, validation, async server. |
-| **[SQLite](https://sqlite.org/)** & **[sqlite-vec](https://github.com/asg017/sqlite-vec)** | Local cache, briefing store, hybrid vector + FTS RAG — no cloud lock-in. |
-| **[DuckDB](https://duckdb.org/)** | FtM entity graph storage when intel ingest is enabled. |
-| **[Ollama](https://ollama.com/)** & **[Qwen](https://qwenlm.github.io/)** | Local LLM chat and briefing generation on operator hardware. |
-| **[NVIDIA NIM](https://build.nvidia.com/)** & **[stepfun-ai](https://github.com/stepfun-ai)** | Cloud reasoning models (step-3.7-flash) via free NIM API — no local GPU required. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). |
-| **[FollowTheMoney](https://followthemoney.tech/)** / **[aleph](https://github.com/alephdata/aleph)** ecosystem | Entity schema and graph patterns for OSINT ingest. |
-| **[sentence-transformers](https://www.sbert.net/)** & **[BAAI/bge-reranker](https://huggingface.co/BAAI/bge-reranker-base)** | Optional CPU reranker after RRF (Track R0). |
-| **[GLiNER](https://github.com/urchade/GLiNER)** (optional) | Zero-shot entity extraction for document intel — Apache-2.0. |
-
-### Open data & civic APIs
-
-We do not own the feeds. We fetch, cache, and fuse what others maintain — often on volunteer or public budget:
-
-**USGS**, **NASA** (EONET, FIRMS, GIBS), **NOAA SWPC**, **GDACS**, **GDELT Project**, **SMARD**, **IODA**, **Open-Meteo**, **CAMS**, **HDX / UN OCHA**, **CelesTrak**, **adsb.lol / adsb.fi**, **Element84 STAC**, **Pegelonline**, **OpenSanctions**, **ReliefWeb**, and every engineer keeping civic endpoints alive. **You are the lifeblood of situational awareness.**
-
-### Matching & compliance
-
-| Project | Role |
-|---------|------|
-| **[OpenSanctions](https://www.opensanctions.org/)** & **[Yente](https://github.com/opensanctions/yente)** | Public CC-BY datasets and entity matching — transparency work we do not take for granted. |
-
-### Maps & tiles
-
-| Project | Role |
-|---------|------|
-| **[Protomaps](https://protomaps.com/)** / **PMTiles** | Offline regional and planet-scale basemaps. |
-
-If we missed a dependency you rely on, please open an issue — attribution should be complete and honest. See also [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for optional ML components and license nuance.
 
 ---
 
