@@ -304,10 +304,13 @@ def _env_hash() -> int:
     """Hash of all WORLDBASE_* environment variables.
 
     Used to invalidate the cached config when the environment changes
-    (e.g. during tests that patch os.environ).
+    (e.g. during tests that patch os.environ). We avoid sorting because the
+    order of ``os.environ`` is stable within a process; the hash only needs
+    to change when the environment changes, not be deterministic across runs.
     """
-    items = sorted((k, v) for k, v in os.environ.items() if k.startswith("WORLDBASE_"))
-    return hash(tuple(items))
+    return hash(
+        tuple((k, v) for k, v in os.environ.items() if k.startswith("WORLDBASE_"))
+    )
 
 
 @lru_cache(maxsize=1)

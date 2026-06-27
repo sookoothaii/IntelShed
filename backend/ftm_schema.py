@@ -161,7 +161,15 @@ def _drop_entity_schema_index(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def _ensure_entity_schema_index(con: duckdb.DuckDBPyConnection) -> None:
-    con.execute("CREATE INDEX IF NOT EXISTS idx_entities_schema ON entities(schema)")
+    # Fast path: check metadata before issuing DDL. DuckDB 1.5.x parses/plans the
+    # CREATE INDEX statement even with IF NOT EXISTS, which adds ~20-30ms per call.
+    row = con.execute(
+        "SELECT 1 FROM duckdb_indexes() WHERE index_name = 'idx_entities_schema'"
+    ).fetchone()
+    if not row:
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entities_schema ON entities(schema)"
+        )
 
 
 def _is_index_delete_error(exc: BaseException) -> bool:
@@ -169,21 +177,33 @@ def _is_index_delete_error(exc: BaseException) -> bool:
 
 
 def _delete_entity_rows(con: duckdb.DuckDBPyConnection, entity_id: str) -> None:
-    """Remove entity + statements; drop schema index first (DuckDB 1.5.x index drift)."""
-    _drop_entity_schema_index(con)
+    """Remove entity + statements.
+
+    Defensive path: only drop/recreate the schema index if DuckDB raises the
+    1.5.x "delete all rows from index" drift error. The happy path avoids the
+    DDL overhead on every update.
+    """
     con.execute("DELETE FROM statements WHERE entity_id = ?", [entity_id])
     try:
         con.execute("DELETE FROM entities WHERE id = ?", [entity_id])
     except Exception as exc:
         if not _is_index_delete_error(exc) and not _is_invalidated_error(exc):
             raise
-        con.execute(
-            """
-            CREATE OR REPLACE TEMP TABLE _ftm_entities_keep AS
-            SELECT * FROM entities WHERE id != ?
-            """,
-            [entity_id],
-        )
-        con.execute("DELETE FROM entities")
-        con.execute("INSERT INTO entities SELECT * FROM _ftm_entities_keep")
-        con.execute("DROP TABLE IF EXISTS _ftm_entities_keep")
+        _drop_entity_schema_index(con)
+        con.execute("DELETE FROM statements WHERE entity_id = ?", [entity_id])
+        try:
+            con.execute("DELETE FROM entities WHERE id = ?", [entity_id])
+        except Exception as exc2:
+            if not _is_index_delete_error(exc2) and not _is_invalidated_error(exc2):
+                raise
+            con.execute(
+                """
+                CREATE OR REPLACE TEMP TABLE _ftm_entities_keep AS
+                SELECT * FROM entities WHERE id != ?
+                """,
+                [entity_id],
+            )
+            con.execute("DELETE FROM entities")
+            con.execute("INSERT INTO entities SELECT * FROM _ftm_entities_keep")
+            con.execute("DROP TABLE IF EXISTS _ftm_entities_keep")
+        _ensure_entity_schema_index(con)

@@ -124,6 +124,10 @@ def _upsert_impl(
     schema_name = proxy.schema.name
 
     def _do(con) -> str:
+        # Use an explicit transaction so the SELECT/INSERT/DELETE/statement writes
+        # for a single entity commit together instead of each execute() becoming
+        # its own autocommit transaction.
+        con.execute("BEGIN TRANSACTION")
         try:
             row = con.execute(
                 "SELECT properties, datasets, first_seen, lat, lon FROM entities WHERE id = ?",
@@ -173,19 +177,18 @@ def _upsert_impl(
                     seen_at,
                 ],
             )
+            seen_stmt_keys: set[tuple[str, str, str, str]] = set()
+            stmt_rows = []
             for prop, values in incoming.items():
                 for v in values:
                     if v is None or v == "":
                         continue
                     sv = str(v)
-                    stmt_id = _make_stmt_id(dataset, eid, prop, sv)
-                    con.execute(
-                        """
-                        INSERT OR IGNORE INTO statements
-                            (entity_id, prop, value, dataset, seen_at, lang,
-                             stmt_id, canonical_id, schema, first_seen, last_seen)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
+                    stmt_key = (eid, prop, sv, dataset)
+                    if stmt_key in seen_stmt_keys:
+                        continue
+                    seen_stmt_keys.add(stmt_key)
+                    stmt_rows.append(
                         [
                             eid,
                             prop,
@@ -193,14 +196,31 @@ def _upsert_impl(
                             dataset,
                             seen_at,
                             None,
-                            stmt_id,
+                            _make_stmt_id(dataset, eid, prop, sv),
                             eid,
-                            schema_name,
+                            merged_proxy.schema.name,
                             first_seen,
                             seen_at,
-                        ],
+                        ]
                     )
+            if stmt_rows:
+                con.executemany(
+                    """
+                    INSERT INTO statements
+                        (entity_id, prop, value, dataset, seen_at, lang,
+                         stmt_id, canonical_id, schema, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    stmt_rows,
+                )
+            con.execute("COMMIT")
             return eid
+        except Exception:
+            try:
+                con.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
         finally:
             _ensure_entity_schema_index(con)
 
