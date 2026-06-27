@@ -159,6 +159,12 @@ def build_security_advisor_prompt(
         for line in telegram["lines"]:
             prompt += f"  - {line}\n"
         prompt += "\n"
+    identity = digest.get("identity") or {}
+    if identity.get("enabled") and identity.get("lines"):
+        prompt += "IDENTITY OSINT (recent lookups, passive existence checks only):\n"
+        for line in identity["lines"]:
+            prompt += f"  - {line}\n"
+        prompt += "\n"
     spaceweather = digest.get("spaceweather") or {}
     if spaceweather.get("enabled"):
         prompt += "SPACE WEATHER (NOAA SWPC, 24h):\n"

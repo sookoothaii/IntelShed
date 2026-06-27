@@ -29,6 +29,7 @@ def register_routers(app) -> None:
     import cve_bridge
     import darkweb_bridge
     import domain_intel
+    import identity_osint
     import ransomware_tracker
     import duckdb_fusion
     import entsoe_bridge
@@ -99,6 +100,7 @@ def register_routers(app) -> None:
     app.include_router(darkweb_bridge.router)
     app.include_router(ransomware_tracker.router)
     app.include_router(domain_intel.router)
+    app.include_router(identity_osint.router)
     app.include_router(telegram_bridge.router)
     app.include_router(pegel_bridge.router)
     app.include_router(flowsint_bridge.router)

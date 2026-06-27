@@ -103,6 +103,11 @@ class WorldBaseConfig(BaseModel):
     telegram_post_limit: int = 50
     telegram_retention_days: int = 90
     briefing_telegram: bool = False
+    identity_osint_enabled: bool = False
+    identity_osint_rate_limit_sec: float = 2.0
+    identity_osint_max_platforms: int = 50
+    identity_osint_cache_sec: int = 86400
+    briefing_identity: bool = False
 
     @classmethod
     def from_env(cls) -> Self:
@@ -273,6 +278,17 @@ class WorldBaseConfig(BaseModel):
                 os.getenv("WORLDBASE_TELEGRAM_RETENTION_DAYS", "90")
             ),
             briefing_telegram=_truthy(os.getenv("WORLDBASE_BRIEFING_TELEGRAM", "0")),
+            identity_osint_enabled=_truthy(os.getenv("WORLDBASE_IDENTITY_OSINT", "0")),
+            identity_osint_rate_limit_sec=float(
+                os.getenv("WORLDBASE_IDENTITY_OSINT_RATE_LIMIT_SEC", "2")
+            ),
+            identity_osint_max_platforms=int(
+                os.getenv("WORLDBASE_IDENTITY_OSINT_MAX_PLATFORMS", "50")
+            ),
+            identity_osint_cache_sec=int(
+                os.getenv("WORLDBASE_IDENTITY_OSINT_CACHE_SEC", "86400")
+            ),
+            briefing_identity=_truthy(os.getenv("WORLDBASE_BRIEFING_IDENTITY", "0")),
             blackboard_enabled=_truthy(os.getenv("WORLDBASE_BLACKBOARD", "0")),
             two_pass_enabled=_truthy(os.getenv("WORLDBASE_TWO_PASS", "0")),
             route_ledger_enabled=_truthy(os.getenv("WORLDBASE_ROUTE_LEDGER", "1")),

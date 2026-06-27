@@ -216,6 +216,22 @@ CONNECTOR_CATALOG: dict[str, ConnectorManifest] = {
         cache_key="domain_intel",
         notes="crt.sh CT logs, Wayback CDX snapshots, RDAP registration. No API key required.",
     ),
+    "identity_osint": _c(
+        "identity_osint",
+        "Identity OSINT (email/username enumeration)",
+        "osint",
+        (
+            "/api/osint/identity",
+            "/api/osint/identity/ingest",
+            "/api/osint/identity/audit",
+            "/api/osint/identity/status",
+        ),
+        ttl_sec=86400,
+        region=("global",),
+        bridge="identity_osint.py",
+        cache_key="identity_osint",
+        notes="Passive email/username existence checks across 50+ platforms. Opt-in only. No credential stuffing.",
+    ),
     "earthquakes": _c(
         "earthquakes",
         "USGS earthquakes",

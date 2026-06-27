@@ -1029,6 +1029,7 @@ def format_digest_sections(
     telegram_digest: dict[str, Any] | None = None,
     maritime_anomaly_digest: dict[str, Any] | None = None,
     spaceweather_digest: dict[str, Any] | None = None,
+    identity_digest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
@@ -1170,5 +1171,6 @@ def format_digest_sections(
         or {"enabled": False, "count": 0, "lines": []},
         "spaceweather": spaceweather_digest
         or {"enabled": False, "count": 0, "lines": []},
+        "identity": identity_digest or {"enabled": False, "count": 0, "lines": []},
         "_gdelt_collected": gdelt_collected,
     }
