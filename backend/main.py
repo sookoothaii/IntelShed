@@ -2,22 +2,47 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 import mcp_server
 from bootstrap_env import load_env, log_security_startup
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from lifespan import register_lifecycle
 from middleware.rate_limit import setup_rate_limiting
 from middleware.security_headers import SecurityHeadersMiddleware
 from routes.registry import register_routers
 
+_log = logging.getLogger("worldbase.errors")
+
 load_env()
 log_security_startup()
 
 app = FastAPI(title="WorldBase API", version="0.1.0", redirect_slashes=False)
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """Catch-all so route exceptions return a proper JSON 500 instead of
+    being swallowed by Starlette BaseHTTPMiddleware (RuntimeError: No response returned.).
+    """
+    _log.error(
+        "unhandled_exception path=%s method=%s error=%s",
+        request.url.path,
+        request.method,
+        exc,
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+    )
+
 
 # I8: GZip compression for Pi pull payload (delta sync + bandwidth savings)
 app.add_middleware(GZipMiddleware, minimum_size=500)

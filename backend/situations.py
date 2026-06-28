@@ -282,7 +282,7 @@ async def unified_situations():
             ),
             timeout=20.0,
         )
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, Exception):
         corr, anom, gdacs, pegel, sensors, river = [], [], [], [], [], []
     items = corr + anom + gdacs + pegel + sensors + river
 
