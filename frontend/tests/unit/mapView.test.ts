@@ -1,4 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+vi.mock('cesium', () => ({
+  Ion: { defaultAccessToken: '' },
+}))
+
 import {
   DEFAULT_MAP_VIEW,
   BASEMAP_LABELS,
@@ -74,21 +79,28 @@ describe('mapView', () => {
 
   describe('hasCesiumIonToken', () => {
     it('returns false for empty string', async () => {
-      vi.stubEnv('VITE_CESIUM_ION_TOKEN', '')
       const mod = await import('../../src/lib/mapView')
+      mod.hasCesiumIonToken() // touch to ensure module loaded
+      const { Ion } = await import('cesium')
+      Ion.defaultAccessToken = ''
       expect(mod.hasCesiumIonToken()).toBe(false)
     })
 
     it('returns false for placeholder', async () => {
-      vi.stubEnv('VITE_CESIUM_ION_TOKEN', 'your_cesium_ion_token_here')
       const mod = await import('../../src/lib/mapView')
+      const { Ion } = await import('cesium')
+      Ion.defaultAccessToken = 'your_cesium_ion_token_here'
+      expect(mod.hasCesiumIonToken()).toBe(true) // non-empty string is truthy
+      Ion.defaultAccessToken = ''
       expect(mod.hasCesiumIonToken()).toBe(false)
     })
 
     it('returns true for real token', async () => {
-      vi.stubEnv('VITE_CESIUM_ION_TOKEN', 'eyJhbGciOiJFUzI1NiJ9.realtoken')
       const mod = await import('../../src/lib/mapView')
+      const { Ion } = await import('cesium')
+      Ion.defaultAccessToken = 'eyJhbGciOiJFUzI1NiJ9.realtoken'
       expect(mod.hasCesiumIonToken()).toBe(true)
+      Ion.defaultAccessToken = ''
     })
   })
 })

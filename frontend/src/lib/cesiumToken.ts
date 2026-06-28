@@ -18,7 +18,13 @@ export async function initCesiumToken(): Promise<void> {
   if (_resolved) return
   if (_resolving) return _resolving
   _resolving = (async () => {
-    // 1. Try backend endpoint
+    // 0. Set env token immediately so Cesium can init without waiting for backend
+    const envToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? ''
+    if (envToken && envToken !== 'your_cesium_ion_token_here') {
+      Ion.defaultAccessToken = envToken
+    }
+
+    // 1. Try backend endpoint (may override env token with a fresher one)
     try {
       const r = await fetchApi('/api/config/cesium')
       if (r.ok) {
@@ -31,14 +37,11 @@ export async function initCesiumToken(): Promise<void> {
         }
       }
     } catch {
-      // Backend unreachable — fall through to env fallback
+      // Backend unreachable — env token (if any) is already set
     }
 
-    // 2. Fallback: Vite env (dev convenience, keeps old workflow alive)
-    const envToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? ''
-    if (envToken && envToken !== 'your_cesium_ion_token_here') {
-      Ion.defaultAccessToken = envToken
-    } else {
+    // 2. Warn if no token at all
+    if (!Ion.defaultAccessToken) {
       console.warn(
         '[WorldBase] Cesium Ion token not available — ellipsoid terrain only. ' +
           'Set CESIUM_ION_TOKEN in backend/.env or VITE_CESIUM_ION_TOKEN in frontend/.env.',
