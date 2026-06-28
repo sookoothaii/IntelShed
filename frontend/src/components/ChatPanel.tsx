@@ -78,6 +78,7 @@ export default function ChatPanel({
   const [modelHint, setModelHint] = useState<string | null>(null)
   const [webSearch, setWebSearch] = useState(false)
   const [feedContext, setFeedContext] = useState(false)
+  const [expandContext, setExpandContext] = useState(false)
   const [useTools, setUseTools] = useState(false)
   const [firewall, setFirewall] = useState(false)
   const [firewallMeta, setFirewallMeta] = useState<{ action: string; risk_score: number; flags?: string[]; policy_violations?: string[] } | null>(null)
@@ -448,6 +449,7 @@ export default function ChatPanel({
           force_fast: forceFast,
           api_keys: apiKeys,
           api_base_urls: apiBaseUrls,
+          escalation: expandContext,
         }),
         signal: ac.signal,
       })
@@ -588,9 +590,9 @@ export default function ChatPanel({
       {!modelErr && modelHint && (
         <div className="data-error" style={{ borderColor: '#ffd23f', color: '#ffd23f' }}>{modelHint}</div>
       )}
-      {(feedContext || webSearch || useTools) && !busy && (
+      {(feedContext || webSearch || useTools || expandContext) && !busy && (
         <div className="chat-slow-hint">
-          CTX / 🔍 / TOOLS active — manual chats often take 30–90&nbsp;s. Ask AI from the globe uses the fast entity path automatically.
+          CTX / 🔍 / TOOLS / EXPAND active — manual chats often take 30–90&nbsp;s. Ask AI from the globe uses the fast entity path automatically.
         </div>
       )}
       {rerankerWarming && (
@@ -729,6 +731,14 @@ export default function ChatPanel({
           style={{ marginLeft: 6, color: firewall ? '#ff2d00' : '#6f8c84' }}
         >
           {firewall ? '🛡️ ON' : '🛡️ OFF'}
+        </button>
+        <button
+          className={expandContext ? 'web-search on' : 'web-search'}
+          onClick={() => setExpandContext((v) => !v)}
+          title="Expand Context: lowers the confidence threshold from 0.35 to 0.20 and increases RAG budget by 50%. Answers may be less reliable."
+          style={{ marginLeft: 6, color: expandContext ? '#ffd23f' : '#6f8c84' }}
+        >
+          {expandContext ? '⚠ EXPAND' : 'EXPAND'}
         </button>
         <button
           className={showSettings ? 'web-search on' : 'web-search'}

@@ -531,3 +531,23 @@ async def feeds_validate_mappings_get():
     import mapping_validator
 
     return mapping_validator.validate_all_mappings()
+
+
+@router.get("/drift/history")
+async def feeds_drift_history(
+    mapping: str | None = None,
+    limit: int = 50,
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Live-contract drift event log (persistent SQLite-backed)."""
+    import mapping_validator
+
+    return mapping_validator.get_drift_history(mapping=mapping, limit=limit)
+
+
+@router.get("/drift/summary")
+async def feeds_drift_summary(_auth: str | None = Depends(verify_lan_auth)):
+    """Aggregate drift stats for trust panel / health endpoint."""
+    import mapping_validator
+
+    return mapping_validator.get_drift_summary()

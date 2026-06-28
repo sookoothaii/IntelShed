@@ -221,5 +221,80 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(st["newnym_min_interval_sec"], 10.0)
 
 
+class TorAuditTests(unittest.IsolatedAsyncioTestCase):
+    """Lücke 3: Tor exit-node rotation must be recorded in auth_audit."""
+
+    def setUp(self):
+        darkweb_tor.reset_rate_limit()
+
+    async def test_audit_called_on_disabled_rotation(self):
+        """Even when rotation is disabled, an audit event should be recorded."""
+        recorded = []
+
+        def fake_audit(**kwargs):
+            recorded.append(kwargs)
+
+        with patch.object(darkweb_tor, "get_config", return_value=_cfg(rotate=False)):
+            with patch.object(
+                darkweb_tor, "record_audit_event", side_effect=fake_audit
+            ) if hasattr(darkweb_tor, "record_audit_event") else patch(
+                "auth.audit.record_audit_event", side_effect=fake_audit
+            ):
+                out = await darkweb_tor.rotate_identity(reason="test")
+        self.assertFalse(out["rotated"])
+        self.assertTrue(len(recorded) >= 1)
+        self.assertEqual(recorded[0]["action"], "darkweb_tor_rotation")
+        self.assertFalse(recorded[0]["success"])
+
+    async def test_audit_called_on_successful_rotation(self):
+        """Successful rotation should record a positive audit event."""
+        recorded = []
+
+        def fake_audit(**kwargs):
+            recorded.append(kwargs)
+
+        rotator = darkweb_tor.TorRotator()
+        with patch.object(darkweb_tor, "get_config", return_value=_cfg()):
+            with patch.object(darkweb_tor, "_import_stem", return_value=MagicMock()):
+                with patch.object(rotator, "_signal_and_inspect", return_value="US"):
+                    with patch("auth.audit.record_audit_event", side_effect=fake_audit):
+                        out = await rotator.rotate(check_exit=True)
+        self.assertTrue(out["rotated"])
+        self.assertTrue(len(recorded) >= 1)
+        self.assertEqual(recorded[0]["action"], "darkweb_tor_rotation")
+        self.assertTrue(recorded[0]["success"])
+
+    async def test_audit_called_on_failed_rotation(self):
+        """Failed rotation (stem missing) should record a negative audit event."""
+        recorded = []
+
+        def fake_audit(**kwargs):
+            recorded.append(kwargs)
+
+        with patch.object(darkweb_tor, "get_config", return_value=_cfg()):
+            with patch.object(darkweb_tor, "_import_stem", return_value=None):
+                with patch("auth.audit.record_audit_event", side_effect=fake_audit):
+                    out = await darkweb_tor.rotate_identity()
+        self.assertFalse(out["rotated"])
+        self.assertTrue(len(recorded) >= 1)
+        self.assertEqual(recorded[0]["action"], "darkweb_tor_rotation")
+        self.assertFalse(recorded[0]["success"])
+
+    async def test_audit_fail_soft(self):
+        """Audit logging failure should not break rotation."""
+
+        def boom_audit(**kwargs):
+            raise RuntimeError("audit DB down")
+
+        rotator = darkweb_tor.TorRotator()
+        with patch.object(darkweb_tor, "get_config", return_value=_cfg()):
+            with patch.object(darkweb_tor, "_import_stem", return_value=MagicMock()):
+                with patch.object(rotator, "_signal_and_inspect", return_value="US"):
+                    with patch("auth.audit.record_audit_event", side_effect=boom_audit):
+                        out = await rotator.rotate(check_exit=True)
+        # Rotation should still succeed despite audit failure
+        self.assertTrue(out["rotated"])
+
+
 if __name__ == "__main__":
     unittest.main()

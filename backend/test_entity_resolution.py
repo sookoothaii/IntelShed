@@ -141,5 +141,109 @@ class EntityResolutionTest(unittest.TestCase):
         self.assertGreaterEqual(st["resolution_edges"], 1)
 
 
+class LabelVersioningTests(unittest.TestCase):
+    """Lücke 1: resolution_labels must persist model_version + confidence_timestamp."""
+
+    def setUp(self):
+        fd, self.path = tempfile.mkstemp(suffix=".duckdb")
+        os.close(fd)
+        os.unlink(self.path)  # DuckDB needs to create the file itself
+        ftm_connection._CONN = None
+        ftm_connection._INIT_ERROR = None
+        ftm_connection.set_db_path(self.path)
+        ftm_store.upsert(
+            ftm_store.make_entity("Person", ["s1"], {"name": "Alice"}),
+            dataset="feedA",
+        )
+        ftm_store.upsert(
+            ftm_store.make_entity("Person", ["t1"], {"name": "Alice"}),
+            dataset="feedB",
+        )
+
+    def tearDown(self):
+        ftm_connection._CONN = None
+        ftm_connection._INIT_ERROR = None
+        try:
+            os.unlink(self.path)
+        except OSError:
+            pass
+
+    def test_label_pair_writes_model_version(self):
+        result = entity_resolution.label_pair(
+            "s1",
+            "t1",
+            confirmed=True,
+            schema="Person",
+            model_version="20260628_120000",
+            confidence=0.78,
+        )
+        self.assertTrue(result["ok"])
+        from ftm_connection import _conn
+
+        row = (
+            _conn()
+            .execute(
+                "SELECT model_version, confidence, confidence_timestamp "
+                "FROM resolution_labels WHERE pair_id = ?",
+                ["s1::t1"],
+            )
+            .fetchone()
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row[0], "20260628_120000")
+        self.assertEqual(row[1], 0.78)
+        self.assertIsNotNone(row[2])
+
+    def test_label_pair_defaults_model_version(self):
+        result = entity_resolution.label_pair(
+            "s1", "t1", confirmed=False, schema="Person"
+        )
+        self.assertTrue(result["ok"])
+        from ftm_connection import _conn
+
+        row = (
+            _conn()
+            .execute(
+                "SELECT model_version FROM resolution_labels WHERE pair_id = ?",
+                ["s1::t1"],
+            )
+            .fetchone()
+        )
+        self.assertIsNotNone(row)
+        # Should be "unknown" or a timestamp string, not NULL
+        self.assertIsNotNone(row[0])
+
+    def test_get_model_version_returns_string(self):
+        ver = entity_resolution._get_model_version()
+        self.assertIsInstance(ver, str)
+        self.assertTrue(len(ver) > 0)
+
+    def test_schema_migration_adds_columns(self):
+        """Verify that _migrate_resolution_labels_schema adds the new columns."""
+        from ftm_schema import _migrate_resolution_labels_schema
+        from ftm_connection import _conn
+
+        # Drop and recreate without new columns to simulate old DB
+        conn = _conn()
+        conn.execute("DROP TABLE IF EXISTS resolution_labels")
+        conn.execute(
+            "CREATE TABLE resolution_labels ("
+            "pair_id VARCHAR PRIMARY KEY, source_id VARCHAR NOT NULL, "
+            "target_id VARCHAR NOT NULL, schema VARCHAR, confidence DOUBLE, "
+            "confirmed BOOLEAN, labeled_at VARCHAR)"
+        )
+        # Run migration
+        _migrate_resolution_labels_schema(conn)
+        cols = {
+            r[0]
+            for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'resolution_labels'"
+            ).fetchall()
+        }
+        self.assertIn("model_version", cols)
+        self.assertIn("confidence_timestamp", cols)
+
+
 if __name__ == "__main__":
     unittest.main()

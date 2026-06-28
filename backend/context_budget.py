@@ -11,6 +11,8 @@ Env:
   WORLDBASE_CONTEXT_BUDGET_RAG=1500
   WORLDBASE_CONTEXT_BUDGET_AUX=500
   WORLDBASE_CONTEXT_BUDGET_REFUSE_THRESHOLD=0.35
+  WORLDBASE_CONTEXT_BUDGET_ESCALATION=1 (enables escalation path when requested)
+  WORLDBASE_CONTEXT_BUDGET_ESCALATION_THRESHOLD=0.20
 """
 
 from __future__ import annotations
@@ -209,6 +211,26 @@ def _refuse_threshold() -> float:
         return 0.35
 
 
+def _escalation_enabled() -> bool:
+    """Whether the escalation path is available at all."""
+    return os.getenv("WORLDBASE_CONTEXT_BUDGET_ESCALATION", "1").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def _escalation_threshold() -> float:
+    try:
+        return float(os.getenv("WORLDBASE_CONTEXT_BUDGET_ESCALATION_THRESHOLD", "0.20"))
+    except ValueError:
+        return 0.20
+
+
+_ESCALATION_RAG_MULTIPLIER = 1.5
+
+
 def _system_prompt_for_budget() -> str:
     return (
         "\nCONTEXT BUDGET PROTOCOL:\n"
@@ -224,6 +246,7 @@ def apply_budget(
     context_blocks: list[tuple[str, str]],
     *,
     auxiliary: str = "",
+    escalation: bool = False,
 ) -> BudgetResult:
     """Apply token budget to context blocks.
 
@@ -231,6 +254,8 @@ def apply_budget(
         system_prompt: The system prompt text (always counted against system budget).
         context_blocks: List of (section_name, text) tuples.
         auxiliary: Extra text not tied to a section.
+        escalation: When True, lower the refuse threshold to 0.20 and boost RAG
+            budget by 50%.  Only honoured when ``_escalation_enabled()`` is True.
 
     Returns:
         BudgetResult with ok=False and refusal_reason if quality is too low.
@@ -249,6 +274,12 @@ def apply_budget(
         )
 
     budget = _env_budget()
+
+    # Escalation: boost RAG budget by 50%
+    escalation_active = escalation and _escalation_enabled()
+    if escalation_active:
+        budget["rag"] = int(budget["rag"] * _ESCALATION_RAG_MULTIPLIER)
+
     system_budget = budget["system"]
     system_tokens = _estimate_tokens(system_prompt)
     system_truncated = system_tokens > system_budget
@@ -264,6 +295,13 @@ def apply_budget(
             quality_score=0.0,
             system_prompt=system_prompt[:system_budget],
             system_prompt_tokens=system_budget,
+        )
+
+    # Escalation warning in system prompt
+    if escalation_active:
+        system_prompt = system_prompt + (
+            "\n⚠ EXPANDED CONTEXT MODE: Operator has authorised lower confidence "
+            "threshold. Answers may be less reliable. Flag uncertain claims.\n"
         )
 
     # Apply system prompt budget note
@@ -338,9 +376,9 @@ def apply_budget(
     else:
         quality_score = 0.0
 
-    threshold = _refuse_threshold()
+    threshold = _escalation_threshold() if escalation_active else _refuse_threshold()
     if quality_score < threshold:
-        return BudgetResult(
+        result = BudgetResult(
             ok=False,
             refusal_reason=f"Context quality {quality_score:.2f} below threshold {threshold}",
             sections=sections,
@@ -350,8 +388,9 @@ def apply_budget(
             system_prompt=system_prompt,
             system_prompt_tokens=system_tokens,
         )
+        return _budget_result_with_escalation(result, escalation_active)
 
-    return BudgetResult(
+    result = BudgetResult(
         ok=True,
         refusal_reason=None,
         sections=sections,
@@ -361,6 +400,14 @@ def apply_budget(
         system_prompt=system_prompt,
         system_prompt_tokens=system_tokens,
     )
+    return _budget_result_with_escalation(result, escalation_active)
+
+
+# Sentinel returned in BudgetResult.escalation_active (added dynamically)
+def _budget_result_with_escalation(result: BudgetResult, active: bool) -> BudgetResult:
+    """Tag a BudgetResult with whether escalation was active."""
+    result.escalation_active = active  # type: ignore[attr-defined]
+    return result
 
 
 def format_context_from_result(result: BudgetResult) -> tuple[str, dict[str, Any]]:
@@ -372,6 +419,7 @@ def format_context_from_result(result: BudgetResult) -> tuple[str, dict[str, Any
     meta = {
         "context_budget": {
             "ok": result.ok,
+            "escalation_active": getattr(result, "escalation_active", False),
             "total_tokens": result.total_tokens,
             "quality_score": result.quality_score,
             "sections": [

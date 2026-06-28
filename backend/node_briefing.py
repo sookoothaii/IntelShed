@@ -557,6 +557,71 @@ async def _generate_briefing_unlocked(
     if not text:
         text = format_fallback_protocol(digest, lang=lang)
 
+    # --- Second-pass quality gate ---
+    second_pass_meta: dict = {
+        "triggered": False,
+        "first_score": None,
+        "second_score": None,
+        "missing_aspects": [],
+    }
+    try:
+        from briefing_quality import (
+            attach_quality_to_sources as _attach_q,
+            should_retry_briefing as _should_retry,
+            build_second_pass_prompt as _build_2nd,
+            second_pass_enabled as _sp_enabled,
+        )
+
+        if _sp_enabled():
+            _pre_sources = {
+                "alerts": alerts,
+                "digest": {
+                    "local_count": len(digest.get("local") or []),
+                    "regional_count": len(digest.get("regional") or []),
+                    "global_count": len(digest.get("global") or []),
+                    "intel_count": (digest.get("intel") or {}).get("count", 0),
+                },
+                "intel": {"count": (digest.get("intel") or {}).get("count", 0)},
+                "_digest_sections": {
+                    "local": digest.get("local") or [],
+                    "regional": digest.get("regional") or [],
+                    "global": digest.get("global") or [],
+                },
+                "watch_items": digest.get("watch_items") or [],
+            }
+            _pre_q = _attach_q(
+                _pre_sources,
+                text=text,
+                created_at=datetime.now(timezone.utc).isoformat(),
+            )
+            _first_quality = _pre_q.get("quality") or {}
+            _first_score = float(_first_quality.get("score") or 0.0)
+            _retry, _missing = _should_retry(_first_quality)
+            second_pass_meta["first_score"] = _first_score
+            second_pass_meta["missing_aspects"] = _missing
+            if (
+                _retry
+                and text
+                and not text.startswith(
+                    format_fallback_protocol(digest, lang=lang)[:50]
+                )
+            ):
+                second_pass_meta["triggered"] = True
+                second_prompt = _build_2nd(prompt, _first_quality, _missing)
+                second_text = await _ollama_briefing(second_prompt)
+                if second_text and len(second_text) > 100:
+                    text = second_text
+                    _post_q = _attach_q(
+                        _pre_sources,
+                        text=text,
+                        created_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                    second_pass_meta["second_score"] = float(
+                        (_post_q.get("quality") or {}).get("score") or 0.0
+                    )
+    except Exception:
+        pass
+
     now = datetime.now(timezone.utc).isoformat()
     intel_src = digest.get("intel") or {}
     from briefing_quality import gdelt_digest_pipeline_meta
@@ -599,6 +664,7 @@ async def _generate_briefing_unlocked(
         "digest_line_meta": digest.get("digest_line_meta") or [],
         "agentic": agentic_meta,
         "insights": insights_mod.slim_insights(insight_list) if insights_mod else [],
+        "second_pass": second_pass_meta,
     }
     from briefing_quality import attach_quality_to_sources
 

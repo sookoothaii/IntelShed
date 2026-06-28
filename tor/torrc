@@ -1,0 +1,18 @@
+## Tor config for WorldBase darkweb bridge
+## SOCKS5 proxy on localhost:9050
+SocksPort 9050
+## Control port (optional, for circuit rotation)
+ControlPort 9051
+## Run as background process
+RunAsDaemon 0
+## Log to file
+Log notice file D:/MCP Mods/worldbase/tor/tor.log
+## Data directory
+DataDirectory D:/MCP Mods/worldbase/tor/data
+## GeoIP data
+GeoIPFile D:/MCP Mods/worldbase/tor/data/geoip
+GeoIPv6File D:/MCP Mods/worldbase/tor/data/geoip6
+## Avoid being an exit node (we only need client)
+ExitPolicy reject *:*
+## No relaying
+RelayBandwidthBurst 0

@@ -135,6 +135,173 @@ class FormatResultTests(unittest.TestCase):
         self.assertIn("context_budget", meta)
         self.assertTrue(meta["context_budget"]["ok"])
 
+    def test_escalation_active_in_meta(self):
+        with patch.dict(os.environ, {"WORLDBASE_CONTEXT_BUDGET": "1"}):
+            result = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", "[usgs] Earthquake data.")],
+                escalation=True,
+            )
+        self.assertTrue(getattr(result, "escalation_active", False))
+        _, meta = context_budget.format_context_from_result(result)
+        self.assertTrue(meta["context_budget"]["escalation_active"])
+
+    def test_escalation_inactive_in_meta(self):
+        with patch.dict(os.environ, {"WORLDBASE_CONTEXT_BUDGET": "1"}):
+            result = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", "[usgs] Earthquake data.")],
+                escalation=False,
+            )
+        self.assertFalse(getattr(result, "escalation_active", True))
+
+
+class EscalationTests(unittest.TestCase):
+    """Tests for the context budget escalation path (Phase 4.3)."""
+
+    def setUp(self):
+        self._orig_env = os.environ.get("WORLDBASE_CONTEXT_BUDGET")
+        self._orig_esc = os.environ.get("WORLDBASE_CONTEXT_BUDGET_ESCALATION")
+
+    def tearDown(self):
+        for key, val in [
+            ("WORLDBASE_CONTEXT_BUDGET", self._orig_env),
+            ("WORLDBASE_CONTEXT_BUDGET_ESCALATION", self._orig_esc),
+        ]:
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
+
+    def test_escalation_lowers_threshold(self):
+        """A quality score that would refuse at 0.35 should pass at 0.20."""
+        # Quality ~0.25: no source tags → 0.25, but with a low-quality marker → <0.25
+        # We need something between 0.20 and 0.35
+        # Use a single low-reliability source without corroboration
+        with patch.dict(os.environ, {"WORLDBASE_CONTEXT_BUDGET": "1"}):
+            # Without escalation → refused (quality 0.25 < 0.35)
+            result_normal = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", "Some text without any source tags here.")],
+                escalation=False,
+            )
+            self.assertFalse(result_normal.ok)
+
+            # With escalation → should pass (quality 0.25 >= 0.20)
+            result_escalated = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", "Some text without any source tags here.")],
+                escalation=True,
+            )
+            self.assertTrue(result_escalated.ok)
+            self.assertTrue(getattr(result_escalated, "escalation_active", False))
+
+    def test_escalation_disabled_env(self):
+        """When WORLDBASE_CONTEXT_BUDGET_ESCALATION=0, escalation flag is ignored."""
+        with patch.dict(
+            os.environ,
+            {
+                "WORLDBASE_CONTEXT_BUDGET": "1",
+                "WORLDBASE_CONTEXT_BUDGET_ESCALATION": "0",
+            },
+        ):
+            result = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", "Some text without any source tags here.")],
+                escalation=True,
+            )
+            # Should still refuse because escalation is disabled
+            self.assertFalse(result.ok)
+            self.assertFalse(getattr(result, "escalation_active", True))
+
+    def test_escalation_boosts_rag_budget(self):
+        """Escalation should increase RAG budget by 50%."""
+        long_text = "[usgs] " + ". ".join(f"Sentence {i}" for i in range(200))
+        with patch.dict(
+            os.environ,
+            {
+                "WORLDBASE_CONTEXT_BUDGET": "1",
+                "WORLDBASE_CONTEXT_BUDGET_RAG": "100",
+            },
+        ):
+            # Without escalation: budget=100
+            result_normal = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", long_text)],
+                escalation=False,
+            )
+            self.assertTrue(result_normal.ok)
+            normal_tokens = sum(
+                s.final_tokens for s in result_normal.sections if s.category == "rag"
+            )
+
+            # With escalation: budget=150
+            result_escalated = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", long_text)],
+                escalation=True,
+            )
+            self.assertTrue(result_escalated.ok)
+            escalated_tokens = sum(
+                s.final_tokens for s in result_escalated.sections if s.category == "rag"
+            )
+
+            self.assertGreater(escalated_tokens, normal_tokens)
+
+    def test_escalation_warning_in_system_prompt(self):
+        """Escalation should inject a warning into the system prompt."""
+        with patch.dict(os.environ, {"WORLDBASE_CONTEXT_BUDGET": "1"}):
+            result = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", "[usgs] Earthquake data.")],
+                escalation=True,
+            )
+        self.assertIn("EXPANDED CONTEXT MODE", result.system_prompt)
+
+    def test_no_escalation_warning_by_default(self):
+        """Default path should not have the escalation warning."""
+        with patch.dict(os.environ, {"WORLDBASE_CONTEXT_BUDGET": "1"}):
+            result = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", "[usgs] Earthquake data.")],
+                escalation=False,
+            )
+        self.assertNotIn("EXPANDED CONTEXT MODE", result.system_prompt)
+
+    def test_escalation_still_refuses_very_low_quality(self):
+        """Even with escalation, quality below the escalation threshold should refuse."""
+        with patch.dict(
+            os.environ,
+            {
+                "WORLDBASE_CONTEXT_BUDGET": "1",
+                "WORLDBASE_CONTEXT_BUDGET_ESCALATION_THRESHOLD": "0.30",
+            },
+        ):
+            # Quality 0.25 (no source tags) should refuse at 0.30 even with escalation
+            result = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", "Some text without any source tags here.")],
+                escalation=True,
+            )
+        self.assertFalse(result.ok)
+
+    def test_escalation_threshold_env_override(self):
+        """WORLDBASE_CONTEXT_BUDGET_ESCALATION_THRESHOLD can be configured."""
+        with patch.dict(
+            os.environ,
+            {
+                "WORLDBASE_CONTEXT_BUDGET": "1",
+                "WORLDBASE_CONTEXT_BUDGET_ESCALATION_THRESHOLD": "0.30",
+            },
+        ):
+            # Quality 0.25 should refuse at 0.30 even with escalation
+            result = context_budget.apply_budget(
+                "system prompt" + " x" * 100,
+                [("RAG MEMORY", "Some text without any source tags here.")],
+                escalation=True,
+            )
+            self.assertFalse(result.ok)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1125,10 +1125,16 @@ class _MCPAuthMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not mcp_auth_required():
-            # Auth not required — still extract role from headers for policy enforcement
-            if scope["type"] == "http":
-                _mcp_role.set(_role_from_scope(scope))
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        client_ip = scope.get("client", ("", 0))[0] if scope.get("client") else ""
+        is_loopback = client_ip in ("127.0.0.1", "::1", "localhost")
+
+        if not mcp_auth_required() or is_loopback:
+            # Auth not required (or localhost) — still extract role from headers
+            _mcp_role.set(_role_from_scope(scope))
             await self.app(scope, receive, send)
             return
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}

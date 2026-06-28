@@ -424,6 +424,9 @@ async def _prepare_chat_messages(
     messages = list(payload.get("messages", []))
     user_text = ""
 
+    # Escalation flag — operator-authorised lower confidence threshold
+    escalation = bool(payload.get("escalation", False))
+
     # Layer 2: Session Guard — multi-turn attack detection
     from firewall_bridge import _extract_user_text
 
@@ -691,6 +694,7 @@ async def _prepare_chat_messages(
                 budget_result = context_budget.apply_budget(
                     system_prompt_base,
                     context_blocks_for_budget,
+                    escalation=escalation,
                 )
                 if not budget_result.ok:
                     block_payload = {
@@ -705,6 +709,18 @@ async def _prepare_chat_messages(
                         user_text,
                         [t for _, t in context_blocks_for_budget],
                     )
+                # Audit-log escalation usage
+                if escalation and getattr(budget_result, "escalation_active", False):
+                    try:
+                        from auth.audit import record_audit_event
+
+                        record_audit_event(
+                            action="context_budget_escalation",
+                            endpoint="/api/chat",
+                            success=True,
+                        )
+                    except Exception:
+                        pass
                 system_content, budget_meta = context_budget.format_context_from_result(
                     budget_result
                 )

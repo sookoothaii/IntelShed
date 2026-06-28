@@ -79,6 +79,8 @@ docs/**
 !docs/SECRETS.md
 !docs/DARKWEB_COMPLIANCE.md
 !docs/PI_SYNC.md
+!docs/DEPLOYMENT.md
+!docs/DOCKER.md
 # Local-only operator / agent tooling (not part of the OSS repo)
 .cursor/
 briefs/

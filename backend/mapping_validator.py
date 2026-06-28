@@ -9,14 +9,17 @@ in ``backend/ingest/schemas/``. Detects:
 - Invalid link references
 
 Also provides runtime drift detection: when a feed payload contains fields
-not in the schema, a drift warning is emitted.
+not in the schema, a drift warning is emitted and persisted to SQLite for
+continuous live-contract monitoring.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -321,6 +324,12 @@ def detect_payload_drift(
             missing_required=sorted(missing_required),
             sample_size=len(records),
         )
+        _record_drift_event(
+            mapping_name=mapping_name,
+            unknown_fields=sorted(unknown),
+            missing_required=sorted(missing_required),
+            sample_size=len(records),
+        )
 
     return {
         "ok": not drift,
@@ -333,6 +342,147 @@ def detect_payload_drift(
 def list_schemas() -> list[str]:
     """List available schema names."""
     return sorted(p.stem for p in _SCHEMAS_DIR.glob("*.json"))
+
+
+# ---------------------------------------------------------------------------
+# Live-contract drift persistence — SQLite-backed drift event log
+# ---------------------------------------------------------------------------
+
+_DB_PATH = os.getenv("WORLDBASE_DB_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "worldbase.db"
+)
+
+_DRIFT_TABLE_READY = False
+
+
+def _drift_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(_DB_PATH, timeout=5.0)
+    conn.execute("PRAGMA busy_timeout=3000")
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def _ensure_drift_table() -> None:
+    global _DRIFT_TABLE_READY
+    if _DRIFT_TABLE_READY:
+        return
+    try:
+        with _drift_db() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS feed_drift_log (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp   TEXT NOT NULL,
+                    mapping     TEXT NOT NULL,
+                    unknown_fields TEXT,
+                    missing_required TEXT,
+                    sample_size INTEGER,
+                    severity    TEXT DEFAULT 'warning'
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_drift_ts ON feed_drift_log(timestamp)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_drift_mapping ON feed_drift_log(mapping)"
+            )
+            conn.commit()
+        _DRIFT_TABLE_READY = True
+    except Exception as exc:
+        log.warning("drift_table_create_failed", error=str(exc))
+
+
+def _record_drift_event(
+    *,
+    mapping_name: str,
+    unknown_fields: list[str],
+    missing_required: list[str],
+    sample_size: int,
+) -> None:
+    """Persist a drift event to SQLite. Fail-soft."""
+    _ensure_drift_table()
+    try:
+        ts = datetime.now(timezone.utc).isoformat()
+        severity = "error" if missing_required else "warning"
+        with _drift_db() as conn:
+            conn.execute(
+                "INSERT INTO feed_drift_log "
+                "(timestamp, mapping, unknown_fields, missing_required, sample_size, severity) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    ts,
+                    mapping_name,
+                    json.dumps(unknown_fields),
+                    json.dumps(missing_required),
+                    sample_size,
+                    severity,
+                ),
+            )
+            conn.commit()
+    except Exception as exc:
+        log.warning("drift_record_failed", error=str(exc))
+
+
+def get_drift_history(
+    *, mapping: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Return recent drift events, optionally filtered by mapping. Fail-soft."""
+    _ensure_drift_table()
+    try:
+        with _drift_db() as conn:
+            if mapping:
+                rows = conn.execute(
+                    "SELECT timestamp, mapping, unknown_fields, missing_required, "
+                    "sample_size, severity FROM feed_drift_log "
+                    "WHERE mapping = ? ORDER BY id DESC LIMIT ?",
+                    (mapping, int(limit)),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT timestamp, mapping, unknown_fields, missing_required, "
+                    "sample_size, severity FROM feed_drift_log "
+                    "ORDER BY id DESC LIMIT ?",
+                    (int(limit),),
+                ).fetchall()
+        return [
+            {
+                "timestamp": r[0],
+                "mapping": r[1],
+                "unknown_fields": json.loads(r[2]) if r[2] else [],
+                "missing_required": json.loads(r[3]) if r[3] else [],
+                "sample_size": r[4],
+                "severity": r[5],
+            }
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+def get_drift_summary() -> dict[str, Any]:
+    """Aggregate drift stats for trust panel / health endpoint. Fail-soft."""
+    _ensure_drift_table()
+    try:
+        with _drift_db() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM feed_drift_log").fetchone()[0]
+            last_24h = conn.execute(
+                "SELECT COUNT(*) FROM feed_drift_log "
+                "WHERE timestamp > datetime('now', '-1 day')"
+            ).fetchone()[0]
+            by_mapping = conn.execute(
+                "SELECT mapping, COUNT(*) as cnt, MAX(timestamp) as last_seen "
+                "FROM feed_drift_log GROUP BY mapping ORDER BY cnt DESC LIMIT 10"
+            ).fetchall()
+        return {
+            "total_events": total,
+            "events_24h": last_24h,
+            "by_mapping": [
+                {"mapping": r[0], "count": r[1], "last_seen": r[2]} for r in by_mapping
+            ],
+        }
+    except Exception:
+        return {"total_events": 0, "events_24h": 0, "by_mapping": []}
 
 
 def get_mapping_drift_status() -> dict[str, str]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone, timedelta
+from unittest.mock import patch
 
 from briefing_quality import score_briefing
 
@@ -326,6 +327,71 @@ class CorroborationTests(unittest.TestCase):
         self.assertIn("gdacs", row["source_families"])
         self.assertIn("ftm", row["source_families"])
         self.assertNotIn("unknown", row["source_families"])
+
+
+class SecondPassQualityGateTests(unittest.TestCase):
+    """Lücke 4: Briefing quality gate with second-pass retry."""
+
+    def test_should_retry_low_score(self):
+        from briefing_quality import should_retry_briefing
+
+        quality = {"score": 0.3, "checks": {"local_present": False, "fresh": True}}
+        retry, missing = should_retry_briefing(quality)
+        self.assertTrue(retry)
+        self.assertIn("local_present", missing)
+
+    def test_should_not_retry_high_score(self):
+        from briefing_quality import should_retry_briefing
+
+        quality = {"score": 0.9, "checks": {"local_present": True, "fresh": True}}
+        retry, missing = should_retry_briefing(quality)
+        self.assertFalse(retry)
+        self.assertEqual(missing, [])
+
+    def test_should_not_retry_when_disabled(self):
+        import os
+
+        with patch.dict(os.environ, {"WORLDBASE_BRIEFING_SECOND_PASS": "0"}):
+            # Need to reimport to pick up the env var
+            import importlib
+            import briefing_quality
+
+            importlib.reload(briefing_quality)
+            quality = {"score": 0.1, "checks": {"local_present": False}}
+            retry, _ = briefing_quality.should_retry_briefing(quality)
+            self.assertFalse(retry)
+        # Reload again to restore default
+        importlib.reload(briefing_quality)
+
+    def test_build_second_pass_prompt_contains_missing_aspects(self):
+        from briefing_quality import build_second_pass_prompt
+
+        quality = {"score": 0.3, "checks": {}}
+        missing = ["has_local_section", "has_intel"]
+        prompt = build_second_pass_prompt("ORIGINAL PROMPT", quality, missing)
+        self.assertIn("ORIGINAL PROMPT", prompt)
+        self.assertIn("SECOND PASS", prompt)
+        self.assertIn("LOCAL SITUATION", prompt)
+        self.assertIn("INTELLIGENCE", prompt)
+
+    def test_build_second_pass_prompt_general_fallback(self):
+        from briefing_quality import build_second_pass_prompt
+
+        quality = {"score": 0.2, "checks": {}}
+        prompt = build_second_pass_prompt("BASE", quality, [])
+        self.assertIn("BASE", prompt)
+        self.assertIn("general quality", prompt)
+
+    def test_second_pass_enabled_by_default(self):
+        from briefing_quality import second_pass_enabled
+
+        self.assertTrue(second_pass_enabled())
+
+    def test_threshold_default_is_0_65(self):
+        import briefing_quality
+
+        # The default threshold should be 0.65
+        self.assertAlmostEqual(briefing_quality._SECOND_PASS_THRESHOLD, 0.65, places=2)
 
 
 if __name__ == "__main__":

@@ -123,6 +123,27 @@ def _model_path(schema: str) -> str:
     return os.path.join(_MODEL_DIR, f"splink_model_{schema}.json")
 
 
+def _get_model_version() -> str:
+    """Best-effort: return a version string for the current Splink model.
+
+    Uses the file modification time of the most recent splink_model_*.json.
+    Returns 'unknown' when no model files exist.
+    """
+    try:
+        import glob
+
+        model_files = glob.glob(os.path.join(_MODEL_DIR, "splink_model_*.json"))
+        if not model_files:
+            return "unknown"
+        latest = max(model_files, key=os.path.getmtime)
+        ts = os.path.getmtime(latest)
+        from datetime import datetime
+
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    except Exception:
+        return "unknown"
+
+
 def _model_exists(schema: str) -> bool:
     return os.path.isfile(_model_path(schema))
 
@@ -873,24 +894,48 @@ def list_ambiguous_pairs(
 
 
 def label_pair(
-    source_id: str, target_id: str, confirmed: bool, *, schema: str | None = None
+    source_id: str,
+    target_id: str,
+    confirmed: bool,
+    *,
+    schema: str | None = None,
+    model_version: str | None = None,
+    confidence: float | None = None,
 ) -> dict:
     """Record a human label for an ambiguous pair.
 
     If ``confirmed`` is True, the edge is kept (and confidence bumped to
     ``_EXACT_CONFIDENCE``).  If False, the edge is deleted.
+
+    Args:
+        model_version: Splink model version that produced the candidate edge.
+        confidence: Original model confidence score (preserved for audit).
     """
     pair_id = f"{source_id}::{target_id}"
     from ftm_connection import _LOCK, _conn
 
+    _model_ver = model_version or _get_model_version()
+    _confidence = confidence if confidence is not None else 0.0
+    _conf_ts = _now()
     with _LOCK:
         _conn().execute(
             """
             INSERT OR REPLACE INTO resolution_labels
-                (pair_id, source_id, target_id, schema, confidence, confirmed, labeled_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                (pair_id, source_id, target_id, schema, confidence, confirmed,
+                 labeled_at, model_version, confidence_timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            [pair_id, source_id, target_id, schema, 0.0, confirmed, _now()],
+            [
+                pair_id,
+                source_id,
+                target_id,
+                schema,
+                _confidence,
+                confirmed,
+                _now(),
+                _model_ver,
+                _conf_ts,
+            ],
         )
     if confirmed:
         with _LOCK:

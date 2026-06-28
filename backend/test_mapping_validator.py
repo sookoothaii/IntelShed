@@ -199,5 +199,82 @@ class MappingValidatorTests(unittest.TestCase):
         self.assertEqual(missing, set(), f"Mappings without schemas: {missing}")
 
 
+class DriftPersistenceTests(unittest.TestCase):
+    """Lücke 2: Runtime drift events must be persisted to SQLite."""
+
+    def setUp(self):
+        import tempfile
+
+        self._tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self._tmp.close()
+        mv._DB_PATH = self._tmp.name
+        mv._DRIFT_TABLE_READY = False
+
+    def tearDown(self):
+        import os
+
+        try:
+            os.unlink(self._tmp.name)
+        except OSError:
+            pass
+
+    def test_drift_event_recorded_on_drift(self):
+        """detect_payload_drift with unknown fields should persist to SQLite."""
+        records = [{"mmsi": "123", "name": "Test", "new_unknown_field": "value"}]
+        mv.detect_payload_drift("ais_vessels", records)
+        history = mv.get_drift_history(mapping="ais_vessels", limit=10)
+        self.assertTrue(len(history) >= 1)
+        entry = history[0]
+        self.assertEqual(entry["mapping"], "ais_vessels")
+        self.assertIn("new_unknown_field", entry["unknown_fields"])
+        self.assertEqual(entry["severity"], "warning")
+
+    def test_drift_event_severity_error_for_missing_required(self):
+        """Missing required fields should produce severity='error'."""
+        records = [{"name": "Test Vessel without MMSI"}]
+        mv.detect_payload_drift("ais_vessels", records)
+        history = mv.get_drift_history(mapping="ais_vessels", limit=10)
+        self.assertTrue(any(e["severity"] == "error" for e in history))
+
+    def test_no_drift_no_event(self):
+        """Clean records should not produce a drift event."""
+        records = [
+            {"mmsi": "123456789", "name": "Test Vessel", "lat": 13.0, "lon": 100.0},
+        ]
+        mv.detect_payload_drift("ais_vessels", records)
+        history = mv.get_drift_history(mapping="ais_vessels", limit=10)
+        # No drift events for clean records
+        self.assertEqual(len(history), 0)
+
+    def test_drift_summary_aggregates(self):
+        """get_drift_summary should return aggregate stats."""
+        records = [{"mmsi": "123", "name": "Test", "new_field": "value"}]
+        mv.detect_payload_drift("ais_vessels", records)
+        mv.detect_payload_drift("ais_vessels", records)
+        summary = mv.get_drift_summary()
+        self.assertGreaterEqual(summary["total_events"], 2)
+        self.assertTrue(
+            any(m["mapping"] == "ais_vessels" for m in summary["by_mapping"])
+        )
+
+    def test_drift_history_filtered_by_mapping(self):
+        """get_drift_history with mapping filter should only return matching entries."""
+        mv._record_drift_event(
+            mapping_name="ais_vessels",
+            unknown_fields=["x"],
+            missing_required=[],
+            sample_size=1,
+        )
+        mv._record_drift_event(
+            mapping_name="gdacs_alerts",
+            unknown_fields=["y"],
+            missing_required=[],
+            sample_size=1,
+        )
+        history = mv.get_drift_history(mapping="ais_vessels", limit=10)
+        self.assertTrue(all(e["mapping"] == "ais_vessels" for e in history))
+        self.assertEqual(len(history), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

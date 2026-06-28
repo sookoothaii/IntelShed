@@ -55,17 +55,20 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
         DROP INDEX IF EXISTS idx_entities_schema;
         CREATE INDEX IF NOT EXISTS idx_stmt_entity ON statements(entity_id);
         CREATE TABLE IF NOT EXISTS resolution_labels (
-            pair_id     VARCHAR PRIMARY KEY,
-            source_id   VARCHAR NOT NULL,
-            target_id   VARCHAR NOT NULL,
-            schema      VARCHAR,
-            confidence  DOUBLE,
-            confirmed   BOOLEAN,
-            labeled_at  VARCHAR
+            pair_id             VARCHAR PRIMARY KEY,
+            source_id           VARCHAR NOT NULL,
+            target_id           VARCHAR NOT NULL,
+            schema              VARCHAR,
+            confidence          DOUBLE,
+            confirmed           BOOLEAN,
+            labeled_at          VARCHAR,
+            model_version       VARCHAR,
+            confidence_timestamp VARCHAR
         );
         """
     )
     _migrate_statements_schema(con)
+    _migrate_resolution_labels_schema(con)
     _ensure_edge_indexes(con)
     _ensure_entity_geo_indexes(con)
 
@@ -161,6 +164,43 @@ def _drop_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
 
 def _drop_entity_schema_index(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("DROP INDEX IF EXISTS idx_entities_schema")
+
+
+# ---------------------------------------------------------------------------
+# Resolution labels schema migration — model_version + confidence_timestamp
+# ---------------------------------------------------------------------------
+
+_RESOLUTION_LABEL_NEW_COLUMNS: list[tuple[str, str]] = [
+    ("model_version", "VARCHAR"),
+    ("confidence_timestamp", "VARCHAR"),
+]
+
+
+def _migrate_resolution_labels_schema(con: duckdb.DuckDBPyConnection) -> None:
+    """Add model_version and confidence_timestamp columns to resolution_labels.
+
+    Idempotent: checks information_schema before ALTER TABLE.
+    Fail-soft: catches per-column errors.
+    """
+    try:
+        cols = {
+            r[0]
+            for r in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'resolution_labels'"
+            ).fetchall()
+        }
+    except Exception:
+        cols = set()
+
+    for col_name, col_type in _RESOLUTION_LABEL_NEW_COLUMNS:
+        if col_name not in cols:
+            try:
+                con.execute(
+                    f"ALTER TABLE resolution_labels ADD COLUMN {col_name} {col_type}"
+                )
+            except Exception:
+                pass
 
 
 def _ensure_entity_schema_index(con: duckdb.DuckDBPyConnection) -> None:

@@ -5,6 +5,7 @@ Stored in briefings.sources.quality and exposed on GET /api/briefing.
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -556,3 +557,76 @@ def attach_quality_to_sources(
         max_age_hours=max_age_hours,
     )
     return out
+
+
+# ---------------------------------------------------------------------------
+# Briefing quality gate — second-pass trigger
+# ---------------------------------------------------------------------------
+
+_SECOND_PASS_THRESHOLD = float(
+    os.getenv("WORLDBASE_BRIEFING_SECOND_PASS_THRESHOLD", "0.65")
+)
+_SECOND_PASS_ENABLED = os.getenv(
+    "WORLDBASE_BRIEFING_SECOND_PASS", "1"
+).strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+
+def second_pass_enabled() -> bool:
+    """Return True when the briefing quality gate is enabled."""
+    return _SECOND_PASS_ENABLED
+
+
+def should_retry_briefing(quality: dict[str, Any]) -> tuple[bool, list[str]]:
+    """Check if a briefing should be retried based on quality score.
+
+    Returns (should_retry, missing_aspects) where missing_aspects lists
+    the quality checks that failed.
+    """
+    if not _SECOND_PASS_ENABLED:
+        return False, []
+    score = float(quality.get("score") or 0.0)
+    if score >= _SECOND_PASS_THRESHOLD:
+        return False, []
+    checks = quality.get("checks") or {}
+    missing = [k for k, v in checks.items() if not v]
+    return True, missing
+
+
+def build_second_pass_prompt(
+    original_prompt: str,
+    quality: dict[str, Any],
+    missing_aspects: list[str],
+) -> str:
+    """Build a second-pass prompt that emphasises missing quality aspects."""
+    score = float(quality.get("score") or 0.0)
+    hints = []
+    if "has_local_section" in missing_aspects:
+        hints.append(
+            "LOCAL SITUATION: Include a clear LOCAL SITUATION section with Thailand/SEA events."
+        )
+    if "has_intel" in missing_aspects:
+        hints.append(
+            "INTELLIGENCE: Add an INTELLIGENCE section with entity graph findings."
+        )
+    if "has_gdelt" in missing_aspects:
+        hints.append("GDELT: Reference local news and media heat from GDELT.")
+    if "has_watch_items" in missing_aspects:
+        hints.append("WATCH ITEMS: Include 3-5 specific watch items with coordinates.")
+    hints_str = (
+        "\n".join(f"  - {h}" for h in hints)
+        if hints
+        else "  - Improve overall coverage and specificity."
+    )
+    return (
+        f"{original_prompt}\n\n"
+        f"--- SECOND PASS — QUALITY GATE ---\n"
+        f"The first briefing draft scored {score:.2f}/1.0 (threshold: {_SECOND_PASS_THRESHOLD}).\n"
+        f"Missing aspects: {', '.join(missing_aspects) or 'general quality'}.\n"
+        f"Address these gaps:\n{hints_str}\n"
+        f"Regenerate the full briefing with these improvements.\n"
+    )

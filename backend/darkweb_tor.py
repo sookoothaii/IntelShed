@@ -116,11 +116,13 @@ class TorRotator:
 
         if not rotation_enabled():
             result["error"] = "disabled"
+            _audit_tor_rotation(result)
             return result
 
         control = _import_stem()
         if control is None:
             result["error"] = "stem not installed"
+            _audit_tor_rotation(result)
             return result
 
         async with self._lock:
@@ -130,6 +132,7 @@ class TorRotator:
                 for _ in range(attempts):
                     await self._respect_rate_limit(wait=wait, result=result)
                     if result["error"] == "rate_limited":
+                        _audit_tor_rotation(result)
                         return result
 
                     country = await asyncio.to_thread(
@@ -142,12 +145,15 @@ class TorRotator:
 
                     if not (check_exit and country and country in blocklist):
                         result["blocklisted"] = False
+                        _audit_tor_rotation(result)
                         return result
                     # Exit node is in a blocked jurisdiction — rotate again.
                     result["blocklisted"] = True
+                _audit_tor_rotation(result)
                 return result
             except Exception as exc:  # fail-soft
                 result["error"] = str(exc)
+                _audit_tor_rotation(result)
                 return result
 
     async def _respect_rate_limit(self, *, wait: bool, result: dict[str, Any]) -> None:
@@ -236,3 +242,18 @@ def status() -> dict[str, Any]:
         "exit_blocklist": sorted(exit_blocklist()),
         "newnym_min_interval_sec": NEWNYM_MIN_INTERVAL_SEC,
     }
+
+
+def _audit_tor_rotation(result: dict[str, Any]) -> None:
+    """Record a Tor exit-node rotation event in auth_audit. Fail-soft."""
+    try:
+        from auth.audit import record_audit_event
+
+        record_audit_event(
+            action="darkweb_tor_rotation",
+            tool="darkweb_tor",
+            success=bool(result.get("rotated")),
+            error=str(result.get("error") or ""),
+        )
+    except Exception:
+        pass

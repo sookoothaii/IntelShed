@@ -141,7 +141,7 @@ jobs:
         run: pre-commit run --all-files
 
   backend-tests:
-    name: Backend (unit tests)
+    name: Backend (full pytest suite)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -155,5 +155,12 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
       - run: pip install -r requirements.txt -r requirements-dev.txt
-      - name: Run core unit tests
-        run: python -m unittest test_briefing_quality test_operator_briefing test_feed_envelope_contract test_config test_prompt_guard test_prompt_security test_mapping_validator -v
+      - name: Run full test suite
+        run: python -m pytest -v --tb=short --maxfail=50 -q
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: backend/.pytest_cache/
+          retention-days: 7

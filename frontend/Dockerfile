@@ -10,7 +10,7 @@ ENV VITE_CESIUM_ION_TOKEN=$VITE_CESIUM_ION_TOKEN \
     VITE_FLOWSINT_URL=$VITE_FLOWSINT_URL
 
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN npm ci --ignore-scripts
 
 COPY . .
 RUN npm run build
