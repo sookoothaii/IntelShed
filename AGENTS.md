@@ -24,6 +24,18 @@
 
 Copy env: `backend\.env.example` → `backend\.env`, `frontend\.env.example` → `frontend\.env` (Cesium Ion token required for terrain/buildings).
 
+### Docker mode (alternative to venv)
+
+| Service | URL | Notes |
+|---------|-----|--------|
+| **UI** | https://localhost | Caddy serves SPA + proxies `/api` to backend container |
+| **API** | https://localhost/api | OpenAPI: `/api/docs` (via Caddy) |
+| **Start** | `.\scripts\start-docker.ps1` | Auto-detects LAN IP, builds + starts all 3 services (backend, web/Caddy, redis) |
+| **Stop** | `docker compose down` | `docker compose down -v` also wipes volumes (DB!) |
+| **Pi sync** | `https://<pc-lan-ip>/api/node/ingest` | Pi's `worldbase_push.service` must use `WORLDBASE_SCHEME=https`, `WORLDBASE_PORT=443`, `WORLDBASE_VERIFY_TLS=0` |
+
+**CRITICAL — Never run venv backend and Docker stack at the same time.** Two separate databases (`backend/worldbase.db` vs Docker volume `/data/worldbase.db`) cause silent data divergence: Pi heartbeats, briefings, and entity counts will differ depending on which backend is queried. Check with `netstat -ano | findstr :8002` — if `LISTENING` while `docker ps` shows `worldbase-backend-1`, stop the venv backend. See [`docs/DOCKER.md`](docs/DOCKER.md) for full troubleshooting.
+
 ---
 
 ## Current work focus (default)

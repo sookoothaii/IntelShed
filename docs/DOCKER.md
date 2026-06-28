@@ -51,7 +51,7 @@ Multi-stage build:
 1. **Builder stage**: `python:3.12-slim` + `build-essential`, `libicu-dev`, `pkg-config` → pip installs to `/install` (core + optional deps including torch CPU, splink, gliner)
 2. **Runtime stage**: `python:3.12-slim` + `libicu76` (runtime only, Debian Trixie) + `libgomp1` (OpenMP for torch/onnxruntime) + `curl` (healthcheck) → copies `/install`, runs as non-root `worldbase` user
 
-Exec-form CMD: `CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]` (graceful shutdown, lifespan events).
+Exec-form CMD: `CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]` — uses `python -m` because `pip install --target=/install` puts console scripts in `/install/bin` which is not on `$PATH`.
 
 ### Frontend Dockerfile
 
@@ -109,20 +109,36 @@ docker compose down -v        # also remove volumes (deletes DB!)
 
 ## Pi sync over LAN
 
-The Pi reaches the backend via Caddy's HTTPS endpoint:
+The Pi reaches the backend via Caddy's HTTPS endpoint (port 443), **not** port 8002:
 
 ```bash
-# On the Pi:
-export WORLDBASE_PC=<pc-lan-ip>
-export WORLDBASE_SCHEME=https
-export WORLDBASE_VERIFY_TLS=0   # internal CA cert
-curl https://$WORLDBASE_PC/api/node/pull -H "X-Node-Token: <token>"
+# On the Pi — worldbase_push.service drop-in config:
+# /etc/systemd/system/worldbase_push.service.d/http-lan.conf
+[Service]
+Environment=WORLDBASE_SCHEME=https
+Environment=WORLDBASE_PORT=443
+Environment=WORLDBASE_PC=<pc-lan-ip>
+Environment=WORLDBASE_VERIFY_TLS=0   # internal CA cert
+
+# Also fix port.conf drop-in:
+# /etc/systemd/system/worldbase_push.service.d/port.conf
+[Service]
+Environment="WORLDBASE_PORT=443"
+
+# Apply:
+sudo systemctl daemon-reload
+sudo systemctl restart worldbase_push.service
 ```
 
 `start-docker.ps1` auto-detects the LAN IP and prints the exact Pi sync target.
 
+**Important:** The Pi's `worldbase_push.service` has multiple drop-in files. Both `http-lan.conf` and `port.conf` must agree on `WORLDBASE_PORT=443`. The main service file defaults to port 8002 — drop-ins override it.
+
 ## Troubleshooting
 
+- **CRITICAL — Never run venv backend and Docker stack simultaneously**: The venv backend (`start.ps1`) binds `0.0.0.0:8002` with a local `worldbase.db`. The Docker backend runs inside a container with its own `/data/worldbase.db` volume. Running both creates two separate databases — Pi heartbeats, briefings, and entity data will diverge. If Docker is running, stop the venv backend first (`Ctrl+C` in the `start.ps1` terminal or `Stop-Process` on the PID listening on 8002). Check with `netstat -ano | findstr :8002` — if it shows `LISTENING` while `docker ps` shows `worldbase-backend-1`, you have a dual-backend conflict.
+- **DuckDB `entities.duckdb` invalid (0 bytes)**: If `/app/data/entities.duckdb` is a 0-byte file, DuckDB cannot open it and FTM will report `ready: false`. Fix: `docker exec worldbase-backend-1 rm -f /app/data/entities.duckdb /app/data/entities.duckdb.wal` then `docker restart worldbase-backend-1`. DuckDB will recreate the file with schema on startup.
+- **Pi shows offline after PC reboot**: The Pi's `worldbase_push.service` may still point to `http://<pc-ip>:8002` (venv backend). After switching to Docker, update the Pi's drop-in configs to `https` + port `443` (see Pi sync section above). Verify with `journalctl -u worldbase_push.service -n 5` on the Pi.
 - **`followthemoney` install fails**: The builder stage installs `libicu-dev` + `pkg-config` for `pyicu`. If you see ICU errors, ensure the builder stage ran correctly.
 - **Optional deps (torch, splink, gliner, etc.)**: The Dockerfile installs these in a second pip layer (CPU-only torch from `download.pytorch.org/whl/cpu`). If a specific optional package fails to build, check the builder stage logs. The backend lazy-imports all optional packages and runs without them, but entity resolution, NER, and RAG reranking will be disabled.
 - **`psycopg2-binary`, `protobuf`, `river` not in venv**: These are listed in `requirements.txt` but may be missing from the local venv if it was created before they were added. Run `pip install psycopg2-binary protobuf river` in the venv to fix.
