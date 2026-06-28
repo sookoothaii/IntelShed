@@ -17,8 +17,8 @@
 | **UI** | http://localhost:5176 | Always via Vite — not `:8002` for the HUD |
 | **API** | http://127.0.0.1:8002 | OpenAPI: `/docs` |
 | **Fast health** | `GET /api/health/ping` | Use before/after changes |
-| **Ollama** | http://127.0.0.1:11434 | Default chat: `qwen3:8b` |
-| **NVIDIA NIM** | https://integrate.api.nvidia.com/v1 | Free tier: `stepfun-ai/step-3.7-flash`; `NVIDIA_API_KEY` |
+| **Ollama** | http://127.0.0.1:11434 | Local chat: `qwen3:8b` (briefing LLM) |
+| **NVIDIA NIM** | https://integrate.api.nvidia.com/v1 | MCP chat default: `stepfun-ai/step-3.7-flash`; `NVIDIA_API_KEY` |
 | **Start** | `.\start.ps1` | Waits for `/api/health/ping` before Vite (avoids proxy ECONNREFUSED); paths with spaces → `-LiteralPath`. Uvicorn reload excludes runtime DB/JSON files: `worldbase.db`, `data/entities.duckdb`, `data/ais_trajectory.db`, `data/intel_subgraph_latest.json` (literal paths, no globs) |
 | **Verify** | `.\scripts\smoke-test.ps1` | 33 checks — run before claiming “done” (includes live feed envelope contract when API is up) |
 
@@ -32,7 +32,7 @@ Unless the user says otherwise, prioritize:
 
 1. **24h security digest** — `backend/briefing_digest.py` + `backend/briefing_prompt.py` + `backend/node_briefing.py` (compat: `operator_briefing.py`, `node_sync.py`)
 2. **Operator home region** — `WORLDBASE_OPERATOR_REGION=thailand` (LOCAL / REGION / GLOBAL buckets)
-3. **GDELT local** — `backend/gdelt_bridge.py` → `/api/gdelt/pulse/local`, `/api/gdelt/geo/local`
+3. **GDELT local + West Asia** — `backend/gdelt_bridge.py` → `/api/gdelt/pulse/local`, `/api/gdelt/geo/local`; region presets: `thailand`, `west-asia`, `iran`, `hormuz`, `persian-gulf` (`stac_bridge.py` REGION_PRESETS); always included in REGION bucket via `_WEST_ASIA_BBOX`
 4. **Pi pull loop** — PC generates briefing → Pi `GET /api/node/pull` → portal `briefing_latest.json`
 5. **Intelligence UX** — FULL SITUATION overlay, SITUATIONS board, fusion hotspots in briefing, DATA → INTEL (ingest, feed sync, Splink resolution, Cytoscape overview)
 
@@ -91,7 +91,7 @@ Stored briefing JSON (`sources` column) includes `intel`, `digest`, and **`quali
 | **STAC feed snapshots** | `GET /api/stac/feeds/collection`, `GET /api/stac/feeds/items` — connector cache as STAC Items with bbox/geometry, registry links; DATA → **FEEDS** tab: STAC JSON + ⊕ fly-to |
 | **Satellite Change Detection (K4)** | `GET /api/satellite/health`, `GET /api/satellite/change` — Sentinel-2 L2A COG window-read, NDVI/NDWI differencing, GeoJSON anomaly polygons; `WORLDBASE_SATELLITE_CHANGE=1` (default on); `backend/satellite_change.py`; DATA → **SATELLITE** tab |
 | **Connectors** | `GET /api/connectors` — manifest catalog + cache overlay; export via `scripts/export_connectors.py` |
-| **MCP (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — 13 tools when Agent Bus on — [`docs/MCP.md`](docs/MCP.md) |
+| **MCP (Cursor)** | Streamable HTTP `http://127.0.0.1:8002/api/mcp` — 13 tools when Agent Bus on — [`docs/MCP.md`](docs/MCP.md); `worldbase_chat` default provider: `nvidia` (`stepfun-ai/step-3.7-flash`), override via `WORLDBASE_MCP_MODEL` / `WORLDBASE_MCP_PROVIDER` env vars |
 | **Agent Bus** | `POST /api/agent/publish`, `GET /api/agent/stream` — globe fly/layer when HUD open — [`docs/MCP.md`](docs/MCP.md#agent-bus) |
 | **FtM globe layer** | `GET /api/intel/entities?geolocated=1` → HUD **INTEL** toggle (`intelFt`) — [`docs/GLOBE.md`](docs/GLOBE.md#intel-ftm-globe-layer) |
 | **DuckDB Write Queue** | `WORLDBASE_DUCKDB_QUEUE=1` — serializes all DuckDB writes via SQLite WAL + retry + DLQ; `GET /api/intel/queue/status`, `GET /api/admin/dlq` — `backend/duckdb_queue.py` |
@@ -192,7 +192,7 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | Pi edge dashboard (DATA → EDGE) | `frontend/src/components/EdgePanel.tsx` — primary node `offgrid-pi`, sparklines via `/api/node/{id}/sensors/history` |
 | Edge online/offline banner | `frontend/src/components/NodeHealthBanner.tsx` |
 | HAK_GAL firewall bridge (optional) | `backend/firewall_bridge.py`, `backend/prompt_guard.py`, `docs/FIREWALL.md` |
-| DB | `backend/worldbase.db`, `backend/data/entities.duckdb` — FtM: single writer (one API process); `reset_store()` on DuckDB FATAL (B-02 light) |
+| DB | `backend/worldbase.db`, `backend/data/entities.duckdb` — FtM: single writer (one API process); 3-tier recovery in `ftm_connection.py`: soft reset (reopen) → hard reset (delete + recreate) on DuckDB FATAL/invalidated; `reset_store(hard=True)` deletes corrupted file; `_run_with_recovery()` retries 3× (normal → soft → hard) |
 | **Backup** | `scripts/backup.ps1` — SQLite VACUUM INTO + DuckDB file copy + fusion parquet + subgraph JSON + TLE; `docs/BACKUP.md` restore guide |
 | **Structured logging** | `backend/structured_log.py` — `StructuredLogger` (JSON output, secret redaction), `get_logger()`; replaces `print()` in lifespan, bootstrap_env, mcp_server, ftm_connection, rag_memory, aircraft routes |
 | **Config central** | `backend/config.py` — `WorldBaseConfig` (Pydantic frozen), `get_config()` singleton with `@lru_cache`; fields for feed_ingest, briefing, entity_resolution, operator_region |
@@ -233,7 +233,7 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 |---------|------------|
 | UI unreachable / Vite `ECONNREFUSED :8002` | Use `.\start.ps1` (backend warm-up before Vite); browser on **localhost:5176**; hard refresh after backend reload |
 | Sporadic API 500 `No response returned` on HUD poll | Uvicorn `--reload` restarting on SQLite WAL writes — use `.\start.ps1` (excludes `worldbase.db*` / `data/*.duckdb`); transient during hot reload otherwise |
-| RAG rerank slow first search | BGE model cold load on CPU (~60–90 s first hit); `RAG_RERANK=1` + `pip install sentence-transformers` |
+| RAG rerank slow first search | BGE model cold load on CPU (~60–90 s first hit); `RAG_RERANK=1` + `pip install sentence-transformers`; ONNX backend: tokenizer files must be in `data/models/reranker_onnx/` (`tokenizer.json`, `sentencepiece.bpe.model`, `special_tokens_map.json`) — `_export_quantized()` saves them automatically; if missing, `AutoTokenizer.from_pretrained` fails with `Unable to load vocabulary` |
 | Chat 401 with `WORLDBASE_API_KEY` set | Pass header `X-API-Key` on `POST /api/chat` |
 | Briefing empty | `POST /api/briefing/generate`; check Ollama |
 | LOCAL block thin | GDELT rate limits; verify `/api/gdelt/pulse/local` (stale cache with `count>0` still counts for trust/quality); also `/api/cams/haze`, `/api/humanitarian`, `/api/airquality` in briefing snapshot |
@@ -241,7 +241,7 @@ Legacy `sensor_data.json` / `mesh_nodes.json` / `gps.json` are **not** used. See
 | GDELT trust 0 after cold boot | Wait ~90 s for startup warm-up or `GET /api/gdelt/pulse/local`; disk cache `gdelt_pulse_local:thailand` hydrates trust probe |
 | Pi old brief | deploy scripts + token; `brief.source` should be `worldbase-pc` |
 | INTEL ingest 503 | optional ML stack not installed — see `docs/INTEL_INGEST.md` + `backend/requirements.txt` |
-| API 500 / startup crash (DuckDB) | Only one process may open `entities.duckdb`; `ftm_store.init_store()` is fail-soft — check `GET /api/health` → `ftm.ready`. Do not test FtM via external CLI while stack runs. After `FATAL … invalidated`, restart backend (`.\start.ps1`). FtM read routes run on the event-loop thread (no `asyncio.to_thread`). |
+| API 500 / startup crash (DuckDB) | Only one process may open `entities.duckdb`; `ftm_store.init_store()` is fail-soft — check `GET /api/health` → `ftm.ready`. Do not test FtM via external CLI while stack runs. After `FATAL … invalidated`, `ftm_connection.py` auto-recovers via 3-tier reset (soft reopen → hard delete + recreate). If auto-recovery fails, delete `data/entities.duckdb` manually and restart backend (`.\start.ps1`). FtM read routes run on the event-loop thread (no `asyncio.to_thread`). |
 | Paths break in PS | `-LiteralPath` for `D:\MCP Mods\worldbase` |
 | Globe blank / terrain 503 | Ion CDN blip or stale Vite env — restart frontend; ellipsoid fallback in `cesiumTerrain.ts` |
 | Webcam click shows text only | Old build — card must pass `webcam` ref to `focusOn`; expect **LIVE FEED** modal with iframe |
