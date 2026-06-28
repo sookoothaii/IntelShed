@@ -15,10 +15,8 @@ from followthemoney import model
 
 from ftm_connection import _LOCK, _conn, _run_with_recovery, run_query_ro
 from ftm_schema import (
-    _delete_entity_rows,
     _drop_edge_indexes,
     _ensure_edge_indexes,
-    _ensure_entity_schema_index,
 )
 
 
@@ -156,27 +154,55 @@ def _upsert_impl(
             if use_lon is None:
                 use_lon = _first_float(merged_props.get("longitude"))
 
-            if row:
-                _delete_entity_rows(con, eid)
-
+            # Clear old provenance for this entity+dataset only.
             con.execute(
-                """
-                INSERT INTO entities
-                    (id, schema, caption, properties, datasets, lat, lon, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    eid,
-                    merged_proxy.schema.name,
-                    merged_proxy.caption,
-                    json.dumps(merged_props),
-                    json.dumps(sorted(datasets)),
-                    use_lat,
-                    use_lon,
-                    first_seen,
-                    seen_at,
-                ],
+                "DELETE FROM statements WHERE entity_id = ? AND dataset = ?",
+                [eid, dataset],
             )
+
+            # Upsert entity row: UPDATE for existing (no DELETE on PK index),
+            # INSERT for new.  The id column is never modified by UPDATE, so
+            # the PK index is not touched.  No idx_entities_schema exists, so
+            # UPDATE on schema column is also in-place.
+            if row:
+                con.execute(
+                    """
+                    UPDATE entities
+                    SET schema = ?, caption = ?, properties = ?, datasets = ?,
+                        lat = ?, lon = ?, first_seen = ?, last_seen = ?
+                    WHERE id = ?
+                    """,
+                    [
+                        merged_proxy.schema.name,
+                        merged_proxy.caption,
+                        json.dumps(merged_props),
+                        json.dumps(sorted(datasets)),
+                        use_lat,
+                        use_lon,
+                        first_seen,
+                        seen_at,
+                        eid,
+                    ],
+                )
+            else:
+                con.execute(
+                    """
+                    INSERT INTO entities
+                        (id, schema, caption, properties, datasets, lat, lon, first_seen, last_seen)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        eid,
+                        merged_proxy.schema.name,
+                        merged_proxy.caption,
+                        json.dumps(merged_props),
+                        json.dumps(sorted(datasets)),
+                        use_lat,
+                        use_lon,
+                        first_seen,
+                        seen_at,
+                    ],
+                )
             seen_stmt_keys: set[tuple[str, str, str, str]] = set()
             stmt_rows = []
             for prop, values in incoming.items():
@@ -221,8 +247,6 @@ def _upsert_impl(
             except Exception:
                 pass
             raise
-        finally:
-            _ensure_entity_schema_index(con)
 
     return _run_with_recovery(_do)
 
