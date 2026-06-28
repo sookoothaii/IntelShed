@@ -53,6 +53,8 @@ SOURCE_RELIABILITY: dict[str, float] = {
     "gdelt_geo": 0.70,
     "gdelt_geo_local": 0.70,
     "gdelt_pulse_global": 0.70,
+    "gdelt_pulse_west_asia": 0.70,
+    "gdelt_geo_west_asia": 0.70,
     "newsdata": 0.65,
     "ftm": 0.75,
     "intel-ingest": 0.70,

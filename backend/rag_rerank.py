@@ -128,6 +128,7 @@ class OnnxReranker:
         """Export HF model to ONNX and apply int8 dynamic quantization."""
         from optimum.onnxruntime import ORTModelForSequenceClassification
         from onnxruntime.quantization import quantize_dynamic, QuantType
+        from transformers import AutoTokenizer
 
         self.onnx_dir.mkdir(parents=True, exist_ok=True)
 
@@ -139,6 +140,11 @@ class OnnxReranker:
             provider="CPUExecutionProvider",
         )
         model.save_pretrained(str(self.onnx_dir))
+
+        # Save tokenizer alongside the model (save_pretrained does not always include it)
+        tokenizer = AutoTokenizer.from_pretrained(_RERANK_MODEL)
+        tokenizer.save_pretrained(str(self.onnx_dir))
+        print(f"[RAG] Tokenizer saved to {self.onnx_dir}", flush=True)
 
         # Quantize to int8
         base_onnx = self.onnx_dir / "model.onnx"

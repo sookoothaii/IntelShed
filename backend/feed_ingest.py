@@ -181,6 +181,20 @@ async def _fetch_gdelt_pulse_records() -> list[dict]:
     return [normalize_gdelt_article(a) for a in data.get("articles") or []]
 
 
+async def _fetch_gdelt_geo_west_asia_records() -> list[dict]:
+    import gdelt_bridge
+
+    data = await gdelt_bridge.gdelt_geo_local(region="west-asia")
+    return [normalize_gdelt_geo(e, i) for i, e in enumerate(data.get("events") or [])]
+
+
+async def _fetch_gdelt_pulse_west_asia_records() -> list[dict]:
+    import gdelt_bridge
+
+    data = await gdelt_bridge.gdelt_pulse_local(region="west-asia")
+    return [normalize_gdelt_article(a) for a in data.get("articles") or []]
+
+
 async def _fetch_eonet_records(limit: int = 80) -> list[dict]:
     async with httpx.AsyncClient(timeout=30.0) as client:
         r = await client.get(
@@ -248,6 +262,18 @@ FEED_SOURCES: dict[str, dict[str, Any]] = {
         "fetch": _fetch_gdelt_pulse_records,
         "dataset": "gdelt-pulse",
         "rag_source": "gdelt_pulse_local",
+    },
+    "gdelt_geo_west_asia": {
+        "mapping": "gdelt_events",
+        "fetch": _fetch_gdelt_geo_west_asia_records,
+        "dataset": "gdelt-geo-west-asia",
+        "rag_source": "gdelt_geo_west_asia",
+    },
+    "gdelt_pulse_west_asia": {
+        "mapping": "gdelt_events",
+        "fetch": _fetch_gdelt_pulse_west_asia_records,
+        "dataset": "gdelt-pulse-west-asia",
+        "rag_source": "gdelt_pulse_west_asia",
     },
     "eonet": {
         "mapping": "eonet_events",

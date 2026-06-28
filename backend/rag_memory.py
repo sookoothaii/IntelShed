@@ -454,6 +454,20 @@ async def ingest_gdelt_local() -> dict:
     return {"indexed": n, "source": "gdelt_pulse_local", "region": region}
 
 
+async def ingest_gdelt_west_asia() -> dict:
+    """Index West Asia GDELT pulse headlines (Iran, Hormuz, Persian Gulf)."""
+    import gdelt_bridge
+
+    region = "west-asia"
+    data = await gdelt_bridge.gdelt_pulse_local_data(region, refresh=False)
+    n = await _ingest_gdelt_articles(
+        "gdelt_pulse_west_asia",
+        data.get("articles") or [],
+        region=region,
+    )
+    return {"indexed": n, "source": "gdelt_pulse_west_asia", "region": region}
+
+
 async def ingest_gdelt_global() -> dict:
     """Index GDELT global pulse headlines (distinct source key)."""
     import gdelt_bridge
@@ -505,6 +519,7 @@ async def ingest_news_sources() -> dict:
     for name, coro in (
         ("gdelt_global", ingest_gdelt_global()),
         ("gdelt_local", ingest_gdelt_local()),
+        ("gdelt_west_asia", ingest_gdelt_west_asia()),
         ("newsdata", ingest_newsdata_headlines()),
         ("gdelt_pulse", ingest_pulse()),
     ):

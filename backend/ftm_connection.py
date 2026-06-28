@@ -107,6 +107,7 @@ def store_status(*, _recover: bool = True) -> dict[str, Any]:
     """Compact readiness for /api/health and operator monitors.
 
     On DuckDB FATAL/invalidated, closes and reopens the file once (B-02 light).
+    If soft reset fails, tries a hard reset (delete + recreate).
     """
     if _CONN is not None:
         try:
@@ -117,7 +118,14 @@ def store_status(*, _recover: bool = True) -> dict[str, Any]:
             if _recover and _is_invalidated_error(exc):
                 log.warning("ftm_store_invalidated", error=str(exc))
                 reset_store()
-                return store_status(_recover=False)
+                status = store_status(_recover=False)
+                if not status["ready"] and _is_invalidated_error(
+                    Exception(status.get("error") or "")
+                ):
+                    log.warning("ftm_store_hard_reset", error=str(exc))
+                    reset_store(hard=True)
+                    return store_status(_recover=False)
+                return status
             return {"ready": False, "entities": 0, "error": str(exc)}
     if _recover:
         if init_store():
@@ -145,20 +153,46 @@ def init_store() -> bool:
                         pass
                     _CONN = None
                 _INIT_ERROR = None
+            # Soft retry: reopen same file
+            retry_exc: Exception | None = None
             try:
                 with _LOCK:
                     _conn().execute("SELECT 1").fetchone()
                 _INIT_ERROR = None
                 return True
-            except Exception as retry_exc:
+            except Exception as exc_retry:
+                retry_exc = exc_retry
+                log.warning("ftm_init_soft_retry_failed", error=str(retry_exc))
+            # Hard retry: delete corrupted file and recreate
+            if _DB_PATH and os.path.exists(_DB_PATH):
+                try:
+                    os.remove(_DB_PATH)
+                    log.info("ftm_init_hard_reset", path=_DB_PATH, action="deleted")
+                except OSError as rm_exc:
+                    log.warning("ftm_init_hard_reset_failed", error=str(rm_exc))
+                _CONN = None
+                _INIT_ERROR = None
+                _clear_ro_connections()
+                try:
+                    with _LOCK:
+                        _conn().execute("SELECT 1").fetchone()
+                    _INIT_ERROR = None
+                    return True
+                except Exception as hard_exc:
+                    exc = hard_exc
+            elif retry_exc is not None:
                 exc = retry_exc
         _INIT_ERROR = str(exc)
         log.error("ftm_store_unavailable", error=str(exc))
         return False
 
 
-def reset_store() -> bool:
-    """Close and reopen DuckDB after a fatal/invalidated connection."""
+def reset_store(*, hard: bool = False) -> bool:
+    """Close and reopen DuckDB after a fatal/invalidated connection.
+
+    When ``hard=True``, delete the corrupted file first so DuckDB recreates
+    a fresh database from scratch (schema is rebuilt by ftm_schema._create_schema).
+    """
     global _CONN, _INIT_ERROR
     with _LOCK:
         if _CONN is not None:
@@ -169,6 +203,12 @@ def reset_store() -> bool:
             _CONN = None
         _INIT_ERROR = None
     _clear_ro_connections()
+    if hard and _DB_PATH and os.path.exists(_DB_PATH):
+        try:
+            os.remove(_DB_PATH)
+            log.info("ftm_hard_reset", path=_DB_PATH, action="deleted")
+        except OSError as exc:
+            log.warning("ftm_hard_reset_failed", path=_DB_PATH, error=str(exc))
     return init_store()
 
 
@@ -187,9 +227,14 @@ def _is_invalidated_error(exc: BaseException) -> bool:
 
 
 def _run_with_recovery(fn):
-    """Run ``fn(con)`` under the process lock; retry once after reset on DuckDB FATAL."""
+    """Run ``fn(con)`` under the process lock; retry after reset on DuckDB FATAL.
+
+    First attempt: normal execution.
+    Second attempt (soft reset): close and reopen the same file.
+    Third attempt (hard reset): delete the corrupted file and recreate from scratch.
+    """
     last_exc: Exception | None = None
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             if _CONN is None and not init_store():
                 raise RuntimeError(
@@ -202,6 +247,10 @@ def _run_with_recovery(fn):
             if attempt == 0 and _is_invalidated_error(exc):
                 log.warning("ftm_operation_failed", error=str(exc))
                 reset_store()
+                continue
+            if attempt == 1 and _is_invalidated_error(exc):
+                log.warning("ftm_operation_failed_after_soft_reset", error=str(exc))
+                reset_store(hard=True)
                 continue
             raise
     if last_exc:

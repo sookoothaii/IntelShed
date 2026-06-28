@@ -70,6 +70,22 @@ REGION_PRESETS: dict[str, dict[str, Any]] = {
         "label": "Rhein corridor (DE)",
         "bbox": [6.0, 49.0, 9.0, 52.2],
     },
+    "west-asia": {
+        "label": "West Asia (Iran, Gulf, Levant)",
+        "bbox": [44.0, 12.0, 63.0, 40.0],
+    },
+    "iran": {
+        "label": "Iran (full country)",
+        "bbox": [44.0, 25.0, 63.0, 40.0],
+    },
+    "hormuz": {
+        "label": "Strait of Hormuz / Persian Gulf",
+        "bbox": [54.0, 24.0, 58.5, 27.5],
+    },
+    "persian-gulf": {
+        "label": "Persian Gulf (full)",
+        "bbox": [47.0, 23.5, 58.5, 30.0],
+    },
 }
 
 # Cache STAC search results to keep upstream load low — Sentinel-2 revisits are

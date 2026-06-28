@@ -1,52 +1,47 @@
 {
-  "timestamp": "2026-06-27T14:45:32.369493+00:00",
+  "timestamp": "2026-06-28T09:24:44.510456+00:00",
   "api_base": "http://127.0.0.1:8002",
   "graph_baseline": {
-    "entities": 48484,
-    "statements": 102762,
-    "edges": 4423,
+    "entities": 842,
+    "statements": 1858,
+    "edges": 7502,
     "by_schema": {
-      "Airplane": 46628,
-      "Address": 750,
-      "Vessel": 557,
-      "Event": 470,
-      "Thing": 67,
-      "Document": 5,
-      "Person": 5,
-      "UserAccount": 1,
-      "Company": 1
+      "Event": 250,
+      "Address": 225,
+      "Airplane": 177,
+      "Vessel": 120,
+      "Thing": 65,
+      "Person": 4,
+      "Document": 1
     },
     "by_dataset": {
-      "anomalies": 98353,
-      "ais": 2268,
-      "gdelt-pulse": 803,
-      "gdacs": 712,
-      "eonet": 452,
-      "stresstest": 105,
-      "intel-ingest": 50,
-      "correlations": 9,
-      "test_queue": 4,
-      "test-doc": 4,
-      "identity_osint": 2
+      "ais": 520,
+      "eonet": 440,
+      "anomalies": 394,
+      "gdacs": 195,
+      "gdelt-pulse": 164,
+      "stresstest": 100,
+      "intel-ingest": 41,
+      "test_queue": 4
     }
   },
   "results": [
     {
       "test": "upsert_latency",
-      "passed": false,
-      "p95_ms": 2200.9,
+      "passed": true,
+      "p95_ms": 42.4,
       "n": 50
     },
     {
       "test": "subgraph_traversal",
       "passed": true,
-      "p95_ms": 964.7,
+      "p95_ms": 118.3,
       "n": 10
     },
     {
       "test": "entity_graph",
-      "passed": false,
-      "p95_ms": 590.0,
+      "passed": true,
+      "p95_ms": 35.4,
       "n": 10
     },
     {
@@ -54,8 +49,8 @@
       "passed": true,
       "total_ingested": 120,
       "total_target": 120,
-      "duration_s": 14.7,
-      "throughput_per_s": 8.0
+      "duration_s": 7.05,
+      "throughput_per_s": 17.0
     }
   ]
 }

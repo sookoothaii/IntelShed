@@ -68,6 +68,10 @@ _REGION_DOC_QUERIES: dict[str, str] = {
     "mekong-delta": '(mekong OR "mekong delta" OR vietnam OR cambodia OR laos OR thailand)',
     "germany": "(germany OR deutschland OR berlin OR munich OR hamburg OR rhein)",
     "rhein": '(rhein OR rhine OR germany OR deutschland OR "north rhine")',
+    "west-asia": '(iran OR tehran OR "strait of hormuz" OR "persian gulf" OR "gulf of oman" OR israel OR lebanon OR syria OR iraq OR "saudi arabia" OR yemen OR jordan OR "united arab emirates" OR uae OR qatar OR kuwait OR bahrain OR oman)',
+    "iran": '(iran OR tehran OR isfahan OR shiraz OR "strait of hormuz" OR "persian gulf" OR "gulf of oman" OR bushehr OR bandar)',
+    "hormuz": '("strait of hormuz" OR hormuz OR "persian gulf" OR "gulf of oman" OR bandar OR musandam OR fujairah)',
+    "persian-gulf": '("persian gulf" OR "arabian gulf" OR "gulf of oman" OR "strait of hormuz" OR qatar OR bahrain OR kuwait OR uae OR dubai OR abu dhabi)',
 }
 
 _REGION_GEO_QUERIES: dict[str, str] = {
@@ -75,6 +79,10 @@ _REGION_GEO_QUERIES: dict[str, str] = {
     "bangkok": "(bangkok OR thailand) (flood OR protest OR earthquake OR fire)",
     "germany": "(germany OR deutschland) (flood OR protest OR earthquake OR storm)",
     "rhein": "(germany OR rhein OR rhine) (flood OR storm OR earthquake)",
+    "west-asia": '(iran OR israel OR lebanon OR syria OR iraq OR "saudi arabia" OR yemen OR "strait of hormuz" OR "persian gulf") (conflict OR protest OR missile OR drone OR attack OR sanctions OR nuclear)',
+    "iran": '(iran OR tehran OR "strait of hormuz" OR "persian gulf") (conflict OR protest OR missile OR drone OR sanctions OR nuclear OR attack)',
+    "hormuz": '("strait of hormuz" OR hormuz OR "persian gulf" OR "gulf of oman") (shipping OR tanker OR navy OR missile OR drone OR seizure OR mine OR attack)',
+    "persian-gulf": '("persian gulf" OR "arabian gulf" OR "strait of hormuz" OR "gulf of oman") (tanker OR shipping OR navy OR missile OR drone OR conflict OR sanctions)',
 }
 
 

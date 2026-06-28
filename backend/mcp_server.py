@@ -433,6 +433,397 @@ async def worldbase_agent_status() -> dict[str, Any]:
     return await agent_orchestrator.agent_status()
 
 
+@mcp.tool(name="worldbase_entity_search")
+async def worldbase_entity_search(
+    entity_id: str | None = None,
+    schema: str | None = None,
+    dataset: str | None = None,
+    limit: int = 50,
+    full: bool = False,
+) -> dict[str, Any]:
+    """Search FollowTheMoney entities by ID, schema, or dataset. Returns recent entities when no filter given.
+
+    Args:
+        entity_id: Exact entity ID lookup (returns single entity with statements + edges when full=True).
+        schema: Filter by FtM schema (e.g. Person, Organization, Address, Mention).
+        dataset: Filter by dataset name (e.g. gdelt, darkweb, domain_intel).
+        limit: Max entities to return (1–500, default 50).
+        full: Include statements, edges, and neighbours (only for entity_id lookup).
+    """
+    import ftm_query
+
+    limit = max(1, min(limit, 500))
+
+    if entity_id:
+        if full:
+            ent = ftm_query.get_entity_full(entity_id)
+        else:
+            ent = ftm_query.get_entity(entity_id)
+        if not ent:
+            return {"found": False, "entity_id": entity_id}
+        return {"found": True, "entity": ent}
+
+    if schema:
+        entities = ftm_query.list_entities_for_resolution(
+            schemas=[schema], limit=limit, dataset=dataset
+        )
+        return {
+            "count": len(entities),
+            "entities": entities[:limit],
+            "schema": schema,
+            "dataset": dataset,
+        }
+
+    result = ftm_query.list_entities_recent(limit=limit, dataset=dataset)
+    return {
+        "count": result["count"],
+        "entities": result["entities"],
+        "dataset": dataset,
+    }
+
+
+@mcp.tool(name="worldbase_chat")
+async def worldbase_chat(
+    message: str,
+    context: bool = True,
+    use_tools: bool = True,
+    model: str | None = None,
+    provider: str = "nvidia",
+) -> dict[str, Any]:
+    """Chat with WorldBase RAG pipeline (NVIDIA step-ai default). Returns assistant response with optional tool actions.
+
+    Args:
+        message: User message / query.
+        context: Inject live WorldBase state as system context (default True).
+        use_tools: Enable tool use (geocode, verify_claim, etc.) for Ollama (default True).
+        model: Override chat model (default: stepfun-ai/step-3.7-flash via NVIDIA NIM).
+        provider: LLM provider (nvidia, ollama, openai, groq, openrouter).
+    """
+    import chat_routing
+    from chat_context import OLLAMA_HOSTS
+
+    resolved_model = model or os.getenv(
+        "WORLDBASE_MCP_MODEL", "stepfun-ai/step-3.7-flash"
+    )
+    payload = {
+        "messages": [{"role": "user", "content": message}],
+        "context": context,
+        "use_tools": use_tools,
+        "provider": provider,
+        "model": resolved_model,
+        "stream": False,
+    }
+
+    try:
+        from chat_proxy import _prepare_chat_messages
+    except Exception:
+        # Fallback: simple message prep without firewall/context
+        import httpx
+        from ollama_config import chat_timeout, keep_alive
+
+        host = OLLAMA_HOSTS[0].strip()
+        body = chat_routing.build_ollama_chat_body(
+            resolved_model,
+            [{"role": "user", "content": message}],
+            stream=False,
+            force_fast=not context,
+            keep_alive=keep_alive(),
+        )
+        async with httpx.AsyncClient(timeout=chat_timeout()) as client:
+            r = await client.post(f"http://{host}/api/chat", json=body)
+            r.raise_for_status()
+            data = r.json()
+            return {
+                "message": data.get("message", {}),
+                "done": True,
+                "model": resolved_model,
+                "provider": provider,
+            }
+
+    (
+        messages,
+        firewall_meta,
+        block_msg,
+        user_text,
+        context_blocks,
+    ) = await _prepare_chat_messages(payload)
+    if block_msg:
+        return {"error": block_msg, "model": resolved_model, "provider": provider}
+
+    if use_tools and provider == "ollama":
+        import chat_tools
+
+        last_err = "no host tried"
+        for host in OLLAMA_HOSTS:
+            host = host.strip()
+            try:
+                final_msgs, actions = await chat_tools.run_ollama_with_tools(
+                    host, resolved_model, messages, max_rounds=4
+                )
+                text = (final_msgs[-1].get("content") or "") if final_msgs else ""
+                return {
+                    "message": {"role": "assistant", "content": text},
+                    "client_actions": actions,
+                    "done": True,
+                    "model": resolved_model,
+                    "provider": provider,
+                    **({"firewall_result": firewall_meta} if firewall_meta else {}),
+                }
+            except Exception as exc:
+                last_err = str(exc)
+                continue
+        return {
+            "error": f"Ollama not reachable: {last_err}",
+            "model": resolved_model,
+            "provider": provider,
+        }
+
+    # Non-tool path (any provider)
+    import httpx
+    from ollama_config import chat_timeout, keep_alive
+
+    if provider == "ollama":
+        host = OLLAMA_HOSTS[0].strip()
+        body = chat_routing.build_ollama_chat_body(
+            resolved_model,
+            messages,
+            stream=False,
+            force_fast=False,
+            keep_alive=keep_alive(),
+        )
+        async with httpx.AsyncClient(timeout=chat_timeout()) as client:
+            r = await client.post(f"http://{host}/api/chat", json=body)
+            r.raise_for_status()
+            data = r.json()
+            return {
+                "message": data.get("message", {}),
+                "done": True,
+                "model": resolved_model,
+                "provider": provider,
+            }
+
+    # OpenAI-compatible providers (groq, openrouter, nvidia, openai)
+    env_key = chat_routing.PROVIDER_ENV_KEYS.get(provider)
+    env_base_key = chat_routing.PROVIDER_ENV_BASE_URLS.get(provider)
+    api_key = os.getenv(env_key) if env_key else None
+    if not api_key:
+        return {
+            "error": f"No API key configured for provider '{provider}' (set {env_key})",
+            "model": resolved_model,
+            "provider": provider,
+        }
+    base_url = chat_routing.select_base_url(
+        provider,
+        None,
+        os.getenv(env_base_key) if env_base_key else None,
+        chat_routing.DEFAULT_BASE_URLS.get(provider, ""),
+    )
+    url = chat_routing.openai_chat_completions_url(base_url)
+    headers = {"Authorization": f"Bearer {api_key}"}
+    body = {
+        "model": resolved_model,
+        "messages": messages,
+        "stream": False,
+    }
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.post(url, json=body, headers=headers)
+        r.raise_for_status()
+        data = r.json()
+        content = (data.get("choices", [{}])[0].get("message", {})).get("content", "")
+        return {
+            "message": {"role": "assistant", "content": content},
+            "done": True,
+            "model": resolved_model,
+            "provider": provider,
+        }
+
+
+@mcp.tool(name="worldbase_feed_status")
+async def worldbase_feed_status(feed_id: str | None = None) -> dict[str, Any]:
+    """Freshness status of all cached feeds (age, TTL, fresh/stale/error classification).
+
+    Args:
+        feed_id: Optional — return status for a single feed only.
+    """
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+    from connector_registry import feed_ttl_sec as _feed_ttl_sec
+    from freshness import classify_freshness
+
+    db = _db_path()
+
+    def _build() -> dict[str, Any]:
+        now = _dt.now(_tz.utc)
+        feeds: dict[str, Any] = {}
+        try:
+            conn = sqlite3.connect(db, timeout=5.0)
+            conn.execute("PRAGMA busy_timeout=5000")
+            c = conn.cursor()
+            if feed_id:
+                c.execute(
+                    "SELECT key, value, cached_at FROM feed_cache WHERE key = ? ORDER BY key",
+                    [feed_id],
+                )
+            else:
+                c.execute("SELECT key, value, cached_at FROM feed_cache ORDER BY key")
+            for key, value_json, cached_at in c.fetchall():
+                meta: dict = {}
+                if value_json and len(value_json) < 120_000:
+                    try:
+                        val = _json.loads(value_json)
+                        if isinstance(val, dict):
+                            from feeds.envelope import extract_health_feed_meta
+
+                            meta.update(extract_health_feed_meta(val))
+                    except Exception:
+                        pass
+                try:
+                    age = (now - _dt.fromisoformat(cached_at)).total_seconds()
+                    ttl = _feed_ttl_sec(key)
+                    status = classify_freshness(
+                        age,
+                        ttl,
+                        error=meta.get("error"),
+                        stale_flag=bool(meta.get("stale")),
+                        vocab="health",
+                    )
+                    feeds[key] = {
+                        "cached_at": cached_at,
+                        "age_sec": round(age, 1),
+                        "ttl_sec": ttl,
+                        "fresh": age < ttl
+                        and not meta.get("error")
+                        and not meta.get("stale"),
+                        "status": status,
+                        **meta,
+                    }
+                except Exception:
+                    feeds[key] = {
+                        "cached_at": cached_at,
+                        "age_sec": None,
+                        "fresh": None,
+                        "status": "unknown",
+                        **meta,
+                    }
+            conn.close()
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)[:200], "feeds": {}}
+
+        fresh_n = sum(1 for f in feeds.values() if f.get("fresh"))
+        stale_n = sum(1 for f in feeds.values() if f.get("status") == "stale")
+        err_n = sum(1 for f in feeds.values() if f.get("error"))
+        return {
+            "status": "ok",
+            "feeds": feeds,
+            "feed_count": len(feeds),
+            "feeds_fresh": fresh_n,
+            "feeds_stale": stale_n,
+            "feeds_error": err_n,
+        }
+
+    import asyncio
+
+    result = await asyncio.to_thread(_build)
+    if feed_id:
+        result["feed_id"] = feed_id
+    return result
+
+
+@mcp.tool(name="worldbase_darkweb_search")
+async def worldbase_darkweb_search(
+    query: str,
+    engines: list[str] | None = None,
+    limit: int = 10,
+    mode: str = "auto",
+    ingest: bool = False,
+) -> dict[str, Any]:
+    """Search dark web engines for a query (Ahmia, Darksearch, Tor engines). Optional FtM ingestion.
+
+    Args:
+        query: Search term.
+        engines: List of engine names (default: configured engines).
+        limit: Max results (1–50, default 10).
+        mode: "auto" (clearnet+Tor as configured), "clear" (clearnet only), "tor" (all via Tor proxy).
+        ingest: Ingest results as FtM Mention entities (requires WORLDBASE_MCP_WRITE=1).
+    """
+    import darkweb_bridge
+
+    limit = max(1, min(limit, 50))
+    result = await darkweb_bridge.search_darkweb(
+        query=query, engines=engines, limit=limit, mode=mode
+    )
+
+    if ingest and result.get("results"):
+        if not mcp_write_enabled():
+            raise PermissionError(
+                "MCP write tools disabled (set WORLDBASE_MCP_WRITE=1)"
+            )
+        await _gate_mcp_write(
+            "worldbase_darkweb_search",
+            {"query": query, "ingest": True, "count": len(result["results"])},
+        )
+        ingest_result = darkweb_bridge.ingest_results(
+            result["results"], dataset="darkweb_mcp"
+        )
+        result["ingest"] = ingest_result
+
+    return result
+
+
+@mcp.tool(name="worldbase_domain_intel")
+async def worldbase_domain_intel(
+    domain: str,
+    wayback_limit: int = 50,
+    refresh: bool = False,
+    organization_id: str | None = None,
+) -> dict[str, Any]:
+    """Domain intelligence: CT logs (crt.sh), Wayback CDX snapshots, RDAP registration data. Optional FtM ingest.
+
+    Args:
+        domain: Domain to investigate (e.g. example.com).
+        wayback_limit: Max Wayback snapshots (1–200, default 50).
+        refresh: Bypass cache (default False).
+        organization_id: FtM Organization entity ID — if provided, ingest Domain + sub-domains and link via 'owns' edge (requires WORLDBASE_MCP_WRITE=1).
+    """
+    import domain_intel
+
+    domain = domain.strip().lower().lstrip("*.")
+    if not domain or "." not in domain:
+        return {"error": "invalid domain", "domain": domain}
+
+    wayback_limit = max(1, min(wayback_limit, 200))
+
+    # Check cache first (unless refresh)
+    if not refresh:
+        cached = domain_intel._domain_cache_get(domain)
+        if cached is not None:
+            result = cached
+        else:
+            result = await domain_intel._gather_domain_intel(
+                domain, wayback_limit=wayback_limit
+            )
+            domain_intel._domain_cache_set(domain, result)
+    else:
+        result = await domain_intel._gather_domain_intel(
+            domain, wayback_limit=wayback_limit
+        )
+        domain_intel._domain_cache_set(domain, result)
+
+    if organization_id:
+        if not mcp_write_enabled():
+            raise PermissionError(
+                "MCP write tools disabled (set WORLDBASE_MCP_WRITE=1)"
+            )
+        await _gate_mcp_write(
+            "worldbase_domain_intel",
+            {"domain": domain, "organization_id": organization_id},
+        )
+        enrich_result = domain_intel._enrich_ftm(organization_id, result)
+        result["ftm_ingest"] = enrich_result
+
+    return result
+
+
 async def _gate_mcp_write(tool_name: str, arguments: dict[str, Any]) -> None:
     """Slim guard + optional HAK_GAL — see firewall_bridge.ensure_mcp_tool_allowed."""
     from firewall_bridge import ensure_mcp_tool_allowed

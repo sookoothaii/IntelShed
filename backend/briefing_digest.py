@@ -134,6 +134,9 @@ def _resolve_lang(lang: str | None) -> str:
 
 # Wider ASEAN / Southeast Asia bbox when operator home is Thailand
 _ASEAN_BBOX = [92.0, -8.0, 112.0, 24.0]
+
+# West Asia / Iran / Hormuz / Persian Gulf — always included in REGION bucket
+_WEST_ASIA_BBOX = [44.0, 12.0, 63.0, 40.0]
 _ASEAN_COUNTRY_CODES = {
     "TH",
     "MM",
@@ -176,6 +179,36 @@ _REGION_KEYWORDS = (
     "andaman",
     "mekong",
     "bay of bengal",
+    # West Asia / Iran / Hormuz
+    "iran",
+    "tehran",
+    "strait of hormuz",
+    "hormuz",
+    "persian gulf",
+    "arabian gulf",
+    "gulf of oman",
+    "israel",
+    "lebanon",
+    "syria",
+    "iraq",
+    "saudi arabia",
+    "yemen",
+    "jordan",
+    "uae",
+    "dubai",
+    "abu dhabi",
+    "qatar",
+    "kuwait",
+    "bahrain",
+    "oman",
+    "gaza",
+    "hezbollah",
+    "houthi",
+    "bandar",
+    "bushehr",
+    "israel",
+    "idf",
+    "irgc",
 )
 
 _SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
@@ -224,6 +257,7 @@ def classify_item(
     text: str,
     local_bbox: list[float] | None,
     regional_bbox: list[float] | None,
+    extra_regional_bboxes: list[list[float]] | None = None,
 ) -> str:
     """local | regional | global"""
     if (
@@ -243,6 +277,11 @@ def classify_item(
         and _in_bbox(lat, lon, regional_bbox)
     ):
         return "regional"
+    # Check extra regional bboxes (e.g. West Asia when operator is in Thailand)
+    if extra_regional_bboxes:
+        for bbox in extra_regional_bboxes:
+            if lat is not None and lon is not None and _in_bbox(lat, lon, bbox):
+                return "regional"
     if text_hit == "regional":
         return "regional"
     if lat is not None and lon is not None and local_bbox:
@@ -297,6 +336,7 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
         # Expand local bbox ~3° for regional fallback
         w, s, e, n = local_bbox
         regional_bbox = [w - 8, s - 6, e + 8, n + 4]
+    _extra = [_WEST_ASIA_BBOX]
 
     items: list[dict] = []
     from digest_timestamps import feed_block_updated_at
@@ -311,7 +351,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
             continue
         name = city.get("city") or "City"
         lat, lon = city.get("lat"), city.get("lon")
-        bucket = classify_item(lat, lon, name, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, name, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         items.append(
             _line(
                 _pm25_severity(float(pm25)),
@@ -339,7 +381,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
             parts.append(f"AOD {aod}")
         if not parts:
             continue
-        bucket = classify_item(lat, lon, name, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, name, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         sev = (
             row.get("severity") or _pm25_severity(float(pm25))
             if pm25 is not None
@@ -418,6 +462,22 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
             )
         )
 
+    # West Asia / Iran / Hormuz pulse articles — always regional
+    west_asia_pulse = snap.get("gdelt_pulse_west_asia", {}) or {}
+    for art in filter_local_pulse_articles(west_asia_pulse.get("articles"))[:8]:
+        title = art.get("title") or art.get("url") or "West Asia headline"
+        if is_sports_content(title=title, description=art.get("description") or ""):
+            continue
+        items.append(
+            _line(
+                "medium",
+                f"West Asia: {title[:120]}",
+                "regional",
+                sources=["gdelt_pulse_west_asia"],
+                observed_at=art.get("seendate"),
+            )
+        )
+
     newsdata = snap.get("newsdata") or {}
     if newsdata.get("configured") is not False:
         for art in (newsdata.get("articles") or [])[:5]:
@@ -478,7 +538,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     for row in (snap.get("gdelt_geo_local", {}) or {}).get("events", [])[:12]:
         name = row.get("name") or "GDELT signal"
         lat, lon = row.get("lat"), row.get("lon")
-        bucket = classify_item(lat, lon, str(name), local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, str(name), local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         items.append(
             _line(
                 "medium",
@@ -490,12 +552,29 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
             )
         )
 
+    # West Asia / Iran / Hormuz geo events — always regional
+    for row in (snap.get("gdelt_geo_west_asia", {}) or {}).get("events", [])[:12]:
+        name = row.get("name") or "West Asia signal"
+        lat, lon = row.get("lat"), row.get("lon")
+        items.append(
+            _line(
+                "medium",
+                f"West Asia media heat: {str(name)[:100]}",
+                "regional",
+                sources=["gdelt_geo_west_asia"],
+                lat=lat,
+                lon=lon,
+            )
+        )
+
     for q in (snap.get("earthquakes", {}) or {}).get("earthquakes", [])[:40]:
         place = q.get("place") or "Earthquake"
         mag = q.get("mag") or q.get("magnitude")
         lat, lon = q.get("lat"), q.get("lon")
         text = f"M{mag} — {place}"
-        bucket = classify_item(lat, lon, text, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, text, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         sev = "high" if (mag or 0) >= 6 else "medium" if (mag or 0) >= 5 else "low"
         items.append(
             _line(
@@ -512,7 +591,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     for ev in (snap.get("events", {}) or {}).get("events", [])[:25]:
         title = ev.get("title") or ev.get("category") or "Event"
         lat, lon = ev.get("lat"), ev.get("lon")
-        bucket = classify_item(lat, lon, title, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, title, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         items.append(
             _line(
                 "low",
@@ -527,7 +608,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     for a in (snap.get("gdacs", {}) or {}).get("alerts", [])[:15]:
         title = a.get("title") or "GDACS alert"
         lat, lon = a.get("lat"), a.get("lon")
-        bucket = classify_item(lat, lon, title, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, title, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         items.append(
             _line(
                 "medium",
@@ -543,7 +626,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     for h in (snap.get("hazards", {}) or {}).get("alerts", [])[:20]:
         label = h.get("event") or h.get("headline") or "Hazard"
         lat, lon = h.get("lat"), h.get("lon")
-        bucket = classify_item(lat, lon, label, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, label, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         sev = (h.get("severity") or "").lower()
         severity = (
             "high" if "extreme" in sev else "medium" if "severe" in sev else "low"
@@ -557,7 +642,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     for g in (snap.get("geopolitics", {}) or {}).get("items", [])[:15]:
         name = g.get("name") or g.get("title") or "Crisis"
         lat, lon = g.get("lat"), g.get("lon")
-        bucket = classify_item(lat, lon, name, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, name, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         items.append(
             _line(
                 "medium",
@@ -572,7 +659,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     for row in (snap.get("gdelt_geo", {}) or {}).get("events", [])[:20]:
         name = row.get("name") or "GDELT signal"
         lat, lon = row.get("lat"), row.get("lon")
-        bucket = classify_item(lat, lon, str(name), local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, str(name), local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         items.append(
             _line(
                 "low",
@@ -607,7 +696,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     for v in (snap.get("volcanoes", {}) or {}).get("volcanoes", [])[:10]:
         name = v.get("name") or "Volcano"
         lat, lon = v.get("lat"), v.get("lon")
-        bucket = classify_item(lat, lon, name, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, name, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         items.append(
             _line(
                 "low",
@@ -632,7 +723,9 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
     for a in alerts[:12]:
         text = a.get("text") or ""
         lat, lon = a.get("lat"), a.get("lon")
-        bucket = classify_item(lat, lon, text, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, text, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         items.append(
             _line(
                 a.get("severity", "low"),
@@ -662,6 +755,7 @@ def build_watch_items(
     if regional_bbox is None and local_bbox:
         w, s, e, n = local_bbox
         regional_bbox = [w - 8, s - 6, e + 8, n + 4]
+    _extra = [_WEST_ASIA_BBOX]
 
     candidates: list[dict[str, Any]] = []
     delta_cells = {c.get("cell_id") for c in (fusion_deltas or []) if c.get("cell_id")}
@@ -676,7 +770,9 @@ def build_watch_items(
         sources = list(cell.get("sources") or [])
         sample = (cell.get("samples") or [{}])[0].get("label") or ""
         label = sample[:100] if sample else (cid or "fusion cell")
-        bucket = classify_item(lat, lon, label, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, label, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         candidates.append(
             _watch_item(
                 prefix="fusion_delta",
@@ -702,7 +798,9 @@ def build_watch_items(
         sources = list(cell.get("sources") or [])
         sample = (cell.get("samples") or [{}])[0].get("label") or ""
         title = sample[:120] if sample else f"Fusion hotspot #{i + 1}"
-        bucket = classify_item(lat, lon, title, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, title, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         candidates.append(
             _watch_item(
                 prefix="fusion",
@@ -726,7 +824,9 @@ def build_watch_items(
             continue
         name = row.get("city") or "City"
         lat, lon = row.get("lat"), row.get("lon")
-        bucket = classify_item(lat, lon, name, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, name, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         parts = []
         if pm25 is not None:
             parts.append(f"PM2.5 {pm25} µg/m³")
@@ -771,7 +871,9 @@ def build_watch_items(
             continue
         place = q.get("place") or "Earthquake"
         lat, lon = q.get("lat"), q.get("lon")
-        bucket = classify_item(lat, lon, place, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, place, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         if bucket == "global" and mag < 6.0:
             continue
         candidates.append(
@@ -790,7 +892,9 @@ def build_watch_items(
     for a in (snap.get("gdacs", {}) or {}).get("alerts", [])[:8]:
         title = a.get("title") or "GDACS alert"
         lat, lon = a.get("lat"), a.get("lon")
-        bucket = classify_item(lat, lon, title, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, title, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         level = (a.get("alertlevel") or a.get("severity") or "").lower()
         if bucket == "global" and "red" not in level and "orange" not in level:
             continue
@@ -874,7 +978,9 @@ def build_watch_items(
             continue
         text = a.get("text") or "Alert"
         lat, lon = a.get("lat"), a.get("lon")
-        bucket = classify_item(lat, lon, text, local_bbox, regional_bbox)
+        bucket = classify_item(
+            lat, lon, text, local_bbox, regional_bbox, extra_regional_bboxes=_extra
+        )
         conf = 0.85 if sev == "critical" else 0.7 if sev == "high" else 0.55
         candidates.append(
             _watch_item(

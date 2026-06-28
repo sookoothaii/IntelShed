@@ -48,7 +48,7 @@ def build_security_advisor_prompt(
     if is_de:
         section_hints = (
             f"LOCAL ({region}) — was vor Ort in den letzten 24h zählt\n"
-            "REGION — ASEAN / Nachbarn / nahe Umgebung wenn relevant\n"
+            "REGION — ASEAN / Nachbarn / Westasien (Iran, Hormuz, Persischer Golf, Levante) wenn relevant\n"
             "GLOBAL — Rest der Welt, der für informierte Bewohner relevant bleibt\n"
             "CYBER & INFRA — KEV, Nodes, Weltraumwetter, Märkte, Luftqualität wenn vorhanden\n"
             "MARITIME ANOMALIES — AIS Mustererkennung (immer nennen, auch wenn keine Anomalien)\n"
@@ -76,7 +76,7 @@ def build_security_advisor_prompt(
     else:
         section_hints = (
             f"LOCAL ({region}) — what matters at home in the last 24h\n"
-            "REGION — ASEAN / neighbours / nearby if relevant\n"
+            "REGION — ASEAN / neighbours / West Asia (Iran, Hormuz, Persian Gulf, Levant) if relevant\n"
             "GLOBAL — rest of the world that still matters to an informed resident\n"
             "CYBER & INFRA — KEV, nodes, space weather, markets, air quality if present\n"
             "MARITIME ANOMALIES — AIS pattern-of-life (always include, even if no anomalies)\n"

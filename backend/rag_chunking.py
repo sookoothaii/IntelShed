@@ -44,6 +44,9 @@ SOURCE_DEFAULTS: dict[str, ChunkProfile] = {
     "gdelt_pulse_local": ChunkProfile(
         strategy="headline", max_chars=480, source_key="url"
     ),
+    "gdelt_pulse_west_asia": ChunkProfile(
+        strategy="headline", max_chars=480, source_key="url"
+    ),
     "gdelt_pulse_global": ChunkProfile(
         strategy="headline", max_chars=480, source_key="url"
     ),
