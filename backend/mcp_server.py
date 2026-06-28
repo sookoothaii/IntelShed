@@ -7,6 +7,7 @@ Write tools (briefing generate) gated by WORLDBASE_MCP_WRITE=1 (default on).
 
 from __future__ import annotations
 
+import contextvars
 import hmac
 import os
 import sqlite3
@@ -18,8 +19,16 @@ from structured_log import get_logger
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from auth.security import API_KEY, lan_auth_required
+from auth.security import API_KEY, INGEST_TOKEN, lan_auth_required
 from mcp.server.fastmcp import FastMCP
+
+try:
+    from auth.audit import record_audit_event
+except Exception:
+
+    def record_audit_event(*, action: str, **kw) -> None:  # type: ignore[misc]
+        pass
+
 
 log = get_logger(__name__)
 
@@ -48,6 +57,44 @@ FEED_SAMPLE_ALLOWLIST: frozenset[str] = frozenset(
 _TEXT_PREVIEW_CHARS = 4000
 _mcp_session_cm = None
 
+# Context var: role of the current MCP caller (set by _MCPAuthMiddleware).
+_mcp_role: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_mcp_role", default=None
+)
+
+# Default per-tool RBAC policy: tool short name (without worldbase_ prefix) → required role.
+# "none" = no role check. Read tools default to "readonly", write tools to "operator".
+_DEFAULT_MCP_TOOL_POLICY: dict[str, str] = {
+    "health": "readonly",
+    "briefing_latest": "readonly",
+    "nodes": "readonly",
+    "situations": "readonly",
+    "fusion_hotspots": "readonly",
+    "intel_subgraph": "readonly",
+    "feed_sample": "readonly",
+    "feed_allowlist": "readonly",
+    "feed_status": "readonly",
+    "entity_search": "readonly",
+    "agent_status": "readonly",
+    "globe_get_camera": "readonly",
+    "globe_layers": "readonly",
+    "briefing_generate": "operator",
+    "globe_fly_to": "operator",
+    "globe_toggle_layer": "operator",
+    "darkweb_search": "readonly",
+    "domain_intel": "readonly",
+    "orchestrate": "readonly",
+    "chat": "readonly",
+}
+
+_ROLE_LEVELS: dict[str, int] = {
+    "admin": 4,
+    "operator": 3,
+    "viewer": 1,
+    "readonly": 1,
+    "node": 1,
+}
+
 
 def _truthy(val: str | None) -> bool:
     return str(val or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -67,6 +114,32 @@ def mcp_globe_enabled() -> bool:
     import agent_bus
 
     return agent_bus.agent_bus_enabled()
+
+
+def mcp_policy_enabled() -> bool:
+    """Per-tool RBAC policy enforcement (opt-in via WORLDBASE_MCP_POLICY=1)."""
+    try:
+        from config import get_config
+
+        return get_config().mcp_policy_enabled
+    except Exception:
+        return _truthy(os.getenv("WORLDBASE_MCP_POLICY", "0"))
+
+
+def _tool_short_name(tool_name: str) -> str:
+    """Strip the 'worldbase_' prefix from a tool name."""
+    if tool_name.startswith("worldbase_"):
+        return tool_name[len("worldbase_") :]
+    return tool_name
+
+
+def _get_mcp_tool_required_role(tool_name: str) -> str:
+    """Look up required role for a tool: env override → default policy → 'none'."""
+    short = _tool_short_name(tool_name)
+    env_val = os.getenv(f"WORLDBASE_MCP_POLICY_{short}", "").strip().lower()
+    if env_val in ("operator", "viewer", "readonly", "node", "admin", "none"):
+        return env_val
+    return _DEFAULT_MCP_TOOL_POLICY.get(short, "none")
 
 
 def _normalize_briefing_lang(lang: str | None) -> str | None:
@@ -343,30 +416,35 @@ mcp = FastMCP(
 @mcp.tool(name="worldbase_health")
 async def worldbase_health() -> dict[str, Any]:
     """WorldBase liveness: time, FtM readiness, feed cache count."""
+    await _gate_mcp_tool("worldbase_health", {}, write=False)
     return await fetch_health()
 
 
 @mcp.tool(name="worldbase_briefing_latest")
 async def worldbase_briefing_latest(include_full_text: bool = False) -> dict[str, Any]:
     """Latest 24h security briefing (digest, intel summary, text preview)."""
+    await _gate_mcp_tool("worldbase_briefing_latest", {}, write=False)
     return await fetch_briefing_latest(include_full_text=include_full_text)
 
 
 @mcp.tool(name="worldbase_nodes")
 async def worldbase_nodes() -> dict[str, Any]:
     """Edge nodes (Pi online state, mesh GPS, sensors snapshot)."""
+    await _gate_mcp_tool("worldbase_nodes", {}, write=False)
     return await fetch_nodes()
 
 
 @mcp.tool(name="worldbase_situations")
 async def worldbase_situations(limit: int = 20) -> dict[str, Any]:
     """Unified situation board (correlations, anomalies, GDACS, pegel, sensors)."""
+    await _gate_mcp_tool("worldbase_situations", {"limit": limit}, write=False)
     return await fetch_situations(limit=limit)
 
 
 @mcp.tool(name="worldbase_fusion_hotspots")
 async def worldbase_fusion_hotspots(top: int = 10) -> dict[str, Any]:
     """Top fusion heatmap cells ranked for situational awareness."""
+    await _gate_mcp_tool("worldbase_fusion_hotspots", {"top": top}, write=False)
     return await fetch_fusion_hotspots(top=top)
 
 
@@ -378,6 +456,11 @@ async def worldbase_intel_subgraph(
     region: str | None = None,
 ) -> dict[str, Any]:
     """2-hop FtM subgraph around operator bbox (who/what links near home region)."""
+    await _gate_mcp_tool(
+        "worldbase_intel_subgraph",
+        {"hops": hops, "window_hours": window_hours, "bbox": bbox, "region": region},
+        write=False,
+    )
     import intel_subgraph
 
     parsed = intel_subgraph.parse_bbox(bbox)
@@ -402,12 +485,16 @@ async def worldbase_intel_subgraph(
 @mcp.tool(name="worldbase_feed_sample")
 async def worldbase_feed_sample(feed_id: str, limit: int = 5) -> dict[str, Any]:
     """Sample rows from an allowlisted feed (cache first, then live bridge)."""
+    await _gate_mcp_tool(
+        "worldbase_feed_sample", {"feed_id": feed_id, "limit": limit}, write=False
+    )
     return await fetch_feed_sample(feed_id, limit=limit)
 
 
 @mcp.tool(name="worldbase_feed_allowlist")
 async def worldbase_feed_allowlist() -> dict[str, Any]:
     """List feed_id values valid for worldbase_feed_sample."""
+    await _gate_mcp_tool("worldbase_feed_allowlist", {}, write=False)
     return {"feeds": sorted(FEED_SAMPLE_ALLOWLIST)}
 
 
@@ -420,6 +507,9 @@ async def worldbase_orchestrate(
 
     Rule-based dispatcher, 0 VRAM. Set WORLDBASE_AGENT_ORCHESTRATOR=1 to enable.
     """
+    await _gate_mcp_tool(
+        "worldbase_orchestrate", {"query": query, "route": route}, write=False
+    )
     import agent_orchestrator
 
     return await agent_orchestrator.orchestrate(query, route=route)
@@ -428,6 +518,7 @@ async def worldbase_orchestrate(
 @mcp.tool(name="worldbase_agent_status")
 async def worldbase_agent_status() -> dict[str, Any]:
     """Status of the multi-agent orchestrator and the Agent Bus."""
+    await _gate_mcp_tool("worldbase_agent_status", {}, write=False)
     import agent_orchestrator
 
     return await agent_orchestrator.agent_status()
@@ -450,6 +541,17 @@ async def worldbase_entity_search(
         limit: Max entities to return (1–500, default 50).
         full: Include statements, edges, and neighbours (only for entity_id lookup).
     """
+    await _gate_mcp_tool(
+        "worldbase_entity_search",
+        {
+            "entity_id": entity_id,
+            "schema": schema,
+            "dataset": dataset,
+            "limit": limit,
+            "full": full,
+        },
+        write=False,
+    )
     import ftm_query
 
     limit = max(1, min(limit, 500))
@@ -499,6 +601,9 @@ async def worldbase_chat(
         model: Override chat model (default: stepfun-ai/step-3.7-flash via NVIDIA NIM).
         provider: LLM provider (nvidia, ollama, openai, groq, openrouter).
     """
+    await _gate_mcp_tool(
+        "worldbase_chat", {"message": message, "provider": provider}, write=False
+    )
     import chat_routing
     from chat_context import OLLAMA_HOSTS
 
@@ -645,6 +750,7 @@ async def worldbase_feed_status(feed_id: str | None = None) -> dict[str, Any]:
     Args:
         feed_id: Optional — return status for a single feed only.
     """
+    await _gate_mcp_tool("worldbase_feed_status", {"feed_id": feed_id}, write=False)
     import json as _json
     from datetime import datetime as _dt, timezone as _tz
     from connector_registry import feed_ttl_sec as _feed_ttl_sec
@@ -746,6 +852,9 @@ async def worldbase_darkweb_search(
         mode: "auto" (clearnet+Tor as configured), "clear" (clearnet only), "tor" (all via Tor proxy).
         ingest: Ingest results as FtM Mention entities (requires WORLDBASE_MCP_WRITE=1).
     """
+    await _gate_mcp_tool(
+        "worldbase_darkweb_search", {"query": query, "ingest": ingest}, write=ingest
+    )
     import darkweb_bridge
 
     limit = max(1, min(limit, 50))
@@ -785,6 +894,11 @@ async def worldbase_domain_intel(
         refresh: Bypass cache (default False).
         organization_id: FtM Organization entity ID — if provided, ingest Domain + sub-domains and link via 'owns' edge (requires WORLDBASE_MCP_WRITE=1).
     """
+    await _gate_mcp_tool(
+        "worldbase_domain_intel",
+        {"domain": domain, "organization_id": organization_id},
+        write=bool(organization_id),
+    )
     import domain_intel
 
     domain = domain.strip().lower().lstrip("*.")
@@ -824,11 +938,66 @@ async def worldbase_domain_intel(
     return result
 
 
-async def _gate_mcp_write(tool_name: str, arguments: dict[str, Any]) -> None:
-    """Slim guard + optional HAK_GAL — see firewall_bridge.ensure_mcp_tool_allowed."""
-    from firewall_bridge import ensure_mcp_tool_allowed
+async def _gate_mcp_tool(
+    tool_name: str,
+    arguments: dict[str, Any],
+    *,
+    write: bool = True,
+) -> None:
+    """Gate MCP tool call: firewall check (write only) + RBAC per-tool policy.
 
-    await ensure_mcp_tool_allowed(tool_name, arguments)
+    When *write* is True, the slim/HAK_GAL firewall scan runs.
+    When mcp_policy_enabled is True, the caller's role (from context var)
+    is checked against the per-tool policy dict.
+    """
+    if write:
+        from firewall_bridge import ensure_mcp_tool_allowed
+
+        await ensure_mcp_tool_allowed(tool_name, arguments)
+
+    # Per-tool RBAC policy check
+    try:
+        if mcp_policy_enabled():
+            role = _mcp_role.get()
+            required = _get_mcp_tool_required_role(tool_name)
+            if required != "none" and role is not None:
+                if _ROLE_LEVELS.get(role, 0) < _ROLE_LEVELS.get(required, 0):
+                    record_audit_event(
+                        action="mcp_policy_denied",
+                        tool=tool_name,
+                        success=False,
+                        error=f"Requires role '{required}' (current: '{role}')",
+                    )
+                    raise PermissionError(
+                        f"MCP tool '{tool_name}' requires role '{required}' "
+                        f"(current: '{role}')"
+                    )
+            record_audit_event(
+                action="mcp_write" if write else "mcp_read",
+                tool=tool_name,
+                success=True,
+            )
+        elif write:
+            # Backward compat: audit write tools when RBAC is enabled but policy is off
+            try:
+                from middleware.rbac import rbac_enabled
+
+                if rbac_enabled():
+                    record_audit_event(
+                        action="mcp_write",
+                        tool=tool_name,
+                        success=True,
+                    )
+            except Exception:
+                pass
+    except PermissionError:
+        raise
+    except Exception:
+        pass
+
+
+# Backward-compatible alias
+_gate_mcp_write = _gate_mcp_tool
 
 
 if mcp_write_enabled():
@@ -897,6 +1066,7 @@ if mcp_globe_enabled():
     @mcp.tool(name="worldbase_globe_get_camera")
     async def worldbase_globe_get_camera() -> dict[str, Any]:
         """Last camera position synced from the open HUD globe session."""
+        await _gate_mcp_tool("worldbase_globe_get_camera", {}, write=False)
         import agent_bus
 
         cam = agent_bus.get_camera_state()
@@ -905,6 +1075,7 @@ if mcp_globe_enabled():
     @mcp.tool(name="worldbase_globe_layers")
     async def worldbase_globe_layers() -> dict[str, Any]:
         """Valid layer_id values for worldbase_globe_toggle_layer."""
+        await _gate_mcp_tool("worldbase_globe_layers", {}, write=False)
         import agent_bus
 
         return {"layers": sorted(agent_bus.GLOBE_LAYER_KEYS)}
@@ -915,6 +1086,38 @@ if mcp_globe_enabled():
 # ---------------------------------------------------------------------------
 
 
+def _role_from_scope(scope: Scope) -> str | None:
+    """Extract RBAC role from ASGI scope headers (JWT, API key, or node token)."""
+    headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+
+    # 1. Try JWT bearer token
+    auth_header = headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            from auth.jwt import decode_token
+
+            token = auth_header[7:]
+            payload = decode_token(token)
+            if payload and payload.get("type") == "access":
+                role = payload.get("role", "viewer")
+                if role in _ROLE_LEVELS:
+                    return role
+        except Exception:
+            pass
+
+    # 2. Try X-API-Key
+    api_key = headers.get("x-api-key", "")
+    if API_KEY and api_key and hmac.compare_digest(API_KEY, api_key):
+        return "operator"
+
+    # 3. Try X-Node-Token
+    node_token = headers.get("x-node-token", "")
+    if INGEST_TOKEN and node_token and hmac.compare_digest(INGEST_TOKEN, node_token):
+        return "node"
+
+    return None
+
+
 class _MCPAuthMiddleware:
     """Optional X-API-Key gate for the MCP mount path."""
 
@@ -923,25 +1126,45 @@ class _MCPAuthMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or not mcp_auth_required():
+            # Auth not required — still extract role from headers for policy enforcement
+            if scope["type"] == "http":
+                _mcp_role.set(_role_from_scope(scope))
             await self.app(scope, receive, send)
             return
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         provided = headers.get("x-api-key") or ""
+        client_ip = scope.get("client", ("", 0))[0] if scope.get("client") else ""
+        path = scope.get("path", "")
         if not provided or not API_KEY or not hmac.compare_digest(API_KEY, provided):
+            record_audit_event(
+                action="mcp_auth",
+                client=client_ip,
+                endpoint=path,
+                success=False,
+                error="Invalid or missing X-API-Key for MCP",
+            )
             response = JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing X-API-Key for WorldBase MCP"},
             )
             await response(scope, receive, send)
             return
+        record_audit_event(
+            action="mcp_auth",
+            client=client_ip,
+            endpoint=path,
+            success=True,
+        )
+        # Set role context var for per-tool policy enforcement
+        _mcp_role.set(_role_from_scope(scope))
         await self.app(scope, receive, send)
 
 
 def _get_mcp_asgi() -> ASGIApp:
     asgi = mcp.streamable_http_app()
-    if mcp_auth_required():
-        return _MCPAuthMiddleware(asgi)
-    return asgi
+    # Always wrap with middleware — when auth is not required, it still
+    # extracts the role from headers for per-tool policy enforcement.
+    return _MCPAuthMiddleware(asgi)
 
 
 def mount_worldbase_mcp(app) -> None:

@@ -18,6 +18,12 @@ Env:
   WORLDBASE_DARKWEB_MAX_RESULTS=50
   WORLDBASE_DARKWEB_TOR_PROXY=socks5://127.0.0.1:9050  (optional)
   WORLDBASE_DARKWEB_TIMEOUT_SEC=15
+
+OPSEC (Phase 3.2, see darkweb_tor.py):
+  WORLDBASE_DARKWEB_TOR_ROTATE_IDENTITY=0   (NEWNYM before each Tor batch)
+  WORLDBASE_DARKWEB_TOR_CONTROL_HOST=127.0.0.1:9051
+  WORLDBASE_DARKWEB_TOR_CONTROL_PASSWORD=
+  WORLDBASE_DARKWEB_EXIT_BLOCKLIST=CN,RU,IR
 """
 
 from __future__ import annotations
@@ -619,6 +625,17 @@ async def search_darkweb(
         except Exception as exc:
             errors.append(f"clearnet: {exc}")
 
+    # OPSEC (Phase 3.2): rotate the Tor identity once before the Tor-engine
+    # batch (opt-in via WORLDBASE_DARKWEB_TOR_ROTATE_IDENTITY). Fail-soft.
+    tor_rotation: dict[str, Any] | None = None
+    if tor:
+        try:
+            import darkweb_tor
+
+            tor_rotation = await darkweb_tor.rotate_identity(reason="tor_batch")
+        except Exception as exc:
+            tor_rotation = {"rotated": False, "error": str(exc)}
+
     # Tor engines use a fresh client per engine and run sequentially.
     # This isolates circuits and respects Tor exit-node rate limits.
     for engine in tor:
@@ -655,6 +672,7 @@ async def search_darkweb(
         "sources": sources,
         "mode": mode,
         "tor_proxy": bool(_tor_proxy()),
+        "tor_rotation": tor_rotation,
         "error": "; ".join(errors) if errors else None,
     }
 
@@ -877,7 +895,18 @@ async def api_darkweb_status():
             name: {"tor_required": info["tor_required"], "type": info["type"]}
             for name, info in _ENGINE_REGISTRY.items()
         },
+        "tor_rotation": _tor_rotation_status(),
     }
+
+
+def _tor_rotation_status() -> dict[str, Any]:
+    """Return Tor identity-rotation status (fail-soft)."""
+    try:
+        import darkweb_tor
+
+        return darkweb_tor.status()
+    except Exception as exc:
+        return {"enabled": False, "error": str(exc)}
 
 
 @router.get("/engines")

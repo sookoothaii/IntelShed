@@ -9,7 +9,7 @@ import {
 /** World Terrain when Ion token works; flat ellipsoid when Ion is down or missing. */
 export async function createTerrainWithFallback(): Promise<TerrainProvider> {
   if (!Ion.defaultAccessToken) {
-    console.warn('[WorldBase] VITE_CESIUM_ION_TOKEN missing — ellipsoid terrain only.')
+    console.warn('[WorldBase] Cesium Ion token missing — ellipsoid terrain only.')
     return new EllipsoidTerrainProvider()
   }
   try {

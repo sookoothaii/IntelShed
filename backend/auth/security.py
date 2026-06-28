@@ -27,6 +27,15 @@ from starlette.status import (
     HTTP_503_SERVICE_UNAVAILABLE,
 )
 
+try:
+    from auth.audit import audit_enabled, record_audit_event
+except Exception:
+    audit_enabled = lambda: False  # noqa: E731
+
+    def record_audit_event(*, action: str, **kw) -> None:  # type: ignore[misc]
+        pass
+
+
 _LOOPBACK_CLIENTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
 
 
@@ -68,15 +77,32 @@ def lan_auth_required() -> bool:
     return lan_exposed()
 
 
-async def verify_api_key(api_key: str = Security(api_key_header)):
+async def verify_api_key(
+    request: Request, api_key: str = Security(api_key_header)
+) -> str | None:
     """Verify API key if WORLDBASE_API_KEY is set."""
     if not API_KEY:
         return None  # Auth disabled
+    client = request.client.host if request.client else ""
+    endpoint = str(request.url.path)
     if not api_key or not hmac.compare_digest(API_KEY, api_key):
+        record_audit_event(
+            action="auth_verify_api_key",
+            client=client,
+            endpoint=endpoint,
+            success=False,
+            error="Invalid or missing API Key",
+        )
         raise HTTPException(
             status_code=HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key",
         )
+    record_audit_event(
+        action="auth_verify_api_key",
+        client=client,
+        endpoint=endpoint,
+        success=True,
+    )
     return api_key
 
 
@@ -96,21 +122,48 @@ async def verify_lan_auth(
     if not lan_exposed():
         return None
     client_host = (request.client.host if request.client else "").lower()
+    endpoint = str(request.url.path)
     if client_host in _LOOPBACK_CLIENTS:
         return "loopback"
     if API_KEY and api_key and hmac.compare_digest(API_KEY, api_key):
+        record_audit_event(
+            action="auth_verify_lan",
+            client=client_host,
+            endpoint=endpoint,
+            success=True,
+        )
         return "api_key"
     if (
         INGEST_TOKEN
         and x_node_token
         and hmac.compare_digest(INGEST_TOKEN, x_node_token)
     ):
+        record_audit_event(
+            action="auth_verify_lan",
+            client=client_host,
+            endpoint=endpoint,
+            success=True,
+        )
         return "node_token"
     if not API_KEY and not INGEST_TOKEN:
+        record_audit_event(
+            action="auth_verify_lan",
+            client=client_host,
+            endpoint=endpoint,
+            success=False,
+            error="LAN exposure requires WORLDBASE_API_KEY or NODE_INGEST_TOKEN",
+        )
         raise HTTPException(
             status_code=HTTP_503_SERVICE_UNAVAILABLE,
             detail="LAN exposure requires WORLDBASE_API_KEY or NODE_INGEST_TOKEN",
         )
+    record_audit_event(
+        action="auth_verify_lan",
+        client=client_host,
+        endpoint=endpoint,
+        success=False,
+        error="Invalid or missing credentials",
+    )
     raise HTTPException(
         status_code=HTTP_401_UNAUTHORIZED,
         detail="Invalid or missing credentials (X-API-Key or X-Node-Token)",
@@ -546,10 +599,23 @@ def require_admin_token(request: Request, admin_header: str = "X-Admin-Token") -
         )
 
     if not hmac.compare_digest(admin_token, provided_token):
+        record_audit_event(
+            action="auth_admin_token",
+            client=(request.client.host if request.client else ""),
+            endpoint=str(request.url.path),
+            success=False,
+            error="Invalid admin token",
+        )
         raise HTTPException(
             status_code=HTTP_403_FORBIDDEN,
             detail="Invalid admin token",
         )
+    record_audit_event(
+        action="auth_admin_token",
+        client=(request.client.host if request.client else ""),
+        endpoint=str(request.url.path),
+        success=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -750,4 +816,6 @@ __all__ = [
     "lan_exposed",
     "verify_lan_auth",
     "verify_api_key",
+    "audit_enabled",
+    "record_audit_event",
 ]

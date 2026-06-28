@@ -22,12 +22,14 @@ Example Usage:
 """
 
 from .security import (
+    audit_enabled,
     check_replay_attack,
     clear_nonce_cache,
     create_signed_request,
     generate_hmac_signature,
     generate_secure_nonce,
     get_auth_config,
+    record_audit_event,
     require_admin_token,
     verify_hmac_signature,
     verify_legacy_hmac,
@@ -37,12 +39,14 @@ from .security import (
 )
 
 __all__ = [
+    "audit_enabled",
     "check_replay_attack",
     "clear_nonce_cache",
     "create_signed_request",
     "generate_hmac_signature",
     "generate_secure_nonce",
     "get_auth_config",
+    "record_audit_event",
     "require_admin_token",
     "verify_hmac_signature",
     "verify_legacy_hmac",

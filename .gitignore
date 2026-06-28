@@ -76,6 +76,9 @@ docs/**
 !docs/RAG_OSINT_ROADMAP.md
 !docs/OSINT_TOOLKIT.md
 !docs/FEATURES.md
+!docs/SECRETS.md
+!docs/DARKWEB_COMPLIANCE.md
+!docs/PI_SYNC.md
 # Local-only operator / agent tooling (not part of the OSS repo)
 .cursor/
 briefs/

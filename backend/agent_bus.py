@@ -16,7 +16,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from auth.security import API_KEY, verify_api_key, verify_lan_auth
+from auth.security import API_KEY, lan_exposed, verify_api_key, verify_lan_auth
+
+# Loopback clients are exempt from key checks (local HUD via the Vite proxy),
+# matching the verify_lan_auth philosophy used by the rest of the HUD.
+_LOOPBACK_STREAM_CLIENTS: frozenset[str] = frozenset(
+    {"127.0.0.1", "::1", "localhost", "testclient"}
+)
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -183,7 +189,19 @@ async def _broadcast(message: dict[str, Any]) -> int:
 
 
 def _verify_stream_auth(request: Request, token: str | None = None) -> None:
+    """Gate the SSE stream consistent with the HUD's verify_lan_auth philosophy.
+
+    Default PC dev (``WORLDBASE_BIND_HOST=127.0.0.1``): the HUD stays open, so the
+    local stream is open too. When LAN-exposed, loopback clients (the local HUD
+    via the Vite proxy) stay open; remote callers must present the API key — via
+    the ``X-API-Key`` header or a ``?token=`` query param for EventSource clients.
+    """
     if not API_KEY:
+        return
+    if not lan_exposed():
+        return
+    client_host = (request.client.host if request.client else "").lower()
+    if client_host in _LOOPBACK_STREAM_CLIENTS:
         return
     if request.headers.get("x-api-key") == API_KEY:
         return

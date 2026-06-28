@@ -60,6 +60,7 @@ import { GlobeLayerManager } from '../hooks/layers/GlobeLayerManager';
 
 import { canFetch } from '../lib/networkFetch';
 import { createTerrainWithFallback, attachTerrainFailover } from '../lib/cesiumTerrain';
+import { initCesiumToken } from '../lib/cesiumToken';
 
 import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET, hasCesiumIonToken } from '../lib/mapView'
@@ -308,10 +309,8 @@ async function applyGlobeMapMode(
   }
 }
 
-Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? ''
-if (!Ion.defaultAccessToken) {
-  console.warn('[WorldBase] VITE_CESIUM_ION_TOKEN is not set. Copy frontend/.env.example to frontend/.env and add your Cesium Ion token.')
-}
+// Cesium Ion token is fetched from backend at runtime (Phase 2.2).
+// See lib/cesiumToken.ts — initCesiumToken() is called before Viewer creation.
 
 const SAT_GROUPS = [
   { id: 'starlink', label: 'STARLINK' },
@@ -1129,6 +1128,7 @@ export default function Globe({
     let focusPulseCleanup: (() => void) | null = null
 
     ;(async () => {
+      await initCesiumToken()
       const terrainProvider = await createTerrainWithFallback()
       if (cancelled || !containerRef.current) return
 

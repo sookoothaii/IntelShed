@@ -64,6 +64,7 @@ class WorldBaseConfig(BaseModel):
     duckdb_queue_enabled: bool = True
     admin_flags_enabled: bool = True
     node_pull_delta: bool = True
+    node_conflict_check: bool = True
     feed_cache_ttl: int = 604800
     ftm_archive_days: int = 0
     rbac_enabled: bool = False
@@ -93,6 +94,10 @@ class WorldBaseConfig(BaseModel):
     darkweb_max_results: int = 50
     darkweb_tor_proxy: str = ""
     darkweb_timeout_sec: float = 15.0
+    darkweb_tor_rotate_identity: bool = False
+    darkweb_tor_control_host: str = "127.0.0.1:9051"
+    darkweb_tor_control_password: str = ""
+    darkweb_exit_blocklist: str = "CN,RU,IR"
     briefing_darkweb: bool = False
     ransomware_enabled: bool = False
     ransomware_cache_sec: int = 3600
@@ -118,6 +123,11 @@ class WorldBaseConfig(BaseModel):
     feed_circuit_breaker_max_backoff_sec: float = 900.0
     task_watchdog_enabled: bool = True
     task_watchdog_timeout_multiplier: float = 2.5
+    auth_audit_enabled: bool = True
+    auth_audit_retention_days: int = 90
+    secrets_manager_enabled: bool = False
+    secrets_provider: str = "env"
+    mcp_policy_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> Self:
@@ -206,6 +216,9 @@ class WorldBaseConfig(BaseModel):
             duckdb_queue_enabled=_truthy(os.getenv("WORLDBASE_DUCKDB_QUEUE", "1")),
             admin_flags_enabled=_truthy(os.getenv("WORLDBASE_ADMIN_FLAGS", "1")),
             node_pull_delta=_truthy(os.getenv("WORLDBASE_NODE_PULL_DELTA", "1")),
+            node_conflict_check=_truthy(
+                os.getenv("WORLDBASE_NODE_CONFLICT_CHECK", "1")
+            ),
             feed_cache_ttl=int(os.getenv("WORLDBASE_FEED_CACHE_TTL", "604800")),
             ftm_archive_days=int(os.getenv("WORLDBASE_FTM_ARCHIVE_DAYS", "0")),
             rbac_enabled=_truthy(os.getenv("WORLDBASE_RBAC", "0")),
@@ -270,6 +283,18 @@ class WorldBaseConfig(BaseModel):
             darkweb_max_results=int(os.getenv("WORLDBASE_DARKWEB_MAX_RESULTS", "50")),
             darkweb_tor_proxy=os.getenv("WORLDBASE_DARKWEB_TOR_PROXY", ""),
             darkweb_timeout_sec=float(os.getenv("WORLDBASE_DARKWEB_TIMEOUT_SEC", "15")),
+            darkweb_tor_rotate_identity=_truthy(
+                os.getenv("WORLDBASE_DARKWEB_TOR_ROTATE_IDENTITY", "0")
+            ),
+            darkweb_tor_control_host=os.getenv(
+                "WORLDBASE_DARKWEB_TOR_CONTROL_HOST", "127.0.0.1:9051"
+            ),
+            darkweb_tor_control_password=os.getenv(
+                "WORLDBASE_DARKWEB_TOR_CONTROL_PASSWORD", ""
+            ),
+            darkweb_exit_blocklist=os.getenv(
+                "WORLDBASE_DARKWEB_EXIT_BLOCKLIST", "CN,RU,IR"
+            ),
             briefing_darkweb=_truthy(os.getenv("WORLDBASE_BRIEFING_DARKWEB", "0")),
             ransomware_enabled=_truthy(os.getenv("WORLDBASE_RANSOMWARE", "0")),
             ransomware_cache_sec=int(
@@ -320,6 +345,17 @@ class WorldBaseConfig(BaseModel):
                 1.0,
                 float(os.getenv("WORLDBASE_TASK_WATCHDOG_TIMEOUT_MULTIPLIER", "2.5")),
             ),
+            auth_audit_enabled=_truthy(os.getenv("WORLDBASE_AUTH_AUDIT", "1")),
+            auth_audit_retention_days=max(
+                1, int(os.getenv("WORLDBASE_AUTH_AUDIT_RETENTION_DAYS", "90"))
+            ),
+            secrets_manager_enabled=_truthy(
+                os.getenv("WORLDBASE_SECRETS_MANAGER", "0")
+            ),
+            secrets_provider=os.getenv("WORLDBASE_SECRET_BACKEND", "env")
+            .strip()
+            .lower(),
+            mcp_policy_enabled=_truthy(os.getenv("WORLDBASE_MCP_POLICY", "0")),
             blackboard_enabled=_truthy(os.getenv("WORLDBASE_BLACKBOARD", "0")),
             two_pass_enabled=_truthy(os.getenv("WORLDBASE_TWO_PASS", "0")),
             route_ledger_enabled=_truthy(os.getenv("WORLDBASE_ROUTE_LEDGER", "1")),

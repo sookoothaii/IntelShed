@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+import agent_bus
 from agent_bus import (
     GLOBE_LAYER_KEYS,
     AgentPublishBody,
@@ -15,6 +16,19 @@ from agent_bus import (
     publish_toggle_layer,
 )
 from fastapi import HTTPException
+
+
+def _fake_request(host: str = "127.0.0.1", headers: dict | None = None):
+    class _Client:
+        def __init__(self, h):
+            self.host = h
+
+    class _Req:
+        def __init__(self, h, hdrs):
+            self.client = _Client(h)
+            self.headers = hdrs or {}
+
+    return _Req(host, headers)
 
 
 class AgentBusConfigTests(unittest.TestCase):
@@ -70,6 +84,57 @@ class AgentBusPublishTests(unittest.IsolatedAsyncioTestCase):
 class AgentBusCameraTests(unittest.TestCase):
     def test_camera_empty_by_default(self):
         self.assertEqual(get_camera_state(), {})
+
+
+class AgentStreamAuthTests(unittest.TestCase):
+    """_verify_stream_auth aligns with the HUD verify_lan_auth philosophy."""
+
+    def test_open_when_no_api_key(self):
+        with patch.object(agent_bus, "API_KEY", ""):
+            with patch.object(agent_bus, "lan_exposed", return_value=True):
+                # No raise.
+                agent_bus._verify_stream_auth(_fake_request(host="9.9.9.9"))
+
+    def test_open_on_default_dev_loopback_bind(self):
+        # API_KEY set, but not LAN-exposed (default PC dev) → HUD stays open.
+        with patch.object(agent_bus, "API_KEY", "secret"):
+            with patch.object(agent_bus, "lan_exposed", return_value=False):
+                agent_bus._verify_stream_auth(_fake_request(host="127.0.0.1"))
+
+    def test_lan_exposed_loopback_client_open(self):
+        with patch.object(agent_bus, "API_KEY", "secret"):
+            with patch.object(agent_bus, "lan_exposed", return_value=True):
+                agent_bus._verify_stream_auth(_fake_request(host="127.0.0.1"))
+
+    def test_lan_exposed_remote_without_key_rejected(self):
+        with patch.object(agent_bus, "API_KEY", "secret"):
+            with patch.object(agent_bus, "lan_exposed", return_value=True):
+                with self.assertRaises(HTTPException) as ctx:
+                    agent_bus._verify_stream_auth(_fake_request(host="10.0.0.5"))
+        self.assertEqual(ctx.exception.status_code, 401)
+
+    def test_lan_exposed_remote_with_header_key_open(self):
+        with patch.object(agent_bus, "API_KEY", "secret"):
+            with patch.object(agent_bus, "lan_exposed", return_value=True):
+                agent_bus._verify_stream_auth(
+                    _fake_request(host="10.0.0.5", headers={"x-api-key": "secret"})
+                )
+
+    def test_lan_exposed_remote_with_token_query_open(self):
+        with patch.object(agent_bus, "API_KEY", "secret"):
+            with patch.object(agent_bus, "lan_exposed", return_value=True):
+                agent_bus._verify_stream_auth(
+                    _fake_request(host="10.0.0.5"), token="secret"
+                )
+
+    def test_lan_exposed_remote_wrong_key_rejected(self):
+        with patch.object(agent_bus, "API_KEY", "secret"):
+            with patch.object(agent_bus, "lan_exposed", return_value=True):
+                with self.assertRaises(HTTPException) as ctx:
+                    agent_bus._verify_stream_auth(
+                        _fake_request(host="10.0.0.5", headers={"x-api-key": "wrong"})
+                    )
+        self.assertEqual(ctx.exception.status_code, 401)
 
 
 if __name__ == "__main__":

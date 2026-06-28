@@ -147,8 +147,10 @@ def register_routers(app) -> None:
 
     app.include_router(quota_routes.router)
     from routes import auth as auth_routes
+    from routes import config as config_routes
 
     app.include_router(auth_routes.router)
+    app.include_router(config_routes.router)
     import ws_gateway as ws_routes
 
     app.include_router(ws_routes.router)

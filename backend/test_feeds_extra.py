@@ -47,7 +47,7 @@ class RadarTests(unittest.IsolatedAsyncioTestCase):
     async def test_radar_fail_soft(self):
         with patch("feeds_extra._CACHE", {}), patch(
             "feeds_extra._db_get", return_value=None
-        ):
+        ), patch("feeds_extra._db_stale", return_value=None):
             with patch("httpx.AsyncClient", side_effect=Exception("network error")):
                 result = await feeds_extra.weather_radar()
         self.assertFalse(result["enabled"])
@@ -83,7 +83,7 @@ class CommoditiesTests(unittest.IsolatedAsyncioTestCase):
     async def test_commodities_fail_soft(self):
         with patch("feeds_extra._CACHE", {}), patch(
             "feeds_extra._db_get", return_value=None
-        ):
+        ), patch("feeds_extra._db_stale", return_value=None):
             with patch("httpx.AsyncClient", side_effect=Exception("network error")):
                 result = await feeds_extra.commodities()
         self.assertIn("error", result)

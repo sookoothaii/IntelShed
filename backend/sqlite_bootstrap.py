@@ -83,6 +83,27 @@ def init_db() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_feed_cache_ttl ON feed_cache(ttl_seconds)"
         )
+        # Auth audit table (Phase 2.1)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS auth_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                client TEXT,
+                endpoint TEXT,
+                tool TEXT,
+                action TEXT NOT NULL,
+                success INTEGER NOT NULL DEFAULT 0,
+                error TEXT
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_auth_audit_ts ON auth_audit(timestamp)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_auth_audit_action ON auth_audit(action)"
+        )
         conn.commit()
 
 

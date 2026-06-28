@@ -28,9 +28,18 @@ from auth.security import (
 )
 from config import get_config
 
-Role = Literal["operator", "viewer", "node"]
+Role = Literal["operator", "viewer", "node", "admin", "readonly"]
 
-_ROLE_HIERARCHY: dict[str, int] = {"operator": 3, "viewer": 1, "node": 1}
+_ROLE_HIERARCHY: dict[str, int] = {
+    "admin": 4,
+    "operator": 3,
+    "viewer": 1,
+    "readonly": 1,
+    "node": 1,
+}
+
+# Aliases: "readonly" is treated identically to "viewer"
+_ROLE_ALIASES: dict[str, str] = {"readonly": "viewer"}
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -161,3 +170,5 @@ def verify_role(required_role: Role):
 require_operator = verify_role("operator")
 require_viewer = verify_role("viewer")
 require_node = verify_role("node")
+require_admin = verify_role("admin")
+require_readonly = verify_role("readonly")

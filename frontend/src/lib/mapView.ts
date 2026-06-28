@@ -1,5 +1,7 @@
 /** Shared map view state — Google Maps-style basemap + 2D/3D switching. */
 
+import { Ion } from 'cesium'
+
 export type BasemapMode = 'streets' | 'satellite' | 'hybrid' | 'terrain'
 
 export type MapViewMode = {
@@ -9,7 +11,7 @@ export type MapViewMode = {
   render3d: boolean
   /** OSM / vector building extrusion */
   buildings: boolean
-  /** Cesium Ion Google Photorealistic 3D Tiles (needs VITE_CESIUM_ION_TOKEN) */
+  /** Cesium Ion Google Photorealistic 3D Tiles (needs Ion token from /api/config/cesium) */
   photorealistic: boolean
   /** Place/city name label overlay (Esri World Boundaries & Places) */
   labels: boolean
@@ -50,6 +52,5 @@ export const ESRI_REFERENCE_LABELS =
 export const ION_PHOTOREALISTIC_ASSET = 2275207
 
 export function hasCesiumIonToken(): boolean {
-  const t = import.meta.env.VITE_CESIUM_ION_TOKEN ?? ''
-  return Boolean(t && t !== 'your_cesium_ion_token_here')
+  return Boolean(Ion.defaultAccessToken)
 }

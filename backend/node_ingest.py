@@ -116,6 +116,40 @@ def _verify_admin_secret(x_admin_token: str = "") -> None:
         raise HTTPException(status_code=403, detail="Invalid or missing admin token")
 
 
+def _server_briefing_version() -> int:
+    """Monotonic server briefing version = MAX(briefings.id), 0 when empty.
+
+    Uses the autoincrement primary key as a monotonic counter (not wall-clock)
+    so version comparison is immune to clock skew — the 2026 best practice for
+    offline-first conflict detection.
+    """
+    try:
+        with _db() as conn:
+            row = conn.execute("SELECT MAX(id) FROM briefings").fetchone()
+        return int(row[0]) if row and row[0] is not None else 0
+    except Exception:
+        return 0
+
+
+def _node_conflict_check_enabled() -> bool:
+    """Conflict detection toggle (config first, env fallback). Default on.
+
+    Backward-compatible: only activates when the Pi sends the new
+    ``X-Client-Version`` header, so legacy clients are unaffected.
+    """
+    try:
+        from config import get_config
+
+        return get_config().node_conflict_check
+    except Exception:
+        return os.getenv("WORLDBASE_NODE_CONFLICT_CHECK", "1").strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
+
+
 def init_node_db():
     with _db() as conn:
         conn.executescript("""
@@ -143,6 +177,21 @@ def init_node_db():
                 message TEXT,
                 created_at TEXT
             );
+            CREATE TABLE IF NOT EXISTS node_push_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                node_id TEXT NOT NULL,
+                client_version INTEGER,
+                client_data_hash TEXT,
+                server_version_at_push INTEGER,
+                reason TEXT,
+                briefing TEXT,
+                payload TEXT,
+                status TEXT DEFAULT 'pending',
+                created_at TEXT,
+                resolved_at TEXT,
+                resolution TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_node_push_status ON node_push_log(status);
         """)
         conn.commit()
 
@@ -386,6 +435,151 @@ async def list_sensor_alerts(node_id: str = "", limit: int = 50):
             }
         )
     return {"count": len(alerts), "alerts": alerts}
+
+
+# ---------------------------------------------------------------------------
+# Pi -> PC : conflict-merge push (Phase 3.1)
+# ---------------------------------------------------------------------------
+@router.post("/node/push")
+@rate_limit_node_ingest()
+async def node_push(
+    request: Request,
+    x_node_token: str = Header(default=""),
+):
+    """Pi uploads its local briefing state for operator-driven manual merge.
+
+    Used when ``GET /api/node/pull`` returned ``409 Conflict`` (the Pi has
+    unsynced local work). This does **not** auto-merge — it records the Pi's
+    state in ``node_push_log`` for the operator to review and resolve. Pure
+    last-writer-wins is intentionally avoided; conflicts are operator-resolved.
+
+    Body (all optional except node_id):
+      { "node_id": str, "briefing": str, "client_version": int,
+        "client_data_hash": str, "reason": str }
+    """
+    _verify_node_secret(x_node_token)
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="JSON object expected")
+
+    node_id = (body.get("node_id") or "unknown").strip()
+    client_version = body.get("client_version")
+    try:
+        client_version = int(client_version) if client_version is not None else None
+    except (ValueError, TypeError):
+        client_version = None
+    briefing = body.get("briefing")
+    client_hash = (body.get("client_data_hash") or "").strip() or None
+    reason = (body.get("reason") or "").strip() or None
+    server_version = _server_briefing_version()
+    now = datetime.now(timezone.utc).isoformat()
+
+    with _db() as conn:
+        conn.execute(
+            """INSERT INTO node_push_log
+               (node_id, client_version, client_data_hash, server_version_at_push,
+                reason, briefing, payload, status, created_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (
+                node_id,
+                client_version,
+                client_hash,
+                server_version,
+                reason,
+                briefing,
+                json.dumps(body),
+                "pending",
+                now,
+            ),
+        )
+        conn.commit()
+        merge_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    return {
+        "ok": True,
+        "merge_id": merge_id,
+        "status": "pending_merge",
+        "node_id": node_id,
+        "client_version": client_version,
+        "server_version": server_version,
+        "created_at": now,
+    }
+
+
+@router.get("/node/push/pending")
+async def node_push_pending(
+    request: Request,
+    limit: int = 50,
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Operator view: pending Pi merge requests awaiting manual resolution."""
+    with _db() as conn:
+        rows = conn.execute(
+            """SELECT id, node_id, client_version, client_data_hash,
+                      server_version_at_push, reason, briefing, status, created_at
+               FROM node_push_log WHERE status = 'pending'
+               ORDER BY id DESC LIMIT ?""",
+            (max(1, min(limit, 200)),),
+        ).fetchall()
+    pending = []
+    for r in rows:
+        text = r["briefing"] or ""
+        pending.append(
+            {
+                "merge_id": r["id"],
+                "node_id": r["node_id"],
+                "client_version": r["client_version"],
+                "client_data_hash": r["client_data_hash"],
+                "server_version_at_push": r["server_version_at_push"],
+                "reason": r["reason"],
+                "briefing_preview": text[:280],
+                "briefing_chars": len(text),
+                "created_at": r["created_at"],
+            }
+        )
+    return {"count": len(pending), "pending": pending}
+
+
+@router.post("/node/push/{merge_id}/resolve")
+async def node_push_resolve(
+    request: Request,
+    merge_id: int,
+    payload: dict,
+    x_admin_token: str = Header(default=""),
+):
+    """Operator resolves a pending merge (accept_server / accept_client / reject).
+
+    Records the operator decision; the actual data action (regenerate briefing,
+    keep server, etc.) is performed by the operator out-of-band. Admin-gated.
+    """
+    _verify_admin_secret(x_admin_token)
+    resolution = (payload.get("resolution") or "").strip().lower()
+    if resolution not in {"accept_server", "accept_client", "reject"}:
+        raise HTTPException(
+            status_code=422,
+            detail="resolution must be accept_server, accept_client, or reject",
+        )
+    note = (payload.get("note") or "").strip()
+    decision = resolution if not note else f"{resolution}: {note}"
+    now = datetime.now(timezone.utc).isoformat()
+    with _db() as conn:
+        cur = conn.execute(
+            "UPDATE node_push_log SET status='resolved', resolved_at=?, resolution=? "
+            "WHERE id=? AND status='pending'",
+            (now, decision, merge_id),
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="No pending merge with that id")
+    return {
+        "ok": True,
+        "merge_id": merge_id,
+        "status": "resolved",
+        "resolution": decision,
+        "resolved_at": now,
+    }
 
 
 # ---------------------------------------------------------------------------

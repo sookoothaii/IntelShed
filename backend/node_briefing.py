@@ -24,7 +24,12 @@ from fastapi.responses import JSONResponse, Response
 from auth.security import verify_api_key, verify_lan_auth
 from middleware.rate_limit import rate_limit_general, rate_limit_node_pull
 
-from node_ingest import _db, _verify_node_secret
+from node_ingest import (
+    _db,
+    _verify_node_secret,
+    _server_briefing_version,
+    _node_conflict_check_enabled,
+)
 
 router = APIRouter(prefix="/api", tags=["node-sync"])
 
@@ -966,6 +971,68 @@ def _briefing_hash(text: str | None) -> str:
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
 
 
+def _detect_pull_conflict(
+    *,
+    client_version: int | None,
+    client_hash: str,
+    server_version: int,
+    server_hash: str,
+) -> str | None:
+    """Return a conflict reason, or None when it is safe to overwrite the client.
+
+    Monotonic-version comparison (clock-skew safe):
+    - ``client_ahead``: the Pi reports a higher version than the server has →
+      it generated/edited a briefing offline that the server would clobber.
+    - ``diverged``: same version, different content hash → concurrent edit.
+    Otherwise the server is newer (normal forward sync) → no conflict.
+    """
+    if client_version is None:
+        return None
+    if client_version > server_version:
+        return "client_ahead"
+    if client_version == server_version and client_hash and client_hash != server_hash:
+        return "diverged"
+    return None
+
+
+def _pull_conflict_payload(
+    *,
+    reason: str,
+    client_version: int | None,
+    client_hash: str,
+    server_version: int,
+    server_hash: str,
+    brief: dict,
+) -> dict:
+    """Human-readable 409 body so the operator can resolve the merge."""
+    text = brief.get("text") or ""
+    if reason == "client_ahead":
+        detail = (
+            f"Pi version {client_version} is ahead of server version "
+            f"{server_version}. The Pi has local work the server would overwrite."
+        )
+    else:
+        detail = (
+            f"Pi and server share version {server_version} but their briefing "
+            "content differs (concurrent edit)."
+        )
+    return {
+        "conflict": True,
+        "reason": reason,
+        "detail": detail,
+        "server_version": server_version,
+        "client_version": client_version,
+        "server_briefing_hash": server_hash,
+        "client_data_hash": client_hash or None,
+        "server_briefing_at": brief.get("created_at"),
+        "server_briefing_preview": text[:280],
+        "resolve": (
+            "POST /api/node/push with your local state for operator merge, "
+            "or retry GET /api/node/pull?force=1 to accept the server version."
+        ),
+    }
+
+
 def _node_pull_delta_enabled() -> bool:
     """Check if delta sync is enabled via config or env."""
     try:
@@ -1023,6 +1090,43 @@ async def node_pull(
 
     briefing_text = brief.get("text")
     b_hash = _briefing_hash(briefing_text)
+
+    # --- Conflict detection (Phase 3.1): protect unsynced Pi work ---
+    # The Pi sends X-Client-Version (monotonic int) and X-Client-Data-Hash.
+    # ?force=1 lets the operator/Pi explicitly accept the server version.
+    force = request.query_params.get("force", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    client_version_raw = request.headers.get("x-client-version", "").strip()
+    if _node_conflict_check_enabled() and client_version_raw and not force:
+        try:
+            client_version = int(client_version_raw)
+        except (ValueError, TypeError):
+            client_version = None
+        if client_version is not None:
+            client_data_hash = request.headers.get("x-client-data-hash", "").strip()
+            server_version = _server_briefing_version()
+            reason = _detect_pull_conflict(
+                client_version=client_version,
+                client_hash=client_data_hash,
+                server_version=server_version,
+                server_hash=b_hash,
+            )
+            if reason:
+                return JSONResponse(
+                    status_code=409,
+                    content=_pull_conflict_payload(
+                        reason=reason,
+                        client_version=client_version,
+                        client_hash=client_data_hash,
+                        server_version=server_version,
+                        server_hash=b_hash,
+                        brief=brief,
+                    ),
+                )
+
     delta_enabled = _node_pull_delta_enabled()
     use_delta = bool(since) and delta_enabled
 
