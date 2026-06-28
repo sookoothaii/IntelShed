@@ -169,7 +169,12 @@ def _upsert_impl(
                     """
                     UPDATE entities
                     SET schema = ?, caption = ?, properties = ?, datasets = ?,
-                        lat = ?, lon = ?, first_seen = ?, last_seen = ?
+                        lat = ?, lon = ?, first_seen = ?, last_seen = ?,
+                        geom = CASE
+                            WHEN ? IS NOT NULL AND ? IS NOT NULL
+                            THEN ST_MakePoint(?, ?)
+                            ELSE geom
+                        END
                     WHERE id = ?
                     """,
                     [
@@ -181,6 +186,10 @@ def _upsert_impl(
                         use_lon,
                         first_seen,
                         seen_at,
+                        use_lat,
+                        use_lon,
+                        use_lon,
+                        use_lat,
                         eid,
                     ],
                 )
@@ -203,6 +212,16 @@ def _upsert_impl(
                         seen_at,
                     ],
                 )
+            # Sync geom for new rows (INSERT path). Safe without R-Tree index.
+            if use_lat is not None and use_lon is not None:
+                try:
+                    con.execute(
+                        "UPDATE entities SET geom = ST_MakePoint(?, ?) "
+                        "WHERE id = ? AND geom IS NULL",
+                        [use_lon, use_lat, eid],
+                    )
+                except Exception:
+                    pass  # geom column may not exist if spatial is unavailable
             seen_stmt_keys: set[tuple[str, str, str, str]] = set()
             stmt_rows = []
             for prop, values in incoming.items():

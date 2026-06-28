@@ -300,16 +300,49 @@ def _get_entities_in_bbox(bbox: list[float], limit: int = 200) -> list[dict]:
     """Get FtM entities within a bounding box."""
     try:
         import ftm_query
+        from ftm_connection import spatial_available
 
-        with ftm_query._LOCK:
-            rows = (
-                ftm_query._conn()
-                .execute(
-                    "SELECT id, schema, caption, lat, lon FROM entities WHERE lat IS NOT NULL AND lon IS NOT NULL AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? LIMIT ?",
-                    [bbox[1], bbox[3], bbox[0], bbox[2], limit],
-                )
-                .fetchall()
+        if spatial_available():
+            w, s, e, n = bbox
+            sql_spatial = (
+                f"SELECT id, schema, caption, lat, lon FROM entities "
+                f"WHERE geom IS NOT NULL "
+                f"AND ST_Within(geom, ST_MakeEnvelope({w!r}, {s!r}, {e!r}, {n!r})) "
+                f"LIMIT ?"
             )
+            try:
+                with ftm_query._LOCK:
+                    rows = ftm_query._conn().execute(sql_spatial, [limit]).fetchall()
+            except Exception as exc:
+                if "flat vector" in str(exc).lower() or "INTERNAL" in str(exc):
+                    # DuckDB 1.5.x R-Tree bug (duckdb-spatial #769) — fall back
+                    sql_bbox = (
+                        "SELECT id, schema, caption, lat, lon FROM entities "
+                        "WHERE lat IS NOT NULL AND lon IS NOT NULL "
+                        "AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? LIMIT ?"
+                    )
+                    with ftm_query._LOCK:
+                        rows = (
+                            ftm_query._conn()
+                            .execute(
+                                sql_bbox, [bbox[1], bbox[3], bbox[0], bbox[2], limit]
+                            )
+                            .fetchall()
+                        )
+                else:
+                    raise
+        else:
+            sql_bbox = (
+                "SELECT id, schema, caption, lat, lon FROM entities "
+                "WHERE lat IS NOT NULL AND lon IS NOT NULL "
+                "AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ? LIMIT ?"
+            )
+            with ftm_query._LOCK:
+                rows = (
+                    ftm_query._conn()
+                    .execute(sql_bbox, [bbox[1], bbox[3], bbox[0], bbox[2], limit])
+                    .fetchall()
+                )
         return [
             {"id": r[0], "schema": r[1], "caption": r[2], "lat": r[3], "lon": r[4]}
             for r in rows

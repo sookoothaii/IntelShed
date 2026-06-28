@@ -9,6 +9,9 @@ from typing import Any
 
 import ftm_store
 from config import get_config
+from structured_log import get_logger
+
+log = get_logger(__name__)
 
 _DEFAULT_EXCLUDE = ("Airplane", "Thing")
 
@@ -137,28 +140,61 @@ def _seed_entities_in_bbox(
     cutoff = (
         datetime.now(timezone.utc) - timedelta(hours=max(1, window_hours))
     ).isoformat()
-    clauses = [
-        "e.lat IS NOT NULL",
-        "e.lon IS NOT NULL",
-        "e.last_seen IS NOT NULL",
-        "e.last_seen >= ?",
-        "e.lat BETWEEN ? AND ?",
-        "e.lon BETWEEN ? AND ?",
-    ]
-    params: list[Any] = [cutoff, south, north, west, east]
+
+    from ftm_connection import spatial_available
+
+    use_spatial = spatial_available()
+    exclude_clause = ""
+    exclude_params: list[str] = []
     if exclude_schemas:
         placeholders = ", ".join("?" * len(exclude_schemas))
-        clauses.append(f"e.schema NOT IN ({placeholders})")
-        params.extend(sorted(exclude_schemas))
-    params.append(max(1, seed_limit))
-    sql = f"""
-        SELECT e.id, e.schema, e.caption, e.lat, e.lon, e.datasets, e.last_seen
-        FROM entities e
-        WHERE {" AND ".join(clauses)}
-        ORDER BY e.last_seen DESC
-        LIMIT ?
-    """
-    rows = ftm_store.run_query_ro(sql, params)
+        exclude_clause = f" AND e.schema NOT IN ({placeholders})"
+        exclude_params = sorted(exclude_schemas)
+
+    if use_spatial:
+        # Try ST_Within with R-Tree index scan. DuckDB 1.5.x has a known bug
+        # (duckdb-spatial #769) causing "flat vector" INTERNAL errors on
+        # RTREE_INDEX_SCAN. If it fails, fall back to BETWEEN scan.
+        sql_spatial = f"""
+            SELECT e.id, e.schema, e.caption, e.lat, e.lon, e.datasets, e.last_seen
+            FROM entities e
+            WHERE e.last_seen IS NOT NULL
+              AND e.last_seen >= ?
+              AND e.geom IS NOT NULL
+              AND ST_Within(e.geom, ST_MakeEnvelope({west!r}, {south!r}, {east!r}, {north!r}))
+              {exclude_clause}
+            ORDER BY e.last_seen DESC
+            LIMIT ?
+        """
+        try:
+            rows = ftm_store.run_query_ro(
+                sql_spatial, [cutoff, *exclude_params, max(1, seed_limit)]
+            )
+        except Exception as exc:
+            if "flat vector" in str(exc).lower() or "INTERNAL" in str(exc):
+                log.warning("spatial_rtree_fallback", reason=str(exc)[:120])
+                use_spatial = False
+            else:
+                raise
+
+    if not use_spatial:
+        sql_bbox = f"""
+            SELECT e.id, e.schema, e.caption, e.lat, e.lon, e.datasets, e.last_seen
+            FROM entities e
+            WHERE e.last_seen IS NOT NULL
+              AND e.last_seen >= ?
+              AND e.lat IS NOT NULL
+              AND e.lon IS NOT NULL
+              AND e.lat BETWEEN ? AND ?
+              AND e.lon BETWEEN ? AND ?
+              {exclude_clause}
+            ORDER BY e.last_seen DESC
+            LIMIT ?
+        """
+        rows = ftm_store.run_query_ro(
+            sql_bbox,
+            [cutoff, south, north, west, east, *exclude_params, max(1, seed_limit)],
+        )
     seeds: list[dict[str, Any]] = []
     for row in rows:
         seeds.append(

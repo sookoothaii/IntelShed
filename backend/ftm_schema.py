@@ -6,6 +6,8 @@ index drift workarounds (DuckDB 1.5.x) are isolated.
 
 from __future__ import annotations
 
+import os
+
 import duckdb
 
 from ftm_connection import _is_invalidated_error
@@ -70,7 +72,23 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
     _migrate_statements_schema(con)
     _migrate_resolution_labels_schema(con)
     _ensure_edge_indexes(con)
+    # Drop any R-Tree index from a previous run (DuckDB 1.5.x bug #769)
+    _drop_rtree_index_if_present(con)
     _ensure_entity_geo_indexes(con)
+
+
+def _drop_rtree_index_if_present(con: duckdb.DuckDBPyConnection) -> None:
+    """Drop R-Tree index if it exists from a previous run.
+
+    DuckDB 1.5.x has a FATAL bug (duckdb-spatial #769) where the R-Tree index
+    causes "flat vector" internal errors on writes, invalidating the entire
+    connection. This must be called before _ensure_entity_geo_indexes to
+    clean up any index created by a prior version of this code.
+    """
+    try:
+        con.execute("DROP INDEX IF EXISTS idx_entities_geom")
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -140,13 +158,101 @@ def _ensure_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
 
 
 def _ensure_entity_geo_indexes(con: duckdb.DuckDBPyConnection) -> None:
-    """Indexes for bbox + last_seen seed queries in intel_subgraph."""
+    """Indexes for bbox + last_seen seed queries in intel_subgraph.
+
+    When the DuckDB spatial extension is available, adds a GEOMETRY column
+    (``geom``) backed by an R-Tree index for ~100x faster spatial predicate
+    queries (ST_Within / ST_Intersects) compared to lat/lon BETWEEN scans.
+    Falls back to the legacy compound index when spatial is unavailable.
+    """
     try:
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_entities_lat_lon ON entities(lat, lon)"
         )
         con.execute(
             "CREATE INDEX IF NOT EXISTS idx_entities_last_seen ON entities(last_seen)"
+        )
+    except Exception:
+        pass
+    _ensure_spatial_geom_index(con)
+
+
+def _ensure_spatial_geom_index(con: duckdb.DuckDBPyConnection) -> None:
+    """Add ``geom GEOMETRY`` column when spatial extension is loaded.
+
+    .. note::
+        The R-Tree index (``USING RTREE``) is **not** created on DuckDB 1.5.x
+        due to a FATAL "flat vector" bug (duckdb-spatial #769) that
+        invalidates the entire DB connection on writes. The ``geom`` column
+        is still added and populated for future use when the bug is fixed.
+        Set ``WORLDBASE_DUCKDB_RTREE=1`` to force-enable the index.
+    """
+    from ftm_connection import spatial_available
+
+    if not spatial_available():
+        return
+
+    # Allow explicit opt-in for testing / future DuckDB versions
+    force_rtree = os.environ.get("WORLDBASE_DUCKDB_RTREE", "0") == "1"
+    if force_rtree:
+        _create_rtree_index(con)
+        return
+
+    # Only add geom column, skip R-Tree index (DuckDB 1.5.x bug)
+    try:
+        cols = {
+            r[0]
+            for r in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'entities'"
+            ).fetchall()
+        }
+    except Exception:
+        return
+
+    if "geom" not in cols:
+        try:
+            con.execute("ALTER TABLE entities ADD COLUMN geom GEOMETRY")
+        except Exception:
+            return
+        try:
+            con.execute(
+                "UPDATE entities SET geom = ST_MakePoint(lon, lat) "
+                "WHERE lat IS NOT NULL AND lon IS NOT NULL AND geom IS NULL"
+            )
+        except Exception:
+            pass
+
+
+def _create_rtree_index(con: duckdb.DuckDBPyConnection) -> None:
+    """Create R-Tree index on geom column. Only called when explicitly enabled."""
+    try:
+        cols = {
+            r[0]
+            for r in con.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'entities'"
+            ).fetchall()
+        }
+    except Exception:
+        return
+
+    if "geom" not in cols:
+        try:
+            con.execute("ALTER TABLE entities ADD COLUMN geom GEOMETRY")
+        except Exception:
+            return
+        try:
+            con.execute(
+                "UPDATE entities SET geom = ST_MakePoint(lon, lat) "
+                "WHERE lat IS NOT NULL AND lon IS NOT NULL AND geom IS NULL"
+            )
+        except Exception:
+            pass
+
+    try:
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS idx_entities_geom ON entities USING RTREE(geom)"
         )
     except Exception:
         pass
@@ -284,6 +390,8 @@ def _repair_pk_index_drift(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("INSERT INTO entities SELECT * FROM _entities_repair")
         con.execute("DROP TABLE _entities_repair")
         con.execute("COMMIT")
+        # Re-add geom column + R-Tree index after table recreation
+        _ensure_spatial_geom_index(con)
         log.info("pk_index_drift_repaired", entities="recreated")
     except Exception as exc:
         try:

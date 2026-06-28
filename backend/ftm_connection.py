@@ -30,6 +30,9 @@ _INIT_ERROR: str | None = None
 # multiple in-process connections; a single connection is not thread-safe.
 _RO_CONN_LOCAL = threading.local()
 
+# Whether the DuckDB spatial extension is loaded (enables R-Tree index + ST_Within)
+_SPATIAL_LOADED: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Path configuration
@@ -71,10 +74,33 @@ def _configure_connection(con: duckdb.DuckDBPyConnection) -> None:
     DuckDB does not support SQLite ``PRAGMA journal_mode`` / ``locking_mode``.
     Do not open ``entities.duckdb`` from a second process while the API runs.
     """
+    global _SPATIAL_LOADED
     try:
         con.execute("SET checkpoint_threshold='16MB'")
     except Exception:
         pass
+    # Load the spatial extension for R-Tree index + ST_Within/ST_Intersects.
+    # Fail-soft: if the extension is unavailable (e.g. air-gapped Docker),
+    # queries fall back to lat/lon BETWEEN filtering.
+    if os.getenv("WORLDBASE_DUCKDB_SPATIAL", "1").strip().lower() in (
+        "0",
+        "false",
+        "no",
+    ):
+        _SPATIAL_LOADED = False
+        return
+    try:
+        con.execute("INSTALL spatial")
+        con.execute("LOAD spatial")
+        _SPATIAL_LOADED = True
+    except Exception as exc:
+        log.warning("duckdb_spatial_extension_unavailable", error=str(exc)[:200])
+        _SPATIAL_LOADED = False
+
+
+def spatial_available() -> bool:
+    """True when the DuckDB spatial extension is loaded and ready."""
+    return _SPATIAL_LOADED
 
 
 def _conn() -> duckdb.DuckDBPyConnection:
