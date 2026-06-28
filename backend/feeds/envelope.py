@@ -22,6 +22,8 @@ HEALTH_META_KEYS = frozenset(
         "stale",
         "demo_mode",
         "geocoded",
+        "circuit_state",
+        "circuit_open_until",
     }
 )
 
@@ -56,6 +58,10 @@ def extract_health_feed_meta(val: dict[str, Any]) -> dict[str, Any]:
     geocoded = val.get("geocoded") or val.get("count_mapped")
     if geocoded is not None:
         meta["geocoded"] = geocoded
+    if "circuit_state" in val:
+        meta["circuit_state"] = val.get("circuit_state")
+    if "circuit_open_until" in val:
+        meta["circuit_open_until"] = val.get("circuit_open_until")
     return meta
 
 

@@ -41,6 +41,23 @@ async def health_ping():
     return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
 
 
+@router.get("/api/health/tasks")
+async def health_tasks():
+    """Task watchdog status: per-task liveness, heartbeats, errors, resource pressure."""
+    try:
+        from lifespan import get_watchdog
+
+        wd = get_watchdog()
+        if wd is None:
+            return {
+                "status": "disabled",
+                "message": "Task watchdog is not enabled (WORLDBASE_TASK_WATCHDOG=0)",
+            }
+        return {"status": "ok", **wd.status()}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 @router.get("/api/health")
 async def health():
     db_file = feed_registry.db_path()

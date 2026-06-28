@@ -61,7 +61,7 @@ class WorldBaseConfig(BaseModel):
     entity_resolution_autopilot: bool = False
     entity_resolution_splink_enabled: bool = False
     entity_resolution_pipeline_mode: str = "single"
-    duckdb_queue_enabled: bool = False
+    duckdb_queue_enabled: bool = True
     admin_flags_enabled: bool = True
     node_pull_delta: bool = True
     feed_cache_ttl: int = 604800
@@ -109,6 +109,15 @@ class WorldBaseConfig(BaseModel):
     identity_osint_cache_sec: int = 86400
     briefing_identity: bool = False
     domain_intel_enabled: bool = True
+    onion_dir_enabled: bool = False
+    onion_dir_cache_sec: int = 7200
+    briefing_onion_dir: bool = False
+    feed_circuit_breaker_enabled: bool = True
+    feed_circuit_breaker_failure_threshold: int = 5
+    feed_circuit_breaker_reset_timeout_sec: float = 60.0
+    feed_circuit_breaker_max_backoff_sec: float = 900.0
+    task_watchdog_enabled: bool = True
+    task_watchdog_timeout_multiplier: float = 2.5
 
     @classmethod
     def from_env(cls) -> Self:
@@ -194,7 +203,7 @@ class WorldBaseConfig(BaseModel):
             )
             .strip()
             .lower(),
-            duckdb_queue_enabled=_truthy(os.getenv("WORLDBASE_DUCKDB_QUEUE", "0")),
+            duckdb_queue_enabled=_truthy(os.getenv("WORLDBASE_DUCKDB_QUEUE", "1")),
             admin_flags_enabled=_truthy(os.getenv("WORLDBASE_ADMIN_FLAGS", "1")),
             node_pull_delta=_truthy(os.getenv("WORLDBASE_NODE_PULL_DELTA", "1")),
             feed_cache_ttl=int(os.getenv("WORLDBASE_FEED_CACHE_TTL", "604800")),
@@ -291,6 +300,26 @@ class WorldBaseConfig(BaseModel):
             ),
             briefing_identity=_truthy(os.getenv("WORLDBASE_BRIEFING_IDENTITY", "0")),
             domain_intel_enabled=_truthy(os.getenv("WORLDBASE_DOMAIN_INTEL", "1")),
+            onion_dir_enabled=_truthy(os.getenv("WORLDBASE_ONION_DIR", "0")),
+            onion_dir_cache_sec=int(os.getenv("WORLDBASE_ONION_DIR_CACHE_SEC", "7200")),
+            briefing_onion_dir=_truthy(os.getenv("WORLDBASE_BRIEFING_ONION_DIR", "0")),
+            feed_circuit_breaker_enabled=_truthy(
+                os.getenv("WORLDBASE_FEED_CIRCUIT_BREAKER", "1")
+            ),
+            feed_circuit_breaker_failure_threshold=max(
+                1, int(os.getenv("WORLDBASE_FEED_CB_FAILURE_THRESHOLD", "5"))
+            ),
+            feed_circuit_breaker_reset_timeout_sec=max(
+                10.0, float(os.getenv("WORLDBASE_FEED_CB_RESET_TIMEOUT_SEC", "60"))
+            ),
+            feed_circuit_breaker_max_backoff_sec=max(
+                60.0, float(os.getenv("WORLDBASE_FEED_CB_MAX_BACKOFF_SEC", "900"))
+            ),
+            task_watchdog_enabled=_truthy(os.getenv("WORLDBASE_TASK_WATCHDOG", "1")),
+            task_watchdog_timeout_multiplier=max(
+                1.0,
+                float(os.getenv("WORLDBASE_TASK_WATCHDOG_TIMEOUT_MULTIPLIER", "2.5")),
+            ),
             blackboard_enabled=_truthy(os.getenv("WORLDBASE_BLACKBOARD", "0")),
             two_pass_enabled=_truthy(os.getenv("WORLDBASE_TWO_PASS", "0")),
             route_ledger_enabled=_truthy(os.getenv("WORLDBASE_ROUTE_LEDGER", "1")),

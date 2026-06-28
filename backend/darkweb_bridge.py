@@ -79,6 +79,13 @@ _ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
         "url": "https://ahmia.fi/search/",
         "tor_required": False,
         "type": "html",
+        "deprecated": True,
+        "deprecated_reason": "Clearnet search disabled by Ahmia (redirects to homepage). Use ahmia_onion via Tor proxy instead.",
+    },
+    "ahmia_onion": {
+        "url": "http://juhanull72ynzd3mk7gon6qls4iwy6gvdafejfaclf4awleel3mj7syd.onion/search/",
+        "tor_required": True,
+        "type": "html",
     },
     "darksearch": {
         "url": "https://darksearch.io/api/search",
@@ -87,12 +94,12 @@ _ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
         "deprecated": True,
     },
     "torch": {
-        "url": "http://xmh57jrknzkhv6y3ls3ubitzfqnkrwxhopf5aygth47de6krkb7pfqd.onion",
+        "url": "http://xmh57jrknzkhv6y3ls3ubitzfqnkrwxhopf5aygthi7d6rplyvk3noyd.onion",
         "tor_required": True,
         "type": "html",
     },
     "tor66": {
-        "url": "http://tor66sezptlr2hdqzw4ceh3n66xlsqft3koxo2y72vpfz4z6hdq3d3ad.onion/search.php",
+        "url": "http://tor66sewebgixwhcqfnp5inzp5x5uohhdy3kvtnyfxc2e5mxiuh34iid.onion/search.php",
         "tor_required": True,
         "type": "html",
     },
@@ -100,6 +107,8 @@ _ENGINE_REGISTRY: dict[str, dict[str, Any]] = {
         "url": "https://onionlandsearchengine.com/search",
         "tor_required": False,
         "type": "html",
+        "deprecated": True,
+        "deprecated_reason": "Domain dead (DNS failure) since 2026.",
     },
     "tordex": {
         "url": "http://tordex7iiepec2wl.onion/search",
@@ -161,6 +170,7 @@ def _http_client(proxy: str | None = None) -> httpx.AsyncClient:
         timeout=httpx.Timeout(_timeout_sec()),
         headers=_UA,
         mounts=mounts,  # type: ignore[arg-type]
+        follow_redirects=True,
     )
 
 
@@ -198,10 +208,36 @@ def _extract_entities(text: str) -> dict[str, list[str]]:
     return found
 
 
+def _parse_ahmia_html(
+    text: str, limit: int, engine: str = "ahmia"
+) -> list[dict[str, Any]]:
+    """Parse Ahmia HTML search results into structured dicts."""
+    results: list[dict[str, Any]] = []
+    for match in _AHMIARE_RESULT.finditer(text):
+        url, title, snippet = match.groups()
+        title = html.unescape(re.sub(r"<[^>]+>", "", title)).strip()
+        snippet = html.unescape(re.sub(r"<[^>]+>", "", snippet)).strip()
+        url = html.unescape(url).strip()
+        if not url or not _DARKSEARCH_URL.match(url):
+            continue
+        results.append(
+            {
+                "title": title,
+                "url": url,
+                "snippet": snippet,
+                "engine": engine,
+                "first_seen": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
 async def _search_ahmia(
     query: str, limit: int, client: httpx.AsyncClient | None = None
 ) -> list[dict[str, Any]]:
-    """Scrape Ahmia HTML search results."""
+    """Scrape Ahmia HTML search results (clearnet — deprecated, redirects to homepage)."""
     results: list[dict[str, Any]] = []
     try:
         if client is None:
@@ -216,25 +252,7 @@ async def _search_ahmia(
     except Exception:
         return results
 
-    for match in _AHMIARE_RESULT.finditer(text):
-        url, title, snippet = match.groups()
-        title = html.unescape(re.sub(r"<[^>]+>", "", title)).strip()
-        snippet = html.unescape(re.sub(r"<[^>]+>", "", snippet)).strip()
-        url = html.unescape(url).strip()
-        if not url or not _DARKSEARCH_URL.match(url):
-            continue
-        results.append(
-            {
-                "title": title,
-                "url": url,
-                "snippet": snippet,
-                "engine": "ahmia",
-                "first_seen": datetime.now(timezone.utc).isoformat(),
-            }
-        )
-        if len(results) >= limit:
-            break
-    return results
+    return _parse_ahmia_html(text, limit)
 
 
 async def _search_darksearch(
@@ -398,6 +416,9 @@ async def _search_tor_engine(
             text = resp.text
     except Exception:
         return results
+
+    if engine == "ahmia_onion":
+        return _parse_ahmia_html(text, limit)
 
     return _parse_tor_html(text, engine, limit)
 

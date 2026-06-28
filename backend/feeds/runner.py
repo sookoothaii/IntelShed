@@ -1,15 +1,93 @@
-"""Phase 2 feed connector runner — TTL cache, stale fallback, feed_cache persist."""
+"""Phase 2 feed connector runner — TTL cache, stale fallback, feed_cache persist.
+
+Includes a per-feed circuit breaker (3-state: CLOSED → OPEN → HALF_OPEN)
+with exponential backoff on repeated failures.
+"""
 
 from __future__ import annotations
 
 import sys
 import time
 from collections.abc import Awaitable, Callable
+from enum import Enum
 from typing import Any
 
 import feed_registry
 
 from feeds.envelope import FeedEnvelope, utc_now_iso, validate_feed_payload
+
+
+class CircuitState(str, Enum):
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+
+class CircuitBreaker:
+    """Per-feed circuit breaker with exponential backoff.
+
+    CLOSED → OPEN after *failure_threshold* failures within a rolling window.
+    OPEN → HALF_OPEN after *reset_timeout* (doubles on each open, capped at *max_backoff*).
+    HALF_OPEN → CLOSED on success, → OPEN on failure.
+    """
+
+    def __init__(
+        self,
+        *,
+        failure_threshold: int = 5,
+        reset_timeout_sec: float = 60.0,
+        max_backoff_sec: float = 900.0,
+    ) -> None:
+        self.failure_threshold = failure_threshold
+        self.reset_timeout_sec = reset_timeout_sec
+        self.max_backoff_sec = max_backoff_sec
+        self._state = CircuitState.CLOSED
+        self._failures = 0
+        self._opened_at: float = 0.0
+        self._current_timeout = reset_timeout_sec
+        self._consecutive_opens = 0
+
+    @property
+    def state(self) -> CircuitState:
+        if self._state == CircuitState.OPEN:
+            if time.time() - self._opened_at >= self._current_timeout:
+                self._state = CircuitState.HALF_OPEN
+        return self._state
+
+    @property
+    def open_until(self) -> str | None:
+        if self.state == CircuitState.OPEN:
+            from datetime import datetime, timezone
+
+            ts = self._opened_at + self._current_timeout
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+        return None
+
+    def record_success(self) -> None:
+        self._failures = 0
+        self._consecutive_opens = 0
+        self._current_timeout = self.reset_timeout_sec
+        self._state = CircuitState.CLOSED
+
+    def record_failure(self) -> None:
+        self._failures += 1
+        if self._state == CircuitState.HALF_OPEN:
+            self._trip_open()
+            return
+        if self._failures >= self.failure_threshold:
+            self._trip_open()
+
+    def _trip_open(self) -> None:
+        self._state = CircuitState.OPEN
+        self._opened_at = time.time()
+        self._consecutive_opens += 1
+        self._current_timeout = min(
+            self.reset_timeout_sec * (2 ** (self._consecutive_opens - 1)),
+            self.max_backoff_sec,
+        )
+
+    def can_attempt(self) -> bool:
+        return self.state != CircuitState.OPEN
 
 
 def _warn_violations(cache_key: str, violations: list[str]) -> None:
@@ -36,6 +114,38 @@ class FeedConnector:
         self.ttl_sec = ttl_sec
         self.default_source = default_source
         self._mem: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._breaker: CircuitBreaker | None = None
+        self._cb_init_done = False
+
+    def _ensure_breaker(self) -> CircuitBreaker | None:
+        """Lazily create a circuit breaker from config (fail-soft)."""
+        if self._cb_init_done:
+            return self._breaker
+        self._cb_init_done = True
+        try:
+            from config import get_config
+
+            cfg = get_config()
+            if not cfg.feed_circuit_breaker_enabled:
+                return None
+            self._breaker = CircuitBreaker(
+                failure_threshold=cfg.feed_circuit_breaker_failure_threshold,
+                reset_timeout_sec=cfg.feed_circuit_breaker_reset_timeout_sec,
+                max_backoff_sec=cfg.feed_circuit_breaker_max_backoff_sec,
+            )
+        except Exception:
+            pass
+        return self._breaker
+
+    @property
+    def circuit_state(self) -> str:
+        cb = self._ensure_breaker()
+        return cb.state.value if cb else "disabled"
+
+    @property
+    def circuit_open_until(self) -> str | None:
+        cb = self._ensure_breaker()
+        return cb.open_until if cb else None
 
     def _slot(self, subkey: str = "") -> str:
         return subkey or self.cache_key
@@ -111,7 +221,10 @@ class FeedConnector:
         subkey: str = "",
         persist: bool = True,
     ) -> dict[str, Any]:
-        """TTL hit → fetch → stale memory/disk → empty error payload."""
+        """TTL hit → fetch → stale memory/disk → empty error payload.
+
+        Circuit breaker skips the fetch call when OPEN, serving stale data instead.
+        """
         cached = self.get_cached(subkey)
         if cached is not None:
             return cached
@@ -128,6 +241,16 @@ class FeedConnector:
                 return self.empty_payload("quota_exceeded", source=self.default_source)
         except Exception:
             pass
+
+        # Circuit breaker: skip fetch when OPEN, serve stale
+        cb = self._ensure_breaker()
+        if cb and not cb.can_attempt():
+            err = f"circuit_open_until={cb.open_until}"
+            stale = self.stale_from_memory(err, subkey) or self.stale_from_disk(err)
+            if stale:
+                return stale
+            return self.empty_payload(err, source=self.default_source)
+
         try:
             payload = await fetch()
             # J5: record API call for quota tracking
@@ -150,9 +273,13 @@ class FeedConnector:
                 # window (self-labeled via payload fields) — acceptable degraded mode.
                 feed_registry.write_auto(self.cache_key, payload)
             self.set_cached(payload, subkey)
+            if cb:
+                cb.record_success()
             return payload
         except Exception as exc:
             err = str(exc)
+            if cb:
+                cb.record_failure()
             stale = self.stale_from_memory(err, subkey) or self.stale_from_disk(err)
             if stale:
                 return stale

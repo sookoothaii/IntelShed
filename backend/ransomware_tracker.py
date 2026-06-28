@@ -113,7 +113,11 @@ async def _fetch_ransomware_live_groups() -> list[dict[str, Any]]:
 
 
 async def _fetch_ransomlook_posts(days: int = 30) -> list[dict[str, Any]]:
-    """Fetch recent posts from RansomLook API."""
+    """Fetch recent posts from RansomLook API.
+
+    The API returns ``{"posts": [...]}`` (dict), but older versions returned
+    a bare list.  Both shapes are handled.
+    """
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(20.0), headers=_UA
@@ -123,6 +127,8 @@ async def _fetch_ransomlook_posts(days: int = 30) -> list[dict[str, Any]]:
             data = resp.json()
             if isinstance(data, list):
                 return data
+            if isinstance(data, dict):
+                return data.get("posts", [])
             return []
     except Exception:
         return []

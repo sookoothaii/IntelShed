@@ -28,8 +28,12 @@ class DarkwebBridgeTests(unittest.IsolatedAsyncioTestCase):
     def test_engine_registry_has_ahmia_and_darksearch(self):
         self.assertIn("ahmia", darkweb_bridge._ENGINE_REGISTRY)
         self.assertIn("darksearch", darkweb_bridge._ENGINE_REGISTRY)
+        self.assertIn("ahmia_onion", darkweb_bridge._ENGINE_REGISTRY)
         self.assertFalse(darkweb_bridge._ENGINE_REGISTRY["ahmia"]["tor_required"])
+        self.assertTrue(darkweb_bridge._ENGINE_REGISTRY["ahmia_onion"]["tor_required"])
+        self.assertTrue(darkweb_bridge._ENGINE_REGISTRY["ahmia"].get("deprecated"))
         self.assertTrue(darkweb_bridge._ENGINE_REGISTRY["darksearch"].get("deprecated"))
+        self.assertTrue(darkweb_bridge._ENGINE_REGISTRY["onionland"].get("deprecated"))
 
     def test_extract_entities(self):
         text = (
@@ -443,6 +447,91 @@ class RansomwareTrackerTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         self.assertEqual(data["count"], 1)
+
+    async def test_ransomlook_dict_response(self):
+        """RansomLook API returns {"posts": [...]} dict, not a bare list."""
+        import ransomware_tracker
+
+        rlook_dict_payload = {
+            "posts": [
+                {
+                    "post_title": "DictCorp",
+                    "group_name": "akira",
+                    "discovered": "2026-01-03",
+                }
+            ]
+        }
+        rl_payload: list = []
+
+        with patch("ransomware_tracker.httpx.AsyncClient") as mock_client:
+            instance = mock_client.return_value.__aenter__.return_value
+            rl_resp = MagicMock()
+            rl_resp.json = MagicMock(return_value=rl_payload)
+            rl_resp.raise_for_status = MagicMock()
+            rlook_resp = MagicMock()
+            rlook_resp.json = MagicMock(return_value=rlook_dict_payload)
+            rlook_resp.raise_for_status = MagicMock()
+            instance.get = AsyncMock(side_effect=[rl_resp, rlook_resp])
+
+            with patch.object(ransomware_tracker, "get_config") as mock_cfg:
+                cfg = MagicMock()
+                cfg.ransomware_enabled = True
+                cfg.ransomware_cache_sec = 3600
+                cfg.briefing_ransomware = False
+                mock_cfg.return_value = cfg
+
+                data = await ransomware_tracker.get_recent_victims(
+                    limit=10, refresh=True
+                )
+
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["victims"][0]["victim"], "DictCorp")
+        self.assertIn("ransomlook", data["sources"])
+
+    async def test_ransomlook_empty_dict_response(self):
+        """RansomLook API returning {"posts": []} should yield 0 victims."""
+        import ransomware_tracker
+
+        rlook_dict_payload = {"posts": []}
+        rl_payload: list = []
+
+        with patch("ransomware_tracker.httpx.AsyncClient") as mock_client:
+            instance = mock_client.return_value.__aenter__.return_value
+            rl_resp = MagicMock()
+            rl_resp.json = MagicMock(return_value=rl_payload)
+            rl_resp.raise_for_status = MagicMock()
+            rlook_resp = MagicMock()
+            rlook_resp.json = MagicMock(return_value=rlook_dict_payload)
+            rlook_resp.raise_for_status = MagicMock()
+            instance.get = AsyncMock(side_effect=[rl_resp, rlook_resp])
+
+            with patch.object(ransomware_tracker, "get_config") as mock_cfg:
+                cfg = MagicMock()
+                cfg.ransomware_enabled = True
+                cfg.ransomware_cache_sec = 3600
+                cfg.briefing_ransomware = False
+                mock_cfg.return_value = cfg
+
+                data = await ransomware_tracker.get_recent_victims(
+                    limit=10, refresh=True
+                )
+
+        self.assertEqual(data["count"], 0)
+
+    def test_http_client_follows_redirects(self):
+        """httpx client must follow redirects (Ahmia returns 301)."""
+        client = darkweb_bridge._http_client()
+        self.assertTrue(client.follow_redirects)
+        asyncio.run(client.aclose())
+
+    def test_tor_client_follows_redirects(self):
+        """Tor client must also follow redirects."""
+        with patch.object(
+            darkweb_bridge, "_tor_proxy", return_value="socks5://127.0.0.1:9050"
+        ):
+            client = darkweb_bridge._tor_client()
+            self.assertTrue(client.follow_redirects)
+            asyncio.run(client.aclose())
 
 
 if __name__ == "__main__":

@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Callable, Awaitable
 
 import aircraft_trails
 import anomaly_river
@@ -31,6 +34,212 @@ log = get_logger(__name__)
 
 _BRIEFING_AUTOPILOT_TASK: asyncio.Task | None = None
 _BRIEFING_INTERVAL = _cfg().briefing_interval
+
+
+# ---------------------------------------------------------------------------
+# Task watchdog — strong references, heartbeat tracking, restart on crash
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class TaskRecord:
+    """Metadata for a supervised background task."""
+
+    name: str
+    coro_factory: Callable[[], Awaitable]
+    interval_sec: float
+    task: asyncio.Task | None = None
+    last_heartbeat: float = 0.0
+    error_count: int = 0
+    restart_count: int = 0
+    last_error: str | None = None
+    last_restart: str | None = None
+
+
+class TaskWatchdog:
+    """Holds strong references to background tasks, monitors heartbeats,
+    and restarts crashed or silent tasks.
+
+    Fail-soft: if restart fails, logs a warning and continues monitoring.
+    """
+
+    def __init__(self, timeout_multiplier: float = 2.5) -> None:
+        self._tasks: dict[str, TaskRecord] = {}
+        self._timeout_multiplier = timeout_multiplier
+        self._watchdog_task: asyncio.Task | None = None
+        self._loop_lag_ms: float = 0.0
+        self._rss_mb: float = 0.0
+
+    def register(
+        self,
+        name: str,
+        coro_factory: Callable[[], Awaitable],
+        interval_sec: float,
+    ) -> None:
+        """Register a task for supervision. Call before starting the task."""
+        rec = TaskRecord(
+            name=name,
+            coro_factory=coro_factory,
+            interval_sec=interval_sec,
+        )
+        self._tasks[name] = rec
+
+    def start(self, name: str) -> asyncio.Task:
+        """Create and start the asyncio task, holding a strong reference."""
+        rec = self._tasks.get(name)
+        if rec is None:
+            raise KeyError(f"Task {name!r} not registered")
+        rec.task = asyncio.create_task(rec.coro_factory(), name=name)
+        rec.last_heartbeat = time.monotonic()
+        return rec.task
+
+    def heartbeat(self, name: str) -> None:
+        """Update the last-seen timestamp for a task."""
+        rec = self._tasks.get(name)
+        if rec:
+            rec.last_heartbeat = time.monotonic()
+
+    def record_error(self, name: str, error: str) -> None:
+        """Record an error for a task."""
+        rec = self._tasks.get(name)
+        if rec:
+            rec.error_count += 1
+            rec.last_error = error
+
+    def status(self) -> dict:
+        """Return a snapshot of all supervised tasks + resource pressure."""
+        now = time.monotonic()
+        tasks_status = {}
+        for name, rec in self._tasks.items():
+            is_alive = rec.task is not None and not rec.task.done()
+            silent_for = (
+                round(now - rec.last_heartbeat, 1) if rec.last_heartbeat else None
+            )
+            timeout_sec = rec.interval_sec * self._timeout_multiplier
+            tasks_status[name] = {
+                "alive": is_alive,
+                "silent_for_sec": silent_for,
+                "timeout_sec": round(timeout_sec, 1),
+                "error_count": rec.error_count,
+                "restart_count": rec.restart_count,
+                "last_error": rec.last_error,
+                "last_restart": rec.last_restart,
+                "interval_sec": rec.interval_sec,
+            }
+        return {
+            "tasks": tasks_status,
+            "loop_lag_ms": round(self._loop_lag_ms, 2),
+            "rss_mb": round(self._rss_mb, 1),
+            "watchdog_enabled": self._watchdog_task is not None,
+        }
+
+    async def _monitor(self) -> None:
+        """Watchdog loop: check task health, restart if needed, sample resources."""
+        await asyncio.sleep(60)
+        while True:
+            try:
+                now = time.monotonic()
+                for name, rec in list(self._tasks.items()):
+                    # Check if task crashed
+                    if rec.task is not None and rec.task.done():
+                        exc = rec.task.exception()
+                        if exc:
+                            rec.error_count += 1
+                            rec.last_error = str(exc)
+                            log.warning(
+                                "task_crashed",
+                                task=name,
+                                error=str(exc),
+                                error_count=rec.error_count,
+                            )
+                        # Restart if enabled
+                        if rec.error_count < 5:
+                            try:
+                                rec.task = asyncio.create_task(
+                                    rec.coro_factory(), name=name
+                                )
+                                rec.restart_count += 1
+                                rec.last_heartbeat = now
+                                ts = datetime.now(timezone.utc).isoformat()
+                                rec.last_restart = ts
+                                log.info(
+                                    "task_restarted",
+                                    task=name,
+                                    restart_count=rec.restart_count,
+                                )
+                            except Exception as e:
+                                log.warning(
+                                    "task_restart_failed", task=name, error=str(e)
+                                )
+                        else:
+                            log.error(
+                                "task_restart_limit_exceeded",
+                                task=name,
+                                error_count=rec.error_count,
+                            )
+
+                    # Check if task is silent (heartbeat stale)
+                    elif rec.task is not None and not rec.task.done():
+                        timeout_sec = rec.interval_sec * self._timeout_multiplier
+                        if (
+                            rec.last_heartbeat
+                            and (now - rec.last_heartbeat) > timeout_sec
+                        ):
+                            log.warning(
+                                "task_silent",
+                                task=name,
+                                silent_for_sec=round(now - rec.last_heartbeat, 1),
+                                timeout_sec=round(timeout_sec, 1),
+                            )
+                            # Don't cancel — just warn. The task may be in a long blocking call.
+
+                # Sample resource pressure (fail-soft)
+                await self._sample_resources()
+            except Exception as e:
+                log.debug("watchdog_monitor_failed", error=str(e))
+            await asyncio.sleep(30)
+
+    async def _sample_resources(self) -> None:
+        """Sample RSS memory and event-loop lag. Fail-soft if psutil missing."""
+        try:
+            import psutil
+
+            proc = psutil.Process()
+            self._rss_mb = proc.memory_info().rss / (1024 * 1024)
+        except Exception:
+            pass
+        try:
+            loop = asyncio.get_running_loop()
+            t0 = loop.time()
+            await asyncio.sleep(1)
+            self._loop_lag_ms = (loop.time() - t0 - 1.0) * 1000
+        except Exception:
+            pass
+
+    def start_watchdog(self) -> None:
+        """Start the monitoring loop."""
+        if self._watchdog_task is None:
+            self._watchdog_task = asyncio.create_task(
+                self._monitor(), name="task_watchdog"
+            )
+
+    def stop_watchdog(self) -> None:
+        """Stop the monitoring loop and cancel all supervised tasks."""
+        if self._watchdog_task is not None:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
+        for rec in self._tasks.values():
+            if rec.task is not None and not rec.task.done():
+                rec.task.cancel()
+
+
+# Module-level singleton
+_watchdog: TaskWatchdog | None = None
+
+
+def get_watchdog() -> TaskWatchdog | None:
+    """Return the global TaskWatchdog instance, or None if disabled."""
+    return _watchdog
 
 
 async def _news_feeds_autopilot() -> None:
@@ -442,7 +651,7 @@ def register_lifecycle(app) -> None:
 
     @app.on_event("startup")
     def on_startup() -> None:
-        global _BRIEFING_AUTOPILOT_TASK
+        global _BRIEFING_AUTOPILOT_TASK, _watchdog
         init_db()
         prune_feed_cache()
         entity_store.init_entity_db()
@@ -474,28 +683,78 @@ def register_lifecycle(app) -> None:
         quota_monitor.init_quota_db()
         from ollama_config import briefing_autopilot_on
 
+        # Initialize task watchdog
+        cfg = _cfg()
+        if cfg.task_watchdog_enabled:
+            _watchdog = TaskWatchdog(
+                timeout_multiplier=cfg.task_watchdog_timeout_multiplier
+            )
+
+        wd = _watchdog
+
         if briefing_autopilot_on():
-            _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
+            if wd:
+                wd.register(
+                    "briefing_autopilot", _briefing_autopilot, float(_BRIEFING_INTERVAL)
+                )
+                _BRIEFING_AUTOPILOT_TASK = wd.start("briefing_autopilot")
+            else:
+                _BRIEFING_AUTOPILOT_TASK = asyncio.create_task(_briefing_autopilot())
         else:
             log.info("briefing_autopilot_disabled")
         if entity_resolution.autopilot_on():
-            asyncio.create_task(_entity_resolution_autopilot())
+            if wd:
+                wd.register(
+                    "entity_resolution",
+                    _entity_resolution_autopilot,
+                    float(cfg.entity_resolution_interval),
+                )
+                wd.start("entity_resolution")
+            else:
+                asyncio.create_task(_entity_resolution_autopilot())
         else:
             log.info("entity_resolution_autopilot_disabled")
         import prediction_ledger
 
         if prediction_ledger.autopilot_on():
-            asyncio.create_task(_prediction_ledger_autopilot())
+            if wd:
+                wd.register(
+                    "prediction_ledger",
+                    _prediction_ledger_autopilot,
+                    float(prediction_ledger.resolve_interval_s()),
+                )
+                wd.start("prediction_ledger")
+            else:
+                asyncio.create_task(_prediction_ledger_autopilot())
         else:
             log.info("prediction_ledger_disabled")
-        asyncio.create_task(aircraft_routes.aircraft_warmup())
-        asyncio.create_task(_phase1_background_tasks())
-        asyncio.create_task(_aircraft_trail_loop())
-        asyncio.create_task(_situations_prewarm())
-        asyncio.create_task(_stack_warmup())
-        asyncio.create_task(_feed_cache_autopilot())
-        asyncio.create_task(_maritime_trajectory_maintenance())
-        asyncio.create_task(_news_feeds_autopilot())
+        if wd:
+            wd.register("aircraft_warmup", aircraft_routes.aircraft_warmup, 300.0)
+            wd.start("aircraft_warmup")
+            wd.register("phase1_background", _phase1_background_tasks, 600.0)
+            wd.start("phase1_background")
+            wd.register("aircraft_trail_loop", _aircraft_trail_loop, 30.0)
+            wd.start("aircraft_trail_loop")
+            wd.register("situations_prewarm", _situations_prewarm, 600.0)
+            wd.start("situations_prewarm")
+            wd.register("stack_warmup", _stack_warmup, 3600.0)
+            wd.start("stack_warmup")
+            wd.register("feed_cache_autopilot", _feed_cache_autopilot, 30.0)
+            wd.start("feed_cache_autopilot")
+            wd.register("maritime_trajectory", _maritime_trajectory_maintenance, 300.0)
+            wd.start("maritime_trajectory")
+            wd.register("news_feeds_autopilot", _news_feeds_autopilot, 600.0)
+            wd.start("news_feeds_autopilot")
+            wd.start_watchdog()
+        else:
+            asyncio.create_task(aircraft_routes.aircraft_warmup())
+            asyncio.create_task(_phase1_background_tasks())
+            asyncio.create_task(_aircraft_trail_loop())
+            asyncio.create_task(_situations_prewarm())
+            asyncio.create_task(_stack_warmup())
+            asyncio.create_task(_feed_cache_autopilot())
+            asyncio.create_task(_maritime_trajectory_maintenance())
+            asyncio.create_task(_news_feeds_autopilot())
         import ais_bridge
 
         ais_bridge.start_aisstream_collector()
@@ -504,6 +763,8 @@ def register_lifecycle(app) -> None:
     def on_shutdown() -> None:
         if _BRIEFING_AUTOPILOT_TASK:
             _BRIEFING_AUTOPILOT_TASK.cancel()
+        if _watchdog is not None:
+            _watchdog.stop_watchdog()
         import duckdb_queue
 
         if duckdb_queue.is_enabled():
