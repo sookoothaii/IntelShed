@@ -65,6 +65,7 @@ class RagRerankTests(unittest.TestCase):
         status = warmup_status()
         self.assertIn("state", status)
         self.assertIn("backend", status)
+        self.assertIn("provider", status)
         self.assertIn("elapsed_s", status)
         self.assertIn("error", status)
         self.assertIn("model", status)
@@ -79,6 +80,12 @@ class RagRerankTests(unittest.TestCase):
         self.assertAlmostEqual(_warmup_status["elapsed_s"], 5.2)
         # Restore idle for other tests
         _set_warmup("idle", backend=None, elapsed_s=0.0, error=None)
+
+    def test_set_warmup_with_provider(self):
+        """_set_warmup accepts provider kwarg (V4-03 CUDA EP)."""
+        _set_warmup("ready", backend="onnx", provider="CUDAExecutionProvider")
+        self.assertEqual(_warmup_status["provider"], "CUDAExecutionProvider")
+        _set_warmup("idle", backend=None, provider=None, elapsed_s=0.0, error=None)
 
     def test_rerank_preserves_original_hit_fields(self):
         """Reranked hits keep original fields and add rerank_score."""

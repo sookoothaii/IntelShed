@@ -895,6 +895,46 @@ async def chat_proxy(
     use_tools = opts["use_tools"]
     force_fast = opts["force_fast"]
 
+    # --- Smart Model Router (V4-01) ---
+    smart_router_meta: dict[str, Any] | None = None
+    _smart_router_on = False
+    try:
+        from chat_model_router import smart_router_enabled, select_provider
+
+        if smart_router_enabled() and "provider" not in payload:
+            _msgs_preview = list(payload.get("messages", []))
+            _user_q = ""
+            try:
+                from firewall_bridge import _extract_user_text
+
+                _user_q = _extract_user_text(_msgs_preview)
+            except Exception:
+                _user_q = _msgs_preview[-1].get("content", "") if _msgs_preview else ""
+
+            _api_keys = (
+                payload.get("api_keys")
+                if isinstance(payload.get("api_keys"), dict)
+                else None
+            )
+            selected_provider, selected_model, complexity = select_provider(
+                _user_q,
+                api_keys=_api_keys,
+                explicit_provider=None,
+            )
+            provider = selected_provider
+            if selected_model:
+                model = selected_model
+            smart_router_meta = {
+                "smart_router": {
+                    "complexity": complexity,
+                    "selected_provider": provider,
+                    "selected_model": model,
+                }
+            }
+            _smart_router_on = True
+    except Exception:
+        pass
+
     def _ollama_chat_body(model_name: str, messages: list, *, stream: bool) -> dict:
         return chat_routing.build_ollama_chat_body(
             model_name,
@@ -1094,6 +1134,27 @@ async def chat_proxy(
         else None
     )
 
+    # Smart Router fallback chain for non-streaming, non-tool requests
+    _fallback_attempted: list[str] = [provider]
+    _fallback_chain: list[str] = []
+    if _smart_router_on and not use_stream and not use_tools:
+        try:
+            from chat_model_router import get_fallback_chain, available_providers
+
+            _avail = available_providers(api_keys)
+            _chain = get_fallback_chain()
+            try:
+                _idx = _chain.index(provider)
+            except ValueError:
+                _idx = -1
+            _fallback_chain = [
+                p
+                for p in _chain[_idx + 1 :]
+                if p in _avail and p not in _fallback_attempted
+            ]
+        except Exception:
+            pass
+
     if api_base_urls:
         for prov, raw in api_base_urls.items():
             if not isinstance(raw, str) or not raw.strip():
@@ -1286,7 +1347,7 @@ async def chat_proxy(
 
             return StreamingResponse(openai_stream(), media_type="text/event-stream")
 
-        # Non-streaming
+        # Non-streaming (with smart router fallback)
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 r = await client.post(cfg["url"], headers=headers, json=body)
@@ -1305,6 +1366,12 @@ async def chat_proxy(
                 audit_meta = og_meta or {}
                 if ca_meta:
                     audit_meta = {**audit_meta, **ca_meta}
+                _sr_meta = smart_router_meta or {}
+                if _fallback_attempted and len(_fallback_attempted) > 1:
+                    _sr_meta = {
+                        **_sr_meta,
+                        "fallback_attempted": list(_fallback_attempted),
+                    }
                 return {
                     "message": {
                         "role": "assistant",
@@ -1318,15 +1385,226 @@ async def chat_proxy(
                         if audit_meta
                         else {}
                     ),
+                    **(_sr_meta if _sr_meta else {}),
                 }
         except httpx.HTTPStatusError as e:
-            return {
+            _err_resp = {
                 "error": f"{provider} HTTP {e.response.status_code}",
                 "detail": e.response.text[:300],
                 "provider": provider,
             }
+            # Smart Router fallback: try next provider in chain
+            if _fallback_chain:
+                try:
+                    from chat_model_router import (
+                        should_fallback,
+                        next_fallback_provider,
+                        _default_model_for,
+                    )
+
+                    if should_fallback(_err_resp):
+                        _next = next_fallback_provider(
+                            provider, _fallback_attempted, api_keys
+                        )
+                        while _next:
+                            _fallback_attempted.append(_next)
+                            _next_cfg = PROVIDER_CONFIG.get(_next)
+                            if not _next_cfg:
+                                _next = next_fallback_provider(
+                                    _next, _fallback_attempted, api_keys
+                                )
+                                continue
+                            _next_key = _next_cfg["key"]
+                            if not _next_key:
+                                _next = next_fallback_provider(
+                                    _next, _fallback_attempted, api_keys
+                                )
+                                continue
+                            _next_headers = {
+                                "Content-Type": "application/json",
+                                _next_cfg["header"]: _next_cfg["prefix"] + _next_key,
+                            }
+                            if _next == "openrouter":
+                                _next_headers["HTTP-Referer"] = (
+                                    "https://worldbase.local"
+                                )
+                                _next_headers["X-Title"] = "WorldBase"
+                            _next_model = _default_model_for(_next)
+                            _next_body = {
+                                "model": _next_model,
+                                "messages": messages,
+                                "stream": False,
+                                "temperature": 0.7,
+                                "max_tokens": 2048 if force_fast else 8192,
+                            }
+                            try:
+                                async with httpx.AsyncClient(
+                                    timeout=60.0
+                                ) as _fb_client:
+                                    _fb_r = await _fb_client.post(
+                                        _next_cfg["url"],
+                                        headers=_next_headers,
+                                        json=_next_body,
+                                    )
+                                    _fb_r.raise_for_status()
+                                    _fb_data = _fb_r.json()
+                                    _fb_choice = _fb_data.get("choices", [{}])[0]
+                                    _fb_msg = _fb_choice.get("message", {})
+                                    _fb_text = (
+                                        _fb_msg.get("content")
+                                        or _fb_msg.get("reasoning_content")
+                                        or _fb_choice.get("text", "")
+                                        or ""
+                                    )
+                                    _fb_text, _fb_og = _apply_output_guard(
+                                        _fb_text, user_text
+                                    )
+                                    _fb_text, _fb_ca = _claim_auditor(
+                                        _fb_text, context_blocks
+                                    )
+                                    _fb_audit = _fb_og or {}
+                                    if _fb_ca:
+                                        _fb_audit = {**_fb_audit, **_fb_ca}
+                                    _fb_sr = smart_router_meta or {}
+                                    _fb_sr = {
+                                        **_fb_sr,
+                                        "fallback_attempted": list(_fallback_attempted),
+                                        "fallback_used": _next,
+                                    }
+                                    return {
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": _fb_text,
+                                        },
+                                        "done": True,
+                                        "provider": _next,
+                                        "model": _fb_data.get("model"),
+                                        **(
+                                            {
+                                                "firewall_result": {
+                                                    **(firewall_meta or {}),
+                                                    **_fb_audit,
+                                                }
+                                            }
+                                            if _fb_audit
+                                            else {}
+                                        ),
+                                        **_fb_sr,
+                                    }
+                            except Exception:
+                                _next = next_fallback_provider(
+                                    _next, _fallback_attempted, api_keys
+                                )
+                                continue
+                except Exception:
+                    pass
+            return _err_resp
         except Exception as e:
-            return {"error": f"{provider} request failed: {e}", "provider": provider}
+            _err_resp = {
+                "error": f"{provider} request failed: {e}",
+                "provider": provider,
+            }
+            # Smart Router fallback for connection errors
+            if _fallback_chain:
+                try:
+                    from chat_model_router import (
+                        should_fallback,
+                        next_fallback_provider,
+                        _default_model_for,
+                    )
+
+                    if should_fallback(_err_resp):
+                        _next = next_fallback_provider(
+                            provider, _fallback_attempted, api_keys
+                        )
+                        while _next:
+                            _fallback_attempted.append(_next)
+                            _next_cfg = PROVIDER_CONFIG.get(_next)
+                            if not _next_cfg or not _next_cfg["key"]:
+                                _next = next_fallback_provider(
+                                    _next, _fallback_attempted, api_keys
+                                )
+                                continue
+                            _next_headers = {
+                                "Content-Type": "application/json",
+                                _next_cfg["header"]: _next_cfg["prefix"]
+                                + _next_cfg["key"],
+                            }
+                            if _next == "openrouter":
+                                _next_headers["HTTP-Referer"] = (
+                                    "https://worldbase.local"
+                                )
+                                _next_headers["X-Title"] = "WorldBase"
+                            _next_model = _default_model_for(_next)
+                            _next_body = {
+                                "model": _next_model,
+                                "messages": messages,
+                                "stream": False,
+                                "temperature": 0.7,
+                                "max_tokens": 2048 if force_fast else 8192,
+                            }
+                            try:
+                                async with httpx.AsyncClient(
+                                    timeout=60.0
+                                ) as _fb_client:
+                                    _fb_r = await _fb_client.post(
+                                        _next_cfg["url"],
+                                        headers=_next_headers,
+                                        json=_next_body,
+                                    )
+                                    _fb_r.raise_for_status()
+                                    _fb_data = _fb_r.json()
+                                    _fb_choice = _fb_data.get("choices", [{}])[0]
+                                    _fb_msg = _fb_choice.get("message", {})
+                                    _fb_text = (
+                                        _fb_msg.get("content")
+                                        or _fb_msg.get("reasoning_content")
+                                        or _fb_choice.get("text", "")
+                                        or ""
+                                    )
+                                    _fb_text, _fb_og = _apply_output_guard(
+                                        _fb_text, user_text
+                                    )
+                                    _fb_text, _fb_ca = _claim_auditor(
+                                        _fb_text, context_blocks
+                                    )
+                                    _fb_audit = _fb_og or {}
+                                    if _fb_ca:
+                                        _fb_audit = {**_fb_audit, **_fb_ca}
+                                    _fb_sr = smart_router_meta or {}
+                                    _fb_sr = {
+                                        **_fb_sr,
+                                        "fallback_attempted": list(_fallback_attempted),
+                                        "fallback_used": _next,
+                                    }
+                                    return {
+                                        "message": {
+                                            "role": "assistant",
+                                            "content": _fb_text,
+                                        },
+                                        "done": True,
+                                        "provider": _next,
+                                        "model": _fb_data.get("model"),
+                                        **(
+                                            {
+                                                "firewall_result": {
+                                                    **(firewall_meta or {}),
+                                                    **_fb_audit,
+                                                }
+                                            }
+                                            if _fb_audit
+                                            else {}
+                                        ),
+                                        **_fb_sr,
+                                    }
+                            except Exception:
+                                _next = next_fallback_provider(
+                                    _next, _fallback_attempted, api_keys
+                                )
+                                continue
+                except Exception:
+                    pass
+            return _err_resp
 
     # ------------------------------------------------------------------
     # ANTHROPIC (Messages API, non-OpenAI format)

@@ -10,7 +10,7 @@ dnspython>=2.6.0
 gtfs-realtime-bindings>=1.0.0
 protobuf>=4.0.0
 river>=0.21.0
-duckdb>=1.1.0
+duckdb>=1.5.4  # V4-05: R-Tree auto-enables on >=1.6.0 (duckdb-spatial #769 fixed)
 sqlite-vec>=0.1.9
 
 # K4 — Satellite Imagery Change Detection (Sentinel-2 COG window-read via GDAL wheels)
@@ -88,3 +88,9 @@ openpyxl>=3.1
 # onnxruntime>=1.16
 # optimum>=2.0
 # sentence-transformers>=3.0
+
+# Optional: V4-19 Predictive Analytics (LightGBM forecasting on snapshot time series)
+#   set WORLDBASE_PREDICTIVE=1 in backend/.env
+#   pip install lightgbm numpy
+# lightgbm>=4.0
+# numpy>=1.26

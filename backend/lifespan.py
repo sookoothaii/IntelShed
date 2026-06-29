@@ -23,6 +23,7 @@ import fusion_heatmap
 import node_sync
 import rag_memory
 import sanctions_bridge
+import snapshot_archiver
 import situations
 import stac_bridge
 from config import get_config as _cfg
@@ -677,6 +678,9 @@ def register_lifecycle(app) -> None:
         node_sync.init_node_db()
         node_sync.init_command_db()
         anomaly_river.init_river_db()
+        import anomaly_detector
+
+        anomaly_detector.init_anomaly_db()
         rag_memory.init_memory_db()
         import feed_drift
 
@@ -770,6 +774,14 @@ def register_lifecycle(app) -> None:
             wd.start("maritime_trajectory")
             wd.register("news_feeds_autopilot", _news_feeds_autopilot, 600.0)
             wd.start("news_feeds_autopilot")
+            # V4-09: Daily snapshot archiver (opt-in)
+            if snapshot_archiver._enabled():
+                wd.register(
+                    "snapshot_archiver",
+                    snapshot_archiver.snapshot_autopilot,
+                    float(snapshot_archiver._INTERVAL_HOURS * 3600),
+                )
+                wd.start("snapshot_archiver")
             wd.start_watchdog()
         else:
             asyncio.create_task(aircraft_routes.aircraft_warmup())
@@ -780,6 +792,12 @@ def register_lifecycle(app) -> None:
             asyncio.create_task(_feed_cache_autopilot())
             asyncio.create_task(_maritime_trajectory_maintenance())
             asyncio.create_task(_news_feeds_autopilot())
+            # V4-09: Daily snapshot archiver (opt-in)
+            if snapshot_archiver._enabled():
+                asyncio.create_task(snapshot_archiver.snapshot_autopilot())
+            # V4-23: Anomaly detection autopilot (opt-in)
+            if anomaly_detector._enabled():
+                asyncio.create_task(anomaly_detector.anomaly_autopilot())
         import ais_bridge
 
         ais_bridge.start_aisstream_collector()

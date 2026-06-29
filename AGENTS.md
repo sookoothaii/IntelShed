@@ -72,6 +72,8 @@ Unless the user says otherwise, prioritize:
 
 **Out of scope by default:** HAK_GAL LLM firewall — optional spare-parts HTTP bridge (`FIREWALL_HOST`, `:8001`); baseline guard is `prompt_guard.py` (0 VRAM). Do not assume full HAK_GAL stack runs or fits 16 GB VRAM. Doc: [`docs/FIREWALL.md`](docs/FIREWALL.md).
 
+**Track J (Demo & UX) shipped:** **J.3 Agent Swarm Visualizer** — `useAgentSwarm.ts` (pulsing Cesium entities per agent phase, subscribes to `AGENT_PHASE_EVENT`), `AgentLog.tsx` (scrolling console-style log, toggle visibility), `agentBus.ts` extended with `AGENT_PHASE_EVENT` + `dispatchAgentPhase()`, `useAgentBus.ts` handles `agent_phase` SSE messages, `GlobeLayerManager.tsx` integrates `useAgentSwarm`, `Globe.tsx` renders `AgentLog` overlay, `agent_orchestrator.py` publishes Synthesis/Critique/Revise phases via `_publish_phase()`. **J.1 Ask the Globe** — `globeActions.ts` (action types + executor: fly_to, toggle_layer, toggle_heatmap, set_vision), `intentMapper.ts` (rule-based NL→globe action mapper: 26 layer keyword rules, 5 vision modes, 45 builtin places, Nominatim geocoding fallback, fail-soft; anti-hallucination: keyword matching only, no LLM parsing), `GlobeChat.tsx` (semi-transparent chat overlay with FAB, message log, 8 suggestion chips, input field), `Globe.tsx` renders `GlobeChat` with flyTo/toggleLayer/setHeatmap/setVision props. Both: TypeScript 0 errors, 280/280 frontend tests passed.
+
 ---
 
 ## Briefing pipeline
@@ -224,6 +226,11 @@ On startup, `ais_bridge.start_aisstream_collector()` runs when `AISSTREAM_API_KE
 | **Backup** | `scripts/backup.ps1` — SQLite VACUUM INTO + DuckDB file copy + fusion parquet + subgraph JSON + TLE; `docs/BACKUP.md` restore guide |
 | **Structured logging** | `backend/structured_log.py` — `StructuredLogger` (JSON output, secret redaction), `get_logger()`; replaces `print()` in lifespan, bootstrap_env, mcp_server, ftm_connection, rag_memory, aircraft routes |
 | **Config central** | `backend/config.py` — `WorldBaseConfig` (Pydantic frozen), `get_config()` singleton with `@lru_cache`; fields for feed_ingest, briefing, entity_resolution, operator_region |
+| **Smart Model Router (V4-01)** | `backend/chat_model_router.py` — query complexity classifier (simple/factual/analytical), auto-selects provider from fallback chain (NVIDIA NIM → Groq → OpenRouter → Ollama); `WORLDBASE_SMART_ROUTER=0` (opt-in), `WORLDBASE_CLOUD_AI=0` (opt-in for cloud providers) |
+| **BGE-Reranker CUDA (V4-03)** | `backend/rag_rerank.py` — `CUDAExecutionProvider` support when `RAG_RERANK_DEVICE=cuda`, automatic CPU fallback; `active_provider` field in warmup status |
+| **FTS5 Global Search (V4-08)** | `backend/global_search.py` — unified `GET /api/search?q=...` across FtM entities, RAG chunks, SQLite entities, briefings; BM25 ranking with source weighting; `WORLDBASE_GLOBAL_SEARCH=0` (opt-in) |
+| **Daily Snapshot Archiver (V4-09)** | `backend/snapshot_archiver.py` — daily snapshots of entity/feed/briefing/fusion metrics as JSON files in `data/snapshots/`; manifest index; autopilot background loop; endpoints: `GET /api/snapshots`, `GET /api/snapshots/latest`, `GET /api/snapshots/{date}`, `POST /api/snapshots/run`; `WORLDBASE_SNAPSHOT_ARCHIVER=0` (opt-in), `WORLDBASE_SNAPSHOT_INTERVAL_HOURS=24` |
+| **Predictive Analytics (V4-19)** | `backend/predictive_analytics.py` — LightGBM (or linear regression fallback) forecasting on snapshot time series; 24h entity count forecast; FORECAST block in briefing; endpoints: `POST /api/predict/train`, `GET /api/predict/forecast`, `GET /api/predict/status`; `WORLDBASE_PREDICTIVE=0` (opt-in); optional deps: `lightgbm>=4.0`, `numpy>=1.26` |
 
 ---
 

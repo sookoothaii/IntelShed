@@ -941,6 +941,10 @@ async def orchestrate(
         block, resolved_route, trace["phases"], bb=bb
     )
     trace["phases"].append(synth_meta)
+    hud_delivered += await _publish_phase(
+        "Synthesis",
+        [f"chars={len(final_block)}"],
+    )
 
     # P5 — Critique-Refine (two-pass synthesis, opt-in)
     two_pass = two_pass_enabled() and _is_analyze_command(query)
@@ -948,11 +952,19 @@ async def orchestrate(
         try:
             gaps, critique_meta = await _critique_agent(final_block, bb=bb)
             trace["phases"].append(critique_meta)
+            hud_delivered += await _publish_phase(
+                "Critique",
+                [f"gaps={len(gaps)}"],
+            )
             if gaps:
                 revised_block, revise_meta = await _revise_synthesis(
                     final_block, gaps, query, resolved_route, bb=bb
                 )
                 trace["phases"].append(revise_meta)
+                hud_delivered += await _publish_phase(
+                    "Revise",
+                    [f"chars={len(revised_block)}"],
+                )
                 final_block = revised_block
         except Exception as exc:
             trace["phases"].append(

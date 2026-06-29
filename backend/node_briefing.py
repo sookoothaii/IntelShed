@@ -476,6 +476,8 @@ async def _generate_briefing_unlocked(
     satellite_change_digest: dict = {"enabled": False, "count": 0, "lines": []}
     domain_digest: dict = {"enabled": False, "count": 0, "lines": []}
     thai_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    forecast_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    anomaly_digest: dict = {"enabled": False, "count": 0, "lines": []}
     try:
         import darkweb_bridge
 
@@ -547,6 +549,22 @@ async def _generate_briefing_unlocked(
         pass
     if thai_digest:
         snap["thai_digest"] = thai_digest
+    try:
+        from predictive_analytics import gather_forecast_digest
+
+        forecast_digest = gather_forecast_digest()
+    except Exception:
+        pass
+    if forecast_digest:
+        snap["forecast_digest"] = forecast_digest
+    try:
+        from anomaly_detector import gather_anomaly_digest
+
+        anomaly_digest = await gather_anomaly_digest()
+    except Exception:
+        pass
+    if anomaly_digest:
+        snap["anomaly_digest"] = anomaly_digest
     digest = format_digest_sections(
         snap,
         alerts,
@@ -564,6 +582,8 @@ async def _generate_briefing_unlocked(
         satellite_change_digest=satellite_change_digest,
         domain_digest=domain_digest,
         thai_digest=thai_digest,
+        forecast_digest=forecast_digest,
+        anomaly_digest=anomaly_digest,
     )
     from briefing_agentic import run_briefing_agentic_loop
 

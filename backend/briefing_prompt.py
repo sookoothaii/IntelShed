@@ -206,6 +206,12 @@ def build_security_advisor_prompt(
         else:
             prompt += "  - No significant NDVI anomalies detected.\n"
         prompt += "\n"
+    forecast = digest.get("forecast") or {}
+    if forecast.get("enabled") and forecast.get("lines"):
+        prompt += "FORECAST (Predictive Analytics, next 24h):\n"
+        for line in forecast["lines"]:
+            prompt += f"  - {line}\n"
+        prompt += "\n"
     prompt += (
         "Edge nodes:\n"
         + "\n".join(digest["nodes"])

@@ -32,6 +32,11 @@ _RO_CONN_LOCAL = threading.local()
 
 # Whether the DuckDB spatial extension is loaded (enables R-Tree index + ST_Within)
 _SPATIAL_LOADED: bool = False
+# Whether LOAD spatial poisoned the connection — if so, never try again
+_SPATIAL_POISONED: bool = False
+# Recovery attempt counter — capped to prevent infinite recovery loops
+_RECOVERY_ATTEMPTS: int = 0
+_MAX_RECOVERY_ATTEMPTS: int = 3
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +79,7 @@ def _configure_connection(con: duckdb.DuckDBPyConnection) -> None:
     DuckDB does not support SQLite ``PRAGMA journal_mode`` / ``locking_mode``.
     Do not open ``entities.duckdb`` from a second process while the API runs.
     """
-    global _SPATIAL_LOADED
+    global _SPATIAL_LOADED, _SPATIAL_POISONED
     try:
         con.execute("SET checkpoint_threshold='16MB'")
     except Exception:
@@ -82,6 +87,9 @@ def _configure_connection(con: duckdb.DuckDBPyConnection) -> None:
     # Load the spatial extension for R-Tree index + ST_Within/ST_Intersects.
     # Fail-soft: if the extension is unavailable (e.g. air-gapped Docker),
     # queries fall back to lat/lon BETWEEN filtering.
+    if _SPATIAL_POISONED:
+        _SPATIAL_LOADED = False
+        return
     if os.getenv("WORLDBASE_DUCKDB_SPATIAL", "1").strip().lower() in (
         "0",
         "false",
@@ -96,6 +104,9 @@ def _configure_connection(con: duckdb.DuckDBPyConnection) -> None:
     except Exception as exc:
         log.warning("duckdb_spatial_extension_unavailable", error=str(exc)[:200])
         _SPATIAL_LOADED = False
+        if _is_invalidated_error(exc):
+            _SPATIAL_POISONED = True
+            log.warning("duckdb_spatial_poisoned", error=str(exc)[:200])
 
 
 def spatial_available() -> bool:
@@ -161,16 +172,25 @@ def store_status(*, _recover: bool = True) -> dict[str, Any]:
 
 def init_store() -> bool:
     """Idempotent: open the connection and ensure the schema exists (fail-soft)."""
-    global _CONN, _INIT_ERROR
+    global _CONN, _INIT_ERROR, _RECOVERY_ATTEMPTS
+    if _RECOVERY_ATTEMPTS >= _MAX_RECOVERY_ATTEMPTS:
+        _INIT_ERROR = (
+            _INIT_ERROR or f"recovery exhausted after {_RECOVERY_ATTEMPTS} attempts"
+        )
+        return False
     try:
         with _LOCK:
             con = _conn()
             con.execute("SELECT 1").fetchone()
         _INIT_ERROR = None
+        _RECOVERY_ATTEMPTS = 0
         return True
     except Exception as exc:
         if _is_invalidated_error(exc):
-            log.warning("ftm_init_probe_failed", error=str(exc))
+            _RECOVERY_ATTEMPTS += 1
+            log.warning(
+                "ftm_init_probe_failed", error=str(exc), attempt=_RECOVERY_ATTEMPTS
+            )
             with _LOCK:
                 if _CONN is not None:
                     try:

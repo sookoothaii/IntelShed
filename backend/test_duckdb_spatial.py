@@ -273,5 +273,183 @@ class DuckDBSpatialTests(unittest.TestCase):
         )
 
 
+class DuckDBVersionGateTests(unittest.TestCase):
+    """Tests for V4-05 version-gated R-Tree auto-enable (duckdb-spatial #769)."""
+
+    def test_get_duckdb_version_returns_tuple(self):
+        """_get_duckdb_version returns a parseable (major, minor, patch) tuple."""
+        import ftm_schema
+
+        # Use a mock connection that returns a fixed version string
+        class MockConn:
+            def execute(self, q):
+                class _Result:
+                    def fetchone(self):
+                        return ("1.5.4",)
+
+                return _Result()
+
+        version = ftm_schema._get_duckdb_version(MockConn())
+        self.assertEqual(version, (1, 5, 4))
+
+    def test_get_duckdb_version_parses_1_6_0(self):
+        """Version parser handles 1.6.0 correctly (R-Tree safe threshold)."""
+        import ftm_schema
+
+        class MockConn:
+            def execute(self, q):
+                class _Result:
+                    def fetchone(self):
+                        return ("1.6.0",)
+
+                return _Result()
+
+        version = ftm_schema._get_duckdb_version(MockConn())
+        self.assertEqual(version, (1, 6, 0))
+        self.assertGreaterEqual(version, (1, 6, 0))
+
+    def test_get_duckdb_version_fallback_on_error(self):
+        """Version parser returns (0,0,0) when both SQL and __version__ fail."""
+        import ftm_schema
+
+        class MockConn:
+            def execute(self, q):
+                raise Exception("connection closed")
+
+        # Also make duckdb.__version__ inaccessible
+        import unittest.mock as mock
+
+        with mock.patch.dict("sys.modules", {"duckdb": None}):
+            version = ftm_schema._get_duckdb_version(MockConn())
+        self.assertEqual(version, (0, 0, 0))
+
+    def test_rtree_auto_enable_on_1_6_plus(self):
+        """R-Tree should be auto-enabled when DuckDB >= 1.6.0 (no env flag needed)."""
+        import ftm_schema
+        import unittest.mock as mock
+
+        rtree_created = False
+
+        class MockConn:
+            def execute(self, q):
+                if "duckdb_version" in q:
+
+                    class _Result:
+                        def fetchone(self):
+                            return ("1.6.0",)
+
+                    return _Result()
+                if "information_schema.columns" in q:
+
+                    class _Result:
+                        def fetchall(self):
+                            return [
+                                ("id",),
+                                ("schema",),
+                                ("caption",),
+                                ("lat",),
+                                ("lon",),
+                                ("geom",),
+                            ]
+
+                    return _Result()
+                if "RTREE" in q.upper():
+                    nonlocal rtree_created
+                    rtree_created = True
+                return None
+
+        with mock.patch("ftm_connection.spatial_available", return_value=True):
+            ftm_schema._ensure_spatial_geom_index(MockConn())
+        self.assertTrue(
+            rtree_created, "R-Tree index should be created on DuckDB >= 1.6.0"
+        )
+
+    def test_rtree_not_auto_enabled_on_1_5(self):
+        """R-Tree should NOT be auto-enabled on DuckDB 1.5.x without env flag."""
+        import ftm_schema
+        import unittest.mock as mock
+
+        rtree_created = False
+
+        class MockConn:
+            def execute(self, q):
+                if "duckdb_version" in q:
+
+                    class _Result:
+                        def fetchone(self):
+                            return ("1.5.4",)
+
+                    return _Result()
+                if "RTREE" in q.upper():
+                    nonlocal rtree_created
+                    rtree_created = True
+                if "information_schema.columns" in q:
+
+                    class _Result:
+                        def fetchall(self):
+                            return [
+                                ("id",),
+                                ("schema",),
+                                ("caption",),
+                                ("lat",),
+                                ("lon",),
+                            ]
+
+                    return _Result()
+                return None
+
+        os.environ.pop("WORLDBASE_DUCKDB_RTREE", None)
+        with mock.patch("ftm_connection.spatial_available", return_value=True):
+            ftm_schema._ensure_spatial_geom_index(MockConn())
+        self.assertFalse(
+            rtree_created, "R-Tree should NOT be auto-created on DuckDB 1.5.x"
+        )
+
+    def test_rtree_force_enabled_on_1_5_with_env_flag(self):
+        """R-Tree should be created on 1.5.x when WORLDBASE_DUCKDB_RTREE=1."""
+        import ftm_schema
+        import unittest.mock as mock
+
+        rtree_created = False
+
+        class MockConn:
+            def execute(self, q):
+                if "duckdb_version" in q:
+
+                    class _Result:
+                        def fetchone(self):
+                            return ("1.5.4",)
+
+                    return _Result()
+                if "information_schema.columns" in q:
+
+                    class _Result:
+                        def fetchall(self):
+                            return [
+                                ("id",),
+                                ("schema",),
+                                ("caption",),
+                                ("lat",),
+                                ("lon",),
+                                ("geom",),
+                            ]
+
+                    return _Result()
+                if "RTREE" in q.upper():
+                    nonlocal rtree_created
+                    rtree_created = True
+                return None
+
+        os.environ["WORLDBASE_DUCKDB_RTREE"] = "1"
+        try:
+            with mock.patch("ftm_connection.spatial_available", return_value=True):
+                ftm_schema._ensure_spatial_geom_index(MockConn())
+        finally:
+            os.environ.pop("WORLDBASE_DUCKDB_RTREE", None)
+        self.assertTrue(
+            rtree_created, "R-Tree should be created with force flag on 1.5.x"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

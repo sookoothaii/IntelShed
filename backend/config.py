@@ -135,6 +135,10 @@ class WorldBaseConfig(BaseModel):
     celery_broker_url: str = "redis://redis:6379/0"
     celery_result_backend: str = "redis://redis:6379/1"
     celery_backend_url: str = "http://127.0.0.1:8002"
+    smart_router_enabled: bool = False
+    cloud_ai_enabled: bool = False
+    anomaly_detection_enabled: bool = False
+    briefing_anomaly: bool = False
 
     @classmethod
     def from_env(cls) -> Self:
@@ -380,6 +384,12 @@ class WorldBaseConfig(BaseModel):
             celery_backend_url=os.getenv(
                 "WORLDBASE_BACKEND_URL", "http://127.0.0.1:8002"
             ),
+            smart_router_enabled=_truthy(os.getenv("WORLDBASE_SMART_ROUTER", "0")),
+            cloud_ai_enabled=_truthy(os.getenv("WORLDBASE_CLOUD_AI", "0")),
+            anomaly_detection_enabled=_truthy(
+                os.getenv("WORLDBASE_ANOMALY_DETECTION", "0")
+            ),
+            briefing_anomaly=_truthy(os.getenv("WORLDBASE_BRIEFING_ANOMALY", "0")),
         )
 
 

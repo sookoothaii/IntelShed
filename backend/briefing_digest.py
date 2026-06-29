@@ -535,6 +535,18 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
                 )
             )
 
+    anomaly_digest = snap.get("anomaly_digest") or {}
+    if anomaly_digest.get("enabled"):
+        for line in (anomaly_digest.get("lines") or [])[:5]:
+            items.append(
+                _line(
+                    line.get("severity", "medium"),
+                    line.get("text", ""),
+                    "global",
+                    sources=["anomaly_detector"],
+                )
+            )
+
     for row in (snap.get("gdelt_geo_local", {}) or {}).get("events", [])[:12]:
         name = row.get("name") or "GDELT signal"
         lat, lon = row.get("lat"), row.get("lon")
@@ -1025,6 +1037,16 @@ def build_watch_items(
         except Exception:
             pass
 
+    anomaly_digest = snap.get("anomaly_digest") or {}
+    if anomaly_digest.get("enabled"):
+        try:
+            from anomaly_detector import build_anomaly_watch_items
+
+            for item in build_anomaly_watch_items(anomaly_digest):
+                candidates.append(item)
+        except Exception:
+            pass
+
     satellite_digest = snap.get("satellite_change_digest") or {}
     if satellite_digest.get("enabled"):
         try:
@@ -1167,6 +1189,8 @@ def format_digest_sections(
     satellite_change_digest: dict[str, Any] | None = None,
     domain_digest: dict[str, Any] | None = None,
     thai_digest: dict[str, Any] | None = None,
+    forecast_digest: dict[str, Any] | None = None,
+    anomaly_digest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
@@ -1313,5 +1337,7 @@ def format_digest_sections(
         "thai": thai_digest or {"enabled": False, "count": 0, "lines": []},
         "satellite_change": satellite_change_digest
         or {"enabled": False, "count": 0, "lines": []},
+        "forecast": forecast_digest or {"enabled": False, "count": 0, "lines": []},
+        "anomaly": anomaly_digest or {"enabled": False, "count": 0, "lines": []},
         "_gdelt_collected": gdelt_collected,
     }

@@ -20,6 +20,7 @@ def register_routers(app) -> None:
     import agent_bus
     import ais_bridge
     import aircraft_trails
+    import anomaly_detector
     import anomaly_river
     import blitzortung_bridge
     import cams_bridge
@@ -44,6 +45,7 @@ def register_routers(app) -> None:
     import fusion_heatmap
     import gdelt_bridge
     import gibs_bridge
+    import global_search
     import globe_snapshot
     import gtfs_ingestor
     import humanitarian_bridge
@@ -62,11 +64,13 @@ def register_routers(app) -> None:
     import outages_bridge
     import pegel_bridge
     import pmtiles_bridge
+    import predictive_analytics
     import rag_memory
     import sanctions_bridge
     import satellite_change
     import situations
     import smard_bridge
+    import snapshot_archiver
     import stac_bridge
     import stock_bridge
     import telegram_bridge
@@ -110,8 +114,10 @@ def register_routers(app) -> None:
     app.include_router(pegel_bridge.router)
     app.include_router(flowsint_bridge.router)
     app.include_router(gdelt_bridge.router)
+    app.include_router(global_search.router)
     app.include_router(cap_bridge.router)
     app.include_router(anomaly_river.router)
+    app.include_router(anomaly_detector.router)
     app.include_router(rag_memory.router)
     app.include_router(duckdb_fusion.router)
     app.include_router(gibs_bridge.router)
@@ -125,6 +131,8 @@ def register_routers(app) -> None:
     app.include_router(aircraft_trails.router)
     app.include_router(fusion_heatmap.router)
     app.include_router(situations.router)
+    app.include_router(snapshot_archiver.router)
+    app.include_router(predictive_analytics.router)
     app.include_router(insights.router)
     app.include_router(ftm_store.router)
     app.include_router(intel_ingest.router)

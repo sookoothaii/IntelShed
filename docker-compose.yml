@@ -60,6 +60,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - worldbase-db:/data
+      - ./data/pmtiles:/data/pmtiles:ro
     # Backend is NOT published to the host: it is reachable only inside the
     # docker network (Caddy proxies it). This is the most locked-down posture
     # and also sidesteps the Windows loopback-bind quirk on 127.0.0.1:8002.

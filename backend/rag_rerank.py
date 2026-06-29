@@ -1,16 +1,19 @@
 """BGE cross-encoder reranker after hybrid RRF (CPU-first).
 
 I7 — ONNX int8 quantization backend with PyTorch fallback.
+V4-03 — CUDA Execution Provider support (RAG_RERANK_DEVICE=cuda).
 
 Backend chain (tried in order):
   1. ONNX  — onnxruntime int8 quantized model (cold start ~5s, inference ~20ms/pair)
+     - CUDA EP when RAG_RERANK_DEVICE=cuda (~5x faster inference on GPU)
+     - CPU EP as fallback (always available)
   2. Torch — transformers AutoModelForSequenceClassification (cold start ~60s)
   3. RRF   — no rerank, hybrid_rrf scores unchanged
 
 Environment variables:
   RAG_RERANK=1              — enable reranking
   RAG_RERANK_MODEL          — HF model name (default: BAAI/bge-reranker-v2-m3)
-  RAG_RERANK_DEVICE         — torch device (default: cpu)
+  RAG_RERANK_DEVICE         — device: cpu | cuda (default: cpu)
   RAG_RERANK_BACKEND=onnx   — preferred backend: onnx | torch | auto
   RAG_RERANK_WARMUP=1       — warm model during _stack_warmup()
   RAG_RERANK_ONNX_DIR       — directory for ONNX model cache (default: data/models/reranker_onnx)
@@ -47,6 +50,7 @@ _backend_active: str | None = None  # "onnx" | "torch" | None
 _warmup_status: dict = {
     "state": "idle",  # idle | warming | ready | failed
     "backend": None,  # "onnx" | "torch" | None
+    "provider": None,  # "CUDAExecutionProvider" | "CPUExecutionProvider" | None
     "elapsed_s": 0.0,
     "error": None,
     "model": _RERANK_MODEL,
@@ -116,13 +120,27 @@ class OnnxReranker:
         if not onnx_file.exists():
             raise FileNotFoundError(f"ONNX export failed — {onnx_file} not found")
 
+        # Build provider list — CUDA when requested, CPU always as fallback
+        providers: list[str] = []
+        if _RERANK_DEVICE.lower() == "cuda":
+            providers.append("CUDAExecutionProvider")
+            print(
+                "[RAG] CUDA Execution Provider requested for ONNX reranker", flush=True
+            )
+        providers.append("CPUExecutionProvider")
+
         print(f"[RAG] Loading ONNX reranker from {onnx_file}...", flush=True)
         self.session = ort.InferenceSession(
             str(onnx_file),
-            providers=["CPUExecutionProvider"],
+            providers=providers,
+        )
+        # Log which provider was actually used
+        actual_providers = self.session.get_providers()
+        self.active_provider = actual_providers[0] if actual_providers else "unknown"
+        print(
+            f"[RAG] ONNX reranker ready (provider: {self.active_provider}).", flush=True
         )
         self.tokenizer = AutoTokenizer.from_pretrained(str(self.onnx_dir))
-        print("[RAG] ONNX reranker ready.", flush=True)
 
     def _export_quantized(self) -> None:
         """Export HF model to ONNX and apply int8 dynamic quantization."""
@@ -134,10 +152,15 @@ class OnnxReranker:
 
         # Export base ONNX
         print(f"[RAG] Exporting {_RERANK_MODEL} to ONNX...", flush=True)
+        export_provider = (
+            "CUDAExecutionProvider"
+            if _RERANK_DEVICE.lower() == "cuda"
+            else "CPUExecutionProvider"
+        )
         model = ORTModelForSequenceClassification.from_pretrained(
             _RERANK_MODEL,
             export=True,
-            provider="CPUExecutionProvider",
+            provider=export_provider,
         )
         model.save_pretrained(str(self.onnx_dir))
 
@@ -245,7 +268,8 @@ def _get_model():
         try:
             _model = OnnxReranker(_RERANK_MODEL, _ONNX_DIR)
             _backend_active = "onnx"
-            _set_warmup("ready", backend="onnx")
+            _provider = getattr(_model, "active_provider", None)
+            _set_warmup("ready", backend="onnx", provider=_provider)
             return _model
         except Exception as e:
             errors.append(f"onnx: {e}")

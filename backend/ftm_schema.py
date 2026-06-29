@@ -186,15 +186,19 @@ def _ensure_spatial_geom_index(con: duckdb.DuckDBPyConnection) -> None:
         invalidates the entire DB connection on writes. The ``geom`` column
         is still added and populated for future use when the bug is fixed.
         Set ``WORLDBASE_DUCKDB_RTREE=1`` to force-enable the index.
+        On DuckDB >= 1.6.0, R-Tree is auto-enabled (bug fixed).
     """
     from ftm_connection import spatial_available
 
     if not spatial_available():
         return
 
-    # Allow explicit opt-in for testing / future DuckDB versions
+    # Determine if R-Tree is safe for this DuckDB version
     force_rtree = os.environ.get("WORLDBASE_DUCKDB_RTREE", "0") == "1"
-    if force_rtree:
+    _duckdb_version = _get_duckdb_version(con)
+    rtree_safe = _duckdb_version >= (1, 6, 0)
+
+    if force_rtree or rtree_safe:
         _create_rtree_index(con)
         return
 
@@ -261,6 +265,29 @@ def _create_rtree_index(con: duckdb.DuckDBPyConnection) -> None:
 def _drop_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
     con.execute("DROP INDEX IF EXISTS idx_edges_source")
     con.execute("DROP INDEX IF EXISTS idx_edges_target")
+
+
+def _get_duckdb_version(con: duckdb.DuckDBPyConnection) -> tuple[int, int, int]:
+    """Parse DuckDB library version into a comparable tuple.
+
+    Returns (major, minor, patch). Falls back to (0, 0, 0) on error.
+    """
+    try:
+        version_str = con.execute("SELECT duckdb_version()").fetchone()[0]
+        parts = version_str.split(".")
+        return (int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
+    except Exception:
+        try:
+            import duckdb as _duckdb
+
+            parts = _duckdb.__version__.split(".")
+            return (
+                int(parts[0]),
+                int(parts[1]),
+                int(parts[2]) if len(parts) > 2 else 0,
+            )
+        except Exception:
+            return (0, 0, 0)
 
 
 # ---------------------------------------------------------------------------

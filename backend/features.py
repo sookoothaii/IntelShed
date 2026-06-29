@@ -209,6 +209,13 @@ _KNOWN_FLAGS: list[str] = [
     "briefing_thai",
     "onion_dir",
     "briefing_onion_dir",
+    "smart_router",
+    "cloud_ai",
+    "global_search",
+    "snapshot_archiver",
+    "predictive",
+    "anomaly_detection",
+    "briefing_anomaly",
 ]
 
 
