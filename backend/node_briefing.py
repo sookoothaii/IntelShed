@@ -473,6 +473,7 @@ async def _generate_briefing_unlocked(
     maritime_anomaly_digest: dict = {"enabled": False, "count": 0, "lines": []}
     spaceweather_digest: dict = {"enabled": False, "count": 0, "lines": []}
     identity_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    satellite_change_digest: dict = {"enabled": False, "count": 0, "lines": []}
     try:
         import darkweb_bridge
 
@@ -503,6 +504,12 @@ async def _generate_briefing_unlocked(
         spaceweather_digest = gather_spaceweather_digest(snap)
     except Exception:
         pass
+    try:
+        from satellite_change import gather_satellite_change_digest
+
+        satellite_change_digest = await gather_satellite_change_digest()
+    except Exception:
+        pass
 
     if ransomware_digest:
         snap["ransomware_digest"] = ransomware_digest
@@ -512,6 +519,8 @@ async def _generate_briefing_unlocked(
         snap["maritime_anomaly_digest"] = maritime_anomaly_digest
     if spaceweather_digest:
         snap["spaceweather_digest"] = spaceweather_digest
+    if satellite_change_digest:
+        snap["satellite_change_digest"] = satellite_change_digest
     try:
         from identity_osint import gather_identity_digest
 
@@ -534,6 +543,7 @@ async def _generate_briefing_unlocked(
         maritime_anomaly_digest=maritime_anomaly_digest,
         spaceweather_digest=spaceweather_digest,
         identity_digest=identity_digest,
+        satellite_change_digest=satellite_change_digest,
     )
     from briefing_agentic import run_briefing_agentic_loop
 

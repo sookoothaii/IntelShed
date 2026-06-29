@@ -52,6 +52,7 @@ def build_security_advisor_prompt(
             "GLOBAL — Rest der Welt, der für informierte Bewohner relevant bleibt\n"
             "CYBER & INFRA — KEV, Nodes, Weltraumwetter, Märkte, Luftqualität wenn vorhanden\n"
             "MARITIME ANOMALIES — AIS Mustererkennung (immer nennen, auch wenn keine Anomalien)\n"
+            "SATELLITE CHANGE DETECTION — Sentinel-2 NDVI-Veränderung (immer nennen, auch wenn keine Anomalien)\n"
             "RECOMMENDATION — 1–2 Sätze: ruhig, umsetzbar, keine Panik\n"
         )
         no_data_clause = (
@@ -70,7 +71,7 @@ def build_security_advisor_prompt(
         protocol_label = "Protokoll:"
         final_reminder = (
             "WICHTIG: Schreibe den gesamten Protokoll-Text auf Deutsch. "
-            "Behalte die Labels LOCAL / REGION / GLOBAL / CYBER & INFRA / MARITIME ANOMALIES / RECOMMENDATION "
+            "Behalte die Labels LOCAL / REGION / GLOBAL / CYBER & INFRA / MARITIME ANOMALIES / SATELLITE CHANGE DETECTION / RECOMMENDATION "
             "wörtlich auf Englisch — der Fließtext darunter MUSS deutsch sein."
         )
     else:
@@ -80,6 +81,7 @@ def build_security_advisor_prompt(
             "GLOBAL — rest of the world that still matters to an informed resident\n"
             "CYBER & INFRA — KEV, nodes, space weather, markets, air quality if present\n"
             "MARITIME ANOMALIES — AIS pattern-of-life (always include, even if no anomalies)\n"
+            "SATELLITE CHANGE DETECTION — Sentinel-2 NDVI change (always include, even if no anomalies)\n"
             "RECOMMENDATION — 1–2 sentences: calm, actionable, no panic\n"
         )
         no_data_clause = (
@@ -182,6 +184,15 @@ def build_security_advisor_prompt(
                 prompt += f"  - {line.get('text', line)}\n"
         else:
             prompt += "  - No anomalies detected (threshold 0.6).\n"
+        prompt += "\n"
+    satellite = digest.get("satellite_change") or {}
+    if satellite.get("enabled"):
+        prompt += "SATELLITE CHANGE DETECTION (Sentinel-2 NDVI, 30-day window):\n"
+        if satellite.get("lines"):
+            for line in satellite["lines"]:
+                prompt += f"  - {line.get('text', line)}\n"
+        else:
+            prompt += "  - No significant NDVI anomalies detected.\n"
         prompt += "\n"
     prompt += (
         "Edge nodes:\n"

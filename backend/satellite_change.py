@@ -50,8 +50,14 @@ _ENABLED = os.getenv("WORLDBASE_SATELLITE_CHANGE", "1").strip().lower() in {
     "on",
 }
 
+_STAC_SOURCE = os.getenv("WORLDBASE_STAC_SOURCE", "earthsearch").strip().lower()
+
+_STAC_URLS: dict[str, str] = {
+    "earthsearch": "https://earth-search.aws.element84.com/v1",
+    "copernicus": "https://catalogue.dataspace.copernicus.eu/stac",
+}
 _STAC_URL = os.getenv(
-    "STAC_API_URL", "https://earth-search.aws.element84.com/v1"
+    "STAC_API_URL", _STAC_URLS.get(_STAC_SOURCE, _STAC_URLS["earthsearch"])
 ).rstrip("/")
 _UA = {"User-Agent": "WorldBase/1.0 (research dashboard; +https://github.com/local)"}
 
@@ -581,6 +587,234 @@ async def satellite_change(
     return result
 
 
+@router.get("/ndvi/{region}")
+async def satellite_ndvi(
+    region: str,
+    date: str | None = Query(
+        None, description="ISO date for the epoch (default: today)"
+    ),
+    cloud_cover_max: int = Query(25, ge=0, le=100, description="Max cloud cover %"),
+    resolution: int = Query(
+        60, ge=10, le=500, description="Target pixel size in meters"
+    ),
+    collection: str = Query("sentinel-2-l2a", description="STAC collection id"),
+    window_days: int = Query(
+        30, ge=1, le=180, description="Search window around the target date"
+    ),
+):
+    """Single-epoch NDVI statistics for a region preset.
+
+    Returns mean, std, min, max, valid pixel count, and scene metadata.
+    Public EarthSearch or Copernicus STAC COGs are used; no API key required.
+    """
+    if not _ENABLED:
+        raise HTTPException(
+            503,
+            "satellite change detection disabled (set WORLDBASE_SATELLITE_CHANGE=1)",
+        )
+    if not _RASTERIO_AVAILABLE:
+        raise HTTPException(
+            503,
+            f"rasterio/GDAL not available: {_RASTERIO_IMPORT_ERROR}",
+        )
+
+    bbox_arr = _resolve_bbox(None, region)
+    now = datetime.now(timezone.utc)
+    target = _parse_iso_date(date, now)
+
+    params = {
+        "bbox": bbox_arr,
+        "region": region,
+        "date": target.isoformat(),
+        "index": "ndvi",
+        "cloud_cover_max": cloud_cover_max,
+        "resolution": resolution,
+        "collection": collection,
+        "window_days": window_days,
+    }
+    cache_key = _cache_key(params)
+    cached = _RESULT_CACHE.get(cache_key)
+    if cached and (time.time() - cached[0]) < _RESULT_CACHE_TTL:
+        return cached[1]
+
+    try:
+        items = await _stac_search(
+            bbox_arr,
+            collection,
+            target - timedelta(days=window_days),
+            target + timedelta(days=3),
+            cloud_cover_max,
+        )
+        scene = _pick_best_scene(items, target)
+        if not scene:
+            raise HTTPException(
+                503,
+                f"could not find suitable cloud-free scene for {region}",
+            )
+        result = await asyncio.to_thread(_run_ndvi_sync, params, scene)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            503,
+            f"NDVI computation failed: {exc}",
+        ) from exc
+
+    result["cached"] = False
+    result["cached_at"] = datetime.now(timezone.utc).isoformat()
+    _RESULT_CACHE[cache_key] = (time.time(), result)
+    return result
+
+
+def _run_ndvi_sync(params: dict[str, Any], scene: dict) -> dict:
+    """Synchronous NDVI computation for a single scene (run in thread)."""
+    bbox = params["bbox"]
+    resolution = params["resolution"]
+
+    band_cfg = _INDEX_BANDS["ndvi"]
+    red_href = _href_for_band(scene, band_cfg["a"])
+    nir_href = _href_for_band(scene, band_cfg["b"])
+    if not red_href or not nir_href:
+        raise HTTPException(
+            503,
+            "scene assets missing required bands for NDVI",
+        )
+
+    center_lon = (bbox[0] + bbox[2]) / 2.0
+    center_lat = (bbox[1] + bbox[3]) / 2.0
+    dst_crs = _utm_epsg(center_lon, center_lat)
+    dst_bounds = warp.transform_bounds("EPSG:4326", dst_crs, *bbox)
+
+    red, _ = _read_band_aoi(red_href, dst_crs, dst_bounds, resolution)
+    nir, _ = _read_band_aoi(nir_href, dst_crs, dst_bounds, resolution)
+    ndvi = _compute_index(red, nir)
+
+    valid = np.isfinite(ndvi)
+    valid_count = int(valid.sum())
+    if valid_count == 0:
+        return {
+            "region": params.get("region", "unknown"),
+            "scene_id": scene.get("id", "unknown"),
+            "valid_pixels": 0,
+            "mean": None,
+            "std": None,
+            "min": None,
+            "max": None,
+            "histogram": [],
+            "error": "no valid pixels",
+        }
+
+    vals = ndvi[valid]
+    hist_bins = np.linspace(-1, 1, 21)
+    hist, _ = np.histogram(vals, bins=hist_bins)
+    scene_id = scene.get("id", "unknown")
+    props = scene.get("properties") or {}
+    return {
+        "region": params.get("region", "unknown"),
+        "scene_id": scene_id,
+        "scene_datetime": props.get("datetime"),
+        "cloud_cover": props.get("eo:cloud_cover"),
+        "valid_pixels": valid_count,
+        "mean": round(float(np.mean(vals)), 4),
+        "std": round(float(np.std(vals)), 4),
+        "min": round(float(np.min(vals)), 4),
+        "max": round(float(np.max(vals)), 4),
+        "histogram": [
+            {"bin_low": round(float(hist_bins[i]), 2), "count": int(hist[i])}
+            for i in range(len(hist))
+        ],
+        "bbox": bbox,
+        "crs": dst_crs,
+        "resolution": resolution,
+    }
+
+
+async def gather_satellite_change_digest() -> dict:
+    """Gather satellite change detection for briefing integration.
+
+    Runs change detection for the operator region (30-day window) and
+    returns a digest with anomaly lines for the briefing prompt.
+    Fail-soft: returns disabled digest on any error.
+    """
+    if not _ENABLED or not _RASTERIO_AVAILABLE:
+        return {"enabled": False, "count": 0, "lines": []}
+
+    region = os.getenv("WORLDBASE_OPERATOR_REGION", "thailand").strip().lower()
+    if region not in _REGION_PRESETS:
+        return {"enabled": False, "count": 0, "lines": []}
+
+    cache_key = _cache_key({"briefing": True, "region": region})
+    cached = _RESULT_CACHE.get(cache_key)
+    if cached and (time.time() - cached[0]) < _RESULT_CACHE_TTL:
+        return cached[1]
+
+    try:
+        bbox_arr = list(_REGION_PRESETS[region])
+        now = datetime.now(timezone.utc)
+        before_target = now - timedelta(days=30)
+        after_target = now
+
+        before_scene, after_scene = await _search_best_scenes(
+            bbox_arr,
+            before_target,
+            after_target,
+            "sentinel-2-l2a",
+            25,
+            30,
+        )
+        params = {
+            "bbox": bbox_arr,
+            "before": before_target,
+            "after": after_target,
+            "index": "ndvi",
+            "threshold": 0.2,
+            "cloud_cover_max": 25,
+            "min_area_px": 10,
+            "resolution": 60,
+            "collection": "sentinel-2-l2a",
+            "window_days": 30,
+        }
+        result = await asyncio.to_thread(
+            _run_change_detection_sync, params, before_scene, after_scene
+        )
+
+        features = result.get("features") or []
+        lines: list[dict] = []
+        for f in features[:5]:
+            props = f.get("properties") or {}
+            cls = props.get("class", "unknown")
+            mean_delta = props.get("mean_delta", 0)
+            px = props.get("pixel_count", 0)
+            conf = props.get("confidence", 0)
+            direction = "increase" if cls == "increase" else "decrease"
+            lines.append(
+                {
+                    "text": (
+                        f"NDVI {direction} Δ{mean_delta:+.3f} "
+                        f"({px} px, conf {conf:.0%}) — {region}"
+                    ),
+                    "class": cls,
+                    "mean_delta": mean_delta,
+                    "pixel_count": px,
+                    "confidence": conf,
+                    "region": region,
+                }
+            )
+
+        digest = {
+            "enabled": True,
+            "count": len(features),
+            "lines": lines,
+            "region": region,
+            "before_scene": result.get("properties", {}).get("before_scene"),
+            "after_scene": result.get("properties", {}).get("after_scene"),
+        }
+        _RESULT_CACHE[cache_key] = (time.time(), digest)
+        return digest
+    except Exception:
+        return {"enabled": False, "count": 0, "lines": []}
+
+
 @router.get("/health")
 async def satellite_health():
     """Quick status check: is rasterio available and the feature enabled?"""
@@ -588,5 +822,7 @@ async def satellite_health():
         "enabled": _ENABLED,
         "rasterio_available": _RASTERIO_AVAILABLE,
         "rasterio_error": _RASTERIO_IMPORT_ERROR,
+        "stac_source": _STAC_SOURCE,
+        "stac_url": _STAC_URL,
         "collections": ["sentinel-2-l2a", "sentinel-2-c1-l2a"],
     }

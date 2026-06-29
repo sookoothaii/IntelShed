@@ -73,6 +73,8 @@ services:
       args:
         VITE_CESIUM_ION_TOKEN: ${VITE_CESIUM_ION_TOKEN:-}
         VITE_FLOWSINT_URL: ${VITE_FLOWSINT_URL:-http://localhost:5173}
+        VITE_WORLDBASE_API_KEY: ${VITE_WORLDBASE_API_KEY:-}
+        VITE_WORLDBASE_AGENT_BUS: ${VITE_WORLDBASE_AGENT_BUS:-}
     image: worldbase-web:local
     depends_on:
       - backend

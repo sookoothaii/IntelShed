@@ -382,6 +382,7 @@ type GlobeLayers = {
   osint: boolean
   intelFt: boolean
   darkweb: boolean
+  satelliteChange: boolean
 }
 
 type LayerKey = keyof GlobeLayers
@@ -582,6 +583,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       osint: true,
       intelFt: false,
       darkweb: false,
+      satelliteChange: false,
     },
     collapsed: { motion: false, geo: false, env: false, infra: true, intel: true },
     trails: false,
@@ -616,6 +618,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       osint: false,
       intelFt: false,
       darkweb: false,
+      satelliteChange: false,
     },
     collapsed: { motion: true, geo: false, env: true, infra: false, intel: true },
     trails: false,
@@ -650,6 +653,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       osint: true,
       intelFt: true,
       darkweb: true,
+      satelliteChange: false,
     },
     collapsed: { motion: true, geo: true, env: true, infra: true, intel: false },
     trails: false,
@@ -684,6 +688,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       osint: true,
       intelFt: true,
       darkweb: true,
+      satelliteChange: false,
     },
     collapsed: { motion: false, geo: false, env: false, infra: false, intel: false },
     trails: true,
@@ -961,7 +966,7 @@ export default function Globe({
   useEffect(() => { trailsEnabledRef.current = trailsEnabled }, [trailsEnabled])
   const timelineRef = useRef({ scrubT: 1, hours: 24 })
   const [layers, setLayers] = useState<GlobeLayers>(
-    () => savedGlobe?.layers ?? { ...globeDefaults.layers },
+    () => ({ ...globeDefaults.layers, ...savedGlobe?.layers }),
   )
 
   useEffect(() => {
@@ -2355,7 +2360,7 @@ export default function Globe({
           </button>
           {layersPanelOpen && (
             <>
-              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'intelFt', 'osint', 'darkweb'] as const).map((k) => (
+              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'intelFt', 'osint', 'darkweb', 'satelliteChange'] as const).map((k) => (
                 <label key={k} className={layers[k] ? 'on' : ''}>
                   <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
                 </label>

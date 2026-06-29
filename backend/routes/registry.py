@@ -51,6 +51,7 @@ def register_routers(app) -> None:
     import intel_ingest
     import intel_proximity
     import intel_semantic_links
+    from routes import intel_stix as intel_stix_routes
     import markets_bridge
     import model_cookbook
     import nasa_firms
@@ -128,6 +129,7 @@ def register_routers(app) -> None:
     app.include_router(intel_proximity.router)
     app.include_router(intel_semantic_links.router)
     app.include_router(intel_graph_export.router)
+    app.include_router(intel_stix_routes.router)
     app.include_router(entity_resolution.router)
     app.include_router(feed_ingest.router)
     app.include_router(credentials_router.router)

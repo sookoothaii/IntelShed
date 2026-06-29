@@ -1025,6 +1025,34 @@ def build_watch_items(
         except Exception:
             pass
 
+    satellite_digest = snap.get("satellite_change_digest") or {}
+    if satellite_digest.get("enabled"):
+        try:
+            for line in (satellite_digest.get("lines") or [])[:3]:
+                cls = line.get("class", "unknown")
+                mean_delta = float(line.get("mean_delta") or 0)
+                px = int(line.get("pixel_count") or 0)
+                conf = float(line.get("confidence") or 0)
+                region = line.get("region", OPERATOR_REGION)
+                if abs(mean_delta) < 0.2 or px < 10:
+                    continue
+                candidates.append(
+                    _watch_item(
+                        prefix="satellite",
+                        key=f"{region}:{cls}:{mean_delta}",
+                        title=(
+                            f"Sentinel-2 NDVI {cls} (Δ{mean_delta:+.3f}, "
+                            f"{px} px) — {region}"
+                        ),
+                        horizon_h=72,
+                        confidence=min(0.85, 0.4 + conf * 0.4),
+                        sources=["sentinel-2", "stac"],
+                        bucket="regional" if region == OPERATOR_REGION else "global",
+                    )
+                )
+        except Exception:
+            pass
+
     seen_ids: set[str] = set()
     ranked: list[dict[str, Any]] = []
     for item in sorted(candidates, key=lambda x: -float(x.get("confidence") or 0)):
@@ -1136,6 +1164,7 @@ def format_digest_sections(
     maritime_anomaly_digest: dict[str, Any] | None = None,
     spaceweather_digest: dict[str, Any] | None = None,
     identity_digest: dict[str, Any] | None = None,
+    satellite_change_digest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
@@ -1278,5 +1307,7 @@ def format_digest_sections(
         "spaceweather": spaceweather_digest
         or {"enabled": False, "count": 0, "lines": []},
         "identity": identity_digest or {"enabled": False, "count": 0, "lines": []},
+        "satellite_change": satellite_change_digest
+        or {"enabled": False, "count": 0, "lines": []},
         "_gdelt_collected": gdelt_collected,
     }

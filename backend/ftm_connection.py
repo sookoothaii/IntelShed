@@ -133,7 +133,7 @@ def store_status(*, _recover: bool = True) -> dict[str, Any]:
     """Compact readiness for /api/health and operator monitors.
 
     On DuckDB FATAL/invalidated, closes and reopens the file once (B-02 light).
-    If soft reset fails, tries a hard reset (delete + recreate).
+    If soft reset fails, tries a hard reset (zero-downtime swap → delete fallback).
     """
     if _CONN is not None:
         try:
@@ -189,8 +189,13 @@ def init_store() -> bool:
             except Exception as exc_retry:
                 retry_exc = exc_retry
                 log.warning("ftm_init_soft_retry_failed", error=str(retry_exc))
-            # Hard retry: delete corrupted file and recreate
+            # Hard retry: zero-downtime swap (salvage data) → fallback to delete
             if _DB_PATH and os.path.exists(_DB_PATH):
+                if _zero_downtime_enabled():
+                    if _rebuild_and_swap():
+                        return True
+                    log.warning("ftm_init_zero_downtime_failed_fallback_to_hard_reset")
+                # Fallback: delete corrupted file and recreate
                 try:
                     os.remove(_DB_PATH)
                     log.info("ftm_init_hard_reset", path=_DB_PATH, action="deleted")
@@ -213,11 +218,131 @@ def init_store() -> bool:
         return False
 
 
+def _rebuild_and_swap() -> bool:
+    """Build a fresh DuckDB file with salvaged data and atomically swap it in.
+
+    Instead of deleting the corrupted file (total data loss), this:
+    1. Creates a recovery file with fresh schema
+    2. ATTACHes the old (possibly corrupted) DB and copies whatever data is readable
+    3. Atomically replaces the old file via ``os.replace``
+    4. Preserves the old file as ``.bak`` for forensic inspection
+
+    Returns True on success. On failure, falls back to the caller's existing
+    hard-reset path (delete + recreate).
+    """
+    global _CONN, _INIT_ERROR
+    if not _DB_PATH:
+        set_db_path()
+    db_path = _DB_PATH  # type: ignore[assignment]
+    recovery_path = db_path + ".recovery"
+    bak_path = db_path + ".bak"
+
+    # Close current connection under lock
+    with _LOCK:
+        if _CONN is not None:
+            try:
+                _CONN.close()
+            except Exception:
+                pass
+            _CONN = None
+        _INIT_ERROR = None
+    _clear_ro_connections()
+
+    # Remove stale recovery file
+    if os.path.exists(recovery_path):
+        try:
+            os.remove(recovery_path)
+        except OSError:
+            pass
+
+    recovery_con: duckdb.DuckDBPyConnection | None = None
+    try:
+        # 1. Create fresh recovery DB with schema
+        recovery_con = duckdb.connect(recovery_path)
+        _configure_connection(recovery_con)
+        from ftm_schema import _create_schema
+
+        _create_schema(recovery_con)
+
+        # 2. Salvage data from old file via ATTACH
+        if os.path.exists(db_path):
+            try:
+                recovery_con.execute(f"ATTACH '{db_path}' AS old_db")
+                for table in ("entities", "statements", "edges", "resolution_labels"):
+                    try:
+                        recovery_con.execute(
+                            f"INSERT INTO {table} SELECT * FROM old_db.{table}"
+                        )
+                    except Exception as table_exc:
+                        log.warning(
+                            "ftm_recovery_salvage_table_failed",
+                            table=table,
+                            error=str(table_exc)[:200],
+                        )
+                recovery_con.execute("DETACH old_db")
+                log.info("ftm_recovery_salvage_ok", path=db_path)
+            except Exception as attach_exc:
+                log.warning(
+                    "ftm_recovery_salvage_failed",
+                    path=db_path,
+                    error=str(attach_exc)[:200],
+                )
+                # Old file completely unreadable — proceed with empty schema
+
+        recovery_con.close()
+        recovery_con = None
+
+        # 3. Backup old file and atomically swap
+        if os.path.exists(bak_path):
+            try:
+                os.remove(bak_path)
+            except OSError:
+                pass
+        if os.path.exists(db_path):
+            os.replace(db_path, bak_path)
+        os.replace(recovery_path, db_path)
+        log.info("ftm_recovery_swap_ok", path=db_path, backup=bak_path)
+
+        # 4. Reopen
+        return init_store()
+
+    except Exception as exc:
+        log.error("ftm_recovery_swap_failed", error=str(exc)[:200])
+        # Clean up recovery file
+        if recovery_con is not None:
+            try:
+                recovery_con.close()
+            except Exception:
+                pass
+        if os.path.exists(recovery_path):
+            try:
+                os.remove(recovery_path)
+            except OSError:
+                pass
+        # Try to restore from .bak if we already moved it
+        if not os.path.exists(db_path) and os.path.exists(bak_path):
+            try:
+                os.replace(bak_path, db_path)
+            except OSError:
+                pass
+        return False
+
+
+def _zero_downtime_enabled() -> bool:
+    """True when zero-downtime recovery is enabled (default on)."""
+    return os.getenv("WORLDBASE_DUCKDB_ZERO_DOWNTIME", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
+
+
 def reset_store(*, hard: bool = False) -> bool:
     """Close and reopen DuckDB after a fatal/invalidated connection.
 
-    When ``hard=True``, delete the corrupted file first so DuckDB recreates
-    a fresh database from scratch (schema is rebuilt by ftm_schema._create_schema).
+    When ``hard=True``, attempt zero-downtime recovery first (build fresh DB
+    with salvaged data, atomically swap). Falls back to delete+recreate if
+    the zero-downtime path fails or is disabled.
     """
     global _CONN, _INIT_ERROR
     with _LOCK:
@@ -229,12 +354,18 @@ def reset_store(*, hard: bool = False) -> bool:
             _CONN = None
         _INIT_ERROR = None
     _clear_ro_connections()
-    if hard and _DB_PATH and os.path.exists(_DB_PATH):
-        try:
-            os.remove(_DB_PATH)
-            log.info("ftm_hard_reset", path=_DB_PATH, action="deleted")
-        except OSError as exc:
-            log.warning("ftm_hard_reset_failed", path=_DB_PATH, error=str(exc))
+    if hard and _DB_PATH:
+        if _zero_downtime_enabled():
+            if _rebuild_and_swap():
+                return True
+            log.warning("ftm_zero_downtime_failed_fallback_to_hard_reset")
+        # Fallback: old delete + recreate path
+        if os.path.exists(_DB_PATH):
+            try:
+                os.remove(_DB_PATH)
+                log.info("ftm_hard_reset", path=_DB_PATH, action="deleted")
+            except OSError as exc:
+                log.warning("ftm_hard_reset_failed", path=_DB_PATH, error=str(exc))
     return init_store()
 
 
@@ -257,7 +388,7 @@ def _run_with_recovery(fn):
 
     First attempt: normal execution.
     Second attempt (soft reset): close and reopen the same file.
-    Third attempt (hard reset): delete the corrupted file and recreate from scratch.
+    Third attempt (hard reset): zero-downtime swap (salvage data) → delete fallback.
     """
     last_exc: Exception | None = None
     for attempt in range(3):

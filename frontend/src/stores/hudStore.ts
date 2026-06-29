@@ -32,6 +32,24 @@ export interface LayerVisibility {
   [key: string]: boolean;
 }
 
+export interface SatelliteChangeData {
+  type: 'FeatureCollection'
+  features: Array<{
+    type: 'Feature'
+    geometry: { type: 'Polygon'; coordinates: number[][][] }
+    properties: {
+      class: 'increase' | 'decrease'
+      mean_delta: number
+      max_delta: number
+      min_delta: number
+      pixel_count: number
+      confidence: number
+    }
+  }>
+  properties?: Record<string, unknown>
+  cached?: boolean
+}
+
 interface HUDState {
   activeTab: TabKey;
   splitView: boolean;
@@ -41,6 +59,7 @@ interface HUDState {
   layerVisibility: LayerVisibility;
   wsConnected: boolean;
   agentBusConnected: boolean;
+  satelliteChangeData: SatelliteChangeData | null;
 }
 
 type StateListener = (state: HUDState) => void;
@@ -59,6 +78,7 @@ class HUDStore {
       layerVisibility: {},
       wsConnected: false,
       agentBusConnected: false,
+      satelliteChangeData: null,
     };
   }
 
@@ -108,6 +128,10 @@ class HUDStore {
 
   setAgentBusConnected(connected: boolean): void {
     this.setState({ agentBusConnected: connected });
+  }
+
+  setSatelliteChangeData(data: SatelliteChangeData | null): void {
+    this.setState({ satelliteChangeData: data });
   }
 
   private notify(): void {

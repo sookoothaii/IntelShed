@@ -172,5 +172,153 @@ class SatelliteChangeRasterTests(unittest.TestCase):
         self.assertIn("decrease", classes)
 
 
+class SatelliteNdviEndpointTests(unittest.TestCase):
+    def test_ndvi_disabled(self):
+        with patch.object(satellite_change, "_ENABLED", False):
+            client = _client()
+            resp = client.get("/api/satellite/ndvi/bangkok")
+            self.assertEqual(resp.status_code, 503)
+            self.assertIn("disabled", resp.json()["detail"])
+
+    def test_ndvi_no_scene(self):
+        async def _fake_stac_search(*args, **kwargs):
+            return []
+
+        with patch.object(satellite_change, "_stac_search", new=_fake_stac_search):
+            client = _client()
+            resp = client.get("/api/satellite/ndvi/bangkok")
+            self.assertEqual(resp.status_code, 503)
+            self.assertIn("could not find", resp.json()["detail"])
+
+    def test_ndvi_success(self):
+        fake_scene = {
+            "id": "S2-NDVI-1",
+            "properties": {"datetime": "2026-06-15T10:00:00Z", "eo:cloud_cover": 5.0},
+            "assets": {
+                "red": {"href": "https://example.com/red.tif"},
+                "nir": {"href": "https://example.com/nir.tif"},
+            },
+        }
+        fake_ndvi_result = {
+            "region": "bangkok",
+            "scene_id": "S2-NDVI-1",
+            "valid_pixels": 1000,
+            "mean": 0.45,
+            "std": 0.12,
+            "min": -0.1,
+            "max": 0.8,
+            "histogram": [{"bin_low": 0.0, "count": 100}],
+        }
+
+        async def _fake_stac_search(*args, **kwargs):
+            return [fake_scene]
+
+        with patch.object(satellite_change, "_stac_search", new=_fake_stac_search):
+            with patch.object(
+                satellite_change,
+                "_run_ndvi_sync",
+                return_value=fake_ndvi_result,
+            ):
+                client = _client()
+                resp = client.get("/api/satellite/ndvi/bangkok")
+                self.assertEqual(resp.status_code, 200)
+                data = resp.json()
+                self.assertEqual(data["scene_id"], "S2-NDVI-1")
+                self.assertEqual(data["mean"], 0.45)
+                self.assertFalse(data["cached"])
+
+
+class SatelliteChangeDigestTests(unittest.TestCase):
+    def test_digest_disabled(self):
+        with patch.object(satellite_change, "_ENABLED", False):
+            import asyncio
+
+            result = asyncio.run(satellite_change.gather_satellite_change_digest())
+            self.assertFalse(result["enabled"])
+            self.assertEqual(result["count"], 0)
+
+    def test_digest_success(self):
+        fake_result = {
+            "type": "FeatureCollection",
+            "properties": {
+                "before_scene": {"id": "S2-A"},
+                "after_scene": {"id": "S2-B"},
+            },
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": []},
+                    "properties": {
+                        "class": "decrease",
+                        "mean_delta": -0.35,
+                        "pixel_count": 30,
+                        "confidence": 0.8,
+                    },
+                },
+            ],
+        }
+
+        async def _fake_search_best(*args, **kwargs):
+            return {"id": "S2-A"}, {"id": "S2-B"}
+
+        with patch.object(satellite_change, "_ENABLED", True):
+            with patch.object(satellite_change, "_RASTERIO_AVAILABLE", True):
+                with patch.object(
+                    satellite_change, "_search_best_scenes", new=_fake_search_best
+                ):
+                    with patch.object(
+                        satellite_change,
+                        "_run_change_detection_sync",
+                        return_value=fake_result,
+                    ):
+                        import asyncio
+
+                        result = asyncio.run(
+                            satellite_change.gather_satellite_change_digest()
+                        )
+                        self.assertTrue(result["enabled"])
+                        self.assertEqual(result["count"], 1)
+                        self.assertEqual(len(result["lines"]), 1)
+                        self.assertEqual(result["lines"][0]["class"], "decrease")
+
+    def test_digest_fail_soft(self):
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("STAC down")
+
+        with patch.object(satellite_change, "_ENABLED", True):
+            with patch.object(satellite_change, "_RASTERIO_AVAILABLE", True):
+                with patch.object(satellite_change, "_search_best_scenes", new=_boom):
+                    import asyncio
+
+                    result = asyncio.run(
+                        satellite_change.gather_satellite_change_digest()
+                    )
+                    self.assertFalse(result["enabled"])
+                    self.assertEqual(result["count"], 0)
+
+
+class StacSourceConfigTests(unittest.TestCase):
+    def test_stac_source_earthsearch(self):
+        self.assertIn("earthsearch", satellite_change._STAC_URLS)
+        self.assertIn(
+            "earth-search.aws.element84.com",
+            satellite_change._STAC_URLS["earthsearch"],
+        )
+
+    def test_stac_source_copernicus(self):
+        self.assertIn("copernicus", satellite_change._STAC_URLS)
+        self.assertIn(
+            "catalogue.dataspace.copernicus.eu",
+            satellite_change._STAC_URLS["copernicus"],
+        )
+
+    def test_health_includes_stac_source(self):
+        client = _client()
+        resp = client.get("/api/satellite/health")
+        data = resp.json()
+        self.assertIn("stac_source", data)
+        self.assertIn("stac_url", data)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fetchApi } from '../lib/networkFetch'
 import type { FocusTarget } from '../lib/focus'
+import { hudStore, type SatelliteChangeData } from '../stores/hudStore'
 
 interface AnomalyFeature {
   type: 'Feature'
@@ -41,7 +42,26 @@ interface ChangeResult {
 interface SatelliteHealth {
   enabled: boolean
   rasterio_available: boolean
+  stac_source?: string
+  stac_url?: string
   collections: string[]
+}
+
+interface NdviResult {
+  region: string
+  scene_id: string
+  scene_datetime?: string
+  cloud_cover?: number
+  valid_pixels: number
+  mean: number | null
+  std: number | null
+  min: number | null
+  max: number | null
+  histogram: Array<{ bin_low: number; count: number }>
+  bbox: number[]
+  crs: string
+  resolution: number
+  error?: string
 }
 
 const REGIONS = [
@@ -92,6 +112,10 @@ export default function SatellitePanel({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ChangeResult | null>(null)
+  const [ndviResult, setNdviResult] = useState<NdviResult | null>(null)
+  const [ndviLoading, setNdviLoading] = useState(false)
+  const [ndviError, setNdviError] = useState<string | null>(null)
+  const [showOnGlobe, setShowOnGlobe] = useState(true)
 
   const loadHealth = useCallback(async () => {
     try {
@@ -126,10 +150,40 @@ export default function SatellitePanel({
         throw new Error(body.detail || `${r.status} ${r.statusText}`)
       }
       setResult(await r.json())
+      // Push to HUD store for globe layer rendering
+      const data = (await r.clone().json()) as SatelliteChangeData
+      if (showOnGlobe) hudStore.setSatelliteChangeData(data)
     } catch (e) {
       setError((e as Error).message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleNdvi = async () => {
+    setNdviLoading(true)
+    setNdviError(null)
+    setNdviResult(null)
+    try {
+      const r = await fetchApi(`/api/satellite/ndvi/${region}`)
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}))
+        throw new Error(body.detail || `${r.status} ${r.statusText}`)
+      }
+      setNdviResult(await r.json())
+    } catch (e) {
+      setNdviError((e as Error).message)
+    } finally {
+      setNdviLoading(false)
+    }
+  }
+
+  const toggleGlobeLayer = (on: boolean) => {
+    setShowOnGlobe(on)
+    if (on && result) {
+      hudStore.setSatelliteChangeData(result as SatelliteChangeData)
+    } else if (!on) {
+      hudStore.setSatelliteChangeData(null)
     }
   }
 
@@ -247,6 +301,13 @@ export default function SatellitePanel({
         <button onClick={handleRun} disabled={loading} style={{ padding: '4px 10px' }}>
           {loading ? 'Running…' : 'Run change detection'}
         </button>
+        <button onClick={handleNdvi} disabled={ndviLoading} style={{ padding: '4px 10px' }}>
+          {ndviLoading ? 'Querying…' : 'Query NDVI'}
+        </button>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#b0c4bf' }}>
+          <input type="checkbox" checked={showOnGlobe} onChange={(e) => toggleGlobeLayer(e.target.checked)} />
+          Globe overlay
+        </label>
       </div>
 
       {error && (
@@ -305,6 +366,57 @@ export default function SatellitePanel({
               <div style={{ color: '#6f8c84' }}>No anomalies detected with current threshold.</div>
             )}
           </div>
+        </div>
+      )}
+
+      {ndviError && (
+        <div style={{ padding: 8, marginBottom: 12, border: '1px solid #ff4d5e', color: '#ff4d5e', borderRadius: 4 }}>
+          {ndviError}
+        </div>
+      )}
+
+      {ndviResult && (
+        <div style={{ marginBottom: 12, border: '1px solid #1e3a3a', borderRadius: 6, padding: 10, background: '#0b1d1d' }}>
+          <h3 style={{ margin: '0 0 8px 0', fontSize: 13, color: '#00e5a0' }}>NDVI SINGLE-EPOCH — {ndviResult.region}</h3>
+          {ndviResult.error ? (
+            <div style={{ color: '#ff4d5e', fontSize: 12 }}>{ndviResult.error}</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 12, color: '#b0c4bf', marginBottom: 6 }}>
+                Scene: {ndviResult.scene_id} · {ndviResult.scene_datetime || '—'} ·
+                Cloud: {ndviResult.cloud_cover != null ? `${ndviResult.cloud_cover.toFixed(1)}%` : '—'} ·
+                Pixels: {ndviResult.valid_pixels}
+              </div>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: '#b0c4bf' }}>
+                <span>Mean: <strong style={{ color: ndviResult.mean != null && ndviResult.mean > 0.3 ? '#00e5a0' : '#ffd23f' }}>{ndviResult.mean != null ? ndviResult.mean.toFixed(4) : '—'}</strong></span>
+                <span>Std: {ndviResult.std != null ? ndviResult.std.toFixed(4) : '—'}</span>
+                <span>Min: {ndviResult.min != null ? ndviResult.min.toFixed(4) : '—'}</span>
+                <span>Max: {ndviResult.max != null ? ndviResult.max.toFixed(4) : '—'}</span>
+              </div>
+              {ndviResult.histogram.length > 0 && (
+                <div style={{ marginTop: 8, display: 'flex', alignItems: 'flex-end', height: 40, gap: 1 }}>
+                  {ndviResult.histogram.map((h, i) => {
+                    const maxCount = Math.max(...ndviResult.histogram.map((x) => x.count), 1)
+                    const hPct = (h.count / maxCount) * 100
+                    const isHealthy = h.bin_low > 0.2
+                    return (
+                      <div
+                        key={i}
+                        title={`${h.bin_low.toFixed(2)} → ${(h.bin_low + 0.1).toFixed(2)}: ${h.count} px`}
+                        style={{
+                          flex: 1,
+                          height: `${hPct}%`,
+                          background: isHealthy ? '#00e5a055' : '#ff4d5e55',
+                          borderTop: `2px solid ${isHealthy ? '#00e5a0' : '#ff4d5e'}`,
+                          minWidth: 4,
+                        }}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
