@@ -49,7 +49,8 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     WORLDBASE_DB_PATH=/data/worldbase.db \
-    PYTHONPATH=/app:/install
+    PYTHONPATH=/app:/install \
+    PATH="/install/bin:${PATH}"
 
 WORKDIR /app
 

@@ -1075,8 +1075,12 @@ async def chat_proxy(
     ) = await _prepare_chat_messages(payload)
     if block_msg:
         if use_stream:
+
+            async def _block_stream():
+                yield f"data: {json.dumps(block_msg)}\n\n"
+
             return StreamingResponse(
-                (f"data: {json.dumps(block_msg)}\n\n" async for _ in [1]),
+                _block_stream(),
                 media_type="text/event-stream",
             )
         return block_msg

@@ -140,7 +140,7 @@ class TaskWatchdog:
             try:
                 now = time.monotonic()
                 for name, rec in list(self._tasks.items()):
-                    # Check if task crashed
+                    # Check if task crashed or completed
                     if rec.task is not None and rec.task.done():
                         exc = rec.task.exception()
                         if exc:
@@ -152,8 +152,13 @@ class TaskWatchdog:
                                 error=str(exc),
                                 error_count=rec.error_count,
                             )
-                        # Restart if enabled
+                        # Restart if enabled, but respect interval_sec as
+                        # cooldown — one-shot tasks (warmup, prewarm) should
+                        # not restart faster than their declared interval.
                         if rec.error_count < 5:
+                            elapsed = now - rec.last_heartbeat
+                            if elapsed < rec.interval_sec:
+                                continue  # too soon, wait for next cycle
                             try:
                                 rec.task = asyncio.create_task(
                                     rec.coro_factory(), name=name
@@ -318,7 +323,7 @@ async def _phase1_background_tasks() -> None:
                 await rag_memory.ingest_sanctions_hits(hits)
         except Exception as e:
             log.warning("sanctions_ingest_failed", error=str(e))
-        if feed_ingest.autopilot_on():
+        if feed_ingest.autopilot_on() and _cfg().task_queue != "celery":
             try:
                 result = await feed_ingest.run_feed_ingest()
                 t = result.get("totals") or {}
@@ -329,6 +334,8 @@ async def _phase1_background_tasks() -> None:
                 )
             except Exception as e:
                 log.warning("feed_ingest_failed", error=str(e))
+        elif feed_ingest.autopilot_on() and _cfg().task_queue == "celery":
+            log.debug("feed_ingest_delegated_to_celery")
         await asyncio.sleep(600)
 
 
@@ -526,12 +533,18 @@ async def _feed_cache_autopilot() -> None:
 
 async def _briefing_autopilot() -> None:
     await asyncio.sleep(30)
+    _celery_mode = _cfg().task_queue == "celery"
     while True:
-        try:
-            await node_sync.generate_briefing_internal()
-            log.info("briefing_generated", ts=datetime.now(timezone.utc).isoformat())
-        except Exception as e:
-            log.warning("briefing_generation_failed", error=str(e))
+        if _celery_mode:
+            log.debug("briefing_delegated_to_celery")
+        else:
+            try:
+                await node_sync.generate_briefing_internal()
+                log.info(
+                    "briefing_generated", ts=datetime.now(timezone.utc).isoformat()
+                )
+            except Exception as e:
+                log.warning("briefing_generation_failed", error=str(e))
         # I4: webhook alerting after briefing
         try:
             import alerting
@@ -694,6 +707,15 @@ def register_lifecycle(app) -> None:
             )
 
         wd = _watchdog
+
+        if cfg.task_queue == "celery":
+            log.info(
+                "task_queue_celery",
+                broker=cfg.celery_broker_url,
+                backend_url=cfg.celery_backend_url,
+                feeds_delegated=True,
+                briefing_delegated=True,
+            )
 
         if briefing_autopilot_on():
             if wd:

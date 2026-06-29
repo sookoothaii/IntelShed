@@ -51,6 +51,11 @@ services:
       WORLDBASE_REQUIRE_NODE_TOKEN: ${WORLDBASE_REQUIRE_NODE_TOKEN:-1}
       # Browser origin served by Caddy (extend with your LAN https origin if needed)
       WORLDBASE_CORS_ORIGINS: ${WORLDBASE_CORS_ORIGINS:-}
+      # Task queue: set to "celery" to delegate feed ingest + briefing to Celery workers
+      WORLDBASE_TASK_QUEUE: ${WORLDBASE_TASK_QUEUE:-celery}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      WORLDBASE_BACKEND_URL: http://backend:8002
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -63,6 +68,74 @@ services:
     # To expose it on the host anyway, use docker-compose.override.yml.
     expose:
       - "8002"
+    restart: unless-stopped
+    networks:
+      - worldbase
+
+  celery-worker:
+    build:
+      context: ./backend
+    image: worldbase-backend:local
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      WORLDBASE_DB_PATH: /data/worldbase.db
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      WORLDBASE_BACKEND_URL: http://backend:8002
+      WORLDBASE_TASK_QUEUE: celery
+    command: ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info", "--concurrency=1"]
+    restart: unless-stopped
+    networks:
+      - worldbase
+
+  celery-beat:
+    build:
+      context: ./backend
+    image: worldbase-backend:local
+    depends_on:
+      redis:
+        condition: service_healthy
+      celery-worker:
+        condition: service_started
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      WORLDBASE_DB_PATH: /data/worldbase.db
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      WORLDBASE_BACKEND_URL: http://backend:8002
+      WORLDBASE_TASK_QUEUE: celery
+    command: ["celery", "-A", "tasks.celery_app", "beat", "--loglevel=info"]
+    restart: unless-stopped
+    networks:
+      - worldbase
+
+  flower:
+    build:
+      context: ./backend
+    image: worldbase-backend:local
+    depends_on:
+      redis:
+        condition: service_healthy
+      celery-worker:
+        condition: service_started
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    command: ["celery", "-A", "tasks.celery_app", "flower", "--port=5555"]
+    ports:
+      - "127.0.0.1:5555:5555"
     restart: unless-stopped
     networks:
       - worldbase

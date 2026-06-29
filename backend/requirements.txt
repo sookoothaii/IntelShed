@@ -31,6 +31,9 @@ tzdata>=2024.1
 # Security & Rate Limiting
 slowapi>=0.1.9
 redis>=5.0.0
+# Celery task queue + Flower monitoring (WORLDBASE_TASK_QUEUE=celery)
+celery>=5.5,<6
+flower>=2.0,<3
 # stem: Tor control-port library for darkweb OPSEC exit-node rotation (Phase 3.2).
 # Optional — darkweb_tor.py lazy-imports it and is a no-op when absent.
 # Only needed with WORLDBASE_DARKWEB_TOR_ROTATE_IDENTITY=1.

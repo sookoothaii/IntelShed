@@ -165,13 +165,18 @@ export function buildContextMenuActions(
     icon: '🤖',
     handler: () => {
       const lines: string[] = []
+      if (hasCoords) {
+        lines.push(`LAT: ${lat!.toFixed(4)}`)
+        lines.push(`LON: ${lon!.toFixed(4)}`)
+      }
       for (const [k, v] of Object.entries(ctx.rawProps)) {
         if (k === 'kind') continue
+        if (k === 'lon' || k === 'lat') continue
         if (v == null) continue
         const s = Array.isArray(v) ? v.join(', ') : String(v)
         if (s) lines.push(`${k.toUpperCase()}: ${s.slice(0, 120)}`)
       }
-      callbacks.onAskAI(ctx.title, lines.slice(0, 8))
+      callbacks.onAskAI(ctx.title, lines.slice(0, 10))
     },
   })
 

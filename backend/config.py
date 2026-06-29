@@ -128,6 +128,10 @@ class WorldBaseConfig(BaseModel):
     secrets_manager_enabled: bool = False
     secrets_provider: str = "env"
     mcp_policy_enabled: bool = False
+    task_queue: str = "lifespan"
+    celery_broker_url: str = "redis://redis:6379/0"
+    celery_result_backend: str = "redis://redis:6379/1"
+    celery_backend_url: str = "http://127.0.0.1:8002"
 
     @classmethod
     def from_env(cls) -> Self:
@@ -361,6 +365,14 @@ class WorldBaseConfig(BaseModel):
             route_ledger_enabled=_truthy(os.getenv("WORLDBASE_ROUTE_LEDGER", "1")),
             route_ledger_recompute_n=max(
                 10, int(os.getenv("WORLDBASE_ROUTE_LEDGER_RECOMPUTE_N", "50"))
+            ),
+            task_queue=os.getenv("WORLDBASE_TASK_QUEUE", "lifespan").strip().lower(),
+            celery_broker_url=os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0"),
+            celery_result_backend=os.getenv(
+                "CELERY_RESULT_BACKEND", "redis://redis:6379/1"
+            ),
+            celery_backend_url=os.getenv(
+                "WORLDBASE_BACKEND_URL", "http://127.0.0.1:8002"
             ),
         )
 

@@ -322,9 +322,10 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
         try:
             records = await spec["fetch"]()
             if name == "anomalies":
-                result = ingest_aircraft_anomalies(records)
+                result = await asyncio.to_thread(ingest_aircraft_anomalies, records)
             else:
-                result = apply_mapping(
+                result = await asyncio.to_thread(
+                    apply_mapping,
                     records,
                     spec["mapping"],
                     dataset=spec.get("dataset") or name,
@@ -334,8 +335,10 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
                     try:
                         import mapping_validator
 
-                        drift = mapping_validator.detect_payload_drift(
-                            spec["mapping"], records
+                        drift = await asyncio.to_thread(
+                            mapping_validator.detect_payload_drift,
+                            spec["mapping"],
+                            records,
                         )
                         if drift.get("drift"):
                             result["mapping_drift"] = drift
@@ -369,7 +372,7 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
     if "anomalies" in chosen or sources is None:
         try:
             anomalies = await _fetch_anomaly_records()
-            ac = ingest_aircraft_anomalies(anomalies)
+            ac = await asyncio.to_thread(ingest_aircraft_anomalies, anomalies)
             per_source["anomalies"] = ac
             totals["entities"] += ac.get("entities_written", 0)
         except Exception:
