@@ -675,6 +675,9 @@ def register_lifecycle(app) -> None:
 
         route_ledger.init_route_ledger_db()
         aircraft_trails.init_trail_db()
+        import briefing_pipeline
+
+        briefing_pipeline.init_pipeline_db()
         import features
 
         features.init_feature_flags_db()

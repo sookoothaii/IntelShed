@@ -34,6 +34,7 @@ const FullAnalysisOverlay = lazy(() => import('./components/FullAnalysisOverlay'
 const WindyMapOverlay = lazy(() => import('./components/WindyMapOverlay'))
 const SidebarLeft = lazy(() => import('./components/SidebarLeft'))
 const SidebarRight = lazy(() => import('./components/SidebarRight'))
+const BriefingKanban = lazy(() => import('./components/BriefingKanban'))
 
 type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'news' | 'osint'
 type LayoutMode = 'full' | '3col'
@@ -202,6 +203,8 @@ export default function App() {
   const [analysisOpen, setAnalysisOpen] = useHudSessionState('analysisOpen', false, isBool)
   const [situationOpen, setSituationOpen] = useHudSessionState('situationOpen', false, isBool)
   const [calTrigOpen, setCalTrigOpen] = useState(false)
+  const [kanbanOpen, setKanbanOpen] = useState(false)
+  const briefingKanbanEnabled = import.meta.env.VITE_BRIEFING_KANBAN === '1'
   const [osintPins, setOsintPins] = useState<OsintPin[]>(() => loadOsintPins())
   const [syncCamera, setSyncCamera] = useState<{ lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null>(null)
   const [mapMode, setMapMode] = useHudSessionState<MapViewMode>('mapMode', DEFAULT_MAP_VIEW, isMapViewMode)
@@ -311,6 +314,7 @@ export default function App() {
     onClearOsintPins: clearOsintPins,
     onCameraMove: handleGlobeMove,
     onOpenWindy: openWindyMap,
+    onAddOsintPin: addOsintPin,
     syncCamera,
     mapMode,
     layoutSplit: splitView,
@@ -415,6 +419,15 @@ export default function App() {
           >
             CAL & TRIG
           </button>
+          {briefingKanbanEnabled && (
+            <button
+              className="mega-analysis-btn secondary"
+              onClick={() => setKanbanOpen(true)}
+              title="Briefing pipeline Kanban board"
+            >
+              PIPELINE
+            </button>
+          )}
           <button
             className="mega-analysis-btn secondary"
             onClick={() => setTheme(toggleTheme(theme))}
@@ -444,6 +457,11 @@ export default function App() {
       {calTrigOpen && (
         <Suspense fallback={<TabFallback label="CAL & TRIG" />}>
           <ErrorBoundary name="CalibrationTriggers"><CalibrationTriggersPanel onClose={() => setCalTrigOpen(false)} /></ErrorBoundary>
+        </Suspense>
+      )}
+      {kanbanOpen && briefingKanbanEnabled && (
+        <Suspense fallback={<TabFallback label="PIPELINE" />}>
+          <ErrorBoundary name="BriefingKanban"><BriefingKanban onClose={() => setKanbanOpen(false)} /></ErrorBoundary>
         </Suspense>
       )}
       {analysisOpen && (
