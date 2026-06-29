@@ -204,6 +204,9 @@ _KNOWN_FLAGS: list[str] = [
     "identity_osint",
     "briefing_identity",
     "domain_intel",
+    "briefing_domain",
+    "thai_opendata",
+    "briefing_thai",
     "onion_dir",
     "briefing_onion_dir",
 ]

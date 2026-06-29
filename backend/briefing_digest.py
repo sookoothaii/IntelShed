@@ -1165,6 +1165,8 @@ def format_digest_sections(
     spaceweather_digest: dict[str, Any] | None = None,
     identity_digest: dict[str, Any] | None = None,
     satellite_change_digest: dict[str, Any] | None = None,
+    domain_digest: dict[str, Any] | None = None,
+    thai_digest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
@@ -1307,6 +1309,8 @@ def format_digest_sections(
         "spaceweather": spaceweather_digest
         or {"enabled": False, "count": 0, "lines": []},
         "identity": identity_digest or {"enabled": False, "count": 0, "lines": []},
+        "domain": domain_digest or {"enabled": False, "count": 0, "lines": []},
+        "thai": thai_digest or {"enabled": False, "count": 0, "lines": []},
         "satellite_change": satellite_change_digest
         or {"enabled": False, "count": 0, "lines": []},
         "_gdelt_collected": gdelt_collected,

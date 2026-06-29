@@ -474,6 +474,8 @@ async def _generate_briefing_unlocked(
     spaceweather_digest: dict = {"enabled": False, "count": 0, "lines": []}
     identity_digest: dict = {"enabled": False, "count": 0, "lines": []}
     satellite_change_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    domain_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    thai_digest: dict = {"enabled": False, "count": 0, "lines": []}
     try:
         import darkweb_bridge
 
@@ -529,6 +531,22 @@ async def _generate_briefing_unlocked(
         pass
     if identity_digest:
         snap["identity_digest"] = identity_digest
+    try:
+        from domain_intel import gather_domain_digest
+
+        domain_digest = await gather_domain_digest()
+    except Exception:
+        pass
+    if domain_digest:
+        snap["domain_digest"] = domain_digest
+    try:
+        from thai_opendata import gather_thai_digest
+
+        thai_digest = await gather_thai_digest()
+    except Exception:
+        pass
+    if thai_digest:
+        snap["thai_digest"] = thai_digest
     digest = format_digest_sections(
         snap,
         alerts,
@@ -544,6 +562,8 @@ async def _generate_briefing_unlocked(
         spaceweather_digest=spaceweather_digest,
         identity_digest=identity_digest,
         satellite_change_digest=satellite_change_digest,
+        domain_digest=domain_digest,
+        thai_digest=thai_digest,
     )
     from briefing_agentic import run_briefing_agentic_loop
 

@@ -514,6 +514,54 @@ def _enrich_ftm(organization_id: str, results: dict[str, Any]) -> dict[str, Any]
         return {"count": 0, "ids": [], "error": str(exc)}
 
 
+# ---------------------------------------------------------------------------
+# Briefing digest
+# ---------------------------------------------------------------------------
+
+
+async def gather_domain_digest() -> dict[str, Any]:
+    """Gather domain intel data for briefing digest. Fail-soft."""
+    cfg = get_config()
+    if not cfg.domain_intel_enabled or not cfg.briefing_domain:
+        return {"enabled": False, "count": 0, "lines": []}
+
+    try:
+        lines: list[str] = []
+        now = time.time()
+        # Read from in-memory cache (most recent first)
+        cached_domains = sorted(
+            _DOMAIN_CACHE.items(),
+            key=lambda kv: kv[1][0],
+            reverse=True,
+        )[:10]
+        for domain, (ts, data) in cached_domains:
+            if (now - ts) > 86400:  # skip entries older than 24h
+                continue
+            summary = data.get("summary", {})
+            sub_count = summary.get("subdomains_found", 0)
+            wb_count = summary.get("wayback_snapshots", 0)
+            registered = summary.get("registered")
+            reg_str = (
+                "registered"
+                if registered
+                else "unregistered"
+                if registered is False
+                else "unknown"
+            )
+            lines.append(
+                f"- {domain}: {sub_count} subdomains, {wb_count} Wayback snapshots, {reg_str}"
+            )
+        return {
+            "enabled": True,
+            "count": len(lines),
+            "lines": lines[:5],
+            "cached_lookups": len(cached_domains),
+        }
+    except Exception as exc:
+        logger.warning("domain digest failed: %s", exc)
+        return {"enabled": False, "count": 0, "lines": [], "error": str(exc)}
+
+
 @router.post("/ingest")
 async def domain_ingest(
     domain: str = Query(..., description="Domain to investigate and ingest"),

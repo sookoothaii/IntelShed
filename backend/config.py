@@ -114,6 +114,9 @@ class WorldBaseConfig(BaseModel):
     identity_osint_cache_sec: int = 86400
     briefing_identity: bool = False
     domain_intel_enabled: bool = True
+    briefing_domain: bool = False
+    thai_opendata_enabled: bool = False
+    briefing_thai: bool = False
     onion_dir_enabled: bool = False
     onion_dir_cache_sec: int = 7200
     briefing_onion_dir: bool = False
@@ -329,6 +332,9 @@ class WorldBaseConfig(BaseModel):
             ),
             briefing_identity=_truthy(os.getenv("WORLDBASE_BRIEFING_IDENTITY", "0")),
             domain_intel_enabled=_truthy(os.getenv("WORLDBASE_DOMAIN_INTEL", "1")),
+            briefing_domain=_truthy(os.getenv("WORLDBASE_BRIEFING_DOMAIN", "0")),
+            thai_opendata_enabled=_truthy(os.getenv("WORLDBASE_THAI_OPENDATA", "0")),
+            briefing_thai=_truthy(os.getenv("WORLDBASE_BRIEFING_THAI", "0")),
             onion_dir_enabled=_truthy(os.getenv("WORLDBASE_ONION_DIR", "0")),
             onion_dir_cache_sec=int(os.getenv("WORLDBASE_ONION_DIR_CACHE_SEC", "7200")),
             briefing_onion_dir=_truthy(os.getenv("WORLDBASE_BRIEFING_ONION_DIR", "0")),

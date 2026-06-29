@@ -32,6 +32,7 @@ def register_routers(app) -> None:
     import identity_osint
     import onion_directory
     import ransomware_tracker
+    import thai_opendata
     import duckdb_fusion
     import entsoe_bridge
     import entity_resolution
@@ -103,6 +104,7 @@ def register_routers(app) -> None:
     app.include_router(ransomware_tracker.router)
     app.include_router(domain_intel.router)
     app.include_router(identity_osint.router)
+    app.include_router(thai_opendata.router)
     app.include_router(onion_directory.router)
     app.include_router(telegram_bridge.router)
     app.include_router(pegel_bridge.router)

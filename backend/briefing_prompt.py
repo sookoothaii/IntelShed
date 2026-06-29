@@ -167,6 +167,18 @@ def build_security_advisor_prompt(
         for line in identity["lines"]:
             prompt += f"  - {line}\n"
         prompt += "\n"
+    domain = digest.get("domain") or {}
+    if domain.get("enabled") and domain.get("lines"):
+        prompt += "DOMAIN INTEL (CT logs, Wayback, RDAP — passive reconnaissance):\n"
+        for line in domain["lines"]:
+            prompt += f"  - {line}\n"
+        prompt += "\n"
+    thai = digest.get("thai") or {}
+    if thai.get("enabled") and thai.get("lines"):
+        prompt += "THAI OPEN DATA (data.go.th — environmental & government datasets):\n"
+        for line in thai["lines"]:
+            prompt += f"  - {line}\n"
+        prompt += "\n"
     spaceweather = digest.get("spaceweather") or {}
     if spaceweather.get("enabled"):
         prompt += "SPACE WEATHER (NOAA SWPC, 24h):\n"

@@ -20,12 +20,14 @@ get_config.cache_clear()
 from domain_intel import (  # noqa: E402
     _domain_cache_get,
     _domain_cache_set,
+    _DOMAIN_CACHE,
     _enabled,
     _enrich_ftm,
     _fetch_crt_sh,
     _fetch_rdap,
     _fetch_wayback,
     _gather_domain_intel,
+    gather_domain_digest,
 )
 
 
@@ -513,6 +515,125 @@ class TestIngestEndpoint(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(data["ingested"], 2)
             self.assertEqual(data["ids"], ["id1", "id2"])
             self.assertIsNone(data["error"])
+
+
+class TestDomainDigest(unittest.IsolatedAsyncioTestCase):
+    """Briefing digest for domain intel."""
+
+    async def test_digest_disabled_by_default(self):
+        """gather_domain_digest should return disabled when briefing_domain is off."""
+        with patch.dict(os.environ, {"WORLDBASE_BRIEFING_DOMAIN": "0"}):
+            from config import get_config
+
+            get_config.cache_clear()
+            result = await gather_domain_digest()
+            self.assertFalse(result["enabled"])
+            self.assertEqual(result["count"], 0)
+        from config import get_config
+
+        get_config.cache_clear()
+
+    async def test_digest_enabled_with_cache(self):
+        """gather_domain_digest should read from _DOMAIN_CACHE when enabled."""
+        import time as _time
+
+        now = _time.time()
+        _DOMAIN_CACHE["example.com"] = (
+            now,
+            {
+                "domain": "example.com",
+                "summary": {
+                    "subdomains_found": 5,
+                    "wayback_snapshots": 10,
+                    "registered": True,
+                },
+            },
+        )
+        _DOMAIN_CACHE["test.org"] = (
+            now,
+            {
+                "domain": "test.org",
+                "summary": {
+                    "subdomains_found": 2,
+                    "wayback_snapshots": 3,
+                    "registered": False,
+                },
+            },
+        )
+        try:
+            with patch.dict(
+                os.environ,
+                {"WORLDBASE_BRIEFING_DOMAIN": "1", "WORLDBASE_DOMAIN_INTEL": "1"},
+            ):
+                from config import get_config
+
+                get_config.cache_clear()
+                result = await gather_domain_digest()
+                self.assertTrue(result["enabled"])
+                self.assertGreaterEqual(result["count"], 2)
+                self.assertGreaterEqual(len(result["lines"]), 2)
+                # Check line content format
+                joined = "\n".join(result["lines"])
+                self.assertIn("example.com", joined)
+                self.assertIn("test.org", joined)
+                self.assertIn("registered", joined)
+                self.assertIn("unregistered", joined)
+            from config import get_config
+
+            get_config.cache_clear()
+        finally:
+            _DOMAIN_CACHE.clear()
+
+    async def test_digest_skips_old_entries(self):
+        """Entries older than 24h should be skipped."""
+        import time as _time
+
+        old_ts = _time.time() - 100000  # >24h ago
+        _DOMAIN_CACHE["old.com"] = (
+            old_ts,
+            {
+                "domain": "old.com",
+                "summary": {
+                    "subdomains_found": 1,
+                    "wayback_snapshots": 0,
+                    "registered": True,
+                },
+            },
+        )
+        try:
+            with patch.dict(
+                os.environ,
+                {"WORLDBASE_BRIEFING_DOMAIN": "1", "WORLDBASE_DOMAIN_INTEL": "1"},
+            ):
+                from config import get_config
+
+                get_config.cache_clear()
+                result = await gather_domain_digest()
+                self.assertTrue(result["enabled"])
+                self.assertEqual(result["count"], 0)
+            from config import get_config
+
+            get_config.cache_clear()
+        finally:
+            _DOMAIN_CACHE.clear()
+
+    async def test_digest_fail_soft(self):
+        """gather_domain_digest should fail-soft on errors."""
+        with patch.dict(
+            os.environ,
+            {"WORLDBASE_BRIEFING_DOMAIN": "1", "WORLDBASE_DOMAIN_INTEL": "1"},
+        ):
+            from config import get_config
+
+            get_config.cache_clear()
+            mock_cache = MagicMock()
+            mock_cache.items = MagicMock(side_effect=RuntimeError("boom"))
+            with patch("domain_intel._DOMAIN_CACHE", mock_cache):
+                result = await gather_domain_digest()
+                self.assertFalse(result["enabled"])
+            from config import get_config
+
+            get_config.cache_clear()
 
 
 if __name__ == "__main__":

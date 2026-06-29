@@ -219,6 +219,21 @@ CONNECTOR_CATALOG: dict[str, ConnectorManifest] = {
         cache_key="domain_intel",
         notes="crt.sh CT logs, Wayback CDX snapshots, RDAP registration. No API key required.",
     ),
+    "thai_opendata": _c(
+        "thai_opendata",
+        "Thailand Open Data (data.go.th CKAN)",
+        "government",
+        (
+            "/api/thai/opendata",
+            "/api/thai/environmental",
+            "/api/thai/ingest",
+        ),
+        ttl_sec=3600,
+        region=("local",),
+        bridge="thai_opendata.py",
+        cache_key="thai_opendata",
+        notes="Thai government open data portal (CKAN). Environmental, population, economic datasets. No API key required.",
+    ),
     "identity_osint": _c(
         "identity_osint",
         "Identity OSINT (email/username enumeration)",
