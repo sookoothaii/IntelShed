@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchApi } from '../lib/networkFetch'
 import { useBriefingQuery } from '../hooks/useSharedFeeds'
+import ActionBar from './ActionBar'
 
 /* ── Types ────────────────────────────────────────────────────────────────── */
 
@@ -57,6 +58,8 @@ export default function SidebarRight({
   const watchItems = b?.watch_items ?? []
   const insights = b?.insights ?? []
   const qualityScore = b?.quality?.score
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
+  const selectedInsight = selectedIdx != null ? insights[selectedIdx] : null
 
   if (collapsed) {
     return (
@@ -148,7 +151,12 @@ export default function SidebarRight({
         ) : (
           <div className="sidebar-insight-list">
             {insights.slice(0, 5).map((ins, i) => (
-              <div key={i} className="sidebar-insight-row">
+              <div
+                key={i}
+                className={`sidebar-insight-row${selectedIdx === i ? ' sidebar-insight-row--selected' : ''}`}
+                onClick={() => setSelectedIdx(selectedIdx === i ? null : i)}
+                style={{ cursor: 'pointer' }}
+              >
                 <div className="sidebar-insight-title">{ins.title || 'Untitled'}</div>
                 {ins.summary && (
                   <div className="sidebar-insight-summary">{ins.summary}</div>
@@ -163,6 +171,19 @@ export default function SidebarRight({
           </div>
         )}
       </div>
+
+      {selectedInsight && (
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">ACTIONS</div>
+          <div className="action-bar action-bar--compact">
+            <ActionBar
+              itemId={`insight:${selectedInsight.title || 'untitled'}`}
+              itemTitle={selectedInsight.title}
+              showPublish={false}
+            />
+          </div>
+        </div>
+      )}
     </aside>
   )
 }

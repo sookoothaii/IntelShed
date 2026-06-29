@@ -3,6 +3,7 @@ import type { FocusTarget } from '../lib/focus'
 import type { OsintPin } from '../lib/osintPins'
 import { fetchApi } from '../lib/networkFetch'
 import { useSituationsQuery, useBriefingQuery, useInsightsQuery } from '../hooks/useSharedFeeds'
+import ActionBar from './ActionBar'
 
 export type SituationItem = {
   id: string
@@ -495,6 +496,12 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
                         ✦ AI
                       </button>
                     </div>
+                    <ActionBar
+                      itemId={`insight:${ins.id}`}
+                      itemTitle={ins.headline}
+                      entityId={topEntity?.id}
+                      showPublish={false}
+                    />
                   </div>
                 )
               })}
@@ -633,6 +640,13 @@ export default function SituationBoard({ onClose, onFocus, osintPins, onAddPin, 
                       </button>
                     )}
                   </div>
+                  {entityCtx.entity.id && (
+                    <ActionBar
+                      itemId={`entity:${entityCtx.entity.id}`}
+                      itemTitle={entityCtx.entity.label || entityCtx.entity.id}
+                      entityId={entityCtx.entity.id}
+                    />
+                  )}
                   <details className="situation-entity-raw">
                     <summary>Raw JSON</summary>
                     <pre className="situation-entity-json">{JSON.stringify(entityCtx, null, 2)}</pre>

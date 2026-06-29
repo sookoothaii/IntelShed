@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd'
-import { useBriefingPipeline, useMovePipelineItem, useSyncPipeline } from '../hooks/useBriefingPipeline'
+import { useBriefingPipeline, useMovePipelineItem, useSyncPipeline, type PipelineItem } from '../hooks/useBriefingPipeline'
+import ActionBar from './ActionBar'
 
 const STAGE_COLORS: Record<string, string> = {
   INGEST: '#22d3ee',
@@ -27,6 +28,7 @@ export default function BriefingKanban({ onClose }: Props) {
   const moveItem = useMovePipelineItem()
   const syncPipeline = useSyncPipeline()
   const [syncFlash, setSyncFlash] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<PipelineItem | null>(null)
 
   const stages = data?.stages || ['INGEST', 'ANALYZE', 'CORROBORATE', 'SYNTHESIZE', 'PUBLISHED']
   const pipeline = data?.pipeline || {}
@@ -152,6 +154,20 @@ export default function BriefingKanban({ onClose }: Props) {
                                     {item.lat.toFixed(2)}, {item.lon.toFixed(2)}
                                   </div>
                                 )}
+                                <div className="kanban-card-actions">
+                                  <button
+                                    type="button"
+                                    className="kanban-card-detail-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setSelectedItem(item)
+                                    }}
+                                    aria-label="View actions"
+                                    title="Actions"
+                                  >
+                                    ⋯
+                                  </button>
+                                </div>
                               </div>
                             )}
                           </Draggable>
@@ -168,6 +184,36 @@ export default function BriefingKanban({ onClose }: Props) {
             })}
           </div>
         </DragDropContext>
+      )}
+      {selectedItem && (
+        <div className="kanban-detail-overlay" onClick={() => setSelectedItem(null)}>
+          <div className="kanban-detail-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="kanban-detail-header">
+              <span className="kanban-detail-type" style={{ color: STAGE_COLORS[selectedItem.stage] || 'var(--accent-dim)' }}>
+                {selectedItem.item_type.toUpperCase()}
+              </span>
+              <span className="kanban-detail-title">{selectedItem.title || selectedItem.item_id}</span>
+              <button className="kanban-btn kanban-btn--close" onClick={() => setSelectedItem(null)} title="Close">
+                ✕
+              </button>
+            </div>
+            <div className="kanban-detail-meta">
+              <span>Stage: <strong>{selectedItem.stage}</strong></span>
+              <span>Confidence: <strong>{Math.round(selectedItem.confidence * 100)}%</strong></span>
+              {selectedItem.sources.length > 0 && (
+                <span>Sources: <strong>{selectedItem.sources.join(', ')}</strong></span>
+              )}
+              {selectedItem.lat != null && selectedItem.lon != null && (
+                <span>Coords: <strong>{selectedItem.lat.toFixed(2)}, {selectedItem.lon.toFixed(2)}</strong></span>
+              )}
+            </div>
+            <ActionBar
+              itemId={selectedItem.item_id}
+              itemTitle={selectedItem.title}
+              showPublish={selectedItem.stage !== 'PUBLISHED'}
+            />
+          </div>
+        </div>
       )}
     </div>
   )
