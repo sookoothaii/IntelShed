@@ -383,6 +383,7 @@ type GlobeLayers = {
   intelFt: boolean
   darkweb: boolean
   satelliteChange: boolean
+  detectionBoxes: boolean
 }
 
 type LayerKey = keyof GlobeLayers
@@ -584,6 +585,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       intelFt: false,
       darkweb: false,
       satelliteChange: false,
+      detectionBoxes: false,
     },
     collapsed: { motion: false, geo: false, env: false, infra: true, intel: true },
     trails: false,
@@ -619,6 +621,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       intelFt: false,
       darkweb: false,
       satelliteChange: false,
+      detectionBoxes: false,
     },
     collapsed: { motion: true, geo: false, env: true, infra: false, intel: true },
     trails: false,
@@ -654,6 +657,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       intelFt: true,
       darkweb: true,
       satelliteChange: false,
+      detectionBoxes: true,
     },
     collapsed: { motion: true, geo: true, env: true, infra: true, intel: false },
     trails: false,
@@ -689,6 +693,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       intelFt: true,
       darkweb: true,
       satelliteChange: false,
+      detectionBoxes: true,
     },
     collapsed: { motion: false, geo: false, env: false, infra: false, intel: false },
     trails: true,
@@ -1748,6 +1753,20 @@ export default function Globe({
             ],
           })
           viewer!.flyTo(ent, { duration: 1.5 })
+        } else if (kind === 'detection_box') {
+          const conf = propNum('confidence') ?? 0
+          pick({
+            kind,
+            title: `⛶ ${prop('label') || 'Detection'}`,
+            lines: [
+              `TYPE: ${prop('type') ?? '—'}`,
+              `CONFIDENCE: ${Math.round(conf * 100)}%`,
+              `SOURCE: ${prop('source') ?? '—'}`,
+              ...(prop('schema') ? [`SCHEMA: ${prop('schema')}`] : []),
+              `ID: ${prop('id') ?? '—'}`,
+            ],
+          })
+          viewer!.flyTo(ent, { duration: 1.5 })
         }
       }
 
@@ -2360,7 +2379,7 @@ export default function Globe({
           </button>
           {layersPanelOpen && (
             <>
-              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'intelFt', 'osint', 'darkweb', 'satelliteChange'] as const).map((k) => (
+              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'intelFt', 'osint', 'darkweb', 'satelliteChange', 'detectionBoxes'] as const).map((k) => (
                 <label key={k} className={layers[k] ? 'on' : ''}>
                   <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
                 </label>

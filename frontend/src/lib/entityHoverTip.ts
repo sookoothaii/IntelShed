@@ -203,6 +203,19 @@ export function buildEntityHoverTip(kind: string, prop: EntityPropReader): Entit
           clip(prop('query'), 64),
         ],
       }
+    case 'detection_box': {
+      const conf = Number(prop('confidence') ?? 0)
+      const confPct = Math.round(conf * 100)
+      const typeStr = str(prop('type'))
+      const typeIcon = typeStr === 'disaster' ? '🆘' : typeStr === 'conflict' ? '⚠' : typeStr === 'vessel' ? '🚢' : '🏗'
+      return {
+        title: `${typeIcon} ${clip(prop('label'), 48)}`,
+        lines: [
+          `Confidence ${confPct}% · ${typeStr}`,
+          `Source ${str(prop('source'))}${prop('schema') ? ` · ${str(prop('schema'))}` : ''}`,
+        ],
+      }
+    }
     default:
       return null
   }

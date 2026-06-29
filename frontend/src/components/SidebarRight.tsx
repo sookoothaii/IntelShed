@@ -39,7 +39,7 @@ export default function SidebarRight({
 
   const loadTrust = useCallback(async () => {
     try {
-      const r = await fetchApi('/api/trust/score')
+      const r = await fetchApi('/api/trust')
       if (r.ok) {
         const d = await r.json()
         setTrustScore(d?.score ?? d?.overall ?? null)

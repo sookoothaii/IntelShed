@@ -66,6 +66,7 @@ const LAYER_GROUPS: { group: string; layers: LayerDef[] }[] = [
       { key: 'intelFt', label: 'Intel Entities', color: '#c084fc' },
       { key: 'osint', label: 'OSINT Pins' },
       { key: 'darkweb', label: 'Dark Web' },
+      { key: 'detectionBoxes', label: 'Detection Boxes', color: '#FACC15' },
       { key: 'geopolitics', label: 'Geopolitics' },
       { key: 'satelliteChange', label: 'Sat Change' },
     ],
