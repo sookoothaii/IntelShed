@@ -6168,3 +6168,263 @@ html, body, #root {
   color: var(--txt);
   font-weight: 600;
 }
+
+/* ── Entity Detail Panel (Phase G) ──────────────────────────────────────── */
+
+.entity-detail-panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.entity-panel-header {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.entity-panel-caption {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--txt);
+  line-height: 1.3;
+  margin-bottom: 4px;
+}
+
+.entity-panel-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.entity-panel-schema-badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: rgba(var(--accent-dim-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-dim-rgb), 0.25);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.entity-panel-focus-btn {
+  background: transparent;
+  border: 1px solid var(--border-input);
+  color: var(--txt-dim);
+  font-family: var(--mono);
+  font-size: 9px;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+}
+
+.entity-panel-focus-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+
+.entity-panel-id {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--txt-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Properties */
+
+.entity-panel-props {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.entity-panel-prop-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.entity-panel-prop-key {
+  font-family: var(--mono);
+  color: var(--txt-muted);
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-panel-prop-val {
+  color: var(--txt);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-panel-datasets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.entity-panel-dataset-tag {
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  color: var(--txt-dim);
+  background: rgba(var(--accent-dim-rgb), 0.06);
+  border: 1px solid rgba(var(--accent-dim-rgb), 0.12);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+
+.entity-panel-timestamps {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.entity-panel-ts {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--txt-muted);
+}
+
+/* Empty / loading / error states */
+
+.entity-panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.entity-panel-empty-icon {
+  font-size: 28px;
+  color: var(--txt-muted);
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.entity-panel-empty-text {
+  font-size: 11px;
+  color: var(--txt-muted);
+  font-style: italic;
+}
+
+.entity-panel-loading {
+  padding: 12px;
+}
+
+.entity-panel-skeleton-header {
+  height: 16px;
+  background: rgba(var(--accent-dim-rgb), 0.08);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  animation: entity-panel-pulse 1.5s ease-in-out infinite;
+}
+
+.entity-panel-skeleton-row {
+  height: 12px;
+  background: rgba(var(--accent-dim-rgb), 0.06);
+  border-radius: var(--radius-sm);
+  margin-bottom: 4px;
+  animation: entity-panel-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes entity-panel-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.entity-panel-error {
+  padding: 16px 12px;
+  text-align: center;
+}
+
+.entity-panel-error-text {
+  font-size: 11px;
+  color: var(--red);
+}
+
+/* ── Related Entities Graph ─────────────────────────────────────────────── */
+
+.related-graph-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.related-graph-svg {
+  display: block;
+  max-width: 100%;
+}
+
+.related-graph-empty {
+  font-size: 10px;
+  color: var(--txt-muted);
+  font-style: italic;
+  padding: 8px 0;
+  text-align: center;
+}
+
+.related-graph-edge {
+  stroke: rgba(var(--accent-dim-rgb), 0.2);
+  stroke-width: 1;
+  transition: stroke 0.15s;
+}
+
+.related-graph-edge--hl {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.related-graph-edge-label {
+  font-family: var(--mono);
+  font-size: 7px;
+  fill: var(--txt-muted);
+  pointer-events: none;
+  user-select: none;
+}
+
+.related-graph-node {
+  stroke: rgba(0, 0, 0, 0.3);
+  stroke-width: 1.5;
+  transition: r 0.15s, opacity 0.15s;
+}
+
+.related-graph-node--root {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.related-graph-node--hl {
+  opacity: 0.85;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.related-graph-node-g:hover .related-graph-node {
+  opacity: 0.7;
+}
+
+.related-graph-node-label {
+  font-family: var(--mono);
+  font-size: 7px;
+  fill: var(--txt-dim);
+  pointer-events: none;
+  user-select: none;
+}

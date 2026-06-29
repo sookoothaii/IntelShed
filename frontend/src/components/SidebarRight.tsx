@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { fetchApi } from '../lib/networkFetch'
 import { useBriefingQuery } from '../hooks/useSharedFeeds'
 import ActionBar from './ActionBar'
 import TrustGauge from './TrustGauge'
-import ProvenanceChain from './ProvenanceChain'
+
+const EntityDetailPanel = lazy(() => import('./EntityDetailPanel'))
 
 /* ── Types ────────────────────────────────────────────────────────────────── */
 
@@ -42,11 +43,13 @@ export default function SidebarRight({
   onToggleCollapse,
   onFocus,
   entityId,
+  onSelectEntity,
 }: {
   collapsed: boolean
   onToggleCollapse: () => void
   onFocus?: (lat: number, lon: number, title: string) => void
   entityId?: string | null
+  onSelectEntity?: (id: string) => void
 }) {
   const { data: briefing } = useBriefingQuery()
   const [trustData, setTrustData] = useState<TrustData | null>(null)
@@ -191,12 +194,15 @@ export default function SidebarRight({
         )}
       </div>
 
-      {/* Provenance chain */}
+      {/* Entity detail panel */}
       {entityId && (
-        <div className="sidebar-section">
-          <div className="sidebar-section-title">PROVENANCE</div>
-          <ProvenanceChain entityId={entityId} compact />
-        </div>
+        <Suspense fallback={<div className="sidebar-empty">Loading entity…</div>}>
+          <EntityDetailPanel
+            entityId={entityId}
+            onSelectEntity={onSelectEntity}
+            onFocus={onFocus}
+          />
+        </Suspense>
       )}
 
       {selectedInsight && (

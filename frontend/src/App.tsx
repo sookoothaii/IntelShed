@@ -598,6 +598,7 @@ export default function App() {
               onToggleCollapse={() => setRightCollapsed(!rightCollapsed)}
               onFocus={(lat, lon, title) => focusOnMap({ kind: 'sidebar', lat, lon, height: 400000, title, lines: [] })}
               entityId={selectedEntityId}
+              onSelectEntity={setSelectedEntityId}
             />
           </Suspense>
         )}
