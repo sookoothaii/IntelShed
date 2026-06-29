@@ -66,8 +66,10 @@ import type { MapViewMode } from '../lib/mapView'
 import { DEFAULT_MAP_VIEW, ESRI_HILLSHADE_TILES, ESRI_REFERENCE_LABELS, ESRI_SATELLITE_TILES, ESRI_STREET_TILES, ION_PHOTOREALISTIC_ASSET, hasCesiumIonToken } from '../lib/mapView'
 import { fetchApi } from '../lib/networkFetch';
 import { buildEntityHoverTip } from '../lib/entityHoverTip';
-import { resolveGlobePick } from '../lib/globePick';
+import { resolveGlobePick, type GlobePick } from '../lib/globePick';
 import { attachPulseEllipse, tickPulseAnimations } from '../hooks/layers/pulseAnimation';
+import { ContextMenu } from './ContextMenu';
+import { buildContextMenuActions, type ContextMenuContext } from '../lib/contextMenuActions';
 
 const TIMELINE_WINDOWS = [6, 12, 24] as const
 
@@ -862,6 +864,7 @@ export default function Globe({
   onClearOsintPins,
   onCameraMove,
   onOpenWindy,
+  onAddOsintPin,
   syncCamera,
   mapMode = DEFAULT_MAP_VIEW,
   visible = true,
@@ -873,6 +876,7 @@ export default function Globe({
   onClearOsintPins?: () => void
   onCameraMove?: (cam: { lon: number; lat: number; height: number; pitch?: number }) => void
   onOpenWindy?: (lat: number, lon: number) => void
+  onAddOsintPin?: (pin: Omit<OsintPin, 'ts'>) => void
   syncCamera?: { lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null
   mapMode?: MapViewMode
   visible?: boolean
@@ -946,6 +950,7 @@ export default function Globe({
   }, [applyTarget])
   const [cursor, setCursor] = useState<Cursor>({ lon: '—', lat: '—', alt: '—' })
   const [hoverTip, setHoverTip] = useState<{ title: string; lines: string[]; x: number; y: number } | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; actions: ReturnType<typeof buildContextMenuActions> } | null>(null)
   const [scrubT, setScrubT] = useState(1)
   const [timelineHours, setTimelineHours] = useState<number>(24)
   const [aircraftSource, setAircraftSource] = useState('')
@@ -1053,6 +1058,13 @@ export default function Globe({
   const cameraSyncingRef = useRef(false)
   const syncSuppressUntilRef = useRef(0)
   useEffect(() => { onCameraMoveRef.current = onCameraMove }, [onCameraMove])
+
+  const onOpenWindyRef = useRef(onOpenWindy)
+  useEffect(() => { onOpenWindyRef.current = onOpenWindy }, [onOpenWindy])
+  const onAskAIRef = useRef(onAskAI)
+  useEffect(() => { onAskAIRef.current = onAskAI }, [onAskAI])
+  const onAddOsintPinRef = useRef(onAddOsintPin)
+  useEffect(() => { onAddOsintPinRef.current = onAddOsintPin }, [onAddOsintPin])
 
   const shouldSyncCamera = () =>
     cameraSyncingRef.current || performance.now() < syncSuppressUntilRef.current
@@ -1853,6 +1865,119 @@ export default function Globe({
         }
       }, ScreenSpaceEventType.LEFT_CLICK)
 
+      handler.setInputAction((click: CesiumMovement) => {
+        if (!click.position) return
+        const px = click.position
+        const gp: GlobePick | null = resolveGlobePick(scene.pick(px))
+
+        // Build context for menu
+        let ctx: ContextMenuContext
+        if (gp?.entity) {
+          const ent = gp.entity
+          const rawProps = ent.properties as unknown as Record<string, { getValue?: () => unknown } | undefined> | undefined
+          const propRaw = (k: string): unknown => {
+            const p = rawProps?.[k]
+            return typeof p?.getValue === 'function' ? p.getValue() : p
+          }
+          const kind = String(propRaw('kind') || '')
+          const title = String(propRaw('title') || propRaw('name') || propRaw('caption') || kind || 'Entity')
+          const lonNum = Number(propRaw('lon'))
+          const latNum = Number(propRaw('lat'))
+          let lon: number | undefined = Number.isFinite(lonNum) ? lonNum : undefined
+          let lat: number | undefined = Number.isFinite(latNum) ? latNum : undefined
+          if (lon == null || lat == null) {
+            const c = readEntityDegrees(ent)
+            if (c) { lon = c.lon; lat = c.lat }
+          }
+          ctx = {
+            kind, title,
+            lon, lat,
+            entityId: String(propRaw('id') || ''),
+            link: String(propRaw('link') || '') || undefined,
+            rawProps: Object.fromEntries(
+              Object.entries(rawProps ?? {}).map(([k, v]) => [k, typeof (v as { getValue?: () => unknown })?.getValue === 'function' ? (v as { getValue: () => unknown }).getValue() : v]),
+            ),
+          }
+        } else if (gp) {
+          const prop = gp.prop
+          const kind = String(prop('kind') || '')
+          const lonNum = Number(prop('lon'))
+          const latNum = Number(prop('lat'))
+          ctx = {
+            kind,
+            title: String(prop('title') || prop('name') || kind || 'Entity'),
+            lon: Number.isFinite(lonNum) ? lonNum : undefined,
+            lat: Number.isFinite(latNum) ? latNum : undefined,
+            entityId: String(prop('id') || '') || undefined,
+            link: String(prop('link') || '') || undefined,
+            rawProps: gp.meta as Record<string, unknown>,
+          }
+        } else {
+          // No entity — minimal menu with coords
+          const ray = viewer!.camera.getPickRay(px)
+          const cart = ray ? scene.globe.pick(ray, scene) : null
+          if (!cart) return
+          const c = Cartographic.fromCartesian(cart)
+          const lon = CMath.toDegrees(c.longitude)
+          const lat = CMath.toDegrees(c.latitude)
+          ctx = {
+            kind: 'location',
+            title: 'Location',
+            lon, lat,
+            rawProps: {},
+          }
+        }
+
+        const actions = buildContextMenuActions(ctx, {
+          onFocus: (flon, flat) => {
+            const v = viewerRef.current
+            if (!v) return
+            v.camera.flyTo({
+              destination: Cartesian3.fromDegrees(flon, flat, 400000),
+              duration: 1.2,
+            })
+          },
+          onCopyCoords: (flon, flat) => {
+            const text = `${flat.toFixed(4)}, ${flon.toFixed(4)}`
+            try { navigator.clipboard?.writeText(text) } catch { /* ignore */ }
+          },
+          onAddPin: (flon, flat, title) => {
+            onAddOsintPinRef.current?.({
+              id: `pin-${Date.now()}`,
+              tool: 'context',
+              query: `${flat.toFixed(4)},${flon.toFixed(4)}`,
+              lon: flon,
+              lat: flat,
+              title,
+              lines: [],
+            })
+          },
+          onViewDetails: () => {
+            if (gp?.entity) selectEntity(gp.entity)
+          },
+          onTrackFlight: () => {
+            if (gp?.entity) viewer!.trackedEntity = gp.entity
+          },
+          onFetchTrail: () => {
+            const icao = String(ctx.rawProps.icao || '').toLowerCase()
+            if (icao) trailsApi.fetchTrail(icao)
+          },
+          onOpenLink: (url) => {
+            try { window.open(url, '_blank', 'noopener,noreferrer') } catch { /* ignore */ }
+          },
+          onOpenWindy: (flat, flon) => {
+            onOpenWindyRef.current?.(flat, flon)
+          },
+          onAskAI: (title, lines) => {
+            onAskAIRef.current?.(title, lines)
+          },
+        })
+
+        if (actions.length > 0 && !cancelled) {
+          setCtxMenu({ x: px.x, y: px.y, actions })
+        }
+      }, ScreenSpaceEventType.RIGHT_CLICK)
+
       // ---------- FPS ----------
       let frames = 0, lastT = performance.now()
       scene.postRender.addEventListener(() => {
@@ -2495,6 +2620,15 @@ export default function Globe({
             <div key={i} className="tt-line">{line}</div>
           ))}
         </div>
+      )}
+
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          actions={ctxMenu.actions}
+          onClose={() => setCtxMenu(null)}
+        />
       )}
 
       {detailOpen && target && (
