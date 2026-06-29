@@ -13,6 +13,7 @@ import { agentBusEnabled } from './lib/agentBus'
 import { useAgentBus } from './hooks/useAgentBus'
 import { useHudSessionState } from './lib/hudSessionState'
 import { agenticBadgeMeta } from './lib/agentic'
+import { initTheme, toggleTheme, type ThemeId } from './lib/theme'
 import {
   useSituationsQuery,
   useBriefingQuery,
@@ -31,8 +32,11 @@ const SituationBoard = lazy(() => import('./components/SituationBoard'))
 const CalibrationTriggersPanel = lazy(() => import('./components/CalibrationTriggersPanel'))
 const FullAnalysisOverlay = lazy(() => import('./components/FullAnalysisOverlay'))
 const WindyMapOverlay = lazy(() => import('./components/WindyMapOverlay'))
+const SidebarLeft = lazy(() => import('./components/SidebarLeft'))
+const SidebarRight = lazy(() => import('./components/SidebarRight'))
 
 type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'news' | 'osint'
+type LayoutMode = 'full' | '3col'
 
 function TabFallback({ label = 'Loading' }: { label?: string }) {
   return (
@@ -205,6 +209,11 @@ export default function App() {
   const [windyMapCoords, setWindyMapCoords] = useState({ lat: 9.55, lon: 100.05 })
   const [windyMapKey, setWindyMapKey] = useState<string | null>(null)
   const [intelEntityId, setIntelEntityId] = useState<string | null>(null)
+  const [theme, setTheme] = useState<ThemeId>(() => initTheme())
+  const [layoutMode, setLayoutMode] = useHudSessionState<LayoutMode>('layoutMode', 'full', (v): v is LayoutMode => v === 'full' || v === '3col')
+  const [leftCollapsed, setLeftCollapsed] = useHudSessionState('leftCollapsed', false, (v): v is boolean => v === true || v === false)
+  const [rightCollapsed, setRightCollapsed] = useHudSessionState('rightCollapsed', false, (v): v is boolean => v === true || v === false)
+  const [sidebarLayers, setSidebarLayers] = useState<Record<string, boolean>>({})
   useAlertNotifications()
   const agenticBadge = useBriefingAgenticBadge()
   const situationsBadge = useSituationsBadge()
@@ -365,6 +374,13 @@ export default function App() {
           <button className={splitView ? 'active' : ''} onClick={toggleSplitView} style={{ marginLeft: 16 }}>
             ◫ SPLIT
           </button>
+          <button
+            className={layoutMode === '3col' ? 'active' : ''}
+            onClick={() => setLayoutMode(layoutMode === '3col' ? 'full' : '3col')}
+            title="Toggle three-column layout"
+          >
+            ◧ COLUMNS
+          </button>
         </nav>
 
         <div className="hud-meta">
@@ -399,6 +415,13 @@ export default function App() {
           >
             CAL & TRIG
           </button>
+          <button
+            className="mega-analysis-btn secondary"
+            onClick={() => setTheme(toggleTheme(theme))}
+            title="Toggle cyber / MSS dark theme"
+          >
+            {theme === 'cyber' ? 'CYBER' : 'MSS'}
+          </button>
           <SystemStatus />
           <HudClock />
         </div>
@@ -428,6 +451,18 @@ export default function App() {
           <ErrorBoundary name="FullAnalysis"><FullAnalysisOverlay onClose={() => setAnalysisOpen(false)} onFocus={focusOnMap} /></ErrorBoundary>
         </Suspense>
       )}
+
+      <div className={`hud-layout ${layoutMode === '3col' ? 'hud-layout--3col' : ''}`}>
+        {layoutMode === '3col' && (
+          <Suspense fallback={<TabFallback label="LAYERS" />}>
+            <SidebarLeft
+              layers={sidebarLayers}
+              onToggleLayer={(k) => setSidebarLayers((prev) => ({ ...prev, [k]: !prev[k] }))}
+              collapsed={leftCollapsed}
+              onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
+            />
+          </Suspense>
+        )}
 
       <main className={splitView ? 'hud-main hud-main--split' : 'hud-main'}>
         <div
@@ -535,6 +570,17 @@ export default function App() {
           />
         )}
       </main>
+
+        {layoutMode === '3col' && (
+          <Suspense fallback={<TabFallback label="BRIEFING" />}>
+            <SidebarRight
+              collapsed={rightCollapsed}
+              onToggleCollapse={() => setRightCollapsed(!rightCollapsed)}
+              onFocus={(lat, lon, title) => focusOnMap({ kind: 'sidebar', lat, lon, height: 400000, title, lines: [] })}
+            />
+          </Suspense>
+        )}
+      </div>
     </div>
   )
 }
