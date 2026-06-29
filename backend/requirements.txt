@@ -94,3 +94,8 @@ openpyxl>=3.1
 #   pip install lightgbm numpy
 # lightgbm>=4.0
 # numpy>=1.26
+
+# Optional: V4-23 Anomaly Detection (Isolation Forest on feed time series)
+#   set WORLDBASE_ANOMALY_DETECTION=1 in backend/.env
+#   Falls back to z-score statistics when sklearn is not installed
+scikit-learn>=1.3

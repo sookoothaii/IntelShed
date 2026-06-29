@@ -82,6 +82,7 @@ def build_security_advisor_prompt(
             "CYBER & INFRA — KEV, nodes, space weather, markets, air quality if present\n"
             "MARITIME ANOMALIES — AIS pattern-of-life (always include, even if no anomalies)\n"
             "SATELLITE CHANGE DETECTION — Sentinel-2 NDVI change (always include, even if no anomalies)\n"
+            "ANOMALY ALERT — Isolation Forest feed anomalies (always include, even if no anomalies)\n"
             "RECOMMENDATION — 1–2 sentences: calm, actionable, no panic\n"
         )
         no_data_clause = (
@@ -212,6 +213,15 @@ def build_security_advisor_prompt(
         for line in forecast["lines"]:
             prompt += f"  - {line}\n"
         prompt += "\n"
+    anomaly = digest.get("anomaly") or {}
+    if anomaly.get("enabled"):
+        prompt += "ANOMALY ALERT (Isolation Forest, feed time series):\n"
+        if anomaly.get("lines"):
+            for line in anomaly["lines"]:
+                prompt += f"  - {line.get('text', line)}\n"
+        else:
+            prompt += "  - No anomalies detected in last 24h.\n"
+        prompt += "\n"
     prompt += (
         "Edge nodes:\n"
         + "\n".join(digest["nodes"])
@@ -258,6 +268,12 @@ def format_fallback_protocol(digest: dict[str, Any], lang: str | None = None) ->
         parts.append(
             "EMPFEHLUNG: LLM offline — Rohdaten oben prüfen; keine automatische Bewertung."
         )
+        anomaly = digest.get("anomaly") or {}
+        if anomaly.get("enabled") and anomaly.get("lines"):
+            parts.append(
+                "ANOMALIE: "
+                + "; ".join(line.get("text", "")[:80] for line in anomaly["lines"][:3])
+            )
         return "\n\n".join(parts)
     parts = [
         f"LOCAL ({region}): " + " ".join(digest["local"]).replace("- ", ""),
@@ -276,4 +292,10 @@ def format_fallback_protocol(digest: dict[str, Any], lang: str | None = None) ->
     if intel_items:
         parts.append("INTEL: " + " ".join(i.get("text", "") for i in intel_items[:4]))
     parts.append("NOTE: LLM offline — review raw digest above.")
+    anomaly = digest.get("anomaly") or {}
+    if anomaly.get("enabled") and anomaly.get("lines"):
+        parts.append(
+            "ANOMALY: "
+            + "; ".join(line.get("text", "")[:80] for line in anomaly["lines"][:3])
+        )
     return "\n\n".join(parts)

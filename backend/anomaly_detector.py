@@ -712,10 +712,6 @@ def ingest_anomalies_as_events(anomalies: list[dict[str, Any]]) -> dict[str, Any
             summary = a.get("summary", "")
             det_id = a.get("detection_id", "")
 
-            entity_id = ftm_query.make_entity_id(
-                f"anomaly:{feed_key}:{det_id}:{seen_at}"
-            )
-
             props: dict[str, list[str]] = {
                 "name": [f"Anomaly: {feed_key}"],
                 "summary": [summary],
@@ -725,9 +721,13 @@ def ingest_anomalies_as_events(anomalies: list[dict[str, Any]]) -> dict[str, Any
                 "confidence": [str(round(score, 2))],
             }
 
-            ent = ftm_query._proxy_with_id(entity_id, "Event", props)
+            ent = ftm_query.make_entity(
+                "Event",
+                [f"anomaly:{feed_key}:{det_id}:{seen_at}"],
+                props,
+            )
             ftm_query.upsert(ent, dataset="anomaly_detection", seen_at=seen_at)
-            ids.append(entity_id)
+            ids.append(ent.id)
 
             # Mark as ingested
             if det_id:
@@ -735,7 +735,7 @@ def ingest_anomalies_as_events(anomalies: list[dict[str, Any]]) -> dict[str, Any
                     conn.execute(
                         "UPDATE anomaly_detections SET ingested = 1, ftm_entity_id = ? "
                         "WHERE id = ?",
-                        (entity_id, det_id),
+                        (ent.id, det_id),
                     )
                     conn.commit()
 

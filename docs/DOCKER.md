@@ -30,7 +30,10 @@ docker compose up -d --build
 |---------|-------|------|-------|
 | **backend** | `worldbase-backend:local` | 8002 (internal) | FastAPI, non-root user (uid 10001), healthcheck on `/api/health/ping` |
 | **web** | `worldbase-web:local` | 80, 443 | Caddy: TLS termination, SPA serve, `/api` reverse proxy |
-| **redis** | `redis:7-alpine` | 6379 (internal) | Rate-limit storage (in-memory, no persistence) |
+| **redis** | `redis:7-alpine` | 6379 (internal) | Rate-limit storage, Celery broker (in-memory, no persistence) |
+| **celery-worker** | `worldbase-backend:local` | — | Feed ingest, briefing generation, entity resolution (delegates to backend API) |
+| **celery-beat** | `worldbase-backend:local` | — | Periodic task scheduler (feed ingest, briefing autopilot) |
+| **flower** | `mher/flower:2.0` | 5555 (internal) | Celery monitoring dashboard (proxied via Caddy at `/flower/`) |
 
 The backend is **not** published to the host by default — Caddy proxies it. This is the most locked-down posture. To expose it directly, copy `docker-compose.override.example.yml` to `docker-compose.override.yml`.
 
@@ -41,8 +44,13 @@ Browser ──https──→ Caddy (:443) ──→ backend:8002 (internal)
                          │
                          └──→ SPA static files (/srv)
                          
-backend ──→ redis:6379 (rate limits)
+backend ──→ redis:6379 (rate limits + Celery broker)
 backend ──→ host.docker.internal:11434 (Ollama on host)
+
+celery-beat ──→ redis:6379 (schedule)
+celery-worker ──→ redis:6379 (tasks)
+celery-worker ──→ backend:8002 (API calls for feed ingest, briefing)
+flower ──→ redis:6379 (monitoring)
 ```
 
 ### Backend Dockerfile
@@ -133,6 +141,124 @@ sudo systemctl restart worldbase_push.service
 `start-docker.ps1` auto-detects the LAN IP and prints the exact Pi sync target.
 
 **Important:** The Pi's `worldbase_push.service` has multiple drop-in files. Both `http-lan.conf` and `port.conf` must agree on `WORLDBASE_PORT=443`. The main service file defaults to port 8002 — drop-ins override it.
+
+## Stack verification (post-start health check)
+
+After `docker compose up -d --build`, verify the stack is fully operational:
+
+### 1. Container status
+
+```bash
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+```
+
+Expected: `worldbase-backend-1`, `worldbase-web-1`, `worldbase-redis-1` all `Up` and `healthy`. Celery worker/beat/flower may show `starting` for the first 30–60 s.
+
+### 2. Backend health (from inside the compose network)
+
+```bash
+# Fast ping
+docker compose exec backend curl -s http://127.0.0.1:8002/api/health/ping
+# → {"status":"ok","time":"..."}
+
+# Full health (feed freshness, FtM, DuckDB)
+docker compose exec backend curl -s http://127.0.0.1:8002/api/health
+```
+
+### 3. Caddy proxy (TLS termination)
+
+```bash
+# From inside the web container — verifies Caddy → backend proxy
+docker compose exec web wget -qO- --no-check-certificate https://localhost/api/health/ping
+```
+
+> **Windows host caveat:** `curl -sk https://localhost/api/health/ping` from PowerShell may return empty (Windows curl SSL issue). Open `https://localhost` in a browser instead — accept the self-signed cert once.
+
+### 4. API key
+
+The backend reads `WORLDBASE_API_KEY` from `backend/.env` (via `env_file` in docker-compose). To find the key at runtime:
+
+```bash
+docker compose exec backend python -c "import os; print(os.getenv('WORLDBASE_API_KEY','NOT_SET'))"
+```
+
+Use this key as `X-API-Key` header for authenticated endpoints:
+
+```bash
+docker compose exec backend curl -s -H "X-API-Key: <key>" http://127.0.0.1:8002/api/briefing
+```
+
+### 5. Key endpoints to verify
+
+| Endpoint | Expected | Notes |
+|----------|----------|-------|
+| `GET /api/health/ping` | `{"status":"ok"}` | No auth required |
+| `GET /api/health` | Feed counts, FtM ready, DuckDB | No auth required |
+| `GET /api/trust` | Score 0–4, feed drift | No auth required |
+| `GET /api/briefing` | quality, insights, watch_items, agentic | Requires `X-API-Key` |
+| `GET /api/intel/graph/stats` | entities, statements, edges counts | Requires `X-API-Key` |
+| `GET /api/anomalies/iso/status` | enabled, model_trained, metrics count | Requires `X-API-Key` |
+| `GET /api/agent/status` | phases, blackboard, two_pass, layers | Requires `X-API-Key` |
+| `GET /api/memory/stats` | chunks, vec_chunks, search_mode | Requires `X-API-Key` |
+| `GET /api/darkweb/status` | engines, modes, tor_proxy | Requires `X-API-Key` |
+| `GET /api/admin/flags` | All feature flags with enabled state | Requires `X-API-Key` |
+| `GET /openapi.json` | Full route list (281+ routes) | No auth required |
+
+### 6. Feature flags gotcha (Docker)
+
+`GET /api/admin/flags` shows many flags as `enabled: false` with `source: "env"` — e.g. `query_router`, `provenance`, `briefing_autopilot`, `briefing_intel`, `rag_rerank`, `rag_feed_ingest`, `feed_ingest_autopilot`, `briefing_agentic_loop`, `ftm_statements`.
+
+**This is expected.** These flags are not explicitly set in `backend/.env`, so the admin flags endpoint reads them as `false`. However, the **code defaults** in `config.py` / `features.py` apply at runtime — e.g. `WORLDBASE_QUERY_ROUTER` defaults to `"1"` (on), `WORLDBASE_PROVENANCE` defaults to `"1"` (on), `WORLDBASE_BRIEFING_AUTOPILOT` defaults to `"1"` (on). The briefing will still run agentic loops, feed ingest autopilot will still run, RAG rerank will still work.
+
+To explicitly enable a flag in Docker, add it to `backend/.env` and rebuild: `docker compose up -d --build`.
+
+### 7. Celery worker activity
+
+Feed ingest runs via Celery workers, not in-process. Check worker logs:
+
+```bash
+docker logs worldbase-celery-worker-1 --tail 20
+```
+
+Expected: `Task tasks.feeds.ingest_feed[...] succeeded in Ns` with entity/edge counts. Beat scheduler:
+
+```bash
+docker logs worldbase-celery-beat-1 --tail 10
+# → celery beat v5.x is starting... beat: Starting...
+```
+
+### 8. Anomaly detection cold start
+
+`GET /api/anomalies/iso/status` will show `model_trained: false, total_metrics: 0` on a fresh Docker DB. This is expected — the Isolation Forest needs ≥14 samples (feed metrics collected over time) before training. The autopilot background loop collects metrics hourly and trains daily. After ~14 hours of operation, the model will auto-train.
+
+### 9. Route path reference
+
+Common endpoint paths (some are non-obvious):
+
+| What | Correct path | Wrong path |
+|------|-------------|------------|
+| FtM graph stats | `/api/intel/graph/stats` | ~~`/api/ftm/stats`~~ |
+| FtM entities | `/api/intel/entities` | ~~`/api/ftm/entities`~~ |
+| Entity by ID | `/api/entity/{id}` | ~~`/api/ftm/entity/{id}`~~ |
+| Feed status | `/api/intel/feeds/status` | ~~`/api/feeds`~~ |
+| Briefing | `/api/briefing` | — |
+| Anomaly status | `/api/anomalies/iso/status` | — |
+| Agent status | `/api/agent/status` | — |
+| Memory stats | `/api/memory/stats` | — |
+| Darkweb status | `/api/darkweb/status` | — |
+| Admin flags | `/api/admin/flags` | — |
+| Connectors | `/api/connectors` | — |
+| Credentials | `/api/credentials/status` | — |
+
+### 10. DuckDB spatial in Docker
+
+- R-Tree index **disabled** by default (DuckDB 1.5.x bug — `duckdb-spatial #769` FATAL "flat vector" error on writes)
+- `geom GEOMETRY` column still created and synced via `ST_MakePoint` on upsert (safe without R-Tree)
+- `ST_Within` queries use full scan (no R-Tree) — works but slower
+- Runtime fallback: `ST_Within` → `lat/lon BETWEEN` if "flat vector" error occurs
+- `_drop_rtree_index_if_present()` runs on startup to clean up indexes from prior runs
+- To force-enable R-Tree (testing/future DuckDB): set `WORLDBASE_DUCKDB_RTREE=1` in `backend/.env`
+- DuckDB dead letters in `/api/admin/dlq` may show historical count from prior venv runs — no new dead letters in Docker mode
 
 ## Troubleshooting
 

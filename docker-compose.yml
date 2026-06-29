@@ -92,6 +92,12 @@ services:
       WORLDBASE_BACKEND_URL: http://backend:8002
       WORLDBASE_TASK_QUEUE: celery
     command: ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info", "--concurrency=1"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A tasks.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     restart: unless-stopped
     networks:
       - worldbase
@@ -115,6 +121,12 @@ services:
       WORLDBASE_BACKEND_URL: http://backend:8002
       WORLDBASE_TASK_QUEUE: celery
     command: ["celery", "-A", "tasks.celery_app", "beat", "--loglevel=info"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os;exit(0 if any('beat' in open(f'/proc/{p}/cmdline','rb').read().decode(errors='ignore') for p in os.listdir('/proc') if p.isdigit()) else 1)\""]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     restart: unless-stopped
     networks:
       - worldbase
@@ -135,6 +147,12 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     command: ["celery", "-A", "tasks.celery_app", "flower", "--port=5555"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5555/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     ports:
       - "127.0.0.1:5555:5555"
     restart: unless-stopped
