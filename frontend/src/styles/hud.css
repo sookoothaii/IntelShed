@@ -6428,3 +6428,146 @@ html, body, #root {
   pointer-events: none;
   user-select: none;
 }
+
+/* ── Layer Tree (G.2) ────────────────────────────────────────────────────── */
+
+.layer-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.layer-tree-group {
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.layer-tree-group-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+
+.layer-tree-group-header:hover {
+  background: rgba(var(--accent-dim-rgb), 0.06);
+}
+
+.layer-tree-group-header:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.layer-tree-chevron {
+  font-size: 10px;
+  color: var(--txt-muted);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.layer-tree-chevron--collapsed {
+  transform: rotate(-90deg);
+}
+
+.layer-tree-group-label {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--txt-muted);
+  text-transform: uppercase;
+  flex: 1;
+  font-weight: 600;
+}
+
+.layer-tree-group-count {
+  font-size: 8px;
+  color: var(--txt-dim);
+  font-family: var(--mono);
+  flex-shrink: 0;
+}
+
+.layer-tree-bulk-btn {
+  background: none;
+  border: none;
+  color: var(--txt-dim);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: color 0.1s;
+}
+
+.layer-tree-bulk-btn:hover {
+  color: var(--accent);
+}
+
+.layer-tree-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 14px;
+}
+
+.layer-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.1s;
+  font-size: 11px;
+  color: var(--txt-dim);
+}
+
+.layer-tree-item:hover {
+  background: rgba(var(--accent-dim-rgb), 0.06);
+}
+
+.layer-tree-item:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.layer-tree-item--on {
+  color: var(--accent);
+}
+
+.layer-tree-checkbox {
+  width: 12px;
+  height: 12px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.layer-tree-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+
+.layer-tree-label {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.layer-tree-badge {
+  font-size: 9px;
+  font-family: var(--mono);
+  color: var(--txt-muted);
+  background: rgba(var(--accent-dim-rgb), 0.1);
+  padding: 1px 5px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  min-width: 18px;
+  text-align: center;
+}
