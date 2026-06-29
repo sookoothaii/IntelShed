@@ -5,6 +5,8 @@ import type { FocusTarget } from '../lib/focus'
 import { useHudSessionState } from '../lib/hudSessionState'
 import { useBriefingQuery } from '../hooks/useSharedFeeds'
 import type { AgenticTrace } from '../lib/agentic'
+import TrustGauge from './TrustGauge'
+import { ProvenanceGlobalStats } from './ProvenanceChain'
 
 type BriefLang = 'en' | 'de'
 type AnalysisTab = 'operator' | 'alerts' | 'feeds'
@@ -335,6 +337,12 @@ interface SpaceWeatherResponse {
   history?: unknown[]
 }
 
+interface StatementStatsResponse {
+  total_statements?: number
+  by_dataset?: Record<string, number>
+  by_prop?: Record<string, number>
+}
+
 interface AnalysisResults {
   health?: HealthResponse
   correlations?: CorrelationsResponse
@@ -352,6 +360,7 @@ interface AnalysisResults {
   nodes?: NodesResponse
   markets?: { crypto?: Record<string, CryptoEntry> }
   spaceweather?: SpaceWeatherResponse
+  statements?: StatementStatsResponse
 }
 
 const ANALYSIS_ENDPOINTS: { key: string; url: string }[] = [
@@ -371,6 +380,7 @@ const ANALYSIS_ENDPOINTS: { key: string; url: string }[] = [
   { key: 'trust', url: '/api/trust' },
   { key: 'cve', url: '/api/cve?limit=15' },
   { key: 'pegel', url: '/api/pegel' },
+  { key: 'statements', url: '/api/intel/statements/stats' },
 ]
 
 function isBool(v: unknown): v is boolean {
@@ -665,6 +675,28 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
     && (trust?.degraded || trust?.field_warn || trust?.feed_warn)
   const degradeCritical = (trust?.score ?? 4) < 2
 
+  const fieldTrustVal = trust?.score != null && trust?.max_score != null
+    ? trust.score / trust.max_score
+    : null
+  const briefingQualityVal = briefingQuality?.score ?? null
+  const distinctSources = new Set<string>()
+  for (const row of digestMeta) {
+    if (row.sources) for (const s of row.sources) distinctSources.add(s)
+  }
+  const sourceDiversityVal = digestMeta.length > 0
+    ? Math.min(distinctSources.size / 10, 1)
+    : null
+  const corroborationVals = digestMeta
+    .map((r) => Number(r.corroboration ?? 0))
+    .filter((n) => !isNaN(n))
+  const corroborationVal = corroborationVals.length > 0
+    ? corroborationVals.reduce((a, b) => a + b, 0) / corroborationVals.length
+    : null
+  const feedEntries = health?.feeds ? Object.values(health.feeds) : []
+  const feedHealthVal = feedEntries.length > 0
+    ? feedEntries.filter((f) => f.fresh).length / feedEntries.length
+    : null
+
   return (
     <div className="analysis-overlay" onClick={onClose}>
       <div className="analysis-panel" role="dialog" aria-modal="true" aria-label="Full situation analysis" onClick={(e) => e.stopPropagation()}>
@@ -716,25 +748,12 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
               </button>
             </div>
             {analysisTab === 'operator' && (trust || briefingQuality) && (
-              <div className="analysis-summary-strip">
-                <span>FIELD {trust?.score ?? '—'}/{trust?.max_score ?? 4}</span>
-                <span>QUALITY {briefingQuality?.score != null ? `${Math.round(briefingQuality.score * 100)}%` : '—'}</span>
-                <span>LOCAL {digest?.local_count ?? '—'}</span>
-                <span>AGENTIC {agenticTrace?.rounds ?? '—'}/{agenticTrace?.max_rounds ?? 3}</span>
-                <span>FUSION {fusionHotspots.length}</span>
-                {weakDigestCount > 0 && (
-                  <span style={{ color: '#ffd23f' }} title="Digest lines with weak or single-source corroboration">
-                    VERIFY −{weakDigestCount}
-                  </span>
-                )}
-                {feedDegrade?.offline_pct != null && feedDegrade.offline_pct > 0 && (
-                  <span
-                    style={{ color: feedDegrade.warn ? '#ff6b35' : '#8fb7a9' }}
-                    title={(feedDegrade.offline_keys || []).join(', ')}
-                  >
-                    FEEDS OFFLINE {feedDegrade.offline_pct}%
-                  </span>
-                )}
+              <div className="trust-gauge-row">
+                <TrustGauge value={fieldTrustVal} label="Field Trust" />
+                <TrustGauge value={briefingQualityVal} label="Quality" />
+                <TrustGauge value={sourceDiversityVal} label="Sources" />
+                <TrustGauge value={corroborationVal} label="Corroboration" />
+                <TrustGauge value={feedHealthVal} label="Feed Health" />
               </div>
             )}
             {showDegradeBanner && (
@@ -778,13 +797,14 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
                 }}
               >
                 <h3>TRUST</h3>
-                <div className="analysis-row">
-                  <span style={{ fontWeight: 'bold' }}>
-                    FIELD {trust?.score ?? '—'}/{trust?.max_score ?? 4}
-                  </span>
-                  <span style={{ color: '#8fb7a9' }}>
-                    BRIEFING QUALITY {briefingQuality?.score != null ? Math.round(briefingQuality.score * 100) : '—'}%
-                  </span>
+                <div className="analysis-row" style={{ alignItems: 'center' }}>
+                  <div className="trust-gauge-row" style={{ padding: 0 }}>
+                    <TrustGauge value={fieldTrustVal} label="Field Trust" size={64} />
+                    <TrustGauge value={briefingQualityVal} label="Quality" size={64} />
+                    <TrustGauge value={sourceDiversityVal} label="Sources" size={64} />
+                    <TrustGauge value={corroborationVal} label="Corroboration" size={64} />
+                    <TrustGauge value={feedHealthVal} label="Feed Health" size={64} />
+                  </div>
                   <button
                     type="button"
                     className="analysis-trust-toggle"
@@ -927,6 +947,13 @@ export default function FullAnalysisOverlay({ onClose, onFocus }: { onClose: () 
               </div>
             )}
             <div className="analysis-col analysis-col--single">
+
+              {analysisTab === 'operator' && results.statements?.total_statements != null && results.statements.total_statements > 0 && (
+                <div className="analysis-section">
+                  <h3>PROVENANCE OVERVIEW</h3>
+                  <ProvenanceGlobalStats />
+                </div>
+              )}
 
               {analysisTab === 'alerts' && nodes?.nodes?.some((n: NodeEntry) => (n.health?.disk_pct ?? 0) >= 85) && (
                 <div className="analysis-section critical">

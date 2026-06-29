@@ -212,6 +212,7 @@ export default function App() {
   const [windyMapCoords, setWindyMapCoords] = useState({ lat: 9.55, lon: 100.05 })
   const [windyMapKey, setWindyMapKey] = useState<string | null>(null)
   const [intelEntityId, setIntelEntityId] = useState<string | null>(null)
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null)
   const [theme, setTheme] = useState<ThemeId>(() => initTheme())
   const [layoutMode, setLayoutMode] = useHudSessionState<LayoutMode>('layoutMode', 'full', (v): v is LayoutMode => v === 'full' || v === '3col')
   const [leftCollapsed, setLeftCollapsed] = useHudSessionState('leftCollapsed', false, (v): v is boolean => v === true || v === false)
@@ -315,6 +316,7 @@ export default function App() {
     onCameraMove: handleGlobeMove,
     onOpenWindy: openWindyMap,
     onAddOsintPin: addOsintPin,
+    onEntitySelect: setSelectedEntityId,
     syncCamera,
     mapMode,
     layoutSplit: splitView,
@@ -595,6 +597,7 @@ export default function App() {
               collapsed={rightCollapsed}
               onToggleCollapse={() => setRightCollapsed(!rightCollapsed)}
               onFocus={(lat, lon, title) => focusOnMap({ kind: 'sidebar', lat, lon, height: 400000, title, lines: [] })}
+              entityId={selectedEntityId}
             />
           </Suspense>
         )}

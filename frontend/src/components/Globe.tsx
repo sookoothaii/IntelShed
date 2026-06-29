@@ -865,6 +865,7 @@ export default function Globe({
   onCameraMove,
   onOpenWindy,
   onAddOsintPin,
+  onEntitySelect,
   syncCamera,
   mapMode = DEFAULT_MAP_VIEW,
   visible = true,
@@ -877,6 +878,7 @@ export default function Globe({
   onCameraMove?: (cam: { lon: number; lat: number; height: number; pitch?: number }) => void
   onOpenWindy?: (lat: number, lon: number) => void
   onAddOsintPin?: (pin: Omit<OsintPin, 'ts'>) => void
+  onEntitySelect?: (entityId: string | null) => void
   syncCamera?: { lon: number; lat: number; height?: number; zoom?: number; pitch?: number; source: 'globe' | 'map'; ts: number } | null
   mapMode?: MapViewMode
   visible?: boolean
@@ -909,10 +911,12 @@ export default function Globe({
   const applyTarget = useCallback((t: NonNullable<Target>, ent?: Entity) => {
     setTarget(enrichTargetCoords(t, ent))
     setDetailOpen(true)
-  }, [])
+    if (onEntitySelect && t.entityId) onEntitySelect(t.entityId)
+  }, [onEntitySelect])
   const closeDetail = useCallback(() => {
     setDetailOpen(false)
     setTarget(null)
+    if (onEntitySelect) onEntitySelect(null)
     apiRef.current.unlock?.()
     const v = viewerRef.current
     if (v && !(v as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) {

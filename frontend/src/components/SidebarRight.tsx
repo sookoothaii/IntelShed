@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { fetchApi } from '../lib/networkFetch'
 import { useBriefingQuery } from '../hooks/useSharedFeeds'
 import ActionBar from './ActionBar'
+import TrustGauge from './TrustGauge'
+import ProvenanceChain from './ProvenanceChain'
 
 /* ── Types ────────────────────────────────────────────────────────────────── */
 
@@ -22,7 +24,16 @@ interface BriefingData {
   watch_items?: WatchItem[]
   insights?: { title?: string; summary?: string; severity?: string }[]
   created_at?: string
+  digest_line_meta?: { sources?: string[]; corroboration?: number }[]
 }
+
+interface TrustData {
+  score?: number
+  max_score?: number
+}
+
+interface FeedHealthEntry { fresh?: boolean }
+interface HealthData { feeds?: Record<string, FeedHealthEntry> }
 
 /* ── Component ─────────────────────────────────────────────────────────────── */
 
@@ -30,29 +41,33 @@ export default function SidebarRight({
   collapsed,
   onToggleCollapse,
   onFocus,
+  entityId,
 }: {
   collapsed: boolean
   onToggleCollapse: () => void
   onFocus?: (lat: number, lon: number, title: string) => void
+  entityId?: string | null
 }) {
   const { data: briefing } = useBriefingQuery()
-  const [trustScore, setTrustScore] = useState<number | null>(null)
+  const [trustData, setTrustData] = useState<TrustData | null>(null)
+  const [healthData, setHealthData] = useState<HealthData | null>(null)
 
-  const loadTrust = useCallback(async () => {
+  const loadTrustAndHealth = useCallback(async () => {
     try {
-      const r = await fetchApi('/api/trust')
-      if (r.ok) {
-        const d = await r.json()
-        setTrustScore(d?.score ?? d?.overall ?? null)
-      }
+      const [tr, hr] = await Promise.all([
+        fetchApi('/api/trust'),
+        fetchApi('/api/health'),
+      ])
+      if (tr.ok) setTrustData(await tr.json())
+      if (hr.ok) setHealthData(await hr.json())
     } catch { /* fail-soft */ }
   }, [])
 
   useEffect(() => {
-    loadTrust()
-    const t = setInterval(loadTrust, 60_000)
+    loadTrustAndHealth()
+    const t = setInterval(loadTrustAndHealth, 60_000)
     return () => clearInterval(t)
-  }, [loadTrust])
+  }, [loadTrustAndHealth])
 
   const b = briefing as BriefingData | undefined
   const watchItems = b?.watch_items ?? []
@@ -60,6 +75,20 @@ export default function SidebarRight({
   const qualityScore = b?.quality?.score
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
   const selectedInsight = selectedIdx != null ? insights[selectedIdx] : null
+
+  const fieldTrustVal = trustData?.score != null && trustData?.max_score != null
+    ? trustData.score / trustData.max_score
+    : null
+  const digestMeta = b?.digest_line_meta ?? []
+  const distinctSources = new Set<string>()
+  for (const row of digestMeta) {
+    if (row.sources) for (const s of row.sources) distinctSources.add(s)
+  }
+  const sourceDiversityVal = digestMeta.length > 0 ? Math.min(distinctSources.size / 10, 1) : null
+  const corrobVals = digestMeta.map((r) => Number(r.corroboration ?? 0)).filter((n) => !isNaN(n))
+  const corroborationVal = corrobVals.length > 0 ? corrobVals.reduce((a, c) => a + c, 0) / corrobVals.length : null
+  const feedEntries = healthData?.feeds ? Object.values(healthData.feeds) : []
+  const feedHealthVal = feedEntries.length > 0 ? feedEntries.filter((f) => f.fresh).length / feedEntries.length : null
 
   if (collapsed) {
     return (
@@ -80,26 +109,16 @@ export default function SidebarRight({
         </button>
       </div>
 
-      {/* Trust score */}
+      {/* Trust gauges */}
       <div className="sidebar-section">
-        <div className="sidebar-section-title">TRUST SCORE</div>
-        <div className="sidebar-trust-gauge">
-          <div className="sidebar-trust-value">
-            {trustScore != null ? `${Math.round(trustScore * 100)}%` : '—'}
-          </div>
-          <div className="sidebar-trust-bar">
-            <div
-              className="sidebar-trust-fill"
-              style={{ width: `${trustScore != null ? Math.round(trustScore * 100) : 0}%` }}
-            />
-          </div>
+        <div className="sidebar-section-title">TRUST METRICS</div>
+        <div className="trust-gauge-row trust-gauge-row--compact">
+          <TrustGauge value={fieldTrustVal} label="Field" size={48} compact />
+          <TrustGauge value={qualityScore ?? null} label="Quality" size={48} compact />
+          <TrustGauge value={sourceDiversityVal} label="Sources" size={48} compact />
+          <TrustGauge value={corroborationVal} label="Corrob" size={48} compact />
+          <TrustGauge value={feedHealthVal} label="Feeds" size={48} compact />
         </div>
-        {qualityScore != null && (
-          <div className="sidebar-meta-row">
-            <span>Briefing quality</span>
-            <strong>{(qualityScore * 100).toFixed(0)}%</strong>
-          </div>
-        )}
         {b?.created_at && (
           <div className="sidebar-meta-row">
             <span>Updated</span>
@@ -171,6 +190,14 @@ export default function SidebarRight({
           </div>
         )}
       </div>
+
+      {/* Provenance chain */}
+      {entityId && (
+        <div className="sidebar-section">
+          <div className="sidebar-section-title">PROVENANCE</div>
+          <ProvenanceChain entityId={entityId} compact />
+        </div>
+      )}
 
       {selectedInsight && (
         <div className="sidebar-section">
