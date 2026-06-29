@@ -27,6 +27,7 @@ import { useIntelLayer } from './useIntelLayer';
 import { useDarkwebLayer } from './useDarkwebLayer';
 import { useSatelliteChangeLayer } from './useSatelliteChangeLayer';
 import { useDetectionBoxes } from './useDetectionBoxes';
+import { usePiAisLayer } from './usePiAisLayer';
 
 export function GlobeLayerManager({
   viewer,
@@ -88,6 +89,7 @@ export function GlobeLayerManager({
   useHeatmapLayer({ viewer, active: heatmapOn, feedActive, canFetch, setHeatmapMeta });
   useSatelliteChangeLayer({ viewer, active: layers.satelliteChange ?? false });
   useDetectionBoxes({ viewer, active: layers.detectionBoxes ?? false, feedActive, canFetch, setStats });
+  usePiAisLayer({ viewer, active: layers.piAis ?? false, feedActive, canFetch, setStats });
 
   return null;
 }

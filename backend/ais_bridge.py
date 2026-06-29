@@ -4,12 +4,15 @@ Sources (graceful degradation):
 1. AISstream.io WebSocket background collector (AISSTREAM_API_KEY)
 2. MyShipTracking JSON (bounding-box, no key)
 3. AISHub (AISHUB_API_KEY)
+4. Pi edge AIS receiver (POST /api/maritime/edge — USB dongle on Pi)
 
 When all sources are empty, returns count=0 and errors — no synthetic vessels.
 
 Endpoints:
   GET /api/maritime          — live vessel positions
   GET /api/maritime/ports    — tracked port regions
+  POST /api/maritime/edge    — receive vessels from Pi edge AIS receiver
+  GET /api/maritime/edge     — edge receiver status + buffered vessels
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Header, HTTPException, Request
 
 import feed_registry
 
@@ -116,6 +119,36 @@ _STREAM: dict[str, Any] = {
     "errors": [],
 }
 _STREAM_TASK: asyncio.Task | None = None
+
+# ---------------------------------------------------------------------------
+# Pi edge AIS receiver buffer
+# ---------------------------------------------------------------------------
+
+_EDGE_VESSELS: dict[str, dict] = {}  # mmsi → vessel dict
+_EDGE_STATUS: dict[str, Any] = {
+    "active": False,
+    "receiver_type": "unknown",
+    "messages_received": 0,
+    "vessels_seen": 0,
+    "last_message_at": "",
+    "lat": None,
+    "lon": None,
+    "range_km": 25,
+    "updated_at": "",
+}
+_EDGE_TTL = 600.0  # edge vessels expire after 10 min without updates
+
+
+def _prune_edge_vessels() -> None:
+    now = time.time()
+    drop = [
+        mmsi
+        for mmsi, v in _EDGE_VESSELS.items()
+        if now - float(v.get("_seen_at") or 0) > _EDGE_TTL
+    ]
+    for mmsi in drop:
+        _EDGE_VESSELS.pop(mmsi, None)
+
 
 # aisstream.io/docs — position-bearing AIS message types
 _AISSTREAM_POSITION_TYPES = (
@@ -392,6 +425,23 @@ def _snapshot_from_stream(regions: dict[str, dict] | None = None) -> list[dict]:
     active = regions or _active_regions()
     out: list[dict] = []
     for row in _STREAM["vessels"].values():
+        lat = row.get("lat")
+        lon = row.get("lon")
+        if lat is None or lon is None:
+            continue
+        if not _point_in_regions(float(lat), float(lon), active):
+            continue
+        clean = {k: v for k, v in row.items() if not str(k).startswith("_")}
+        out.append(clean)
+    return out
+
+
+def _snapshot_edge_vessels(regions: dict[str, dict] | None = None) -> list[dict]:
+    """Return edge AIS vessels within active regions (from Pi USB receiver)."""
+    _prune_edge_vessels()
+    active = regions or _active_regions()
+    out: list[dict] = []
+    for row in _EDGE_VESSELS.values():
         lat = row.get("lat")
         lon = row.get("lon")
         if lat is None or lon is None:
@@ -683,6 +733,11 @@ async def _build_maritime_result() -> dict:
     errors: list[str] = list(_STREAM.get("errors") or [])
     all_vessels = _snapshot_from_stream(regions)
 
+    # Merge Pi edge AIS receiver vessels (USB dongle on Pi)
+    edge_vessels = _snapshot_edge_vessels(regions)
+    if edge_vessels:
+        all_vessels.extend(edge_vessels)
+
     stream_meta: dict[str, Any] | None = None
     if _aisstream_background_on():
         stream_meta = {
@@ -810,6 +865,100 @@ def list_ports():
     return {
         "ports": [{"id": k, **v} for k, v in PORT_REGIONS.items()],
         "active": list(_active_regions().keys()),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Pi edge AIS receiver — vessels from USB dongle on Pi
+# ---------------------------------------------------------------------------
+
+
+def _verify_node_token(raw_body: bytes, token: str, expected: str) -> bool:
+    if not expected:
+        return True
+    if not token:
+        return False
+    import hashlib
+    import hmac as _hmac
+
+    sig = _hmac.new(expected.encode(), raw_body, hashlib.sha256).hexdigest()
+    return _hmac.compare_digest(sig, token)
+
+
+_NODE_TOKEN = os.getenv("NODE_INGEST_TOKEN", "")
+
+
+@router.post("/edge")
+async def receive_edge_vessels(
+    request: Request,
+    x_node_token: str = Header(default=""),
+):
+    """Receive decoded AIS vessels from the Pi edge USB receiver.
+
+    Body: {"vessels": [...], "source": "pi_edge", "receiver_lat": ..., "receiver_lon": ...}
+    """
+    raw = await request.body()
+    if _NODE_TOKEN:
+        if not _verify_node_token(raw, x_node_token, _NODE_TOKEN):
+            raise HTTPException(status_code=403, detail="Invalid node token")
+
+    try:
+        body = json.loads(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    vessels = body.get("vessels") or []
+    if not isinstance(vessels, list):
+        raise HTTPException(status_code=400, detail="vessels must be a list")
+
+    now = time.time()
+    ingested = 0
+    for v in vessels:
+        if not isinstance(v, dict):
+            continue
+        mmsi = str(v.get("mmsi", "")).strip()
+        if not mmsi:
+            continue
+        lat = v.get("lat")
+        lon = v.get("lon")
+        if lat is None or lon is None:
+            continue
+        try:
+            float(lat)
+            float(lon)
+        except (TypeError, ValueError):
+            continue
+        v["_seen_at"] = now
+        v["source"] = "pi_edge"
+        _EDGE_VESSELS[mmsi] = v
+        ingested += 1
+
+    if ingested:
+        _EDGE_STATUS["active"] = True
+        _EDGE_STATUS["vessels_seen"] = len(_EDGE_VESSELS)
+        _EDGE_STATUS["messages_received"] += ingested
+        _EDGE_STATUS["last_message_at"] = datetime.now(timezone.utc).isoformat()
+        _EDGE_STATUS["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if body.get("receiver_lat") is not None:
+            _EDGE_STATUS["lat"] = body["receiver_lat"]
+        if body.get("receiver_lon") is not None:
+            _EDGE_STATUS["lon"] = body["receiver_lon"]
+
+    return {
+        "status": "ok",
+        "ingested": ingested,
+        "edge_vessels_total": len(_EDGE_VESSELS),
+    }
+
+
+@router.get("/edge")
+async def edge_status():
+    """Return Pi edge AIS receiver status and buffered vessel count."""
+    _prune_edge_vessels()
+    return {
+        "status": dict(_EDGE_STATUS),
+        "vessels": _snapshot_edge_vessels(),
+        "count": len(_EDGE_VESSELS),
     }
 
 

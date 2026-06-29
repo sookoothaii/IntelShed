@@ -26,6 +26,7 @@ export type Stats = {
   intelFt: number;
   darkweb: number;
   energy: number;
+  piAis: number;
   fps: number;
 };
 
@@ -208,6 +209,18 @@ export type WbNode = {
   health?: {
     cpu_temp_c?: number;
     services?: Record<string, unknown>;
+    ais_receiver?: {
+      active: boolean;
+      receiver_type: string;
+      messages_received: number;
+      vessels_seen: number;
+      last_message_at: string;
+      aishub_connected: boolean;
+      pc_connected: boolean;
+      lat: number | null;
+      lon: number | null;
+      range_km: number;
+    };
   };
   sensors?: Record<string, unknown>;
   mesh?: MeshNode[];

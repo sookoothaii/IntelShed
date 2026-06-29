@@ -35,6 +35,7 @@ const LAYER_GROUPS: LayerGroup[] = [
       { key: 'satellites', label: 'Satellites', color: '#00e5ff', statKey: 'satellites' },
       { key: 'military', label: 'Military', color: '#ff6b35', statKey: 'military' },
       { key: 'maritime', label: 'Maritime AIS', color: '#00e5ff', feedKey: 'maritime', statKey: 'maritime' },
+      { key: 'piAis', label: 'Pi AIS Coverage', color: '#00e5ff', statKey: 'piAis' },
       { key: 'transit', label: 'Transit', color: '#ffd23f', statKey: 'transit' },
     ],
   },

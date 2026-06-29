@@ -355,6 +355,7 @@ type Stats = {
   intelFt: number
   darkweb: number
   energy: number
+  piAis: number
   fps: number
 }
 
@@ -386,6 +387,7 @@ type GlobeLayers = {
   darkweb: boolean
   satelliteChange: boolean
   detectionBoxes: boolean
+  piAis: boolean
 }
 
 type LayerKey = keyof GlobeLayers
@@ -528,6 +530,7 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
     label: 'INFRA',
     rows: [
       { layer: 'nodes', label: 'NODES', statKey: 'nodes', color: '#00e5a0', healthKeys: ['nodes'], tip: 'Your edge nodes (Pi/mesh).' },
+      { layer: 'piAis', label: 'PI AIS', statKey: 'piAis', color: '#00e5ff', tip: 'Pi edge AIS receiver coverage area.' },
       { layer: 'outages', label: 'OUTAGES', statKey: 'outages', color: '#a855f7', hudKey: 'outages', healthKeys: ['outages'], tip: 'Internet disruptions (IODA/Cloudflare).' },
       { layer: 'pegel', label: 'PEGEL', statKey: 'pegel', color: '#4fc3f7', hudKey: 'pegel', healthKeys: ['pegel'], tip: 'German river gauges / flood levels.' },
       { layer: 'energy', label: 'ENERGY', statKey: 'energy', color: '#ffd23f', hudKey: 'energy', healthKeys: ['energy_de'], tip: 'German power mix (SMARD).' },
@@ -588,6 +591,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       darkweb: false,
       satelliteChange: false,
       detectionBoxes: false,
+      piAis: false,
     },
     collapsed: { motion: false, geo: false, env: false, infra: true, intel: true },
     trails: false,
@@ -624,6 +628,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       darkweb: false,
       satelliteChange: false,
       detectionBoxes: false,
+      piAis: false,
     },
     collapsed: { motion: true, geo: false, env: true, infra: false, intel: true },
     trails: false,
@@ -660,6 +665,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       darkweb: true,
       satelliteChange: false,
       detectionBoxes: true,
+      piAis: true,
     },
     collapsed: { motion: true, geo: true, env: true, infra: true, intel: false },
     trails: false,
@@ -696,6 +702,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       darkweb: true,
       satelliteChange: false,
       detectionBoxes: true,
+      piAis: true,
     },
     collapsed: { motion: false, geo: false, env: false, infra: false, intel: false },
     trails: true,
@@ -895,7 +902,7 @@ export default function Globe({
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, trafficCams: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, intelFt: 0, darkweb: 0, energy: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, trafficCams: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, intelFt: 0, darkweb: 0, energy: 0, piAis: 0, fps: 0 })
   const [gibsLayer, setGibsLayer] = useState<'off' | 'fires' | 'goes' | 'viirs'>('off')
   const gibsImageryRef = useRef<ImageryLayer | null>(null)
   const gibsDateRef = useRef<string>('')
