@@ -9,19 +9,23 @@ import {
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import type { Stats, Volcano } from '../../lib/types';
+import { feedMarkerColor, isMssTheme } from './markerPalette';
+import type { ThemeId } from '../../lib/theme';
 
 export function useVolcanoesLayer({
   viewer,
   active,
   feedActive,
   canFetch,
-  setStats
+  setStats,
+  theme: _theme = 'cyber',
 }: {
   viewer: Viewer | null;
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
   setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  theme?: ThemeId;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -62,7 +66,8 @@ export function useVolcanoesLayer({
     let n = 0;
     for (const v of (data.volcanoes || []) as Volcano[]) {
       if (v.lon == null || v.lat == null) continue;
-      const col = Color.fromCssColorString(v.active ? '#ff4d5e' : '#6b7280');
+      const volBaseColor = Color.fromCssColorString(v.active ? '#ff4d5e' : '#6b7280');
+      const col = isMssTheme() ? feedMarkerColor('volcanoes', volBaseColor) : volBaseColor;
       src.entities.add({
         position: Cartesian3.fromDegrees(v.lon, v.lat, Math.max(v.elevation_m || 0, 0)),
         point: {

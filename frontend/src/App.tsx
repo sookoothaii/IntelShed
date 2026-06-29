@@ -34,10 +34,12 @@ const FullAnalysisOverlay = lazy(() => import('./components/FullAnalysisOverlay'
 const WindyMapOverlay = lazy(() => import('./components/WindyMapOverlay'))
 const SidebarLeft = lazy(() => import('./components/SidebarLeft'))
 const SidebarRight = lazy(() => import('./components/SidebarRight'))
+const CenterRail = lazy(() => import('./components/CenterRail'))
 const BriefingKanban = lazy(() => import('./components/BriefingKanban'))
 
 type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'news' | 'osint'
 type LayoutMode = 'full' | '3col'
+type RailTab = import('./components/CenterRail').RailTab
 
 function TabFallback({ label = 'Loading' }: { label?: string }) {
   return (
@@ -215,6 +217,7 @@ export default function App() {
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null)
   const [theme, setTheme] = useState<ThemeId>(() => initTheme())
   const [layoutMode, setLayoutMode] = useHudSessionState<LayoutMode>('layoutMode', 'full', (v): v is LayoutMode => v === 'full' || v === '3col')
+  const [railTab, setRailTab] = useState<RailTab>('overview')
   const [leftCollapsed, setLeftCollapsed] = useHudSessionState('leftCollapsed', false, (v): v is boolean => v === true || v === false)
   const [rightCollapsed, setRightCollapsed] = useHudSessionState('rightCollapsed', false, (v): v is boolean => v === true || v === false)
   const [sidebarLayers, setSidebarLayers] = useState<Record<string, boolean>>({})
@@ -244,6 +247,13 @@ export default function App() {
   useEffect(() => {
     saveOsintPins(osintPins)
   }, [osintPins])
+
+  // Phase 5: MSS boots into 3-column by default
+  useEffect(() => {
+    if (theme === 'mss' && layoutMode === 'full') {
+      setLayoutMode('3col')
+    }
+  }, [theme, layoutMode, setLayoutMode])
 
   const addOsintPin = (pin: Omit<OsintPin, 'ts'>) => {
     setOsintPins((prev) => {
@@ -321,6 +331,7 @@ export default function App() {
     mapMode,
     layoutSplit: splitView,
     visible: globeVisible,
+    theme,
   }
 
   const mapPanelProps = {
@@ -347,14 +358,14 @@ export default function App() {
 
   return (
     <div className="app">
-      <div className="bg-grid" />
-      <div className="bg-glow" />
+      {theme !== 'mss' && <div className="bg-grid" />}
+      {theme !== 'mss' && <div className="bg-glow" />}
 
       {booting && <BootOverlay />}
 
       <header className="hud-header">
         <div className="brand">
-          <div className="brand-mark"><span className="brand-ring" />◉</div>
+          <div className="brand-mark">{theme !== 'mss' && <span className="brand-ring" />}◉</div>
           <div className="brand-text">
             <div className="logo">WORLDBASE</div>
             <div className="brand-sub">SPATIAL INTELLIGENCE</div>
@@ -481,6 +492,12 @@ export default function App() {
               collapsed={leftCollapsed}
               onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
             />
+          </Suspense>
+        )}
+
+        {layoutMode === '3col' && (
+          <Suspense fallback={null}>
+            <CenterRail theme={theme} activeTab={railTab} onTabChange={setRailTab} />
           </Suspense>
         )}
 

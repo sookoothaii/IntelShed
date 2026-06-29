@@ -21,6 +21,8 @@ import {
   detachPrimitiveCollection,
   requestSceneRender,
 } from './layerUtils';
+import { feedMarkerColor, isMssTheme } from './markerPalette';
+import type { ThemeId } from '../../lib/theme';
 
 type AcEntry = {
   point: ReturnType<PointPrimitiveCollection['add']>;
@@ -28,6 +30,7 @@ type AcEntry = {
 };
 
 function acColor(onGround: boolean): Color {
+  if (isMssTheme()) return feedMarkerColor('aircraft', Color.fromCssColorString('#ffd23f'));
   return onGround ? Color.GRAY : Color.fromCssColorString('#ffd23f');
 }
 
@@ -38,6 +41,7 @@ export function useAircraftLayer({
   canFetch,
   setStats,
   setAircraftSource,
+  theme: _theme = 'cyber',
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -45,6 +49,7 @@ export function useAircraftLayer({
   canFetch: boolean;
   setStats: React.Dispatch<React.SetStateAction<Stats>>;
   setAircraftSource: React.Dispatch<React.SetStateAction<string>>;
+  theme?: ThemeId;
 }) {
   const pointsRef = useRef<PointPrimitiveCollection | null>(null);
   const labelsRef = useRef<LabelCollection | null>(null);
@@ -129,6 +134,7 @@ export function useAircraftLayer({
           outlineColor: Color.BLACK,
           outlineWidth: 1,
           scaleByDistance: new NearFarScalar(1e5, 1.6, 1e7, 0.5),
+          ...(isMssTheme() ? { distanceDisplayCondition: new DistanceDisplayCondition(0, 8e6) } : {}),
           id: pickMeta,
         });
         const label = labels.add({

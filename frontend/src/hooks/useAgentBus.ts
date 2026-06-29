@@ -3,6 +3,7 @@ import type { FocusTarget } from '../lib/focus'
 import {
   agentBusEnabled,
   dispatchAgentLayerToggle,
+  dispatchAgentPhase,
   type AgentBusMessage,
 } from '../lib/agentBus'
 import { fetchApi } from '../lib/networkFetch'
@@ -25,6 +26,16 @@ function handleAgentMessage(msg: AgentBusMessage, onFlyTo: FlyToFn): void {
   }
   if (action === 'toggle_layer' && msg.layer) {
     dispatchAgentLayerToggle({ layer: msg.layer, enabled: msg.enabled })
+    return
+  }
+  if (action === 'agent_phase' && msg.title) {
+    dispatchAgentPhase({
+      title: msg.title,
+      lines: msg.lines || [],
+      lat: msg.lat,
+      lon: msg.lon,
+      ts: msg.ts,
+    })
   }
 }
 

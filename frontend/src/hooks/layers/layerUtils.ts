@@ -1,4 +1,5 @@
-import { Cartesian3, Color, NearFarScalar, type CustomDataSource, type LabelCollection, type PointPrimitiveCollection, type Viewer } from 'cesium';
+import { Cartesian3, Color, DistanceDisplayCondition, NearFarScalar, type CustomDataSource, type LabelCollection, type PointPrimitiveCollection, type Viewer } from 'cesium';
+import { isMssTheme } from './markerPalette';
 
 export function viewerAlive(viewer: Viewer | null | undefined): viewer is Viewer {
   if (!viewer) return false;
@@ -80,11 +81,16 @@ export function feedPoint(
   color: Color,
   opts?: { outline?: Color; outlineWidth?: number; scaleByDistance?: NearFarScalar }
 ) {
-  return {
+  const base: Record<string, unknown> = {
     pixelSize,
     color,
     outlineColor: opts?.outline ?? Color.WHITE,
     outlineWidth: opts?.outlineWidth ?? 2,
     ...(opts?.scaleByDistance ? { scaleByDistance: opts.scaleByDistance } : {}),
   };
+  // T3 zoom-gating: hide individual markers at very high camera altitudes in MSS theme
+  if (isMssTheme()) {
+    base.distanceDisplayCondition = new DistanceDisplayCondition(0, 8e6);
+  }
+  return base;
 }

@@ -13,19 +13,23 @@ import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint } from './layerUtils';
 import type { Stats, GeopoliticsDisaster } from '../../lib/types';
+import { feedMarkerColor, isMssTheme } from './markerPalette';
+import type { ThemeId } from '../../lib/theme';
 
 export function useGeopoliticsLayer({
   viewer,
   active,
   feedActive,
   canFetch,
-  setStats
+  setStats,
+  theme: _theme = 'cyber',
 }: {
   viewer: Viewer | null;
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
   setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  theme?: ThemeId;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -69,9 +73,12 @@ export function useGeopoliticsLayer({
       const lon = dis.lon;
       if (lat == null || lon == null) continue;
       
+      const geoColor = isMssTheme()
+        ? feedMarkerColor('geopolitics', Color.fromCssColorString('#ff2d00'))
+        : Color.fromCssColorString('#ff2d00');
       src.entities.add({
         position: feedPos(lon, lat),
-        point: feedPoint(10, Color.fromCssColorString('#ff2d00'), { outlineWidth: 1 }),
+        point: feedPoint(10, geoColor, { outlineWidth: 1 }),
         label: {
           text: dis.name.substring(0, 40),
           font: '600 10px "Courier New"',

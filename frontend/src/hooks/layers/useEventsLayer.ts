@@ -13,6 +13,8 @@ import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint, timelineCutoffMs, parseEventMs } from './layerUtils';
 import type { Stats } from '../../lib/types';
+import { feedMarkerColor, isMssTheme } from './markerPalette';
+import type { ThemeId } from '../../lib/theme';
 
 const eventColor = (cat: string) => {
   const c = (cat || '').toLowerCase();
@@ -24,6 +26,10 @@ const eventColor = (cat: string) => {
   return '#ffd23f';
 };
 
+function mssEventColor(cat: string): Color {
+  return feedMarkerColor('events', Color.fromCssColorString(eventColor(cat)));
+}
+
 export function useEventsLayer({
   viewer,
   active,
@@ -31,7 +37,8 @@ export function useEventsLayer({
   canFetch,
   setStats,
   scrubT,
-  timelineHours
+  timelineHours,
+  theme: _theme = 'cyber',
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -40,6 +47,7 @@ export function useEventsLayer({
   setStats: React.Dispatch<React.SetStateAction<Stats>>;
   scrubT: number;
   timelineHours: number;
+  theme?: ThemeId;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
 
@@ -84,7 +92,9 @@ export function useEventsLayer({
     for (const ev of list) {
       if (ev.lon == null || ev.lat == null) continue;
       n++;
-      const col = Color.fromCssColorString(eventColor(ev.category));
+      const col = isMssTheme()
+        ? mssEventColor(ev.category)
+        : Color.fromCssColorString(eventColor(ev.category));
       src.entities.add({
         position: feedPos(ev.lon, ev.lat),
         point: feedPoint(9, col.withAlpha(0.9), { outlineWidth: 1 }),

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Viewer } from 'cesium';
 import type { Stats, FeedHud, HeatmapMeta } from '../../lib/types';
+import type { ThemeId } from '../../lib/theme';
 import { useAircraftLayer } from './useAircraftLayer';
 import { useSatellitesLayer } from './useSatellitesLayer';
 import { useQuakesLayer } from './useQuakesLayer';
@@ -28,6 +29,7 @@ import { useDarkwebLayer } from './useDarkwebLayer';
 import { useSatelliteChangeLayer } from './useSatelliteChangeLayer';
 import { useDetectionBoxes } from './useDetectionBoxes';
 import { usePiAisLayer } from './usePiAisLayer';
+import { useAgentSwarm } from './useAgentSwarm';
 
 export function GlobeLayerManager({
   viewer,
@@ -44,7 +46,8 @@ export function GlobeLayerManager({
   setAircraftSource,
   heatmapOn,
   setHeatmapMeta,
-  setSanctionedMmsi
+  setSanctionedMmsi,
+  theme = 'cyber',
 }: {
   viewer: Viewer | null;
   layers: Record<string, boolean>;
@@ -61,35 +64,37 @@ export function GlobeLayerManager({
   heatmapOn: boolean;
   setHeatmapMeta: React.Dispatch<React.SetStateAction<HeatmapMeta | null>>;
   setSanctionedMmsi: React.Dispatch<React.SetStateAction<Set<string>>>;
+  theme?: ThemeId;
 }) {
   // Pass down the props to individual hooks
-  useAircraftLayer({ viewer, active: layers.aircraft, feedActive, canFetch, setStats, setAircraftSource });
+  useAircraftLayer({ viewer, active: layers.aircraft, feedActive, canFetch, setStats, setAircraftSource, theme });
   useSatellitesLayer({ viewer, active: layers.satellites, orbitsActive, satGroup, feedActive, setStats });
-  useQuakesLayer({ viewer, active: layers.quakes, feedActive, canFetch, setStats, scrubT, timelineHours });
-  useEventsLayer({ viewer, active: layers.events, feedActive, canFetch, setStats, scrubT, timelineHours });
-  useNodesLayer({ viewer, active: layers.nodes, feedActive, canFetch, setStats });
-  useMilitaryLayer({ viewer, active: layers.military, feedActive, canFetch, setStats });
+  useQuakesLayer({ viewer, active: layers.quakes, feedActive, canFetch, setStats, scrubT, timelineHours, theme });
+  useEventsLayer({ viewer, active: layers.events, feedActive, canFetch, setStats, scrubT, timelineHours, theme });
+  useNodesLayer({ viewer, active: layers.nodes, feedActive, canFetch, setStats, theme });
+  useMilitaryLayer({ viewer, active: layers.military, feedActive, canFetch, setStats, theme });
   useSpaceweatherLayer({ viewer, active: layers.spaceweather, feedActive, canFetch, setStats });
-  useWildfiresLayer({ viewer, active: layers.wildfires, feedActive, canFetch, setStats, setFeedHud });
+  useWildfiresLayer({ viewer, active: layers.wildfires, feedActive, canFetch, setStats, setFeedHud, theme });
   useLightningLayer({ viewer, active: layers.lightning, feedActive, canFetch, setStats, setFeedHud });
   useTransitLayer({ viewer, active: layers.transit, feedActive, canFetch, transitCity, setStats });
-  useMaritimeLayer({ viewer, active: layers.maritime, feedActive, canFetch, setStats, setSanctionedMmsi });
-  useGeopoliticsLayer({ viewer, active: layers.geopolitics, feedActive, canFetch, setStats });
+  useMaritimeLayer({ viewer, active: layers.maritime, feedActive, canFetch, setStats, setSanctionedMmsi, theme });
+  useGeopoliticsLayer({ viewer, active: layers.geopolitics, feedActive, canFetch, setStats, theme });
   useGdacsLayer({ viewer, active: layers.gdacs, feedActive, canFetch, setStats, setFeedHud });
   useHazardsLayer({ viewer, active: layers.hazards, feedActive, canFetch, setStats, setFeedHud });
   useOutagesLayer({ viewer, active: layers.outages, feedActive, canFetch, setStats, setFeedHud });
-  useVolcanoesLayer({ viewer, active: layers.volcanoes, feedActive, canFetch, setStats });
+  useVolcanoesLayer({ viewer, active: layers.volcanoes, feedActive, canFetch, setStats, theme });
   useAirqualityLayer({ viewer, active: layers.airquality, feedActive, canFetch, setStats });
   usePegelLayer({ viewer, active: layers.pegel, feedActive, canFetch, setStats, setFeedHud });
   useEnergyLayer({ viewer, active: layers.energy, feedActive, canFetch, setStats, setFeedHud });
   useWeatherLayer({ viewer, active: layers.weather, feedActive, canFetch, setStats, region: 'thailand' });
   useTrafficCamsLayer({ viewer, active: layers.trafficCams, feedActive, canFetch, setStats });
-  useIntelLayer({ viewer, active: layers.intelFt, feedActive, canFetch, setStats });
+  useIntelLayer({ viewer, active: layers.intelFt, feedActive, canFetch, setStats, theme });
   useDarkwebLayer({ viewer, active: layers.darkweb, feedActive, canFetch, setStats });
   useHeatmapLayer({ viewer, active: heatmapOn, feedActive, canFetch, setHeatmapMeta });
   useSatelliteChangeLayer({ viewer, active: layers.satelliteChange ?? false });
   useDetectionBoxes({ viewer, active: layers.detectionBoxes ?? false, feedActive, canFetch, setStats });
   usePiAisLayer({ viewer, active: layers.piAis ?? false, feedActive, canFetch, setStats });
+  useAgentSwarm({ viewer, active: true });
 
   return null;
 }

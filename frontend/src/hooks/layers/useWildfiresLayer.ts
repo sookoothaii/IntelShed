@@ -4,6 +4,7 @@ import {
   Cartesian3,
   Cartographic,
   Color,
+  DistanceDisplayCondition,
   NearFarScalar,
   PointPrimitiveCollection,
   Viewer,
@@ -12,6 +13,8 @@ import { fetchApi } from '../../lib/networkFetch';
 import type { GlobePrimitivePick } from '../../lib/globePick';
 import type { Stats, FeedHud, WildfiresApiResponse, WildfireRow } from '../../lib/types';
 import { requestSceneRender, viewerAlive } from './layerUtils';
+import { isMssTheme } from './markerPalette';
+import type { ThemeId } from '../../lib/theme';
 
 const CLUSTER_MIN_FIRES = 800
 const CLUSTER_MIN_HEIGHT_M = 400_000
@@ -19,6 +22,10 @@ const CLUSTER_MIN_HEIGHT_M = 400_000
 function wildfireColor(f: WildfireRow): string {
   const conf = f.confidence ?? 0;
   const isRegional = f.zone === 'regional';
+  if (isMssTheme()) {
+    // MSS: single functional color for all wildfires (critical red)
+    return '#EF4444';
+  }
   if (isRegional) {
     return conf >= 80 ? '#ff2d00' : conf >= 50 ? '#ff6b35' : '#ffd23f';
   }
@@ -144,6 +151,7 @@ function renderWildfires(
       outlineColor: Color.WHITE,
       outlineWidth: 1,
       scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.6),
+      ...(isMssTheme() ? { distanceDisplayCondition: new DistanceDisplayCondition(0, 8e6) } : {}),
       id: pickMeta,
     });
   }
@@ -156,7 +164,8 @@ export function useWildfiresLayer({
   feedActive,
   canFetch,
   setStats,
-  setFeedHud
+  setFeedHud,
+  theme: _theme = 'cyber',
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -164,6 +173,7 @@ export function useWildfiresLayer({
   canFetch: boolean;
   setStats: React.Dispatch<React.SetStateAction<Stats>>;
   setFeedHud: React.Dispatch<React.SetStateAction<FeedHud>>;
+  theme?: ThemeId;
 }) {
   const collectionRef = useRef<PointPrimitiveCollection | null>(null);
   const dataRef = useRef<WildfiresApiResponse | null>(null);

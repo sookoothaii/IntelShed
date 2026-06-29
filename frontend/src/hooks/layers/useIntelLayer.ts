@@ -21,6 +21,8 @@ import {
   type PointFeature,
 } from './geoJsonPrimitive';
 import type { Stats } from '../../lib/types';
+import { schemaMarkerColor, isMssTheme } from './markerPalette';
+import type { ThemeId } from '../../lib/theme';
 
 const SCHEMA_COLORS: Record<string, string> = {
   Person: '#00ffa3',
@@ -33,6 +35,7 @@ const SCHEMA_COLORS: Record<string, string> = {
 };
 
 function schemaColor(schema: string | undefined): Color {
+  if (isMssTheme()) return schemaMarkerColor(schema, Color.fromCssColorString(SCHEMA_COLORS[schema || ''] || SCHEMA_COLORS.default));
   const hex = SCHEMA_COLORS[schema || ''] || SCHEMA_COLORS.default;
   return Color.fromCssColorString(hex);
 }
@@ -43,12 +46,14 @@ export function useIntelLayer({
   feedActive,
   canFetch,
   setStats,
+  theme: _theme = 'cyber',
 }: {
   viewer: Viewer | null;
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
   setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  theme?: ThemeId;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const primRef = useRef<GeoJsonPrimitive | null>(null);

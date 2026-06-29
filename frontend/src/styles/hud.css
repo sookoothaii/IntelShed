@@ -35,37 +35,557 @@
 }
 
 :root[data-theme="mss"] {
-  --bg-0: #0D0E10;
-  --bg-1: #1A1C21;
-  --bg-2: #1E2026;
-  --line: rgba(45, 47, 54, 0.6);
-  --line-bright: #374151;
-  --accent: #3B82F6;
-  --accent-dim: #2563EB;
-  --accent-rgb: 59, 130, 246;
-  --accent-dim-rgb: 37, 99, 235;
+  /* T4 — Surface elevation tokens (kill the hex sprawl) */
+  --surface-0: #0D0E10;   /* app bg / header */
+  --surface-1: #141518;   /* panels, inputs */
+  --surface-2: #1A1C21;   /* raised cards */
+  --surface-3: #1E2026;   /* hover / active row */
+  --border: #2D2F36;
+  --border-bright: #3F4147;
+
+  --bg-0: var(--surface-0);
+  --bg-1: var(--surface-2);
+  --bg-2: var(--surface-3);
+  --line: var(--border);
+  --line-bright: var(--border-bright);
+  --accent: #8BC34A;
+  --accent-dim: #AED581;
+  --accent-rgb: 139, 195, 74;
+  --accent-dim-rgb: 174, 213, 129;
+  --accent-hover: color-mix(in srgb, var(--accent) 88%, white);
+  --accent-ghost: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 35%, transparent);
   --bg-0-rgb: 13, 14, 16;
-  --cyan: #22d3ee;
-  --amber: #FACC15;
+  --cyan: #AED581;
+  --amber: #F59E0B;
   --red: #EF4444;
   --green: #22C55E;
-  --purple: #A855F7;
-  --txt: #F3F4F6;
+  --purple: #A78BFA;
+  --txt: #E5E7EB;
   --txt-dim: #9CA3AF;
   --txt-muted: #6B7280;
-  --glass: rgba(26, 28, 33, 0.72);
-  --glass-strong: rgba(13, 14, 16, 0.88);
+  --glass: var(--surface-2);
+  --glass-strong: var(--surface-0);
   --display: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --glow: 0 0 24px rgba(59, 130, 246, 0.15);
-  --shadow-panel: 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.5);
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --accent-fg: #FFFFFF;
-  --bg-input: #1A1C21;
-  --border-input: #2D2F36;
+  --glow: none;
+  --shadow-panel: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --accent-fg: var(--surface-0);
+  --bg-input: var(--surface-1);
+  --border-input: var(--border);
+  --density: 1;
+  --space: calc(4px * var(--density));
+  --row: calc(28px * var(--density));
+
+  /* T5 — Native chrome integration */
+  color-scheme: dark;
+  accent-color: var(--accent);
+
+  /* T6 — Crisp small text on dark */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+:root[data-theme="mss"][data-density="comfy"] {
+  --density: 1.3;
+}
+
+/* ===== MSS SEVERITY-AS-DATA — color is functional, never decorative ===== */
+:root[data-theme="mss"] [data-severity="crit"] { --tone: var(--red); }
+:root[data-theme="mss"] [data-severity="warn"] { --tone: var(--amber); }
+:root[data-theme="mss"] [data-severity="ok"]   { --tone: var(--green); }
+:root[data-theme="mss"] .status-dot { background: var(--tone, var(--txt-muted)); }
+
+/* T6 — Keyboard a11y: crisp focus ring only for keyboard nav */
+:root[data-theme="mss"] :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+:root[data-theme="mss"] :focus:not(:focus-visible) { outline: none; }
+
+/* T7 — Panel-aware density + list virtualization-lite */
+:root[data-theme="mss"] .panel { container-type: inline-size; }
+@container (max-width: 320px) {
+  :root[data-theme="mss"] .panel { --density: 0.85; }
+}
+:root[data-theme="mss"] .data-table tbody tr,
+:root[data-theme="mss"] .layer-tree li {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--row);
+}
+
+/* ===== MSS OVERRIDES — Palantir Maven flat utilitarian style ===== */
+
+/* Kill all decorative background layers */
+:root[data-theme="mss"] .bg-grid,
+:root[data-theme="mss"] .bg-glow {
+  display: none;
+}
+
+/* Kill boot animation flicker + glow */
+:root[data-theme="mss"] .boot-overlay {
+  background: var(--surface-0);
+}
+:root[data-theme="mss"] .boot-logo {
+  text-shadow: none;
+  animation: none;
+}
+:root[data-theme="mss"] .boot-sub {
+  color: var(--txt-dim);
+}
+:root[data-theme="mss"] .boot-bar span {
+  background: var(--accent);
+  box-shadow: none;
+}
+
+/* Header — flat, no blur, no scan-line */
+:root[data-theme="mss"] .hud-header {
+  background: var(--surface-0);
+  backdrop-filter: none;
+  box-shadow: none;
+  border-bottom: 1px solid var(--border);
+}
+:root[data-theme="mss"] .hud-header::after {
+  display: none;
+}
+
+/* Brand — no spinning ring, no glow */
+:root[data-theme="mss"] .brand-ring {
+  display: none;
+}
+:root[data-theme="mss"] .brand-mark {
+  color: var(--txt);
+  text-shadow: none;
+}
+:root[data-theme="mss"] .logo {
+  text-shadow: none;
+  letter-spacing: 2px;
+}
+
+/* Nav buttons — flat solid fill when active, no gradient */
+:root[data-theme="mss"] .hud-nav button {
+  font-family: var(--display);
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  border-radius: var(--radius-md);
+  transition: background 0.15s, color 0.15s;
+}
+:root[data-theme="mss"] .hud-nav button:hover {
+  background: var(--surface-3);
+  color: var(--txt);
+}
+:root[data-theme="mss"] .hud-nav button.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: none;
+  background-image: none;
+}
+
+/* Clock — no glow */
+:root[data-theme="mss"] .clock-time {
+  text-shadow: none;
+  color: var(--txt);
+}
+:root[data-theme="mss"] .clock-zone {
+  color: var(--txt-dim);
+}
+
+/* System status pips — no glow/shadow */
+:root[data-theme="mss"] .sys-pip.online {
+  box-shadow: none;
+  animation: none;
+}
+:root[data-theme="mss"] .sys-pip.offline {
+  box-shadow: none;
+}
+:root[data-theme="mss"] .sys-pip.check {
+  animation: none;
+}
+
+/* Map mode bar — flat, no blur */
+:root[data-theme="mss"] .map-mode-bar {
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  backdrop-filter: none;
+  box-shadow: none;
+  border-radius: var(--radius-lg);
+}
+:root[data-theme="mss"] .map-mode-bar button.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: none;
+  background-image: none;
+}
+:root[data-theme="mss"] .map-mode-bar button:hover {
+  background: var(--surface-3);
+  border-color: var(--border-bright);
+}
+:root[data-theme="mss"] .map-mode-divider {
+  background: var(--border);
+}
+
+/* Globe overlays — flat, no blur, no glow */
+:root[data-theme="mss"] .globe-hud,
+:root[data-theme="mss"] .globe-controls {
+  background: var(--surface-0);
+  backdrop-filter: none;
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+:root[data-theme="mss"] .globe-timeline {
+  background: var(--surface-0);
+  backdrop-filter: none;
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+:root[data-theme="mss"] .globe-tooltip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+/* HUD title — no text-shadow */
+:root[data-theme="mss"] .hud-title {
+  color: var(--txt);
+  text-shadow: none;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* Telemetry status dots — no glow */
+:root[data-theme="mss"] .telemetry-status--fresh {
+  box-shadow: none;
+}
+:root[data-theme="mss"] .telemetry-status--stale {
+  box-shadow: none;
+  animation: none;
+}
+
+/* HUD dots — no glow */
+:root[data-theme="mss"] .hud-dot.yellow,
+:root[data-theme="mss"] .hud-dot.cyan,
+:root[data-theme="mss"] .hud-dot.red,
+:root[data-theme="mss"] .hud-dot.orange {
+  box-shadow: none;
+}
+
+/* Map controls — flat */
+:root[data-theme="mss"] .map-controls {
+  background: var(--surface-0);
+  backdrop-filter: none;
+  box-shadow: none;
+  border: 1px solid var(--border);
+}
+:root[data-theme="mss"] .map-title {
+  color: var(--txt);
+}
+
+/* Target panel — flat, no glow animation */
+:root[data-theme="mss"] .target-panel {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  backdrop-filter: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+:root[data-theme="mss"] .target-panel.quake {
+  border-left: 3px solid var(--red);
+  box-shadow: none;
+}
+:root[data-theme="mss"] .target-panel.event {
+  border-left: 3px solid var(--amber);
+  box-shadow: none;
+}
+
+/* Vision bar buttons — flat */
+:root[data-theme="mss"] .vision-bar button.on {
+  background: var(--accent-ghost);
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+/* Panels — no text-shadow on headings */
+:root[data-theme="mss"] .panel h2 {
+  text-shadow: none;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+:root[data-theme="mss"] .panel button:hover:not(:disabled) {
+  box-shadow: none;
+}
+
+/* Data tabs — flat active state */
+:root[data-theme="mss"] .data-tabs button.active {
+  background: var(--accent);
+  color: var(--accent-fg);
+  box-shadow: none;
+  background-image: none;
+}
+:root[data-theme="mss"] .data-tabs {
+  border-bottom-color: var(--border);
+}
+
+/* Data table — flat, no blur in sticky header */
+:root[data-theme="mss"] .data-table {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+:root[data-theme="mss"] .data-table th {
+  background: var(--surface-0);
+  backdrop-filter: none;
+  color: var(--txt-dim);
+  font-family: var(--display);
+  text-transform: uppercase;
+}
+
+/* ISS cards — flat */
+:root[data-theme="mss"] .iss-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-lg);
+}
+:root[data-theme="mss"] .iss-card:hover {
+  box-shadow: none;
+  transform: none;
+  border-color: var(--border-bright);
+}
+
+/* Health status — no glow */
+:root[data-theme="mss"] .health-status.ok {
+  text-shadow: none;
+}
+
+/* Chat — flat bubbles */
+:root[data-theme="mss"] .chat-history {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+:root[data-theme="mss"] .chat-msg.user {
+  background: rgba(var(--accent-rgb), 0.12);
+  border: 1px solid rgba(var(--accent-rgb), 0.25);
+  color: var(--txt);
+  border-radius: var(--radius-lg);
+}
+:root[data-theme="mss"] .chat-msg.assistant {
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+:root[data-theme="mss"] .chat-input input {
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+:root[data-theme="mss"] .chat-input input:focus {
+  box-shadow: none;
+  border-color: var(--accent);
+}
+:root[data-theme="mss"] .chat-gen-pulse {
+  box-shadow: none;
+}
+
+/* Mega analysis button — neutral surface, severity via badge (Phase 1+3) */
+:root[data-theme="mss"] .mega-analysis-btn {
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  color: var(--txt-dim);
+  box-shadow: none;
+  border-radius: var(--radius-md);
+  background-image: none;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  padding: 4px 10px;
+}
+:root[data-theme="mss"] .mega-analysis-btn:hover {
+  box-shadow: none;
+  transform: none;
+  opacity: 1;
+  background: var(--border);
+  border-color: var(--border-bright);
+  color: var(--txt);
+}
+:root[data-theme="mss"] .mega-analysis-btn.secondary {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--txt-muted);
+  box-shadow: none;
+  background-image: none;
+}
+:root[data-theme="mss"] .mega-analysis-btn.secondary:hover {
+  background: var(--surface-3);
+  box-shadow: none;
+  color: var(--txt-dim);
+}
+
+/* Analysis overlay — flat */
+:root[data-theme="mss"] .analysis-overlay {
+  backdrop-filter: none;
+  background: rgba(0, 0, 0, 0.75);
+}
+:root[data-theme="mss"] .analysis-panel {
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+:root[data-theme="mss"] .analysis-section {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+:root[data-theme="mss"] .analysis-section h3 {
+  color: var(--txt);
+  text-transform: none;
+}
+:root[data-theme="mss"] .analysis-head {
+  background: var(--surface-1);
+}
+:root[data-theme="mss"] .analysis-head h2 {
+  color: var(--txt);
+}
+
+/* Situation overlay — flat */
+:root[data-theme="mss"] .situation-overlay {
+  backdrop-filter: none;
+  background: rgba(0, 0, 0, 0.75);
+}
+:root[data-theme="mss"] .situation-panel {
+  background: var(--surface-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+/* Scrollbar — neutral */
+:root[data-theme="mss"] ::-webkit-scrollbar-thumb {
+  background: var(--border-bright);
+}
+:root[data-theme="mss"] ::-webkit-scrollbar-thumb:hover {
+  background: #4B5563;
+}
+
+/* Reticle brackets — more subtle */
+:root[data-theme="mss"] .bracket {
+  border-color: rgba(156, 163, 175, 0.2);
+}
+:root[data-theme="mss"] .reticle-cross::before,
+:root[data-theme="mss"] .reticle-cross::after {
+  background: rgba(156, 163, 175, 0.3);
+}
+
+/* Split pane border — neutral */
+:root[data-theme="mss"] .split-pane-right,
+:root[data-theme="mss"] .map-pane--split {
+  border-left-color: var(--border);
+}
+
+/* Map loading — flat */
+:root[data-theme="mss"] .map-loading {
+  background: color-mix(in srgb, var(--surface-0) 85%, transparent);
+}
+
+/* General: remove all transition scaling/transforms on hover */
+:root[data-theme="mss"] .tp-link:hover {
+  box-shadow: none;
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+/* Insight cards — flat */
+:root[data-theme="mss"] .insight-confbar-fill {
+  background: var(--accent);
+}
+
+/* Chat gen status — flat */
+:root[data-theme="mss"] .chat-gen-status {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  color: var(--txt-dim);
+}
+
+/* Node banner — flat */
+:root[data-theme="mss"] .node-banner {
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+  color: var(--txt-dim);
+}
+
+/* Context menu — flat */
+:root[data-theme="mss"] .ctx-menu {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--txt);
+  border-radius: var(--radius-md);
+}
+
+/* MapLibre controls — flat */
+:root[data-theme="mss"] .map-canvas .maplibregl-ctrl-group {
+  background: var(--surface-0);
+  box-shadow: none;
+}
+:root[data-theme="mss"] .map-canvas .maplibregl-ctrl-attrib {
+  background: var(--surface-0);
+}
+
+/* ===== MSS DENSITY + TYPOGRAPHY (Phase 2) ===== */
+:root[data-theme="mss"] .panel {
+  padding: calc(var(--space) * 3) calc(var(--space) * 4);
+}
+:root[data-theme="mss"] .panel h2 {
+  font-size: 12px;
+  letter-spacing: 0.4px;
+}
+:root[data-theme="mss"] .panel,
+:root[data-theme="mss"] .panel p,
+:root[data-theme="mss"] .panel span,
+:root[data-theme="mss"] .panel td,
+:root[data-theme="mss"] .panel th,
+:root[data-theme="mss"] .panel li,
+:root[data-theme="mss"] .panel dd,
+:root[data-theme="mss"] .panel dt {
+  font-size: 12px;
+}
+:root[data-theme="mss"] .panel label,
+:root[data-theme="mss"] .panel .label,
+:root[data-theme="mss"] .panel .panel-label {
+  font-size: 11px;
+  letter-spacing: 0.3px;
+}
+:root[data-theme="mss"] .panel .section-label,
+:root[data-theme="mss"] .panel .analysis-section-toggle {
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  font-size: 10px;
+  color: var(--txt-muted);
+}
+:root[data-theme="mss"] .data-table td,
+:root[data-theme="mss"] .data-table th,
+:root[data-theme="mss"] .telemetry-value,
+:root[data-theme="mss"] .clock-time {
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+:root[data-theme="mss"] .data-table td {
+  padding: calc(var(--space) * 1.5) calc(var(--space) * 2);
+  height: var(--row);
+}
+:root[data-theme="mss"] .hud-header {
+  font-size: 12px;
+}
+:root[data-theme="mss"] .hud-nav button {
+  font-size: 11px;
+}
+:root[data-theme="mss"] .brand-sub {
+  font-size: 9px;
+  letter-spacing: 1.5px;
+}
+:root[data-theme="mss"] .logo {
+  font-size: 14px;
+  letter-spacing: 1.5px;
 }
 
 * {
@@ -2920,6 +3440,133 @@ html, body, #root {
   margin-top: 8px;
 }
 
+/* ── Step List primitive (Phase 6) ─────────────────────────────────────────── */
+
+.step-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.step-list-item {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.step-list-item:hover {
+  background: var(--surface-2, #1A1C20);
+}
+
+.step-list-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.step-list-item--active {
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+
+.step-list-item--done {
+  opacity: 0.6;
+}
+
+.step-list-item--done .step-list-badge {
+  background: var(--accent);
+  color: var(--surface-1, #141518);
+}
+
+.step-list-item--error .step-list-badge {
+  background: #EF4444;
+  color: #fff;
+}
+
+.step-list-item--pending .step-list-badge {
+  background: var(--surface-3, #2D2F36);
+  color: var(--txt-muted, #6b7280);
+}
+
+.step-list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-list-badge {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--surface-3, #2D2F36);
+  color: var(--txt, #e5e7eb);
+}
+
+.step-list-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.step-list-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--txt, #e5e7eb);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.step-list-sublabel {
+  font-size: 10px;
+  color: var(--txt-muted, #6b7280);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.step-list-action {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid var(--border, #2D2F36);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--txt-muted, #6b7280);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.step-list-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.step-list-detail {
+  margin-top: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--txt-muted, #6b7280);
+  background: var(--surface-1, #141518);
+  border-radius: 3px;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-word;
+}
+
 .analysis-body {
   overflow-y: auto;
   padding: 18px 22px;
@@ -3676,6 +4323,58 @@ html, body, #root {
 .sanc-hit-row .hit-meta { color: var(--txt-dim); font-size: 10px; margin-top: 2px; }
 .sanc-hit-row .hit-meta code { color: var(--amber); }
 .data-info { color: var(--txt-dim); font-family: var(--mono); font-size: 11px; padding: 6px 0; }
+
+/* ===== Agent Swarm Log ===== */
+.agent-log {
+  position: absolute;
+  bottom: 70px;
+  left: 14px;
+  z-index: 25;
+  background: rgba(6, 10, 18, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt);
+  pointer-events: auto;
+  max-width: 340px;
+}
+.agent-log-toggle {
+  display: block;
+  width: 100%;
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-log-body {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 2px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.agent-log--collapsed .agent-log-body { display: none; }
+.agent-log-empty { color: var(--txt-dim); padding: 4px 0; }
+.agent-log-entry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: baseline;
+  line-height: 1.4;
+}
+.agent-log-ts { color: var(--txt-dim); flex-shrink: 0; }
+.agent-log-phase { font-weight: 700; flex-shrink: 0; }
+.agent-log-line { color: var(--txt-dim); font-size: 9px; }
+.agent-log-body::-webkit-scrollbar { width: 4px; }
+.agent-log-body::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
 
 /* ===== Fusion heatmap legend ===== */
 .fusion-legend {
@@ -5041,28 +5740,119 @@ html, body, #root {
 
 .hud-layout--3col {
   display: grid;
-  grid-template-columns: 280px 1fr 320px;
+  grid-template-columns: 280px 48px 1fr 320px;
   grid-template-rows: 1fr;
   width: 100%;
 }
 
 @container (min-width: 1200px) {
   .hud-layout--3col {
-    grid-template-columns: 280px 1fr 320px;
+    grid-template-columns: 280px 48px 1fr 320px;
   }
 }
 
 @container (max-width: 1199px) {
   .hud-layout--3col {
-    grid-template-columns: 48px 1fr 48px;
+    grid-template-columns: 48px 48px 1fr 48px;
   }
 }
 
 /* Center pane in 3-col mode */
 .hud-layout--3col .hud-main {
-  grid-column: 2;
+  grid-column: 3;
   position: relative;
   overflow: hidden;
+}
+
+/* ── Center Rail (icon strip between map and right detail) ─────────────────── */
+
+.center-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0;
+  width: 48px;
+  background: var(--glass, rgba(20,21,24,0.9));
+  border-right: 1px solid var(--line, #2D2F36);
+  overflow: hidden;
+  z-index: 10;
+  pointer-events: auto;
+}
+
+.center-rail-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 40px;
+  height: 48px;
+  border: none;
+  background: transparent;
+  color: var(--txt-dim, #6b7280);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.center-rail-btn:hover {
+  background: var(--surface-3, #1E2026);
+  color: var(--txt, #e5e7eb);
+}
+
+.center-rail-btn--active {
+  background: var(--accent-ghost, rgba(139,195,74,0.14));
+  color: var(--accent, #8BC34A);
+}
+
+.center-rail-btn--active:hover {
+  background: var(--accent-ghost, rgba(139,195,74,0.14));
+  color: var(--accent, #8BC34A);
+}
+
+.center-rail-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.center-rail-label {
+  font-size: 8px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* MSS-specific rail refinement */
+:root[data-theme="mss"] .center-rail {
+  background: var(--surface-1, #141518);
+  border-right: 1px solid var(--border, #2D2F36);
+}
+
+:root[data-theme="mss"] .center-rail-btn {
+  color: var(--txt-muted, #6b7280);
+}
+
+:root[data-theme="mss"] .center-rail-btn:hover {
+  background: var(--surface-3, #1E2026);
+  color: var(--txt, #e5e7eb);
+}
+
+:root[data-theme="mss"] .center-rail-btn--active {
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+:root[data-theme="mss"] .center-rail-btn--active:hover {
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+:root[data-theme="mss"] .center-rail-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* ── Sidebar shared ──────────────────────────────────────────────────────── */
@@ -5082,6 +5872,11 @@ html, body, #root {
 .hud-sidebar--right {
   border-right: none;
   border-left: 1px solid var(--line);
+}
+
+/* Position right sidebar in 4th column of 3col grid */
+.hud-layout--3col .hud-sidebar--right {
+  grid-column: 4;
 }
 
 .hud-sidebar--collapsed {
@@ -6571,3 +7366,161 @@ html, body, #root {
   min-width: 18px;
   text-align: center;
 }
+
+/* ===== GlobeChat — Ask the Globe overlay ===== */
+.globe-chat-fab {
+  position: absolute;
+  bottom: 60px;
+  right: 16px;
+  z-index: 1000;
+  background: rgba(0, 20, 40, 0.85);
+  color: var(--accent, #00bfff);
+  border: 1px solid var(--line, #1a3a5c);
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.globe-chat-fab:hover {
+  background: rgba(0, 40, 80, 0.9);
+  box-shadow: 0 0 12px rgba(0, 191, 255, 0.3);
+}
+
+.globe-chat-overlay {
+  position: absolute;
+  bottom: 60px;
+  right: 16px;
+  z-index: 1001;
+  width: 380px;
+  max-height: 520px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(2, 12, 24, 0.92);
+  border: 1px solid var(--line, #1a3a5c);
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.globe-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line, #1a3a5c);
+}
+.globe-chat-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--accent, #00bfff);
+}
+.globe-chat-close {
+  background: none;
+  border: none;
+  color: var(--text-dim, #6a8eaa);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.globe-chat-close:hover { color: var(--text, #c0d0e0); }
+
+.globe-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  max-height: 280px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.globe-chat-messages::-webkit-scrollbar { width: 4px; }
+.globe-chat-messages::-webkit-scrollbar-thumb { background: var(--line, #1a3a5c); border-radius: 2px; }
+
+.globe-chat-msg {
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  word-wrap: break-word;
+}
+.globe-chat-msg.user {
+  background: rgba(0, 60, 120, 0.4);
+  color: #b0d0f0;
+  margin-left: 20px;
+}
+.globe-chat-msg.system {
+  background: rgba(0, 20, 40, 0.5);
+  color: var(--text-dim, #8aa0b8);
+  margin-right: 20px;
+}
+.globe-chat-busy {
+  color: var(--accent, #00bfff);
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.globe-chat-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line, #1a3a5c);
+}
+.globe-chat-suggestion {
+  background: rgba(0, 30, 60, 0.6);
+  border: 1px solid var(--line, #1a3a5c);
+  color: var(--text-dim, #8aa0b8);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.globe-chat-suggestion:hover {
+  background: rgba(0, 60, 120, 0.7);
+  color: var(--accent, #00bfff);
+}
+.globe-chat-suggestion:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.globe-chat-input-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line, #1a3a5c);
+}
+.globe-chat-input {
+  flex: 1;
+  background: rgba(0, 10, 20, 0.7);
+  border: 1px solid var(--line, #1a3a5c);
+  border-radius: 4px;
+  color: var(--text, #c0d0e0);
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+}
+.globe-chat-input:focus {
+  border-color: var(--accent, #00bfff);
+  box-shadow: 0 0 4px rgba(0, 191, 255, 0.2);
+}
+.globe-chat-input::placeholder { color: var(--text-dim, #4a6a8a); }
+
+.globe-chat-send {
+  background: rgba(0, 60, 120, 0.6);
+  border: 1px solid var(--line, #1a3a5c);
+  border-radius: 4px;
+  color: var(--accent, #00bfff);
+  font-size: 14px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.globe-chat-send:hover { background: rgba(0, 80, 160, 0.7); }
+.globe-chat-send:disabled { opacity: 0.4; cursor: default; }

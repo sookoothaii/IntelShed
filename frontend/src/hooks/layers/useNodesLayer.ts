@@ -18,19 +18,23 @@ import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource, requestSceneRender } from './layerUtils';
 import { attachPulseEllipse } from './pulseAnimation';
 import type { Stats, WbNode } from '../../lib/types';
+import { feedMarkerColor, isMssTheme } from './markerPalette';
+import type { ThemeId } from '../../lib/theme';
 
 export function useNodesLayer({
   viewer,
   active,
   feedActive,
   canFetch,
-  setStats
+  setStats,
+  theme: _theme = 'cyber',
 }: {
   viewer: Viewer | null;
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
   setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  theme?: ThemeId;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const nodeMapRef = useRef(new Map<string, Entity>());
@@ -47,6 +51,7 @@ export function useNodesLayer({
   });
 
   const tempToColor = (t: number) => {
+    if (isMssTheme()) return feedMarkerColor('nodes', Color.fromHsl(0.35, 1.0, 0.5, 0.95));
     const norm = Math.max(0, Math.min(1, (t - 40) / 30));
     return Color.fromHsl(0.35 * (1 - norm), 1.0, 0.5, 0.95);
   };

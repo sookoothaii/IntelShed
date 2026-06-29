@@ -55,6 +55,8 @@ import type { OsintPin } from '../lib/osintPins'
 import type { TrafficCamRef } from './TrafficCamPanel'
 import type { WebcamStreamRef } from './WebcamStreamPanel'
 import GlobeDetailModal from './GlobeDetailModal'
+import { AgentLog } from './AgentLog'
+import { GlobeChat } from './GlobeChat'
 import { useTrailsLayer } from '../hooks/layers/useTrailsLayer';
 import { GlobeLayerManager } from '../hooks/layers/GlobeLayerManager';
 
@@ -877,6 +879,7 @@ export default function Globe({
   mapMode = DEFAULT_MAP_VIEW,
   visible = true,
   layoutSplit = false,
+  theme = 'cyber',
 }: {
   focus?: FocusTarget | null
   onAskAI?: (title: string, lines: string[]) => void
@@ -890,6 +893,7 @@ export default function Globe({
   mapMode?: MapViewMode
   visible?: boolean
   layoutSplit?: boolean
+  theme?: 'cyber' | 'mss'
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<Viewer | null>(null)
@@ -2370,6 +2374,7 @@ export default function Globe({
         heatmapOn={heatmapOn}
         setHeatmapMeta={setHeatmapMeta}
         setSanctionedMmsi={setSanctionedMmsi}
+        theme={theme}
       />
       <div ref={containerRef} className="globe-canvas" />
 
@@ -2605,6 +2610,8 @@ export default function Globe({
         </div>
       </div>
 
+      <AgentLog />
+
       {heatmapOn && heatmapMeta && (
         <div className="fusion-legend">
           <div className="fusion-legend-title">FUSION HEATMAP · {heatmapMeta.cells} cells</div>
@@ -2651,6 +2658,15 @@ export default function Globe({
           onAskAI={onAskAI}
         />
       )}
+
+      <GlobeChat
+        flyTo={(poi) => apiRef.current.flyTo?.(poi)}
+        toggleLayer={(layer, enabled) =>
+          setLayers((prev) => ({ ...prev, [layer as LayerKey]: enabled }))
+        }
+        setHeatmap={(on) => setHeatmapOn(on)}
+        setVision={(mode) => setVision(mode)}
+      />
     </div>
   )
 }

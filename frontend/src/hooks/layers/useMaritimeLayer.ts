@@ -25,6 +25,15 @@ import {
   type PointFeature,
 } from './geoJsonPrimitive';
 import type { Stats, MaritimeVessel } from '../../lib/types';
+import { feedMarkerColor, isMssTheme } from './markerPalette';
+import type { ThemeId } from '../../lib/theme';
+
+/** MSS maritime color: sanctioned → critical red, all others → info blue */
+function mssMaritimeColor(flagged: boolean): Color {
+  return flagged
+    ? Color.fromCssColorString('#EF4444')
+    : feedMarkerColor('maritime', Color.fromCssColorString('#00e5ff'));
+}
 
 export function useMaritimeLayer({
   viewer,
@@ -32,7 +41,8 @@ export function useMaritimeLayer({
   feedActive,
   canFetch,
   setStats,
-  setSanctionedMmsi
+  setSanctionedMmsi,
+  theme: _theme = 'cyber',
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -40,6 +50,7 @@ export function useMaritimeLayer({
   canFetch: boolean;
   setStats: React.Dispatch<React.SetStateAction<Stats>>;
   setSanctionedMmsi?: React.Dispatch<React.SetStateAction<Set<string>>>;
+  theme?: ThemeId;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const primRef = useRef<GeoJsonPrimitive | null>(null);
@@ -155,6 +166,14 @@ export function useMaritimeLayer({
         gj,
         (props) => {
           const flagged = props.sanctioned as boolean;
+          if (isMssTheme()) {
+            return {
+              color: mssMaritimeColor(flagged).withAlpha(0.95),
+              outlineColor: flagged ? Color.fromCssColorString('#F59E0B') : Color.WHITE,
+              outlineWidth: flagged ? 2 : 1,
+              size: flagged ? 13 : 10,
+            };
+          }
           const vtype = props.type as string | undefined;
           const typeColor = flagged
             ? '#ff2d00'
@@ -195,14 +214,17 @@ export function useMaritimeLayer({
           const typeColor = flagged
             ? '#ff2d00'
             : (v.type === 'Cargo' ? '#8B4513' : v.type === 'Tanker' ? '#000080' : v.type === 'Passenger' ? '#FF69B4' : v.type === 'Fishing' ? '#32CD32' : '#00e5ff');
+          const vesselColor = isMssTheme()
+            ? mssMaritimeColor(flagged)
+            : Color.fromCssColorString(typeColor);
 
           e = src.entities.add({
             id: 'vs-' + id,
             position: new ConstantPositionProperty(pos),
             point: {
               pixelSize: flagged ? 13 : 10,
-              color: Color.fromCssColorString(typeColor).withAlpha(0.95),
-              outlineColor: flagged ? Color.fromCssColorString('#ffd23f') : Color.WHITE,
+              color: vesselColor.withAlpha(0.95),
+              outlineColor: flagged ? Color.fromCssColorString(isMssTheme() ? '#F59E0B' : '#ffd23f') : Color.WHITE,
               outlineWidth: flagged ? 2 : 1,
               scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.5),
             },

@@ -4,6 +4,7 @@ import {
   Cartesian3,
   Color,
   CustomDataSource,
+  DistanceDisplayCondition,
   NearFarScalar,
   PointPrimitiveCollection,
   Viewer,
@@ -20,6 +21,8 @@ import {
   viewerAlive,
 } from './layerUtils';
 import { attachPulseEllipse, clearPulseCleanups } from './pulseAnimation';
+import { feedMarkerColor, isMssTheme } from './markerPalette';
+import type { ThemeId } from '../../lib/theme';
 
 function attachPointCollection(viewer: Viewer, collection: PointPrimitiveCollection): boolean {
   if (!viewerAlive(viewer)) return false;
@@ -48,6 +51,7 @@ export function useQuakesLayer({
   setStats,
   scrubT,
   timelineHours,
+  theme: _theme = 'cyber',
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -56,6 +60,7 @@ export function useQuakesLayer({
   setStats: React.Dispatch<React.SetStateAction<Stats>>;
   scrubT: number;
   timelineHours: number;
+  theme?: ThemeId;
 }) {
   const pointsRef = useRef<PointPrimitiveCollection | null>(null);
   const pulseSrcRef = useRef<CustomDataSource | null>(null);
@@ -123,13 +128,17 @@ export function useQuakesLayer({
         time: q.time,
       };
 
+      const quakeColor = isMssTheme()
+        ? feedMarkerColor('quakes', Color.fromHsl(0.02 + 0.08 * (1 - sev), 1.0, 0.5, 0.9))
+        : Color.fromHsl(0.02 + 0.08 * (1 - sev), 1.0, 0.5, 0.9);
       points.add({
         position: Cartesian3.fromDegrees(q.lon, q.lat, 0),
         pixelSize: 4 + mag * 2.5,
-        color: Color.fromHsl(0.02 + 0.08 * (1 - sev), 1.0, 0.5, 0.9),
+        color: quakeColor,
         outlineColor: Color.BLACK,
         outlineWidth: 1,
         scaleByDistance: new NearFarScalar(1e5, 1.6, 1e7, 0.5),
+        ...(isMssTheme() ? { distanceDisplayCondition: new DistanceDisplayCondition(0, 8e6) } : {}),
         id: pickMeta,
       });
 

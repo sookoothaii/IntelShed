@@ -18,19 +18,23 @@ import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource, requestSceneRender } from './layerUtils';
 import { attachPulseEllipse } from './pulseAnimation';
 import type { Stats, MilitaryAircraft } from '../../lib/types';
+import { feedMarkerColor, isMssTheme } from './markerPalette';
+import type { ThemeId } from '../../lib/theme';
 
 export function useMilitaryLayer({
   viewer,
   active,
   feedActive,
   canFetch,
-  setStats
+  setStats,
+  theme: _theme = 'cyber',
 }: {
   viewer: Viewer | null;
   active: boolean;
   feedActive: boolean;
   canFetch: boolean;
   setStats: React.Dispatch<React.SetStateAction<Stats>>;
+  theme?: ThemeId;
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const milMapRef = useRef(new Map<string, Entity>());
@@ -86,12 +90,16 @@ export function useMilitaryLayer({
         (e.position as ConstantPositionProperty).setValue(pos);
       } else {
         const isEmergency = ['7500', '7600', '7700'].includes(a.squawk || '');
+        const milBaseColor = isEmergency
+          ? Color.fromCssColorString('#ff2d00')
+          : Color.fromCssColorString('#ff6b35');
+        const milColor = isMssTheme() ? feedMarkerColor('military', milBaseColor) : milBaseColor;
         e = src.entities.add({
           id: 'mil-' + id,
           position: new ConstantPositionProperty(pos),
           point: {
             pixelSize: isEmergency ? 12 : 8,
-            color: isEmergency ? Color.fromCssColorString('#ff2d00') : Color.fromCssColorString('#ff6b35'),
+            color: milColor,
             outlineColor: Color.BLACK,
             outlineWidth: 2,
             scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.5),
