@@ -1,22 +1,22 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { Component, type ErrorInfo, type ReactNode } from 'react';
 
 type ErrorBoundaryProps = {
-  children: ReactNode
+  children: ReactNode;
   /** Unique label for this boundary (e.g. "Globe", "Map", "IntelGraph") */
-  name: string
+  name: string;
   /** Optional: switch to alternative view on crash */
-  onFallback?: () => void
+  onFallback?: () => void;
   /** Max auto-retry attempts before showing manual buttons (default 3) */
-  maxRetries?: number
+  maxRetries?: number;
   /** Auto-retry delay in ms (default 3000) */
-  retryDelayMs?: number
-}
+  retryDelayMs?: number;
+};
 
 type ErrorBoundaryState = {
-  hasError: boolean
-  error: Error | null
-  retryCount: number
-}
+  hasError: boolean;
+  error: Error | null;
+  retryCount: number;
+};
 
 /** Report frontend crash to backend telemetry endpoint (fire-and-forget). */
 function reportCrash(name: string, error: Error, info: ErrorInfo): void {
@@ -28,11 +28,9 @@ function reportCrash(name: string, error: Error, info: ErrorInfo): void {
       componentStack: info.componentStack?.slice(0, 2000) ?? '',
       url: typeof location !== 'undefined' ? location.href : '',
       timestamp: new Date().toISOString(),
-    }
+    };
     const apiKey =
-      typeof localStorage !== 'undefined'
-        ? localStorage.getItem('WORLDBASE_API_KEY') || ''
-        : ''
+      typeof localStorage !== 'undefined' ? localStorage.getItem('WORLDBASE_API_KEY') || '' : '';
     fetch('/api/telemetry/frontend-error', {
       method: 'POST',
       headers: {
@@ -41,58 +39,62 @@ function reportCrash(name: string, error: Error, info: ErrorInfo): void {
       },
       body: JSON.stringify(payload),
       keepalive: true,
-    }).catch(() => { /* fire-and-forget */ })
-  } catch { /* never crash from telemetry */ }
+    }).catch(() => {
+      /* fire-and-forget */
+    });
+  } catch {
+    /* never crash from telemetry */
+  }
 }
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  private retryTimer: ReturnType<typeof setTimeout> | null = null
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(props: ErrorBoundaryProps) {
-    super(props)
-    this.state = { hasError: false, error: null, retryCount: 0 }
+    super(props);
+    this.state = { hasError: false, error: null, retryCount: 0 };
   }
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
-    return { hasError: true, error }
+    return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    reportCrash(this.props.name, error, info)
-    this.scheduleAutoRetry()
+    reportCrash(this.props.name, error, info);
+    this.scheduleAutoRetry();
   }
 
   componentWillUnmount(): void {
-    if (this.retryTimer) clearTimeout(this.retryTimer)
+    if (this.retryTimer) clearTimeout(this.retryTimer);
   }
 
   private scheduleAutoRetry(): void {
-    const maxRetries = this.props.maxRetries ?? 3
-    const delay = this.props.retryDelayMs ?? 3000
-    if (this.state.retryCount >= maxRetries) return
+    const maxRetries = this.props.maxRetries ?? 3;
+    const delay = this.props.retryDelayMs ?? 3000;
+    if (this.state.retryCount >= maxRetries) return;
     this.retryTimer = setTimeout(() => {
       this.setState((prev) => ({
         hasError: false,
         error: null,
         retryCount: prev.retryCount + 1,
-      }))
-    }, delay)
+      }));
+    }, delay);
   }
 
   private handleManualRetry = (): void => {
-    this.setState({ hasError: false, error: null, retryCount: 0 })
-  }
+    this.setState({ hasError: false, error: null, retryCount: 0 });
+  };
 
   private handleSwitchView = (): void => {
-    this.props.onFallback?.()
-    this.setState({ hasError: false, error: null, retryCount: 0 })
-  }
+    this.props.onFallback?.();
+    this.setState({ hasError: false, error: null, retryCount: 0 });
+  };
 
   render(): ReactNode {
-    if (!this.state.hasError) return this.props.children
+    if (!this.state.hasError) return this.props.children;
 
-    const name = this.props.name
-    const exhausted = this.state.retryCount >= (this.props.maxRetries ?? 3)
+    const name = this.props.name;
+    const exhausted = this.state.retryCount >= (this.props.maxRetries ?? 3);
 
     return (
       <div
@@ -111,9 +113,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           textAlign: 'center',
         }}
       >
-        <div style={{ fontSize: '1.4rem', color: '#ff4d5e' }}>
-          ⚠ {name} crashed
-        </div>
+        <div style={{ fontSize: '1.4rem', color: '#ff4d5e' }}>⚠ {name} crashed</div>
         {this.state.error && (
           <div
             style={{
@@ -167,7 +167,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           </div>
         )}
       </div>
-    )
+    );
   }
 }
 
@@ -181,5 +181,5 @@ export function withErrorBoundary(
     <ErrorBoundary name={name} onFallback={onFallback}>
       {children}
     </ErrorBoundary>
-  )
+  );
 }

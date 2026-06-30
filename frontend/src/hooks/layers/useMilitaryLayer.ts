@@ -12,7 +12,7 @@ import {
   HorizontalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource, requestSceneRender } from './layerUtils';
@@ -55,7 +55,7 @@ export function useMilitaryLayer({
     const src = new CustomDataSource('military');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       for (const fn of pulseCleanupByMil.current.values()) fn();
       pulseCleanupByMil.current.clear();
@@ -78,13 +78,13 @@ export function useMilitaryLayer({
     const seen = new Set<string>();
 
     src.entities.suspendEvents();
-    
+
     for (const a of list) {
       if (a.lon == null || a.lat == null) continue;
       const id = a.hex;
       seen.add(id);
       const pos = Cartesian3.fromDegrees(a.lon, a.lat, Math.max(a.alt ?? 0, 0));
-      
+
       let e = milMap.get(id);
       if (e) {
         (e.position as ConstantPositionProperty).setValue(pos);
@@ -107,7 +107,9 @@ export function useMilitaryLayer({
           label: {
             text: a.flight || a.hex,
             font: '600 11px "Courier New"',
-            fillColor: isEmergency ? Color.fromCssColorString('#ff2d00') : Color.fromCssColorString('#ff9f7a'),
+            fillColor: isEmergency
+              ? Color.fromCssColorString('#ff2d00')
+              : Color.fromCssColorString('#ff9f7a'),
             outlineColor: Color.BLACK,
             outlineWidth: 2,
             style: LabelStyle.FILL_AND_OUTLINE,
@@ -117,11 +119,16 @@ export function useMilitaryLayer({
             distanceDisplayCondition: new DistanceDisplayCondition(0, 1.2e6),
           },
           properties: {
-            kind: 'military', hex: a.hex, flight: a.flight || '', type: a.type || '',
-            alt: a.alt ?? 0, speed: a.speed ?? 0, squawk: a.squawk || '',
+            kind: 'military',
+            hex: a.hex,
+            flight: a.flight || '',
+            type: a.type || '',
+            alt: a.alt ?? 0,
+            speed: a.speed ?? 0,
+            squawk: a.squawk || '',
           },
         });
-        
+
         if (isEmergency) {
           pulseCleanupByMil.current.set(
             id,
@@ -137,7 +144,7 @@ export function useMilitaryLayer({
         milMap.set(id, e);
       }
     }
-    
+
     for (const [id, e] of milMap) {
       if (!seen.has(id)) {
         pulseCleanupByMil.current.get(id)?.();
@@ -146,7 +153,7 @@ export function useMilitaryLayer({
         milMap.delete(id);
       }
     }
-    
+
     src.entities.resumeEvents();
     setStats((p: Stats) => ({ ...p, military: milMap.size }));
     requestSceneRender(viewer);

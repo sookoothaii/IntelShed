@@ -34,7 +34,10 @@ function attachPointCollection(viewer: Viewer, collection: PointPrimitiveCollect
   }
 }
 
-function detachPointCollection(viewer: Viewer | null, collection: PointPrimitiveCollection | null): void {
+function detachPointCollection(
+  viewer: Viewer | null,
+  collection: PointPrimitiveCollection | null,
+): void {
   if (!collection || !viewerAlive(viewer)) return;
   try {
     viewer.scene.primitives.remove(collection);

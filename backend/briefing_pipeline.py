@@ -79,7 +79,7 @@ def _extract_items_from_briefing(briefing: dict[str, Any]) -> list[dict[str, Any
 
     for wi in briefing.get("watch_items") or []:
         item_id = (
-            wi.get("id") or f"watch:{wi.get('prefix','')}:{wi.get('title','')[:40]}"
+            wi.get("id") or f"watch:{wi.get('prefix', '')}:{wi.get('title', '')[:40]}"
         )
         items.append(
             {
@@ -96,7 +96,7 @@ def _extract_items_from_briefing(briefing: dict[str, Any]) -> list[dict[str, Any
         )
 
     for ins in briefing.get("insights") or []:
-        item_id = ins.get("id") or f"insight:{ins.get('cell_id','')}"
+        item_id = ins.get("id") or f"insight:{ins.get('cell_id', '')}"
         center = ins.get("center") or {}
         items.append(
             {
@@ -113,7 +113,7 @@ def _extract_items_from_briefing(briefing: dict[str, Any]) -> list[dict[str, Any
         )
 
     for alert in briefing.get("alerts") or []:
-        item_id = alert.get("id") or f"alert:{alert.get('title','')[:40]}"
+        item_id = alert.get("id") or f"alert:{alert.get('title', '')[:40]}"
         items.append(
             {
                 "item_id": str(item_id),
@@ -129,13 +129,13 @@ def _extract_items_from_briefing(briefing: dict[str, Any]) -> list[dict[str, Any
         )
 
     for hs in briefing.get("fusion_hotspots") or []:
-        cid = hs.get("cell_id") or f"{hs.get('lat','')},{hs.get('lon','')}"
+        cid = hs.get("cell_id") or f"{hs.get('lat', '')},{hs.get('lon', '')}"
         item_id = f"hotspot:{cid}"
         items.append(
             {
                 "item_id": item_id,
                 "item_type": "hotspot",
-                "title": f"Fusion hotspot — {hs.get('lat','?')},{hs.get('lon','?')}",
+                "title": f"Fusion hotspot — {hs.get('lat', '?')},{hs.get('lon', '?')}",
                 "confidence": float(hs.get("score") or 0),
                 "sources": hs.get("sources") or [],
                 "lat": hs.get("lat"),

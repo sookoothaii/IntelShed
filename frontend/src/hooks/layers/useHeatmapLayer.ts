@@ -28,7 +28,7 @@ export function useHeatmapLayer({
   active,
   feedActive,
   canFetch,
-  setHeatmapMeta
+  setHeatmapMeta,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -65,7 +65,7 @@ export function useHeatmapLayer({
     const src = new CustomDataSource('fusion-heatmap');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       removeGeoJsonPrimitive(viewer, primRef.current);
@@ -117,7 +117,9 @@ export function useHeatmapLayer({
           intensity: c.intensity,
           score: c.score,
           sources: c.sources?.join(', '),
-          samples: (c.samples || []).map((s: HeatmapSample) => `${s.source}: ${s.label}`).join(' | '),
+          samples: (c.samples || [])
+            .map((s: HeatmapSample) => `${s.source}: ${s.label}`)
+            .join(' | '),
         },
       }));
       const gj = pointsToGeoJson(features);
@@ -138,7 +140,11 @@ export function useHeatmapLayer({
         (_idx, props) => props,
       );
       if (srcRef.current) srcRef.current.show = false;
-      setHeatmapMeta({ cells: cells.length, max: (data as HeatmapApiResponse)?.max_intensity || 0, contrib: (data as HeatmapApiResponse)?.contributors || {} });
+      setHeatmapMeta({
+        cells: cells.length,
+        max: (data as HeatmapApiResponse)?.max_intensity || 0,
+        contrib: (data as HeatmapApiResponse)?.contributors || {},
+      });
     } else {
       // --- DataSource path (with labels for high-score cells) ---
       if (srcRef.current) srcRef.current.show = true;
@@ -169,24 +175,33 @@ export function useHeatmapLayer({
               ? Color.fromCssColorString('#ff6b35').withAlpha(0.8)
               : Color.fromCssColorString('#ffffff').withAlpha(0.35),
           }),
-          label: t > 0.5 ? {
-            text: hasHighDelta ? `${Math.round(c.intensity)} Δ+${delta!.toFixed(2)}` : `${Math.round(c.intensity)}`,
-            font: '700 11px "Courier New"',
-            fillColor: hasHighDelta ? Color.fromCssColorString('#ff6b35') : Color.fromCssColorString('#ffffff'),
-            outlineColor: Color.BLACK,
-            outlineWidth: 2,
-            style: LabelStyle.FILL_AND_OUTLINE,
-            verticalOrigin: VerticalOrigin.CENTER,
-            horizontalOrigin: HorizontalOrigin.CENTER,
-            distanceDisplayCondition: new DistanceDisplayCondition(0, 8e7),
-          } : undefined,
+          label:
+            t > 0.5
+              ? {
+                  text: hasHighDelta
+                    ? `${Math.round(c.intensity)} Δ+${delta!.toFixed(2)}`
+                    : `${Math.round(c.intensity)}`,
+                  font: '700 11px "Courier New"',
+                  fillColor: hasHighDelta
+                    ? Color.fromCssColorString('#ff6b35')
+                    : Color.fromCssColorString('#ffffff'),
+                  outlineColor: Color.BLACK,
+                  outlineWidth: 2,
+                  style: LabelStyle.FILL_AND_OUTLINE,
+                  verticalOrigin: VerticalOrigin.CENTER,
+                  horizontalOrigin: HorizontalOrigin.CENTER,
+                  distanceDisplayCondition: new DistanceDisplayCondition(0, 8e7),
+                }
+              : undefined,
           properties: {
             kind: 'fusion_cell',
             intensity: c.intensity,
             score: c.score,
             delta_score: delta ?? null,
             sources: c.sources?.join(', '),
-            samples: (c.samples || []).map((s: HeatmapSample) => `${s.source}: ${s.label}`).join(' | '),
+            samples: (c.samples || [])
+              .map((s: HeatmapSample) => `${s.source}: ${s.label}`)
+              .join(' | '),
           },
         });
 
@@ -205,7 +220,11 @@ export function useHeatmapLayer({
       }
 
       src.entities.resumeEvents();
-      setHeatmapMeta({ cells: cells.length, max: (data as HeatmapApiResponse)?.max_intensity || 0, contrib: (data as HeatmapApiResponse)?.contributors || {} });
+      setHeatmapMeta({
+        cells: cells.length,
+        max: (data as HeatmapApiResponse)?.max_intensity || 0,
+        contrib: (data as HeatmapApiResponse)?.contributors || {},
+      });
     }
   }, [viewer, data, deltaData, active, setHeatmapMeta]);
 }

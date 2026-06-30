@@ -8,7 +8,7 @@ import {
   VerticalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
@@ -29,7 +29,7 @@ export function useHazardsLayer({
   feedActive,
   canFetch,
   setStats,
-  setFeedHud
+  setFeedHud,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -45,7 +45,7 @@ export function useHazardsLayer({
     queryFn: async () => {
       const r = await fetchApi('/api/hazards?limit=80');
       const d = await r.json();
-      
+
       // Also fetch GDELT geo if possible
       try {
         const gr = await fetchApi('/api/gdelt/geo?timespan=1d&maxrecords=40');
@@ -64,7 +64,7 @@ export function useHazardsLayer({
     const src = new CustomDataSource('hazards');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -79,10 +79,10 @@ export function useHazardsLayer({
   useEffect(() => {
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
-    
+
     src.entities.suspendEvents();
     src.entities.removeAll();
-    
+
     let n = 0;
     for (const a of data.alerts || []) {
       if (a.lon == null || a.lat == null) continue;
@@ -115,7 +115,7 @@ export function useHazardsLayer({
       });
       n++;
     }
-    
+
     if (data.gdelt && data.gdelt.events) {
       for (const ev of data.gdelt.events) {
         if (ev.lon == null || ev.lat == null) continue;
@@ -137,10 +137,14 @@ export function useHazardsLayer({
         n++;
       }
     }
-    
+
     src.entities.resumeEvents();
-    
+
     setStats((p: Stats) => ({ ...p, hazards: data.count ?? n }));
-    setFeedHud((p: FeedHud) => ({ ...p, hazards: data.geocoded != null && data.geocoded < (data.count ?? n) ? `${data.geocoded} map` : '' }));
+    setFeedHud((p: FeedHud) => ({
+      ...p,
+      hazards:
+        data.geocoded != null && data.geocoded < (data.count ?? n) ? `${data.geocoded} map` : '',
+    }));
   }, [viewer, data, active, setStats, setFeedHud]);
 }

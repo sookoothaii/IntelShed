@@ -8,7 +8,7 @@ import {
   VerticalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
@@ -27,7 +27,7 @@ export function usePegelLayer({
   feedActive,
   canFetch,
   setStats,
-  setFeedHud
+  setFeedHud,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -53,7 +53,7 @@ export function usePegelLayer({
     const src = new CustomDataSource('pegel');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -68,10 +68,10 @@ export function usePegelLayer({
   useEffect(() => {
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
-    
+
     src.entities.suspendEvents();
     src.entities.removeAll();
-    
+
     for (const g of (data.gauges || []) as PegelGauge[]) {
       if (g.lon == null || g.lat == null) continue;
       const col = Color.fromCssColorString(pegelColor(g.severity));
@@ -108,10 +108,10 @@ export function usePegelLayer({
         },
       });
     }
-    
+
     src.entities.resumeEvents();
-    
+
     setStats((p: Stats) => ({ ...p, pegel: data.count ?? (data.gauges || []).length }));
-    setFeedHud((p: FeedHud) => ({ ...p, pegel: data.error ? 'err' : (data.source ? 'pegel' : '') }));
+    setFeedHud((p: FeedHud) => ({ ...p, pegel: data.error ? 'err' : data.source ? 'pegel' : '' }));
   }, [viewer, data, active, setStats, setFeedHud]);
 }

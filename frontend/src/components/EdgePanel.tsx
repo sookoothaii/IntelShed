@@ -1,108 +1,108 @@
-import { useCallback, useEffect, useState } from 'react'
-import { fetchApi } from '../lib/networkFetch'
-import type { FocusTarget } from '../lib/focus'
-import SensorSparklines from './SensorSparklines'
+import { useCallback, useEffect, useState } from 'react';
+import { fetchApi } from '../lib/networkFetch';
+import type { FocusTarget } from '../lib/focus';
+import SensorSparklines from './SensorSparklines';
 
-export const PRIMARY_EDGE_NODE = 'offgrid-pi'
+export const PRIMARY_EDGE_NODE = 'offgrid-pi';
 
 type EdgeNode = {
-  node_id: string
-  name?: string
-  online?: boolean
-  age_seconds?: number | null
-  updated_at?: string
-  lat?: number | null
-  lon?: number | null
-  sensors?: Record<string, number | string>
+  node_id: string;
+  name?: string;
+  online?: boolean;
+  age_seconds?: number | null;
+  updated_at?: string;
+  lat?: number | null;
+  lon?: number | null;
+  sensors?: Record<string, number | string>;
   health?: {
-    cpu_temp_c?: number
-    ram_pct?: number
-    ram_mb_total?: number
-    ram_mb_used?: number
-    disk_pct?: number
-    load_1m?: number
-    load_5m?: number
-    load_15m?: number
-    uptime_sec?: number
-    services?: Record<string, string>
-  }
+    cpu_temp_c?: number;
+    ram_pct?: number;
+    ram_mb_total?: number;
+    ram_mb_used?: number;
+    disk_pct?: number;
+    load_1m?: number;
+    load_5m?: number;
+    load_15m?: number;
+    uptime_sec?: number;
+    services?: Record<string, string>;
+  };
   mesh?: Array<{
-    id?: string
-    name?: string
-    battery?: number
-    last_text?: string
-    last_seen?: string
-  }>
-  pihole?: { queries?: number; blocked?: number; percent?: number }
-}
+    id?: string;
+    name?: string;
+    battery?: number;
+    last_text?: string;
+    last_seen?: string;
+  }>;
+  pihole?: { queries?: number; blocked?: number; percent?: number };
+};
 
 function formatAge(seconds: number | null | undefined): string {
-  if (seconds == null || !Number.isFinite(seconds)) return 'unknown'
-  const s = Math.max(0, Math.floor(seconds))
-  if (s < 90) return `${s}s ago`
-  const m = Math.floor(s / 60)
-  if (m < 90) return `${m}m ago`
-  const h = m / 60
-  if (h < 48) return `${h.toFixed(h < 10 ? 1 : 0)}h ago`
-  return `${Math.floor(h / 24)}d ago`
+  if (seconds == null || !Number.isFinite(seconds)) return 'unknown';
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 90) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 90) return `${m}m ago`;
+  const h = m / 60;
+  if (h < 48) return `${h.toFixed(h < 10 ? 1 : 0)}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 function formatUptime(sec: number | null | undefined): string {
-  if (sec == null || !Number.isFinite(sec)) return '—'
-  const d = Math.floor(sec / 86400)
-  const h = Math.floor((sec % 86400) / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  if (d > 0) return `${d}d ${h}h`
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
+  if (sec == null || !Number.isFinite(sec)) return '—';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
 
 function pctBarColor(pct: number, warn = 80, crit = 92): string {
-  if (pct >= crit) return '#ff4d5e'
-  if (pct >= warn) return '#ffd23f'
-  return '#00e5a0'
+  if (pct >= crit) return '#ff4d5e';
+  if (pct >= warn) return '#ffd23f';
+  return '#00e5a0';
 }
 
 function tempColor(c: number): string {
-  if (c >= 75) return '#ff4d5e'
-  if (c >= 65) return '#ffd23f'
-  return '#00e5a0'
+  if (c >= 75) return '#ff4d5e';
+  if (c >= 65) return '#ffd23f';
+  return '#00e5a0';
 }
 
 export default function EdgePanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 'ts'>) => void }) {
-  const [node, setNode] = useState<EdgeNode | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [node, setNode] = useState<EdgeNode | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
-      const r = await fetchApi('/api/nodes')
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      const data = await r.json()
-      const pi = (data.nodes || []).find((n: EdgeNode) => n.node_id === PRIMARY_EDGE_NODE) || null
-      setNode(pi)
-      if (!pi) setError('No push from offgrid-pi — check worldbase_push on the Pi')
+      const r = await fetchApi('/api/nodes');
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      const pi = (data.nodes || []).find((n: EdgeNode) => n.node_id === PRIMARY_EDGE_NODE) || null;
+      setNode(pi);
+      if (!pi) setError('No push from offgrid-pi — check worldbase_push on the Pi');
     } catch (e: unknown) {
-      setError((e as Error)?.message || 'fetch failed')
-      setNode(null)
+      setError((e as Error)?.message || 'fetch failed');
+      setNode(null);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    load()
-    const id = window.setInterval(load, 60_000)
-    return () => window.clearInterval(id)
-  }, [load])
+    load();
+    const id = window.setInterval(load, 60_000);
+    return () => window.clearInterval(id);
+  }, [load]);
 
-  const h = node?.health || {}
-  const sensors = node?.sensors || {}
-  const online = node?.online === true
-  const roomTemp = sensors.temp_c as number | undefined
-  const roomRh = sensors.humidity_pct as number | undefined
+  const h = node?.health || {};
+  const sensors = node?.sensors || {};
+  const online = node?.online === true;
+  const roomTemp = sensors.temp_c as number | undefined;
+  const roomRh = sensors.humidity_pct as number | undefined;
 
   return (
     <section className="edge-panel">
@@ -129,7 +129,10 @@ export default function EdgePanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
                 lat: node.lat!,
                 height: 500000,
                 title: node.name || PRIMARY_EDGE_NODE,
-                lines: [`NODE: ${PRIMARY_EDGE_NODE}`, online ? 'STATUS: ONLINE' : 'STATUS: OFFLINE'],
+                lines: [
+                  `NODE: ${PRIMARY_EDGE_NODE}`,
+                  online ? 'STATUS: ONLINE' : 'STATUS: OFFLINE',
+                ],
               })
             }
           >
@@ -141,19 +144,21 @@ export default function EdgePanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
             type="button"
             className="edge-locate-btn"
             onClick={async () => {
-              const cmd = prompt(`Send command to ${PRIMARY_EDGE_NODE}:\nCommands: reboot, shutdown, restart_service, exec`)
-              if (!cmd) return
-              const args = prompt('Args (JSON, optional):') || '{}'
+              const cmd = prompt(
+                `Send command to ${PRIMARY_EDGE_NODE}:\nCommands: reboot, shutdown, restart_service, exec`,
+              );
+              if (!cmd) return;
+              const args = prompt('Args (JSON, optional):') || '{}';
               try {
                 const r = await fetchApi(`/api/node/${PRIMARY_EDGE_NODE}/command`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ command: cmd, args: JSON.parse(args) }),
-                })
-                const d = await r.json()
-                alert(`Queued: ${d.status} (ID: ${d.command_id})`)
+                });
+                const d = await r.json();
+                alert(`Queued: ${d.status} (ID: ${d.command_id})`);
               } catch (e) {
-                alert(`Failed: ${(e as Error).message}`)
+                alert(`Failed: ${(e as Error).message}`);
               }
             }}
           >
@@ -185,7 +190,10 @@ export default function EdgePanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
                 <div className="mh-bar">
                   <div
                     className="mh-bar-fill"
-                    style={{ width: `${Math.min(100, h.ram_pct)}%`, background: pctBarColor(h.ram_pct) }}
+                    style={{
+                      width: `${Math.min(100, h.ram_pct)}%`,
+                      background: pctBarColor(h.ram_pct),
+                    }}
                   />
                 </div>
               )}
@@ -202,7 +210,10 @@ export default function EdgePanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
                 <div className="mh-bar">
                   <div
                     className="mh-bar-fill"
-                    style={{ width: `${Math.min(100, h.disk_pct)}%`, background: pctBarColor(h.disk_pct, 75, 90) }}
+                    style={{
+                      width: `${Math.min(100, h.disk_pct)}%`,
+                      background: pctBarColor(h.disk_pct, 75, 90),
+                    }}
                   />
                 </div>
               )}
@@ -275,5 +286,5 @@ export default function EdgePanel({ onFocus }: { onFocus: (f: Omit<FocusTarget, 
         </>
       )}
     </section>
-  )
+  );
 }

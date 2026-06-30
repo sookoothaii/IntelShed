@@ -1,5 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { CustomDataSource, Entity, Cartesian3, Color, PolylineGlowMaterialProperty, Viewer } from 'cesium';
+import {
+  CustomDataSource,
+  Entity,
+  Cartesian3,
+  Color,
+  PolylineGlowMaterialProperty,
+  Viewer,
+} from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import type { TrailPoint } from '../../lib/types';
@@ -10,13 +17,7 @@ export interface TrailsApi {
   clearAllTrails: () => void;
 }
 
-export function useTrailsLayer({
-  viewer,
-  active
-}: {
-  viewer: Viewer | null;
-  active: boolean;
-}) {
+export function useTrailsLayer({ viewer, active }: { viewer: Viewer | null; active: boolean }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const trailEntities = useRef(new Map<string, Entity>());
 
@@ -25,7 +26,7 @@ export function useTrailsLayer({
     const src = new CustomDataSource('aircraft-trails');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -41,13 +42,17 @@ export function useTrailsLayer({
   const fetchTrail = async (icao: string) => {
     if (!icao || !srcRef.current || trailEntities.current.has(icao)) return;
     try {
-      const r = await fetchApi(`/api/aircraft/trails?icao24=${encodeURIComponent(icao)}&minutes=30`);
+      const r = await fetchApi(
+        `/api/aircraft/trails?icao24=${encodeURIComponent(icao)}&minutes=30`,
+      );
       if (!r.ok) return;
       const d = await r.json();
       const pts: TrailPoint[] = d.points || [];
       if (pts.length < 2) return;
-      
-      const positions: Cartesian3[] = pts.map(p => Cartesian3.fromDegrees(p.lon, p.lat, Math.max(p.alt ?? 0, 0)));
+
+      const positions: Cartesian3[] = pts.map((p) =>
+        Cartesian3.fromDegrees(p.lon, p.lat, Math.max(p.alt ?? 0, 0)),
+      );
       const ent = srcRef.current.entities.add({
         id: `trail-${icao}`,
         polyline: {

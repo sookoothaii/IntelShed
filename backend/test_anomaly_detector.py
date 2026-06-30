@@ -424,9 +424,10 @@ class TestFtmIngestion:
 
         mock_entity = mock.MagicMock()
         mock_entity.id = "evt-test-anomaly-001"
-        with mock.patch.object(
-            real_ftm, "make_entity", return_value=mock_entity
-        ), mock.patch.object(real_ftm, "upsert") as mock_upsert:
+        with (
+            mock.patch.object(real_ftm, "make_entity", return_value=mock_entity),
+            mock.patch.object(real_ftm, "upsert") as mock_upsert,
+        ):
             result = mod.ingest_anomalies_as_events(anomalies)
         assert result["count"] == 1
         assert len(result["ids"]) == 1

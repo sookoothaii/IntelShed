@@ -7,7 +7,7 @@ import {
   VerticalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
@@ -66,7 +66,7 @@ export function useEventsLayer({
     const src = new CustomDataSource('events');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -81,13 +81,15 @@ export function useEventsLayer({
   useEffect(() => {
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
-    
+
     const cutoff = timelineCutoffMs(scrubT, timelineHours);
-    const list = (data.events || []).filter((ev: Record<string, unknown>) => parseEventMs(ev.date as string) <= cutoff);
-    
+    const list = (data.events || []).filter(
+      (ev: Record<string, unknown>) => parseEventMs(ev.date as string) <= cutoff,
+    );
+
     src.entities.suspendEvents();
     src.entities.removeAll();
-    
+
     let n = 0;
     for (const ev of list) {
       if (ev.lon == null || ev.lat == null) continue;
@@ -112,7 +114,7 @@ export function useEventsLayer({
         properties: { kind: 'event', title: ev.title, category: ev.category, date: ev.date },
       });
     }
-    
+
     src.entities.resumeEvents();
     setStats((p: Stats) => ({ ...p, events: n }));
   }, [viewer, data, active, scrubT, timelineHours, setStats]);

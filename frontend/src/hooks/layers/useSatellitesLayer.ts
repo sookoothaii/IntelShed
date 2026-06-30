@@ -111,7 +111,16 @@ export function useSatellitesLayer({
   const lastOrbitDrawMs = useRef(0);
 
   useEffect(() => {
-    if (!active || !feedActive || !satCache || satCache.length === 0 || !pointsRef.current || !labelsRef.current || !orbitSrcRef.current || !viewer) {
+    if (
+      !active ||
+      !feedActive ||
+      !satCache ||
+      satCache.length === 0 ||
+      !pointsRef.current ||
+      !labelsRef.current ||
+      !orbitSrcRef.current ||
+      !viewer
+    ) {
       return;
     }
 
@@ -142,7 +151,10 @@ export function useSatellitesLayer({
         try {
           const pv = satellite.propagate(rec, now);
           if (!pv || !pv.position || typeof pv.position === 'boolean') continue;
-          const gd = satellite.eciToGeodetic(pv.position as { x: number; y: number; z: number }, gmst);
+          const gd = satellite.eciToGeodetic(
+            pv.position as { x: number; y: number; z: number },
+            gmst,
+          );
           const lon = CMath.toDegrees(gd.longitude);
           const lat = CMath.toDegrees(gd.latitude);
           const alt = gd.height * 1000;
@@ -199,7 +211,10 @@ export function useSatellitesLayer({
               const g = satellite.gstime(t);
               const p = satellite.propagate(rec, t);
               if (!p || !p.position || typeof p.position === 'boolean') continue;
-              const od = satellite.eciToGeodetic(p.position as { x: number; y: number; z: number }, g);
+              const od = satellite.eciToGeodetic(
+                p.position as { x: number; y: number; z: number },
+                g,
+              );
               pts.push(
                 Cartesian3.fromDegrees(
                   CMath.toDegrees(od.longitude),

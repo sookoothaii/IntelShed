@@ -3,46 +3,42 @@
  * WorldBase native feeds stay in-app; these open vetted third-party UIs in a new tab.
  */
 
-import { OSINT_TOOLS_EXTENDED } from './osintToolkitCatalog'
+import { OSINT_TOOLS_EXTENDED } from './osintToolkitCatalog';
 
 export type OsintContext = {
-  kind?: string
-  lat?: number
-  lon?: number
-  title?: string
-  lines?: string[]
-  callsign?: string
-  icao?: string
-  hex?: string
-  mmsi?: string
-  domain?: string
-  ip?: string
-  username?: string
-  email?: string
-  url?: string
-  query?: string
-  zoom?: number
-}
+  kind?: string;
+  lat?: number;
+  lon?: number;
+  title?: string;
+  lines?: string[];
+  callsign?: string;
+  icao?: string;
+  hex?: string;
+  mmsi?: string;
+  domain?: string;
+  ip?: string;
+  username?: string;
+  email?: string;
+  url?: string;
+  query?: string;
+  zoom?: number;
+};
 
-export type OsintStackRelation =
-  | 'native'
-  | 'complement'
-  | 'link-only'
-  | 'reference'
+export type OsintStackRelation = 'native' | 'complement' | 'link-only' | 'reference';
 
 export type OsintToolDef = {
-  id: string
-  label: string
-  category: OsintCategoryId
-  description: string
-  stackNote: string
-  stackRelation: OsintStackRelation
-  homeUrl: string
-  tags: string[]
+  id: string;
+  label: string;
+  category: OsintCategoryId;
+  description: string;
+  stackNote: string;
+  stackRelation: OsintStackRelation;
+  homeUrl: string;
+  tags: string[];
   /** Entity kinds where this tool gets a relevance boost in the modal. */
-  kinds?: string[]
-  buildUrl?: (ctx: OsintContext) => string | null
-}
+  kinds?: string[];
+  buildUrl?: (ctx: OsintContext) => string | null;
+};
 
 export type OsintCategoryId =
   | 'air'
@@ -54,50 +50,91 @@ export type OsintCategoryId =
   | 'identity'
   | 'native'
   | 'cyber'
-  | 'meta'
+  | 'meta';
 
 export type OsintCategory = {
-  id: OsintCategoryId
-  label: string
-  blurb: string
-}
+  id: OsintCategoryId;
+  label: string;
+  blurb: string;
+};
 
 export type OsintToolLink = {
-  id: string
-  label: string
-  category: OsintCategoryId
-  description: string
-  stackNote: string
-  url: string
-  contextual: boolean
-  relevance: number
-}
+  id: string;
+  label: string;
+  category: OsintCategoryId;
+  description: string;
+  stackNote: string;
+  url: string;
+  contextual: boolean;
+  relevance: number;
+};
 
 export const OSINT_CATEGORIES: OsintCategory[] = [
-  { id: 'native', label: 'WORLDBASE NATIVE', blurb: 'Already in your stack — API + globe layers. Use DATA / telemetry toggles first.' },
-  { id: 'air', label: 'AIR / ADS-B', blurb: 'Aircraft detail UIs. Live positions come from adsb.lol / adsb.fi / OpenSky in WorldBase.' },
-  { id: 'sea', label: 'MARITIME / AIS', blurb: 'Vessel detail. Globe MARITIME layer uses AISstream (+ MyShipTracking fallback).' },
-  { id: 'conflict', label: 'CONFLICT / SITUATION', blurb: 'Curated conflict maps. Briefing uses GDELT, Situations, fusion hotspots.' },
-  { id: 'imagery', label: 'IMAGERY / 3D', blurb: 'Satellite browse + 3D context. STAC search is built-in (DATA → STAC).' },
-  { id: 'infra', label: 'INFRA / OUTAGES', blurb: 'Power, internet, transport, ALPR. Internet macro outages = IODA in DATA → OUTAGES.' },
-  { id: 'comms', label: 'COMMS / RF', blurb: 'Scanner audio, WebSDR, military HF, signal ID wiki.' },
-  { id: 'identity', label: 'IDENTITY / GRAPH', blurb: 'Usernames, domains, breaches, genealogy. Quick lookups in OSINT → TOOLS.' },
-  { id: 'cyber', label: 'CYBER / INFRA RECON', blurb: 'Certs, exposed services, web archives — link-out; crt.sh also via /api/osint/domain.' },
-  { id: 'meta', label: 'META / FRAMEWORKS', blurb: 'Curated indexes and methodology — OSINT Framework, Bellingcat, IntelTechniques.' },
-]
+  {
+    id: 'native',
+    label: 'WORLDBASE NATIVE',
+    blurb: 'Already in your stack — API + globe layers. Use DATA / telemetry toggles first.',
+  },
+  {
+    id: 'air',
+    label: 'AIR / ADS-B',
+    blurb:
+      'Aircraft detail UIs. Live positions come from adsb.lol / adsb.fi / OpenSky in WorldBase.',
+  },
+  {
+    id: 'sea',
+    label: 'MARITIME / AIS',
+    blurb: 'Vessel detail. Globe MARITIME layer uses AISstream (+ MyShipTracking fallback).',
+  },
+  {
+    id: 'conflict',
+    label: 'CONFLICT / SITUATION',
+    blurb: 'Curated conflict maps. Briefing uses GDELT, Situations, fusion hotspots.',
+  },
+  {
+    id: 'imagery',
+    label: 'IMAGERY / 3D',
+    blurb: 'Satellite browse + 3D context. STAC search is built-in (DATA → STAC).',
+  },
+  {
+    id: 'infra',
+    label: 'INFRA / OUTAGES',
+    blurb: 'Power, internet, transport, ALPR. Internet macro outages = IODA in DATA → OUTAGES.',
+  },
+  {
+    id: 'comms',
+    label: 'COMMS / RF',
+    blurb: 'Scanner audio, WebSDR, military HF, signal ID wiki.',
+  },
+  {
+    id: 'identity',
+    label: 'IDENTITY / GRAPH',
+    blurb: 'Usernames, domains, breaches, genealogy. Quick lookups in OSINT → TOOLS.',
+  },
+  {
+    id: 'cyber',
+    label: 'CYBER / INFRA RECON',
+    blurb: 'Certs, exposed services, web archives — link-out; crt.sh also via /api/osint/domain.',
+  },
+  {
+    id: 'meta',
+    label: 'META / FRAMEWORKS',
+    blurb: 'Curated indexes and methodology — OSINT Framework, Bellingcat, IntelTechniques.',
+  },
+];
 
 const S2U_MAP_URL =
-  (import.meta.env.VITE_S2U_MAP_URL as string | undefined)?.replace(/\/$/, '') || ''
+  (import.meta.env.VITE_S2U_MAP_URL as string | undefined)?.replace(/\/$/, '') || '';
 
 function fmtCoord(n: number, digits = 4): string {
-  return Number.isFinite(n) ? n.toFixed(digits) : ''
+  return Number.isFinite(n) ? n.toFixed(digits) : '';
 }
 
 function geoCtx(ctx: OsintContext): { lat: number; lon: number; zoom: number } | null {
-  const lat = ctx.lat
-  const lon = ctx.lon
-  if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) return null
-  return { lat, lon, zoom: ctx.zoom ?? 11 }
+  const lat = ctx.lat;
+  const lon = ctx.lon;
+  if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon, zoom: ctx.zoom ?? 11 };
 }
 
 export const OSINT_TOOLS: OsintToolDef[] = [
@@ -117,7 +154,8 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     id: 'wb-maritime',
     label: 'WorldBase Maritime API',
     category: 'native',
-    description: 'AIS vessel positions for Thailand corridor + Malacca when AISSTREAM_API_KEY is set.',
+    description:
+      'AIS vessel positions for Thailand corridor + Malacca when AISSTREAM_API_KEY is set.',
     stackNote: 'GET /api/maritime · globe MARITIME · sanctions cross-check on MMSI',
     stackRelation: 'native',
     homeUrl: '/api/maritime',
@@ -173,34 +211,36 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     id: 'adsb-exchange',
     label: 'ADS-B Exchange Globe',
     category: 'air',
-    description: 'Community ADS-B map — compare tracks, filters, historical context (separate license from WorldBase feeds).',
+    description:
+      'Community ADS-B map — compare tracks, filters, historical context (separate license from WorldBase feeds).',
     stackNote: 'Complement to adsb.lol/fi — use for visual cross-check, not ingest.',
     stackRelation: 'complement',
     homeUrl: 'https://globe.adsbexchange.com/',
     tags: ['ads-b', 'aircraft'],
     kinds: ['aircraft', 'military'],
     buildUrl: (ctx) => {
-      const hex = (ctx.icao || ctx.hex || '').toLowerCase()
-      if (hex) return `https://globe.adsbexchange.com/?icao=${encodeURIComponent(hex)}`
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://globe.adsbexchange.com/?lat=${fmtCoord(g.lat)}&lon=${fmtCoord(g.lon)}&zoom=${g.zoom}`
+      const hex = (ctx.icao || ctx.hex || '').toLowerCase();
+      if (hex) return `https://globe.adsbexchange.com/?icao=${encodeURIComponent(hex)}`;
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://globe.adsbexchange.com/?lat=${fmtCoord(g.lat)}&lon=${fmtCoord(g.lon)}&zoom=${g.zoom}`;
     },
   },
   {
     id: 'odin-weg',
     label: 'ODIN WEG (TRADOC)',
     category: 'air',
-    description: 'US Army equipment guide — identify platforms from observations or intel mentions.',
+    description:
+      'US Army equipment guide — identify platforms from observations or intel mentions.',
     stackNote: 'Reference when MILITARY layer or intel entities mention equipment.',
     stackRelation: 'reference',
     homeUrl: 'https://odin.tradoc.army.mil/WEG',
     tags: ['military', 'equipment'],
     kinds: ['military'],
     buildUrl: (ctx) => {
-      const q = ctx.query || ctx.title?.replace(/^🎖\s*/, '').trim()
-      if (!q || q.length < 2) return null
-      return `https://odin.tradoc.army.mil/WEG/Search?q=${encodeURIComponent(q)}`
+      const q = ctx.query || ctx.title?.replace(/^🎖\s*/, '').trim();
+      if (!q || q.length < 2) return null;
+      return `https://odin.tradoc.army.mil/WEG/Search?q=${encodeURIComponent(q)}`;
     },
   },
   // --- sea ---
@@ -208,7 +248,8 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     id: 'marinetraffic',
     label: 'MarineTraffic',
     category: 'sea',
-    description: 'Commercial AIS UI — photos, port calls, voyage history (WorldBase stays on open AIS feeds).',
+    description:
+      'Commercial AIS UI — photos, port calls, voyage history (WorldBase stays on open AIS feeds).',
     stackNote: 'Deep-link MMSI from globe vessel modal or DATA → MARITIME row.',
     stackRelation: 'complement',
     homeUrl: 'https://www.marinetraffic.com/en/ais/home/centerx:100.5/centery:13.7/zoom:10',
@@ -216,11 +257,11 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     kinds: ['maritime'],
     buildUrl: (ctx) => {
       if (ctx.mmsi) {
-        return `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${encodeURIComponent(ctx.mmsi)}`
+        return `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${encodeURIComponent(ctx.mmsi)}`;
       }
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://www.marinetraffic.com/en/ais/home/centerx:${fmtCoord(g.lon, 5)}/centery:${fmtCoord(g.lat, 5)}/zoom:${g.zoom}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://www.marinetraffic.com/en/ais/home/centerx:${fmtCoord(g.lon, 5)}/centery:${fmtCoord(g.lat, 5)}/zoom:${g.zoom}`;
     },
   },
   // --- conflict ---
@@ -235,9 +276,9 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     tags: ['conflict', 'map'],
     kinds: ['geopolitics', 'gdelt_geo', 'hazard', 'situation', 'military', 'event'],
     buildUrl: (ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://liveuamap.com/#zoom=${g.zoom}&lat=${fmtCoord(g.lat, 5)}&lng=${fmtCoord(g.lon, 5)}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://liveuamap.com/#zoom=${g.zoom}&lat=${fmtCoord(g.lat, 5)}&lng=${fmtCoord(g.lon, 5)}`;
     },
   },
   {
@@ -251,40 +292,46 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     tags: ['conflict', 'usa'],
     kinds: ['geopolitics', 'event'],
     buildUrl: (ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://usa.liveuamap.com/#zoom=${g.zoom}&lat=${fmtCoord(g.lat, 5)}&lng=${fmtCoord(g.lon, 5)}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://usa.liveuamap.com/#zoom=${g.zoom}&lat=${fmtCoord(g.lat, 5)}&lng=${fmtCoord(g.lon, 5)}`;
     },
   },
   ...(S2U_MAP_URL
-    ? [{
-        id: 's2u-map',
-        label: 'S2U Map (ArcGIS)',
-        category: 'conflict' as const,
-        description: 'Operator-configured ArcGIS Experience — situational map.',
-        stackNote: 'Set VITE_S2U_MAP_URL in frontend/.env for your Experience URL.',
-        stackRelation: 'link-only' as const,
-        homeUrl: S2U_MAP_URL,
-        tags: ['arcgis', 'situation'],
-        kinds: ['situation', 'geopolitics', 'gdelt_geo'],
-        buildUrl: (ctx: OsintContext) => {
-          const g = geoCtx(ctx)
-          if (!g) return S2U_MAP_URL
-          const sep = S2U_MAP_URL.includes('?') ? '&' : '?'
-          return `${S2U_MAP_URL}${sep}center=${fmtCoord(g.lon, 5)},${fmtCoord(g.lat, 5)}&level=${g.zoom}`
+    ? [
+        {
+          id: 's2u-map',
+          label: 'S2U Map (ArcGIS)',
+          category: 'conflict' as const,
+          description: 'Operator-configured ArcGIS Experience — situational map.',
+          stackNote: 'Set VITE_S2U_MAP_URL in frontend/.env for your Experience URL.',
+          stackRelation: 'link-only' as const,
+          homeUrl: S2U_MAP_URL,
+          tags: ['arcgis', 'situation'],
+          kinds: ['situation', 'geopolitics', 'gdelt_geo'],
+          buildUrl: (ctx: OsintContext) => {
+            const g = geoCtx(ctx);
+            if (!g) return S2U_MAP_URL;
+            const sep = S2U_MAP_URL.includes('?') ? '&' : '?';
+            return `${S2U_MAP_URL}${sep}center=${fmtCoord(g.lon, 5)},${fmtCoord(g.lat, 5)}&level=${g.zoom}`;
+          },
         },
-      }]
-    : [{
-        id: 's2u-map',
-        label: 'S2U Map (ArcGIS)',
-        category: 'conflict' as const,
-        description: 'ArcGIS Experience Builder situational map — URL not configured in this build.',
-        stackNote: 'Add VITE_S2U_MAP_URL=https://experience.arcgis.com/experience/… to frontend/.env',
-        stackRelation: 'link-only' as const,
-        homeUrl: 'https://experience.arcgis.com/experience/',
-        tags: ['arcgis', 'situation'],
-        kinds: ['situation'],
-      }]),
+      ]
+    : [
+        {
+          id: 's2u-map',
+          label: 'S2U Map (ArcGIS)',
+          category: 'conflict' as const,
+          description:
+            'ArcGIS Experience Builder situational map — URL not configured in this build.',
+          stackNote:
+            'Add VITE_S2U_MAP_URL=https://experience.arcgis.com/experience/… to frontend/.env',
+          stackRelation: 'link-only' as const,
+          homeUrl: 'https://experience.arcgis.com/experience/',
+          tags: ['arcgis', 'situation'],
+          kinds: ['situation'],
+        },
+      ]),
   // --- imagery ---
   {
     id: 'copernicus-browser',
@@ -297,9 +344,9 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     tags: ['sentinel', 'imagery'],
     kinds: ['wildfire', 'event', 'gdacs', 'fusion_cell', 'situation'],
     buildUrl: (ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://browser.dataspace.copernicus.eu/?lat=${fmtCoord(g.lat, 5)}&lng=${fmtCoord(g.lon, 5)}&zoom=${g.zoom}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://browser.dataspace.copernicus.eu/?lat=${fmtCoord(g.lat, 5)}&lng=${fmtCoord(g.lon, 5)}&zoom=${g.zoom}`;
     },
   },
   {
@@ -312,25 +359,26 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     homeUrl: 'https://earth.google.com/web/',
     tags: ['3d', 'globe'],
     buildUrl: (ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://earth.google.com/web/@${fmtCoord(g.lat, 5)},${fmtCoord(g.lon, 5)},${Math.max(500, 120000 - g.zoom * 8000)}a,${1000 + g.zoom * 100}d,35y,0h,0t,0r`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://earth.google.com/web/@${fmtCoord(g.lat, 5)},${fmtCoord(g.lon, 5)},${Math.max(500, 120000 - g.zoom * 8000)}a,${1000 + g.zoom * 100}d,35y,0h,0t,0r`;
     },
   },
   {
     id: 'youtube-geofind',
     label: 'Geotagged YouTube (mattw.io)',
     category: 'imagery',
-    description: 'Find YouTube videos geotagged near a coordinate — useful for protests, disasters, travel OSINT.',
+    description:
+      'Find YouTube videos geotagged near a coordinate — useful for protests, disasters, travel OSINT.',
     stackNote: 'Passive open search — radius + lookback in URL.',
     stackRelation: 'link-only',
     homeUrl: 'https://mattw.io/youtube-geofind/location',
     tags: ['video', 'geo'],
     kinds: ['event', 'gdelt_geo', 'hazard', 'situation', 'osint', 'traffic_cam', 'webcam'],
     buildUrl: (ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://mattw.io/youtube-geofind/location?lat=${fmtCoord(g.lat, 5)}&lon=${fmtCoord(g.lon, 5)}&radius=25&lookback=365&keywords=`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://mattw.io/youtube-geofind/location?lat=${fmtCoord(g.lat, 5)}&lon=${fmtCoord(g.lon, 5)}&radius=25&lookback=365&keywords=`;
     },
   },
   // --- infra ---
@@ -345,9 +393,9 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     tags: ['rail', 'transport'],
     kinds: ['transit', 'energy', 'node'],
     buildUrl: (ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://www.openrailwaymap.org/?lat=${fmtCoord(g.lat, 5)}&lon=${fmtCoord(g.lon, 5)}&zoom=${Math.min(18, g.zoom + 2)}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://www.openrailwaymap.org/?lat=${fmtCoord(g.lat, 5)}&lon=${fmtCoord(g.lon, 5)}&zoom=${Math.min(18, g.zoom + 2)}`;
     },
   },
   {
@@ -382,9 +430,9 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     homeUrl: 'https://deflock.me/map',
     tags: ['alpr', 'privacy', 'usa'],
     buildUrl: (ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return 'https://deflock.me/map'
-      return `https://deflock.me/map#${g.zoom}/${fmtCoord(g.lat, 5)}/${fmtCoord(g.lon, 5)}`
+      const g = geoCtx(ctx);
+      if (!g) return 'https://deflock.me/map';
+      return `https://deflock.me/map#${g.zoom}/${fmtCoord(g.lat, 5)}/${fmtCoord(g.lon, 5)}`;
     },
   },
   // --- comms ---
@@ -442,8 +490,8 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     tags: ['username', 'osint'],
     kinds: ['osint'],
     buildUrl: (ctx) => {
-      if (!ctx.username) return null
-      return `https://whatsmyname.app/#/${encodeURIComponent(ctx.username)}`
+      if (!ctx.username) return null;
+      return `https://whatsmyname.app/#/${encodeURIComponent(ctx.username)}`;
     },
   },
   {
@@ -457,8 +505,8 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     tags: ['domain', 'whois'],
     kinds: ['osint'],
     buildUrl: (ctx) => {
-      if (!ctx.domain) return null
-      return `https://lookup.icann.org/en/lookup?name=${encodeURIComponent(ctx.domain)}`
+      if (!ctx.domain) return null;
+      return `https://lookup.icann.org/en/lookup?name=${encodeURIComponent(ctx.domain)}`;
     },
   },
   {
@@ -482,88 +530,88 @@ export const OSINT_TOOLS: OsintToolDef[] = [
     tags: ['genealogy'],
   },
   ...(OSINT_TOOLS_EXTENDED as OsintToolDef[]),
-]
+];
 
-const LINE_ICAO = /(?:ICAO24|ICAO|HEX):\s*([a-f0-9]{3,6})/i
-const LINE_MMSI = /MMSI:\s*(\d{6,9})/i
-const LINE_LATLON = /LAT\/LON:\s*([-\d.]+)\s*,\s*([-\d.]+)/i
-const LINE_QUERY = /QUERY:\s*(.+)/i
-const LINE_TOOL = /TOOL:\s*(\w+)/i
-const LINE_IP = /^IP:\s*(\d{1,3}(?:\.\d{1,3}){3})$/i
+const LINE_ICAO = /(?:ICAO24|ICAO|HEX):\s*([a-f0-9]{3,6})/i;
+const LINE_MMSI = /MMSI:\s*(\d{6,9})/i;
+const LINE_LATLON = /LAT\/LON:\s*([-\d.]+)\s*,\s*([-\d.]+)/i;
+const LINE_QUERY = /QUERY:\s*(.+)/i;
+const LINE_TOOL = /TOOL:\s*(\w+)/i;
+const LINE_IP = /^IP:\s*(\d{1,3}(?:\.\d{1,3}){3})$/i;
 
 function parseLineValue(lines: string[] | undefined, re: RegExp): string | undefined {
-  if (!lines?.length) return undefined
+  if (!lines?.length) return undefined;
   for (const line of lines) {
-    const m = line.match(re)
-    if (m?.[1]) return m[1].trim()
+    const m = line.match(re);
+    if (m?.[1]) return m[1].trim();
   }
-  return undefined
+  return undefined;
 }
 
 function parseDomainFromLines(lines: string[] | undefined): string | undefined {
-  const q = parseLineValue(lines, LINE_QUERY)
-  if (!q) return undefined
-  if (q.includes('@')) return undefined
-  if (q.includes('.') && !q.includes(' ')) return q.replace(/^https?:\/\//, '').split('/')[0]
-  return undefined
+  const q = parseLineValue(lines, LINE_QUERY);
+  if (!q) return undefined;
+  if (q.includes('@')) return undefined;
+  if (q.includes('.') && !q.includes(' ')) return q.replace(/^https?:\/\//, '').split('/')[0];
+  return undefined;
 }
 
 function parseUsernameFromLines(lines: string[] | undefined, tool?: string): string | undefined {
-  if (tool === 'username') return parseLineValue(lines, LINE_QUERY)
-  const q = parseLineValue(lines, LINE_QUERY)
-  if (q && !q.includes('@') && !q.includes('.') && q.length >= 2) return q
-  return undefined
+  if (tool === 'username') return parseLineValue(lines, LINE_QUERY);
+  const q = parseLineValue(lines, LINE_QUERY);
+  if (q && !q.includes('@') && !q.includes('.') && q.length >= 2) return q;
+  return undefined;
 }
 
 function parseEmailFromLines(lines: string[] | undefined, tool?: string): string | undefined {
-  const q = parseLineValue(lines, LINE_QUERY)
-  if (tool === 'email' && q?.includes('@')) return q.trim().toLowerCase()
-  if (q?.includes('@')) return q.trim().toLowerCase()
-  return undefined
+  const q = parseLineValue(lines, LINE_QUERY);
+  if (tool === 'email' && q?.includes('@')) return q.trim().toLowerCase();
+  if (q?.includes('@')) return q.trim().toLowerCase();
+  return undefined;
 }
 
 function parseIpFromLines(lines: string[] | undefined, tool?: string): string | undefined {
-  const fromLine = parseLineValue(lines, LINE_IP)
-  if (fromLine) return fromLine
+  const fromLine = parseLineValue(lines, LINE_IP);
+  if (fromLine) return fromLine;
   if (tool === 'ip') {
-    const q = parseLineValue(lines, LINE_QUERY)
-    if (q && /^\d{1,3}(\.\d{1,3}){3}$/.test(q.trim())) return q.trim()
+    const q = parseLineValue(lines, LINE_QUERY);
+    if (q && /^\d{1,3}(\.\d{1,3}){3}$/.test(q.trim())) return q.trim();
   }
-  return undefined
+  return undefined;
 }
 
 function parseUrlFromQuery(lines: string[] | undefined): string | undefined {
-  const q = parseLineValue(lines, LINE_QUERY)
-  if (q?.startsWith('http://') || q?.startsWith('https://')) return q.trim()
-  return undefined
+  const q = parseLineValue(lines, LINE_QUERY);
+  if (q?.startsWith('http://') || q?.startsWith('https://')) return q.trim();
+  return undefined;
 }
 
 /** Build context from a globe detail target or focus payload. */
 export function parseOsintContext(input: {
-  kind?: string
-  title?: string
-  lines?: string[]
-  lat?: number
-  lon?: number
+  kind?: string;
+  title?: string;
+  lines?: string[];
+  lat?: number;
+  lon?: number;
 }): OsintContext {
-  const lines = input.lines || []
-  let lat = input.lat
-  let lon = input.lon
+  const lines = input.lines || [];
+  let lat = input.lat;
+  let lon = input.lon;
   if (lat == null || lon == null) {
-    const m = parseLineValue(lines, LINE_LATLON)
+    const m = parseLineValue(lines, LINE_LATLON);
     if (m) {
-      const parts = m.split(',').map((s) => s.trim())
+      const parts = m.split(',').map((s) => s.trim());
       if (parts.length >= 2) {
-        lat = Number(parts[0])
-        lon = Number(parts[1])
+        lat = Number(parts[0]);
+        lon = Number(parts[1]);
       }
     }
   }
-  const tool = parseLineValue(lines, LINE_TOOL)
-  const icao = parseLineValue(lines, LINE_ICAO)?.toLowerCase()
-  const callsign = input.title?.replace(/^✈\s*/, '').trim()
-  const email = parseEmailFromLines(lines, tool)
-  const domainFromLines = parseDomainFromLines(lines)
+  const tool = parseLineValue(lines, LINE_TOOL);
+  const icao = parseLineValue(lines, LINE_ICAO)?.toLowerCase();
+  const callsign = input.title?.replace(/^✈\s*/, '').trim();
+  const email = parseEmailFromLines(lines, tool);
+  const domainFromLines = parseDomainFromLines(lines);
   return {
     kind: input.kind,
     lat: Number.isFinite(lat!) ? lat : undefined,
@@ -581,47 +629,50 @@ export function parseOsintContext(input: {
     username: parseUsernameFromLines(lines, tool),
     query: parseLineValue(lines, LINE_QUERY),
     zoom: 11,
-  }
+  };
 }
 
 function relevanceForTool(tool: OsintToolDef, ctx: OsintContext): number {
-  let score = 0
-  if (ctx.kind && tool.kinds?.includes(ctx.kind)) score += 40
+  let score = 0;
+  if (ctx.kind && tool.kinds?.includes(ctx.kind)) score += 40;
   if (tool.buildUrl) {
-    const built = tool.buildUrl(ctx)
-    if (built && built !== tool.homeUrl) score += 35
+    const built = tool.buildUrl(ctx);
+    if (built && built !== tool.homeUrl) score += 35;
   }
-  if (tool.stackRelation === 'native' && ctx.kind && tool.kinds?.includes(ctx.kind)) score += 25
-  if (tool.id === 'adsb-exchange' && (ctx.icao || ctx.hex)) score += 30
-  if (tool.id === 'marinetraffic' && ctx.mmsi) score += 30
-  if (tool.id === 'whatsmyname' && ctx.username) score += 30
-  if (tool.id === 'icann-lookup' && ctx.domain) score += 30
-  if (tool.id === 'crt-sh' && ctx.domain) score += 28
-  if (tool.id === 'shodan' && (ctx.ip || ctx.domain)) score += 28
-  if (tool.id === 'censys' && (ctx.ip || ctx.domain)) score += 28
-  if (tool.id === 'hibp' && ctx.email) score += 28
-  if (tool.id === 'flightradar24' && (ctx.icao || ctx.hex)) score += 25
-  if (tool.id === 'vesselfinder' && ctx.mmsi) score += 25
-  if (tool.id === 'nasa-worldview' && ctx.kind === 'wildfire') score += 22
-  if (tool.id === 'nasa-firms-web' && ctx.kind === 'wildfire') score += 22
-  if (tool.id === 'odin-weg' && ctx.kind === 'military') score += 20
-  if (ctx.lat != null && ctx.lon != null && tool.buildUrl) score += 10
-  return score
+  if (tool.stackRelation === 'native' && ctx.kind && tool.kinds?.includes(ctx.kind)) score += 25;
+  if (tool.id === 'adsb-exchange' && (ctx.icao || ctx.hex)) score += 30;
+  if (tool.id === 'marinetraffic' && ctx.mmsi) score += 30;
+  if (tool.id === 'whatsmyname' && ctx.username) score += 30;
+  if (tool.id === 'icann-lookup' && ctx.domain) score += 30;
+  if (tool.id === 'crt-sh' && ctx.domain) score += 28;
+  if (tool.id === 'shodan' && (ctx.ip || ctx.domain)) score += 28;
+  if (tool.id === 'censys' && (ctx.ip || ctx.domain)) score += 28;
+  if (tool.id === 'hibp' && ctx.email) score += 28;
+  if (tool.id === 'flightradar24' && (ctx.icao || ctx.hex)) score += 25;
+  if (tool.id === 'vesselfinder' && ctx.mmsi) score += 25;
+  if (tool.id === 'nasa-worldview' && ctx.kind === 'wildfire') score += 22;
+  if (tool.id === 'nasa-firms-web' && ctx.kind === 'wildfire') score += 22;
+  if (tool.id === 'odin-weg' && ctx.kind === 'military') score += 20;
+  if (ctx.lat != null && ctx.lon != null && tool.buildUrl) score += 10;
+  return score;
 }
 
-export function buildOsintToolLinks(ctx: OsintContext, opts?: { includeNative?: boolean }): OsintToolLink[] {
-  const includeNative = opts?.includeNative !== false
-  const out: OsintToolLink[] = []
+export function buildOsintToolLinks(
+  ctx: OsintContext,
+  opts?: { includeNative?: boolean },
+): OsintToolLink[] {
+  const includeNative = opts?.includeNative !== false;
+  const out: OsintToolLink[] = [];
 
   for (const tool of OSINT_TOOLS) {
-    if (!includeNative && tool.stackRelation === 'native') continue
-    let url = tool.homeUrl
-    let contextual = false
+    if (!includeNative && tool.stackRelation === 'native') continue;
+    let url = tool.homeUrl;
+    let contextual = false;
     if (tool.buildUrl) {
-      const built = tool.buildUrl(ctx)
+      const built = tool.buildUrl(ctx);
       if (built) {
-        url = built
-        contextual = built !== tool.homeUrl
+        url = built;
+        contextual = built !== tool.homeUrl;
       }
     }
     out.push({
@@ -633,21 +684,21 @@ export function buildOsintToolLinks(ctx: OsintContext, opts?: { includeNative?: 
       url,
       contextual,
       relevance: relevanceForTool(tool, ctx),
-    })
+    });
   }
 
-  return out.sort((a, b) => b.relevance - a.relevance || a.label.localeCompare(b.label))
+  return out.sort((a, b) => b.relevance - a.relevance || a.label.localeCompare(b.label));
 }
 
 export function toolsByCategory(): Map<OsintCategoryId, OsintToolDef[]> {
-  const map = new Map<OsintCategoryId, OsintToolDef[]>()
-  for (const cat of OSINT_CATEGORIES) map.set(cat.id, [])
+  const map = new Map<OsintCategoryId, OsintToolDef[]>();
+  for (const cat of OSINT_CATEGORIES) map.set(cat.id, []);
   for (const tool of OSINT_TOOLS) {
-    map.get(tool.category)?.push(tool)
+    map.get(tool.category)?.push(tool);
   }
-  return map
+  return map;
 }
 
 export function categoryMeta(id: OsintCategoryId): OsintCategory | undefined {
-  return OSINT_CATEGORIES.find((c) => c.id === id)
+  return OSINT_CATEGORIES.find((c) => c.id === id);
 }

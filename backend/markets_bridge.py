@@ -409,7 +409,7 @@ async def _fetch_coins(client: httpx.AsyncClient) -> list[dict]:
                 "spark": spark,
             }
         )
-    coins.sort(key=lambda x: (x.get("market_cap") or 0), reverse=True)
+    coins.sort(key=lambda x: x.get("market_cap") or 0, reverse=True)
     return coins
 
 

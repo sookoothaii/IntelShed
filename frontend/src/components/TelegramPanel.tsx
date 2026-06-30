@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react';
 import {
   getTelegramChannels,
   getTelegramPosts,
@@ -6,101 +6,101 @@ import {
   ingestTelegram,
   type TelegramChannel,
   type TelegramPost,
-} from '../lib/telegramApi'
+} from '../lib/telegramApi';
 
 export default function TelegramPanel() {
-  const [channels, setChannels] = useState<TelegramChannel[]>([])
-  const [posts, setPosts] = useState<TelegramPost[]>([])
-  const [enabled, setEnabled] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [selectedChannel, setSelectedChannel] = useState<string>('')
-  const [minScore, setMinScore] = useState<number | ''>('')
-  const [selectedPosts, setSelectedPosts] = useState<Set<string>>(new Set())
-  const [lastScan, setLastScan] = useState<string | null>(null)
-  const [totalCached, setTotalCached] = useState(0)
+  const [channels, setChannels] = useState<TelegramChannel[]>([]);
+  const [posts, setPosts] = useState<TelegramPost[]>([]);
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedChannel, setSelectedChannel] = useState<string>('');
+  const [minScore, setMinScore] = useState<number | ''>('');
+  const [selectedPosts, setSelectedPosts] = useState<Set<string>>(new Set());
+  const [lastScan, setLastScan] = useState<string | null>(null);
+  const [totalCached, setTotalCached] = useState(0);
 
   const loadChannels = useCallback(async () => {
     try {
-      const data = await getTelegramChannels()
-      setEnabled(data.enabled)
-      setChannels(data.channels || [])
+      const data = await getTelegramChannels();
+      setEnabled(data.enabled);
+      setChannels(data.channels || []);
     } catch {
-      setEnabled(false)
-      setChannels([])
+      setEnabled(false);
+      setChannels([]);
     }
-  }, [])
+  }, []);
 
   const loadPosts = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
       const data = await getTelegramPosts(
         selectedChannel || undefined,
         100,
-        minScore === '' ? undefined : Number(minScore)
-      )
-      setEnabled(data.enabled)
-      setPosts(data.posts || [])
-      setLastScan(data.last_scan || null)
-      setTotalCached(data.total_cached || 0)
+        minScore === '' ? undefined : Number(minScore),
+      );
+      setEnabled(data.enabled);
+      setPosts(data.posts || []);
+      setLastScan(data.last_scan || null);
+      setTotalCached(data.total_cached || 0);
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [selectedChannel, minScore])
+  }, [selectedChannel, minScore]);
 
   useEffect(() => {
-    loadChannels()
-  }, [loadChannels])
+    loadChannels();
+  }, [loadChannels]);
 
   useEffect(() => {
-    loadPosts()
-  }, [loadPosts])
+    loadPosts();
+  }, [loadPosts]);
 
   const handleRefresh = async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
-      const data = await refreshTelegram()
-      setEnabled(data.enabled)
+      const data = await refreshTelegram();
+      setEnabled(data.enabled);
       if (data.error) {
-        setError(data.error)
+        setError(data.error);
       } else {
-        await loadChannels()
-        await loadPosts()
+        await loadChannels();
+        await loadPosts();
       }
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleIngest = async (all = false) => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
-      const ids = all ? undefined : Array.from(selectedPosts)
-      await ingestTelegram(ids, all)
-      setSelectedPosts(new Set())
-      await loadPosts()
+      const ids = all ? undefined : Array.from(selectedPosts);
+      await ingestTelegram(ids, all);
+      setSelectedPosts(new Set());
+      await loadPosts();
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const togglePost = (id: string) => {
     setSelectedPosts((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const tagStyle = (color: string) => ({
     padding: '2px 6px',
@@ -111,7 +111,7 @@ export default function TelegramPanel() {
     marginRight: 4,
     marginBottom: 4,
     display: 'inline-block',
-  })
+  });
 
   return (
     <div style={{ padding: 12, height: '100%', overflow: 'auto' }}>
@@ -134,7 +134,12 @@ export default function TelegramPanel() {
         <select
           value={selectedChannel}
           onChange={(e) => setSelectedChannel(e.target.value)}
-          style={{ padding: 4, background: '#0b1d1d', color: '#b0c4bf', border: '1px solid #1e3a3a' }}
+          style={{
+            padding: 4,
+            background: '#0b1d1d',
+            color: '#b0c4bf',
+            border: '1px solid #1e3a3a',
+          }}
         >
           <option value="">All channels</option>
           {channels.map((c) => (
@@ -151,7 +156,13 @@ export default function TelegramPanel() {
           value={minScore}
           onChange={(e) => setMinScore(e.target.value === '' ? '' : Number(e.target.value))}
           placeholder="min score"
-          style={{ padding: 4, width: 80, background: '#0b1d1d', color: '#b0c4bf', border: '1px solid #1e3a3a' }}
+          style={{
+            padding: 4,
+            width: 80,
+            background: '#0b1d1d',
+            color: '#b0c4bf',
+            border: '1px solid #1e3a3a',
+          }}
         />
         <button onClick={handleRefresh} disabled={loading} style={{ padding: '4px 10px' }}>
           Refresh
@@ -163,7 +174,11 @@ export default function TelegramPanel() {
         >
           Ingest selected ({selectedPosts.size})
         </button>
-        <button onClick={() => handleIngest(true)} disabled={loading} style={{ padding: '4px 10px' }}>
+        <button
+          onClick={() => handleIngest(true)}
+          disabled={loading}
+          style={{ padding: '4px 10px' }}
+        >
           Ingest all cached
         </button>
       </div>
@@ -174,7 +189,15 @@ export default function TelegramPanel() {
       </div>
 
       {error && (
-        <div style={{ padding: 8, marginBottom: 12, border: '1px solid #ff4d5e', color: '#ff4d5e', borderRadius: 4 }}>
+        <div
+          style={{
+            padding: 8,
+            marginBottom: 12,
+            border: '1px solid #ff4d5e',
+            color: '#ff4d5e',
+            borderRadius: 4,
+          }}
+        >
           {error}
         </div>
       )}
@@ -212,21 +235,31 @@ export default function TelegramPanel() {
               <span style={tagStyle('#00e5a0')}>score {p.score}</span>
               {p.ingested && <span style={tagStyle('#6f8c84')}>ingested</span>}
             </div>
-            <div style={{ color: '#b0c4bf', fontSize: 13, whiteSpace: 'pre-wrap', marginBottom: 6 }}>
+            <div
+              style={{ color: '#b0c4bf', fontSize: 13, whiteSpace: 'pre-wrap', marginBottom: 6 }}
+            >
               {p.text}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {p.countries.map((c) => (
-                <span key={c} style={tagStyle('#ffd23f')}>{c}</span>
+                <span key={c} style={tagStyle('#ffd23f')}>
+                  {c}
+                </span>
               ))}
               {p.cities.map((c) => (
-                <span key={c} style={tagStyle('#22d3ee')}>{c}</span>
+                <span key={c} style={tagStyle('#22d3ee')}>
+                  {c}
+                </span>
               ))}
               {p.keywords.map((k) => (
-                <span key={k} style={tagStyle('#ff8c42')}>{k}</span>
+                <span key={k} style={tagStyle('#ff8c42')}>
+                  {k}
+                </span>
               ))}
               {p.hashtags.slice(0, 5).map((h) => (
-                <span key={h} style={tagStyle('#7ed957')}>{h}</span>
+                <span key={h} style={tagStyle('#7ed957')}>
+                  {h}
+                </span>
               ))}
             </div>
             <div style={{ fontSize: 11, color: '#6f8c84', marginTop: 4 }}>
@@ -237,5 +270,5 @@ export default function TelegramPanel() {
         ))}
       </div>
     </div>
-  )
+  );
 }

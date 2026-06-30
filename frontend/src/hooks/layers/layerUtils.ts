@@ -1,4 +1,13 @@
-import { Cartesian3, Color, DistanceDisplayCondition, NearFarScalar, type CustomDataSource, type LabelCollection, type PointPrimitiveCollection, type Viewer } from 'cesium';
+import {
+  Cartesian3,
+  Color,
+  DistanceDisplayCondition,
+  NearFarScalar,
+  type CustomDataSource,
+  type LabelCollection,
+  type PointPrimitiveCollection,
+  type Viewer,
+} from 'cesium';
 import { isMssTheme } from './markerPalette';
 
 export function viewerAlive(viewer: Viewer | null | undefined): viewer is Viewer {
@@ -16,7 +25,10 @@ export function attachDataSource(viewer: Viewer | null, src: CustomDataSource): 
   }
 }
 
-export function detachDataSource(viewer: Viewer | null, src: CustomDataSource | null | undefined): void {
+export function detachDataSource(
+  viewer: Viewer | null,
+  src: CustomDataSource | null | undefined,
+): void {
   if (!src || !viewerAlive(viewer)) return;
   try {
     viewer.dataSources.remove(src);
@@ -79,7 +91,7 @@ export function feedPos(lon: number, lat: number) {
 export function feedPoint(
   pixelSize: number,
   color: Color,
-  opts?: { outline?: Color; outlineWidth?: number; scaleByDistance?: NearFarScalar }
+  opts?: { outline?: Color; outlineWidth?: number; scaleByDistance?: NearFarScalar },
 ) {
   const base: Record<string, unknown> = {
     pixelSize,

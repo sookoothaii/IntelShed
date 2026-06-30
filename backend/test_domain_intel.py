@@ -229,13 +229,11 @@ class TestGatherDomainIntel(unittest.IsolatedAsyncioTestCase):
     """Combined intel gathering with parallel fetch."""
 
     async def test_gather_all_sources(self):
-        with patch(
-            "domain_intel._fetch_crt_sh", new_callable=AsyncMock
-        ) as mock_crt, patch(
-            "domain_intel._fetch_wayback", new_callable=AsyncMock
-        ) as mock_wb, patch(
-            "domain_intel._fetch_rdap", new_callable=AsyncMock
-        ) as mock_rdap:
+        with (
+            patch("domain_intel._fetch_crt_sh", new_callable=AsyncMock) as mock_crt,
+            patch("domain_intel._fetch_wayback", new_callable=AsyncMock) as mock_wb,
+            patch("domain_intel._fetch_rdap", new_callable=AsyncMock) as mock_rdap,
+        ):
             mock_crt.return_value = {
                 "enabled": True,
                 "count": 5,
@@ -269,13 +267,11 @@ class TestGatherDomainIntel(unittest.IsolatedAsyncioTestCase):
 
     async def test_gather_partial_failure(self):
         """One source failing should not break the others."""
-        with patch(
-            "domain_intel._fetch_crt_sh", new_callable=AsyncMock
-        ) as mock_crt, patch(
-            "domain_intel._fetch_wayback", new_callable=AsyncMock
-        ) as mock_wb, patch(
-            "domain_intel._fetch_rdap", new_callable=AsyncMock
-        ) as mock_rdap:
+        with (
+            patch("domain_intel._fetch_crt_sh", new_callable=AsyncMock) as mock_crt,
+            patch("domain_intel._fetch_wayback", new_callable=AsyncMock) as mock_wb,
+            patch("domain_intel._fetch_rdap", new_callable=AsyncMock) as mock_rdap,
+        ):
             mock_crt.return_value = {"enabled": False, "error": "timeout", "count": 0}
             mock_wb.return_value = {
                 "enabled": True,
@@ -492,9 +488,12 @@ class TestIngestEndpoint(unittest.IsolatedAsyncioTestCase):
         }
         mock_enrich = {"count": 2, "ids": ["id1", "id2"], "error": None}
 
-        with patch(
-            "domain_intel._gather_domain_intel", new_callable=AsyncMock
-        ) as mock_gather, patch("domain_intel._enrich_ftm") as mock_enrich_fn:
+        with (
+            patch(
+                "domain_intel._gather_domain_intel", new_callable=AsyncMock
+            ) as mock_gather,
+            patch("domain_intel._enrich_ftm") as mock_enrich_fn,
+        ):
             mock_gather.return_value = mock_results
             mock_enrich_fn.return_value = mock_enrich
 

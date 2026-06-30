@@ -26,8 +26,9 @@ class RadarTests(unittest.IsolatedAsyncioTestCase):
         mock_resp.status_code = 200
         mock_resp.json = lambda: mock_data
 
-        with patch("feeds_extra._CACHE", {}), patch(
-            "feeds_extra._db_get", return_value=None
+        with (
+            patch("feeds_extra._CACHE", {}),
+            patch("feeds_extra._db_get", return_value=None),
         ):
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_client = AsyncMock()
@@ -45,9 +46,11 @@ class RadarTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(result["radar"]["latest_tile"])
 
     async def test_radar_fail_soft(self):
-        with patch("feeds_extra._CACHE", {}), patch(
-            "feeds_extra._db_get", return_value=None
-        ), patch("feeds_extra._db_stale", return_value=None):
+        with (
+            patch("feeds_extra._CACHE", {}),
+            patch("feeds_extra._db_get", return_value=None),
+            patch("feeds_extra._db_stale", return_value=None),
+        ):
             with patch("httpx.AsyncClient", side_effect=Exception("network error")):
                 result = await feeds_extra.weather_radar()
         self.assertFalse(result["enabled"])
@@ -64,8 +67,9 @@ class CommoditiesTests(unittest.IsolatedAsyncioTestCase):
         mock_oil.status_code = 200
         mock_oil.json = lambda: {"data": {"rates": {"BRENT": 0.012, "WTI": 0.013}}}
 
-        with patch("feeds_extra._CACHE", {}), patch(
-            "feeds_extra._db_get", return_value=None
+        with (
+            patch("feeds_extra._CACHE", {}),
+            patch("feeds_extra._db_get", return_value=None),
         ):
             with patch("httpx.AsyncClient") as mock_client_cls:
                 mock_client = AsyncMock()
@@ -81,9 +85,11 @@ class CommoditiesTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("silver_usd_oz", result["commodities"])
 
     async def test_commodities_fail_soft(self):
-        with patch("feeds_extra._CACHE", {}), patch(
-            "feeds_extra._db_get", return_value=None
-        ), patch("feeds_extra._db_stale", return_value=None):
+        with (
+            patch("feeds_extra._CACHE", {}),
+            patch("feeds_extra._db_get", return_value=None),
+            patch("feeds_extra._db_stale", return_value=None),
+        ):
             with patch("httpx.AsyncClient", side_effect=Exception("network error")):
                 result = await feeds_extra.commodities()
         self.assertIn("error", result)

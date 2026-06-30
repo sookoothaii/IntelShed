@@ -7,7 +7,7 @@ import {
   VerticalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
@@ -48,7 +48,7 @@ export function useGeopoliticsLayer({
     const src = new CustomDataSource('geopolitics');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -64,15 +64,15 @@ export function useGeopoliticsLayer({
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
     const disasters: GeopoliticsDisaster[] = data.disasters || [];
-    
+
     src.entities.suspendEvents();
     src.entities.removeAll();
-    
+
     for (const dis of disasters) {
       const lat = dis.lat;
       const lon = dis.lon;
       if (lat == null || lon == null) continue;
-      
+
       const geoColor = isMssTheme()
         ? feedMarkerColor('geopolitics', Color.fromCssColorString('#ff2d00'))
         : Color.fromCssColorString('#ff2d00');
@@ -100,7 +100,7 @@ export function useGeopoliticsLayer({
         },
       });
     }
-    
+
     src.entities.resumeEvents();
     setStats((p: Stats) => ({ ...p, geopolitics: disasters.length }));
   }, [viewer, data, active, setStats]);

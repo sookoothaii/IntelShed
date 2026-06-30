@@ -1,171 +1,177 @@
-import { useCallback, useEffect, useState } from 'react'
-import { fetchApi } from '../lib/networkFetch'
-import type { FocusTarget } from '../lib/focus'
+import { useCallback, useEffect, useState } from 'react';
+import { fetchApi } from '../lib/networkFetch';
+import type { FocusTarget } from '../lib/focus';
 
 type FeedRow = {
-  key: string
-  status?: string
-  fresh?: boolean
-  age_sec?: number
-  count?: number | null
-  source?: string | string[] | null
-  error?: string | null
-}
+  key: string;
+  status?: string;
+  fresh?: boolean;
+  age_sec?: number;
+  count?: number | null;
+  source?: string | string[] | null;
+  error?: string | null;
+};
 
 type ProviderRow = {
-  id: string
-  name: string
-  category: string
-  tier: string
-  configured: boolean
-  feeds?: string[]
-}
+  id: string;
+  name: string;
+  category: string;
+  tier: string;
+  configured: boolean;
+  feeds?: string[];
+};
 
 type ConnectorRow = {
-  id: string
-  name: string
-  category: string
-  endpoints: string[]
-  ttl_sec: number
-  license: string
-  region: string[]
-  credential_ids: string[]
-  globe_layer?: string | null
-  tier?: string
-  credentials_mode?: 'none' | 'ok' | 'fallback' | 'key'
-  credentials_ready?: boolean
-  cache?: { cache_key?: string; count?: number | null } | null
-}
+  id: string;
+  name: string;
+  category: string;
+  endpoints: string[];
+  ttl_sec: number;
+  license: string;
+  region: string[];
+  credential_ids: string[];
+  globe_layer?: string | null;
+  tier?: string;
+  credentials_mode?: 'none' | 'ok' | 'fallback' | 'key';
+  credentials_ready?: boolean;
+  cache?: { cache_key?: string; count?: number | null } | null;
+};
 
 type StacFeedFeature = {
-  id: string
-  bbox?: number[]
-  geometry?: { type: string; coordinates: number[] | number[][][] }
+  id: string;
+  bbox?: number[];
+  geometry?: { type: string; coordinates: number[] | number[][][] };
   properties?: {
-    'worldbase:connector_id'?: string
-    'worldbase:globe_layer'?: string | null
-  }
-}
+    'worldbase:connector_id'?: string;
+    'worldbase:globe_layer'?: string | null;
+  };
+};
 
 type HealthResponse = {
-  status?: string
-  feeds_fresh?: number
-  feeds_stale?: number
-  feed_count?: number | string
-  feeds?: Record<string, Record<string, unknown>>
-  ftm?: { ready?: boolean; entities?: number | string }
-  [key: string]: unknown
-}
+  status?: string;
+  feeds_fresh?: number;
+  feeds_stale?: number;
+  feed_count?: number | string;
+  feeds?: Record<string, Record<string, unknown>>;
+  ftm?: { ready?: boolean; entities?: number | string };
+  [key: string]: unknown;
+};
 
 type CredentialsResponse = {
-  providers?: ProviderRow[]
-  configured?: number | string
-  count?: number | string
-  [key: string]: unknown
-}
+  providers?: ProviderRow[];
+  configured?: number | string;
+  count?: number | string;
+  [key: string]: unknown;
+};
 
 type ConnectorsResponse = {
-  connectors?: ConnectorRow[]
-  count?: number
-  [key: string]: unknown
-}
+  connectors?: ConnectorRow[];
+  count?: number;
+  [key: string]: unknown;
+};
 
 function statusColor(status?: string, fresh?: boolean): string {
-  if (status === 'error') return '#ff4d5e'
-  if (fresh === false || status === 'stale' || status === 'warn') return '#ffd23f'
-  return '#00e5a0'
+  if (status === 'error') return '#ff4d5e';
+  if (fresh === false || status === 'stale' || status === 'warn') return '#ffd23f';
+  return '#00e5a0';
 }
 
 function credColor(mode?: string): string {
-  if (!mode || mode === 'none') return '#8fb7a9'
-  if (mode === 'ok') return '#00e5a0'
-  if (mode === 'fallback') return '#ffd23f'
-  return '#ff6b35'
+  if (!mode || mode === 'none') return '#8fb7a9';
+  if (mode === 'ok') return '#00e5a0';
+  if (mode === 'fallback') return '#ffd23f';
+  return '#ff6b35';
 }
 
 function credLabel(mode?: string): string {
-  if (!mode || mode === 'none') return '—'
-  if (mode === 'ok') return 'OK'
-  if (mode === 'fallback') return 'FB'
-  return 'KEY'
+  if (!mode || mode === 'none') return '—';
+  if (mode === 'ok') return 'OK';
+  if (mode === 'fallback') return 'FB';
+  return 'KEY';
 }
 
 function stacFocusCoords(item: StacFeedFeature | undefined): { lat: number; lon: number } | null {
-  if (!item) return null
-  const g = item.geometry
+  if (!item) return null;
+  const g = item.geometry;
   if (g?.type === 'Point' && Array.isArray(g.coordinates) && g.coordinates.length >= 2) {
-    const [lon, lat] = g.coordinates as number[]
-    return { lat, lon }
+    const [lon, lat] = g.coordinates as number[];
+    return { lat, lon };
   }
-  const bb = item.bbox
+  const bb = item.bbox;
   if (bb && bb.length === 4) {
-    return { lon: (bb[0] + bb[2]) / 2, lat: (bb[1] + bb[3]) / 2 }
+    return { lon: (bb[0] + bb[2]) / 2, lat: (bb[1] + bb[3]) / 2 };
   }
-  return null
+  return null;
 }
 
 export default function FeedsStatusPanel({
   onFocus,
 }: {
-  onFocus?: (f: Omit<FocusTarget, 'ts'>) => void
+  onFocus?: (f: Omit<FocusTarget, 'ts'>) => void;
 }) {
-  const [health, setHealth] = useState<HealthResponse | null>(null)
-  const [credentials, setCredentials] = useState<CredentialsResponse | null>(null)
-  const [connectors, setConnectors] = useState<ConnectorsResponse | null>(null)
-  const [stacByConnector, setStacByConnector] = useState<Record<string, StacFeedFeature>>({})
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [credentials, setCredentials] = useState<CredentialsResponse | null>(null);
+  const [connectors, setConnectors] = useState<ConnectorsResponse | null>(null);
+  const [stacByConnector, setStacByConnector] = useState<Record<string, StacFeedFeature>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
       const [hRes, cRes, connRes, stacRes] = await Promise.all([
         fetchApi('/api/health'),
         fetchApi('/api/credentials/status'),
         fetchApi('/api/connectors?include_unlisted=0'),
         fetchApi('/api/stac/feeds/items'),
-      ])
-      if (!hRes.ok) throw new Error(`health ${hRes.status}`)
-      if (!cRes.ok) throw new Error(`credentials ${cRes.status}`)
-      if (!connRes.ok) throw new Error(`connectors ${connRes.status}`)
-      setHealth(await hRes.json() as HealthResponse)
-      setCredentials(await cRes.json() as CredentialsResponse)
-      setConnectors(await connRes.json() as ConnectorsResponse)
+      ]);
+      if (!hRes.ok) throw new Error(`health ${hRes.status}`);
+      if (!cRes.ok) throw new Error(`credentials ${cRes.status}`);
+      if (!connRes.ok) throw new Error(`connectors ${connRes.status}`);
+      setHealth((await hRes.json()) as HealthResponse);
+      setCredentials((await cRes.json()) as CredentialsResponse);
+      setConnectors((await connRes.json()) as ConnectorsResponse);
       if (stacRes.ok) {
-        const stacPayload = await stacRes.json()
-        const map: Record<string, StacFeedFeature> = {}
+        const stacPayload = await stacRes.json();
+        const map: Record<string, StacFeedFeature> = {};
         for (const feat of stacPayload.features || []) {
-          const cid = feat?.properties?.['worldbase:connector_id']
-          if (cid) map[cid] = feat
+          const cid = feat?.properties?.['worldbase:connector_id'];
+          if (cid) map[cid] = feat;
         }
-        setStacByConnector(map)
+        setStacByConnector(map);
       }
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const feeds: FeedRow[] = health?.feeds
-    ? Object.entries(health.feeds as Record<string, Record<string, unknown>>).map(([key, val]) => ({ key, ...val }))
-    : []
+    ? Object.entries(health.feeds as Record<string, Record<string, unknown>>).map(([key, val]) => ({
+        key,
+        ...val,
+      }))
+    : [];
   feeds.sort((a, b) => {
-    const rank = (f: FeedRow) => (f.fresh === false || f.status === 'stale' ? 0 : f.status === 'warn' ? 1 : 2)
-    return rank(a) - rank(b) || a.key.localeCompare(b.key)
-  })
+    const rank = (f: FeedRow) =>
+      f.fresh === false || f.status === 'stale' ? 0 : f.status === 'warn' ? 1 : 2;
+    return rank(a) - rank(b) || a.key.localeCompare(b.key);
+  });
 
-  const providers: ProviderRow[] = credentials?.providers || []
-  const connectorRows: ConnectorRow[] = connectors?.connectors || []
+  const providers: ProviderRow[] = credentials?.providers || [];
+  const connectorRows: ConnectorRow[] = connectors?.connectors || [];
 
   const flyToConnector = (c: ConnectorRow) => {
-    if (!onFocus) return
-    const stacItem = stacByConnector[c.id]
-    const coords = stacFocusCoords(stacItem)
-    if (!coords) return
+    if (!onFocus) return;
+    const stacItem = stacByConnector[c.id];
+    const coords = stacFocusCoords(stacItem);
+    if (!coords) return;
     onFocus({
       kind: 'feed',
       lat: coords.lat,
@@ -176,16 +182,27 @@ export default function FeedsStatusPanel({
         c.globe_layer ? `Layer: ${c.globe_layer}` : 'Feed region',
         c.endpoints?.[0] ? `API ${c.endpoints[0]}` : '',
       ].filter(Boolean),
-    })
-  }
+    });
+  };
 
   return (
     <section>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-        <button onClick={load} disabled={loading}>{loading ? 'Loading…' : '↻ REFRESH'}</button>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+          marginBottom: 8,
+        }}
+      >
+        <button onClick={load} disabled={loading}>
+          {loading ? 'Loading…' : '↻ REFRESH'}
+        </button>
         {health && (
           <span className="data-count">
-            {health.feeds_fresh ?? 0} fresh · {health.feeds_stale ?? 0} stale · FTM {health.ftm?.ready ? 'ready' : 'off'}
+            {health.feeds_fresh ?? 0} fresh · {health.feeds_stale ?? 0} stale · FTM{' '}
+            {health.ftm?.ready ? 'ready' : 'off'}
             {connectors?.count != null && ` · ${connectors.count} connectors`}
           </span>
         )}
@@ -194,10 +211,24 @@ export default function FeedsStatusPanel({
 
       {health && (
         <div className="iss-grid" style={{ marginBottom: 12 }}>
-          <div className="iss-card"><span>API</span><strong style={{ color: '#00e5a0' }}>{health.status?.toUpperCase()}</strong></div>
-          <div className="iss-card"><span>FEEDS</span><strong>{health.feed_count ?? '—'}</strong></div>
-          <div className="iss-card"><span>ENTITIES</span><strong>{health.ftm?.entities ?? '—'}</strong></div>
-          <div className="iss-card"><span>KEYS</span><strong>{credentials?.configured ?? '—'}/{credentials?.count ?? '—'}</strong></div>
+          <div className="iss-card">
+            <span>API</span>
+            <strong style={{ color: '#00e5a0' }}>{health.status?.toUpperCase()}</strong>
+          </div>
+          <div className="iss-card">
+            <span>FEEDS</span>
+            <strong>{health.feed_count ?? '—'}</strong>
+          </div>
+          <div className="iss-card">
+            <span>ENTITIES</span>
+            <strong>{health.ftm?.entities ?? '—'}</strong>
+          </div>
+          <div className="iss-card">
+            <span>KEYS</span>
+            <strong>
+              {credentials?.configured ?? '—'}/{credentials?.count ?? '—'}
+            </strong>
+          </div>
         </div>
       )}
 
@@ -219,8 +250,8 @@ export default function FeedsStatusPanel({
             </thead>
             <tbody>
               {connectorRows.map((c) => {
-                const stacItem = stacByConnector[c.id]
-                const canFly = Boolean(onFocus && stacFocusCoords(stacItem))
+                const stacItem = stacByConnector[c.id];
+                const canFly = Boolean(onFocus && stacFocusCoords(stacItem));
                 return (
                   <tr key={c.id}>
                     <td>
@@ -258,12 +289,19 @@ export default function FeedsStatusPanel({
                         '—'
                       )}
                     </td>
-                    <td style={{ color: credColor(c.credentials_mode), fontWeight: 'bold' }} title={c.credentials_mode === 'fallback' ? 'Optional key missing; bridge fallback active' : undefined}>
+                    <td
+                      style={{ color: credColor(c.credentials_mode), fontWeight: 'bold' }}
+                      title={
+                        c.credentials_mode === 'fallback'
+                          ? 'Optional key missing; bridge fallback active'
+                          : undefined
+                      }
+                    >
                       {credLabel(c.credentials_mode)}
                     </td>
                     <td>{c.cache?.count ?? (c.cache?.cache_key ? '·' : '—')}</td>
                   </tr>
-                )
+                );
               })}
             </tbody>
           </table>
@@ -272,35 +310,63 @@ export default function FeedsStatusPanel({
 
       <h4 style={{ letterSpacing: 2, fontSize: 12, color: '#8fb7a9' }}>FEED CACHE</h4>
       <table className="data-table">
-        <thead><tr><th>Feed</th><th>Status</th><th>Age (s)</th><th>Count</th><th>Source</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Feed</th>
+            <th>Status</th>
+            <th>Age (s)</th>
+            <th>Count</th>
+            <th>Source</th>
+          </tr>
+        </thead>
         <tbody>
           {feeds.map((f) => (
             <tr key={f.key}>
               <td>{f.key}</td>
-              <td style={{ color: statusColor(f.status, f.fresh), fontWeight: 'bold' }}>{f.status ?? (f.fresh ? 'fresh' : 'stale')}</td>
+              <td style={{ color: statusColor(f.status, f.fresh), fontWeight: 'bold' }}>
+                {f.status ?? (f.fresh ? 'fresh' : 'stale')}
+              </td>
               <td>{f.age_sec != null ? Math.round(f.age_sec) : '—'}</td>
               <td>{f.count ?? '—'}</td>
-              <td>{Array.isArray(f.source) ? f.source.join(', ') : (f.source || '—')}</td>
+              <td>{Array.isArray(f.source) ? f.source.join(', ') : f.source || '—'}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      <h4 style={{ letterSpacing: 2, fontSize: 12, color: '#8fb7a9', marginTop: 16 }}>PROVIDER KEYS</h4>
+      <h4 style={{ letterSpacing: 2, fontSize: 12, color: '#8fb7a9', marginTop: 16 }}>
+        PROVIDER KEYS
+      </h4>
       <table className="data-table">
-        <thead><tr><th>Provider</th><th>Category</th><th>Tier</th><th>Configured</th><th>Feeds</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>Category</th>
+            <th>Tier</th>
+            <th>Configured</th>
+            <th>Feeds</th>
+          </tr>
+        </thead>
         <tbody>
           {providers.map((p) => (
             <tr key={p.id}>
-              <td><strong>{p.name}</strong><br /><small style={{ color: '#6f8c84' }}>{p.id}</small></td>
+              <td>
+                <strong>{p.name}</strong>
+                <br />
+                <small style={{ color: '#6f8c84' }}>{p.id}</small>
+              </td>
               <td>{p.category}</td>
               <td>{p.tier}</td>
-              <td style={{ color: p.configured ? '#00e5a0' : '#ff6b35', fontWeight: 'bold' }}>{p.configured ? 'YES' : 'NO'}</td>
-              <td style={{ fontSize: 10, color: '#6f8c84' }}>{(p.feeds || []).slice(0, 3).join(', ')}</td>
+              <td style={{ color: p.configured ? '#00e5a0' : '#ff6b35', fontWeight: 'bold' }}>
+                {p.configured ? 'YES' : 'NO'}
+              </td>
+              <td style={{ fontSize: 10, color: '#6f8c84' }}>
+                {(p.feeds || []).slice(0, 3).join(', ')}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
     </section>
-  )
+  );
 }

@@ -32,7 +32,11 @@ export function GlobeChat({ flyTo, toggleLayer, setHeatmap, setVision }: Props) 
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMsg[]>([
-    { role: 'system', text: 'Ask the Globe: type a natural language command to fly, filter layers, or change vision mode.', ts: Date.now() },
+    {
+      role: 'system',
+      text: 'Ask the Globe: type a natural language command to fly, filter layers, or change vision mode.',
+      ts: Date.now(),
+    },
   ]);
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -77,25 +81,34 @@ export function GlobeChat({ flyTo, toggleLayer, setHeatmap, setVision }: Props) 
           title: geo.display_name,
         };
         executeActions([flyAction, ...result.actions], execRef.current);
-        setMessages((prev) => [...prev, {
-          role: 'system',
-          text: `Flying to ${geo.display_name}. ${result.actions.length ? 'Also: ' + result.explanation : ''}`,
-          ts: Date.now(),
-        }]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'system',
+            text: `Flying to ${geo.display_name}. ${result.actions.length ? 'Also: ' + result.explanation : ''}`,
+            ts: Date.now(),
+          },
+        ]);
       } else {
-        setMessages((prev) => [...prev, {
-          role: 'system',
-          text: `Could not geocode "${geocodePlaceName}". Try a more specific place name.`,
-          ts: Date.now(),
-        }]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'system',
+            text: `Could not geocode "${geocodePlaceName}". Try a more specific place name.`,
+            ts: Date.now(),
+          },
+        ]);
       }
     } else {
       executeActions(result.actions, execRef.current);
-      setMessages((prev) => [...prev, {
-        role: 'system',
-        text: result.explanation,
-        ts: Date.now(),
-      }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'system',
+          text: result.explanation,
+          ts: Date.now(),
+        },
+      ]);
     }
 
     setBusy(false);
@@ -110,11 +123,7 @@ export function GlobeChat({ flyTo, toggleLayer, setHeatmap, setVision }: Props) 
 
   if (!open) {
     return (
-      <button
-        className="globe-chat-fab"
-        onClick={() => setOpen(true)}
-        title="Ask the Globe"
-      >
+      <button className="globe-chat-fab" onClick={() => setOpen(true)} title="Ask the Globe">
         ASK GLOBE
       </button>
     );
@@ -124,7 +133,9 @@ export function GlobeChat({ flyTo, toggleLayer, setHeatmap, setVision }: Props) 
     <div className="globe-chat-overlay">
       <div className="globe-chat-header">
         <span className="globe-chat-title">ASK THE GLOBE</span>
-        <button className="globe-chat-close" onClick={() => setOpen(false)}>×</button>
+        <button className="globe-chat-close" onClick={() => setOpen(false)}>
+          ×
+        </button>
       </div>
       <div className="globe-chat-messages" ref={scrollRef}>
         {messages.map((m, i) => (

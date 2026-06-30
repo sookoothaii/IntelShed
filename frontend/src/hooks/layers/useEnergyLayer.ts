@@ -8,7 +8,7 @@ import {
   VerticalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
@@ -20,7 +20,7 @@ export function useEnergyLayer({
   feedActive,
   canFetch,
   setStats,
-  setFeedHud
+  setFeedHud,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -46,7 +46,7 @@ export function useEnergyLayer({
     const src = new CustomDataSource('energy');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -61,16 +61,16 @@ export function useEnergyLayer({
   useEffect(() => {
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
-    
+
     src.entities.suspendEvents();
     src.entities.removeAll();
-    
+
     const pulse = Date.now() / 1000;
     for (const p of data.points || []) {
       const col = Color.fromCssColorString(p.color || '#ffd23f');
       const rpx = p.radius || 12;
       const pulseScale = 1 + 0.15 * Math.sin(pulse * 2 + (p.lon || 0));
-      
+
       src.entities.add({
         position: Cartesian3.fromDegrees(p.lon, p.lat, 0),
         point: {
@@ -101,15 +101,16 @@ export function useEnergyLayer({
         },
       });
     }
-    
+
     src.entities.resumeEvents();
-    
+
     const activeSources = data.active_sources ?? (data.points || []).length;
-    const genGw = data.total_generation_mw != null ? `${Math.round(data.total_generation_mw / 1000)}GW` : '';
+    const genGw =
+      data.total_generation_mw != null ? `${Math.round(data.total_generation_mw / 1000)}GW` : '';
     setStats((p: Stats) => ({ ...p, energy: activeSources || (data.total_generation_mw ? 1 : 0) }));
     setFeedHud((p: FeedHud) => ({
       ...p,
-      energy: data.stale ? 'stale' : (genGw || (data.error ? 'err' : 'smard')),
+      energy: data.stale ? 'stale' : genGw || (data.error ? 'err' : 'smard'),
     }));
   }, [viewer, data, active, setStats, setFeedHud]);
 }

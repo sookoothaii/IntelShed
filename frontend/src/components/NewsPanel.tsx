@@ -1,28 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { fetchApi } from '../lib/networkFetch'
-import { useHudSessionState } from '../lib/hudSessionState'
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { fetchApi } from '../lib/networkFetch';
+import { useHudSessionState } from '../lib/hudSessionState';
 
-type NewsSource = 'newsdata' | 'gdelt-local' | 'gdelt-global'
+type NewsSource = 'newsdata' | 'gdelt-local' | 'gdelt-global';
 
 type NewsItem = {
-  id: string
-  source: NewsSource
-  title: string
-  snippet: string
-  url: string | null
-  publishedAt: number | null
-  meta: string
-  stale: boolean
-}
+  id: string;
+  source: NewsSource;
+  title: string;
+  snippet: string;
+  url: string | null;
+  publishedAt: number | null;
+  meta: string;
+  stale: boolean;
+};
 
 type SourceState = {
-  configured: boolean
-  count: number
-  error: string | null
-  stale: boolean
-}
+  configured: boolean;
+  count: number;
+  error: string | null;
+  stale: boolean;
+};
 
-type Filter = 'all' | 'local' | 'global' | 'newsdata' | 'gdelt'
+type Filter = 'all' | 'local' | 'global' | 'newsdata' | 'gdelt';
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'ALL' },
@@ -30,66 +30,69 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: 'global', label: 'GLOBAL' },
   { id: 'newsdata', label: 'NEWSDATA' },
   { id: 'gdelt', label: 'GDELT' },
-]
+];
 
-const FILTER_IDS = FILTERS.map((f) => f.id)
+const FILTER_IDS = FILTERS.map((f) => f.id);
 
 function isNewsFilter(v: unknown): v is Filter {
-  return typeof v === 'string' && (FILTER_IDS as readonly string[]).includes(v)
+  return typeof v === 'string' && (FILTER_IDS as readonly string[]).includes(v);
 }
 
 const SOURCE_BADGE: Record<NewsSource, { label: string; cls: string }> = {
   newsdata: { label: 'NEWSDATA', cls: 'newsdata' },
   'gdelt-local': { label: 'GDELT LOCAL', cls: 'gdelt-local' },
   'gdelt-global': { label: 'GDELT GLOBAL', cls: 'gdelt-global' },
-}
+};
 
-const REFRESH_MS = 60000
+const REFRESH_MS = 60000;
 
 function parseDate(raw: unknown): number | null {
-  if (!raw || typeof raw !== 'string') return null
+  if (!raw || typeof raw !== 'string') return null;
   // GDELT seendate: YYYYMMDDTHHMMSSZ
-  const gdelt = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/)
+  const gdelt = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
   if (gdelt) {
-    const [, y, mo, d, h, mi, s] = gdelt
-    const t = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`)
-    return Number.isNaN(t) ? null : t
+    const [, y, mo, d, h, mi, s] = gdelt;
+    const t = Date.parse(`${y}-${mo}-${d}T${h}:${mi}:${s}Z`);
+    return Number.isNaN(t) ? null : t;
   }
-  const t = Date.parse(raw)
-  return Number.isNaN(t) ? null : t
+  const t = Date.parse(raw);
+  return Number.isNaN(t) ? null : t;
 }
 
 function relTime(ts: number | null): string {
-  if (ts == null) return '—'
-  const diff = Date.now() - ts
-  if (diff < 0) return 'just now'
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  const days = Math.floor(hrs / 24)
-  return `${days}d ago`
+  if (ts == null) return '—';
+  const diff = Date.now() - ts;
+  if (diff < 0) return 'just now';
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
 }
 
 function mapNewsData(d: Record<string, unknown>): { items: NewsItem[]; state: SourceState } {
-  const configured = d?.configured !== false
-  const articles: Record<string, unknown>[] = Array.isArray(d?.articles) ? d.articles as Record<string, unknown>[] : []
+  const configured = d?.configured !== false;
+  const articles: Record<string, unknown>[] = Array.isArray(d?.articles)
+    ? (d.articles as Record<string, unknown>[])
+    : [];
   const items = articles.map((a, i): NewsItem => {
-    const country = Array.isArray(a.country) ? (a.country as string[]).join(',').toUpperCase() : ''
-    const cat = Array.isArray(a.category) ? (a.category as string[])[0] : ''
-    const meta = [country, cat].filter(Boolean).join(' · ') || (a.source_id as string ?? 'newsdata')
+    const country = Array.isArray(a.country) ? (a.country as string[]).join(',').toUpperCase() : '';
+    const cat = Array.isArray(a.category) ? (a.category as string[])[0] : '';
+    const meta =
+      [country, cat].filter(Boolean).join(' · ') || ((a.source_id as string) ?? 'newsdata');
     return {
       id: `nd:${a.link ?? i}`,
       source: 'newsdata',
-      title: (a.title as string ?? '').trim(),
-      snippet: (a.description as string ?? '').trim(),
-      url: a.link as string ?? null,
+      title: ((a.title as string) ?? '').trim(),
+      snippet: ((a.description as string) ?? '').trim(),
+      url: (a.link as string) ?? null,
       publishedAt: parseDate(a.pubDate as string),
       meta,
       stale: Boolean(d?.stale),
-    }
-  })
+    };
+  });
   return {
     items,
     state: {
@@ -98,26 +101,31 @@ function mapNewsData(d: Record<string, unknown>): { items: NewsItem[]; state: So
       error: (d?.error as string) ?? null,
       stale: Boolean(d?.stale),
     },
-  }
+  };
 }
 
-function mapGdelt(d: Record<string, unknown>, source: NewsSource): { items: NewsItem[]; state: SourceState } {
-  const articles: Record<string, unknown>[] = Array.isArray(d?.articles) ? d.articles as Record<string, unknown>[] : []
-  const region = d?.region ? String(d.region) : ''
+function mapGdelt(
+  d: Record<string, unknown>,
+  source: NewsSource,
+): { items: NewsItem[]; state: SourceState } {
+  const articles: Record<string, unknown>[] = Array.isArray(d?.articles)
+    ? (d.articles as Record<string, unknown>[])
+    : [];
+  const region = d?.region ? String(d.region) : '';
   const items = articles.map((a, i): NewsItem => {
-    const origin = a.domain || a.sourcecountry || region || 'gdelt'
-    const meta = source === 'gdelt-local' && region ? `${region} · ${origin}` : String(origin)
+    const origin = a.domain || a.sourcecountry || region || 'gdelt';
+    const meta = source === 'gdelt-local' && region ? `${region} · ${origin}` : String(origin);
     return {
       id: `${source}:${a.url ?? i}`,
       source,
-      title: (a.title as string ?? '').trim(),
+      title: ((a.title as string) ?? '').trim(),
       snippet: '',
-      url: a.url as string ?? null,
+      url: (a.url as string) ?? null,
       publishedAt: parseDate(a.seendate as string),
       meta,
       stale: Boolean(d?.stale),
-    }
-  })
+    };
+  });
   return {
     items,
     state: {
@@ -126,83 +134,85 @@ function mapGdelt(d: Record<string, unknown>, source: NewsSource): { items: News
       error: (d?.error as string) ?? null,
       stale: Boolean(d?.stale),
     },
-  }
+  };
 }
 
 export default function NewsPanel() {
-  const [items, setItems] = useState<NewsItem[]>([])
+  const [items, setItems] = useState<NewsItem[]>([]);
   const [states, setStates] = useState<Record<NewsSource, SourceState | null>>({
     newsdata: null,
     'gdelt-local': null,
     'gdelt-global': null,
-  })
-  const [filter, setFilter] = useHudSessionState<Filter>('newsFilter', 'all', isNewsFilter)
-  const [query, setQuery] = useState('')
-  const [loading, setLoading] = useState(false)
+  });
+  const [filter, setFilter] = useHudSessionState<Filter>('newsFilter', 'all', isNewsFilter);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
-    setLoading(true)
+    setLoading(true);
     const grab = async (url: string) => {
       try {
-        const r = await fetchApi(url)
-        if (!r.ok) return { error: `HTTP ${r.status}` }
-        return await r.json()
+        const r = await fetchApi(url);
+        if (!r.ok) return { error: `HTTP ${r.status}` };
+        return await r.json();
       } catch (e) {
-        return { error: (e as Error).message }
+        return { error: (e as Error).message };
       }
-    }
+    };
     const [nd, gl, gg] = await Promise.all([
       grab('/api/newsdata?limit=30'),
       grab('/api/gdelt/pulse/local'),
       grab('/api/gdelt/pulse'),
-    ])
-    const ndRes = mapNewsData(nd)
-    const glRes = mapGdelt(gl, 'gdelt-local')
-    const ggRes = mapGdelt(gg, 'gdelt-global')
+    ]);
+    const ndRes = mapNewsData(nd);
+    const glRes = mapGdelt(gl, 'gdelt-local');
+    const ggRes = mapGdelt(gg, 'gdelt-global');
 
-    const merged = [...ndRes.items, ...glRes.items, ...ggRes.items].filter((x) => x.title)
-    merged.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0))
+    const merged = [...ndRes.items, ...glRes.items, ...ggRes.items].filter((x) => x.title);
+    merged.sort((a, b) => (b.publishedAt ?? 0) - (a.publishedAt ?? 0));
 
-    setItems(merged)
+    setItems(merged);
     setStates({
       newsdata: ndRes.state,
       'gdelt-local': glRes.state,
       'gdelt-global': ggRes.state,
-    })
-    setLoading(false)
-  }, [])
+    });
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    load()
-    const t = setInterval(load, REFRESH_MS)
-    return () => clearInterval(t)
-  }, [load])
+    load();
+    const t = setInterval(load, REFRESH_MS);
+    return () => clearInterval(t);
+  }, [load]);
 
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = query.trim().toLowerCase();
     return items.filter((it) => {
-      if (filter === 'local' && it.source !== 'gdelt-local') return false
-      if (filter === 'global' && it.source !== 'gdelt-global') return false
-      if (filter === 'newsdata' && it.source !== 'newsdata') return false
-      if (filter === 'gdelt' && !it.source.startsWith('gdelt')) return false
+      if (filter === 'local' && it.source !== 'gdelt-local') return false;
+      if (filter === 'global' && it.source !== 'gdelt-global') return false;
+      if (filter === 'newsdata' && it.source !== 'newsdata') return false;
+      if (filter === 'gdelt' && !it.source.startsWith('gdelt')) return false;
       if (q && !it.title.toLowerCase().includes(q) && !it.snippet.toLowerCase().includes(q)) {
-        return false
+        return false;
       }
-      return true
-    })
-  }, [items, filter, query])
+      return true;
+    });
+  }, [items, filter, query]);
 
   const sourceCount = useMemo(
     () => Object.values(states).filter((s) => s && s.count > 0).length,
     [states],
-  )
+  );
 
-  const newsdataState = states.newsdata
-  const showConfigBanner = newsdataState != null && !newsdataState.configured
+  const newsdataState = states.newsdata;
+  const showConfigBanner = newsdataState != null && !newsdataState.configured;
 
   return (
     <div className="panel">
-      <h2>NEWS <span className="news-sub">· GLOBAL HEADLINE FEED</span></h2>
+      <h2>
+        NEWS <span className="news-sub">· GLOBAL HEADLINE FEED</span>
+      </h2>
 
       <div className="news-tabs data-tabs">
         {FILTERS.map((f) => (
@@ -235,7 +245,8 @@ export default function NewsPanel() {
 
       {showConfigBanner && (
         <div className="news-config-banner">
-          NEWSDATA_API_KEY not set — showing GDELT only. Add the key in backend/.env for NewsData headlines.
+          NEWSDATA_API_KEY not set — showing GDELT only. Add the key in backend/.env for NewsData
+          headlines.
         </div>
       )}
 
@@ -249,7 +260,7 @@ export default function NewsPanel() {
 
       <div className="news-list">
         {visible.map((it) => {
-          const badge = SOURCE_BADGE[it.source]
+          const badge = SOURCE_BADGE[it.source];
           return (
             <article key={it.id} className={`news-card news-card--${badge.cls}`}>
               <div className="news-head">
@@ -267,9 +278,9 @@ export default function NewsPanel() {
                 </a>
               )}
             </article>
-          )
+          );
         })}
       </div>
     </div>
-  )
+  );
 }

@@ -6,7 +6,7 @@
  * Ctrl+K command palette, Ctrl+Enter send chat, ? help.
  */
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState } from 'react';
 
 export interface HotkeyConfig {
   key: string;
@@ -29,7 +29,7 @@ export interface HotkeyEntry {
   category: string;
 }
 
-const isMac = typeof navigator !== "undefined" && navigator.platform.includes("Mac");
+const isMac = typeof navigator !== 'undefined' && navigator.platform.includes('Mac');
 
 function matchesModifier(
   e: KeyboardEvent,
@@ -48,10 +48,7 @@ function matchesModifier(
   return true;
 }
 
-export function useHotkeys(
-  configs: HotkeyConfig[],
-  options: { enableInInput?: boolean } = {},
-) {
+export function useHotkeys(configs: HotkeyConfig[], options: { enableInInput?: boolean } = {}) {
   const { enableInInput = false } = options;
   const [helpOpen, setHelpOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -62,27 +59,27 @@ export function useHotkeys(
       const target = e.target as HTMLElement;
       const inInput =
         target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.contentEditable === "true");
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.contentEditable === 'true');
 
       // Ctrl+K / Cmd+K always works
       const cmd = isMac ? e.metaKey : e.ctrlKey;
-      if (cmd && e.key.toLowerCase() === "k") {
+      if (cmd && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((prev) => !prev);
         return;
       }
 
       // ? shows help (shift+/)
-      if (e.key === "?" && !inInput) {
+      if (e.key === '?' && !inInput) {
         e.preventDefault();
         setHelpOpen((prev) => !prev);
         return;
       }
 
       // Esc closes overlays
-      if (e.key === "Escape") {
+      if (e.key === 'Escape') {
         if (helpOpen) {
           setHelpOpen(false);
           e.preventDefault();
@@ -97,10 +94,8 @@ export function useHotkeys(
 
       if (inInput && !enableInInput) {
         // Ctrl+Enter in chat input
-        if (cmd && e.key === "Enter") {
-          const cfg = configs.find(
-            (c) => c.ctrl && c.key.toLowerCase() === "enter",
-          );
+        if (cmd && e.key === 'Enter') {
+          const cfg = configs.find((c) => c.ctrl && c.key.toLowerCase() === 'enter');
           if (cfg) {
             e.preventDefault();
             cfg.action();
@@ -122,8 +117,8 @@ export function useHotkeys(
   );
 
   useEffect(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
   return {

@@ -1,12 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  CustomDataSource,
-  Cartesian3,
-  Color,
-  Entity,
-  Viewer
-} from 'cesium';
+import { CustomDataSource, Cartesian3, Color, Entity, Viewer } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import type { Stats, FeedHud, LightningStrike } from '../../lib/types';
@@ -17,7 +11,7 @@ export function useLightningLayer({
   feedActive,
   canFetch,
   setStats,
-  setFeedHud
+  setFeedHud,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -44,7 +38,7 @@ export function useLightningLayer({
     const src = new CustomDataSource('lightning');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -63,9 +57,9 @@ export function useLightningLayer({
     const lightningMap = lightningMapRef.current;
     const strikes: LightningStrike[] = data.strikes || [];
     const now = Date.now();
-    
+
     src.entities.suspendEvents();
-    
+
     // Remove old strikes
     for (const [id, sd] of lightningMap) {
       if (now - sd.ts > 600000) {
@@ -73,17 +67,17 @@ export function useLightningLayer({
         lightningMap.delete(id);
       }
     }
-    
+
     for (const s of strikes) {
       if (s.lon == null || s.lat == null || !s.time) continue;
       const ts = new Date(s.time).getTime();
       if (now - ts > 600000) continue;
       const id = `${s.lat.toFixed(3)},${s.lon.toFixed(3)}`;
       if (lightningMap.has(id)) continue;
-      
+
       const ageSec = (now - ts) / 1000;
       const alpha = Math.max(0.2, 1 - ageSec / 600);
-      
+
       const e = src.entities.add({
         position: Cartesian3.fromDegrees(s.lon, s.lat, 0),
         point: {
@@ -101,9 +95,9 @@ export function useLightningLayer({
       });
       lightningMap.set(id, { entity: e, ts });
     }
-    
+
     src.entities.resumeEvents();
-    
+
     if (data.error) {
       setStats((p: Stats) => ({ ...p, lightning: 0 }));
       setFeedHud((p: FeedHud) => ({ ...p, lightning: 'N/A' }));

@@ -30,12 +30,14 @@ class TestSnapshotCollection(unittest.TestCase):
     """Test _collect_snapshot with mocked data sources."""
 
     def test_collect_returns_timestamp_and_date(self):
-        with patch("ftm_query.stats", side_effect=Exception("no duckdb")), patch(
-            "entity_store.init_entity_db"
-        ), patch("sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"), patch(
-            "metrics.collect_all", side_effect=Exception("no metrics")
-        ), patch(
-            "prediction_ledger.list_predictions", side_effect=Exception("no preds")
+        with (
+            patch("ftm_query.stats", side_effect=Exception("no duckdb")),
+            patch("entity_store.init_entity_db"),
+            patch("sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"),
+            patch("metrics.collect_all", side_effect=Exception("no metrics")),
+            patch(
+                "prediction_ledger.list_predictions", side_effect=Exception("no preds")
+            ),
         ):
             snapshot = sa._collect_snapshot()
         self.assertIn("timestamp", snapshot)
@@ -52,10 +54,11 @@ class TestSnapshotCollection(unittest.TestCase):
             "by_schema": {"Person": 60, "Company": 40},
             "by_dataset": {},
         }
-        with patch("ftm_query.stats", return_value=mock_stats), patch(
-            "sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"
-        ), patch("metrics.collect_all", side_effect=Exception("skip")), patch(
-            "prediction_ledger.list_predictions", side_effect=Exception("skip")
+        with (
+            patch("ftm_query.stats", return_value=mock_stats),
+            patch("sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"),
+            patch("metrics.collect_all", side_effect=Exception("skip")),
+            patch("prediction_ledger.list_predictions", side_effect=Exception("skip")),
         ):
             snapshot = sa._collect_snapshot()
         self.assertEqual(snapshot["ftm"]["entities"], 100)
@@ -69,10 +72,11 @@ class TestSnapshotCollection(unittest.TestCase):
             "feed_error_count": 1,
             "feed_total_count": 19,
         }
-        with patch("ftm_query.stats", side_effect=Exception("skip")), patch(
-            "sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"
-        ), patch("metrics.collect_all", return_value=mock_metrics), patch(
-            "prediction_ledger.list_predictions", side_effect=Exception("skip")
+        with (
+            patch("ftm_query.stats", side_effect=Exception("skip")),
+            patch("sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"),
+            patch("metrics.collect_all", return_value=mock_metrics),
+            patch("prediction_ledger.list_predictions", side_effect=Exception("skip")),
         ):
             snapshot = sa._collect_snapshot()
         self.assertEqual(snapshot["feeds"]["fresh_count"], 15)
@@ -87,10 +91,11 @@ class TestSnapshotCollection(unittest.TestCase):
                 {"outcome": "incorrect"},
             ],
         }
-        with patch("ftm_query.stats", side_effect=Exception("skip")), patch(
-            "sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"
-        ), patch("metrics.collect_all", side_effect=Exception("skip")), patch(
-            "prediction_ledger.list_predictions", return_value=mock_preds
+        with (
+            patch("ftm_query.stats", side_effect=Exception("skip")),
+            patch("sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"),
+            patch("metrics.collect_all", side_effect=Exception("skip")),
+            patch("prediction_ledger.list_predictions", return_value=mock_preds),
         ):
             snapshot = sa._collect_snapshot()
         self.assertEqual(snapshot["predictions"]["resolved_count"], 3)
@@ -99,19 +104,21 @@ class TestSnapshotCollection(unittest.TestCase):
 
     def test_collect_predictions_no_resolved(self):
         mock_preds = {"pending": [], "resolved": []}
-        with patch("ftm_query.stats", side_effect=Exception("skip")), patch(
-            "sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"
-        ), patch("metrics.collect_all", side_effect=Exception("skip")), patch(
-            "prediction_ledger.list_predictions", return_value=mock_preds
+        with (
+            patch("ftm_query.stats", side_effect=Exception("skip")),
+            patch("sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"),
+            patch("metrics.collect_all", side_effect=Exception("skip")),
+            patch("prediction_ledger.list_predictions", return_value=mock_preds),
         ):
             snapshot = sa._collect_snapshot()
         self.assertIsNone(snapshot["predictions"]["accuracy"])
 
     def test_fusion_defaults_to_zero(self):
-        with patch("ftm_query.stats", side_effect=Exception("skip")), patch(
-            "sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"
-        ), patch("metrics.collect_all", side_effect=Exception("skip")), patch(
-            "prediction_ledger.list_predictions", side_effect=Exception("skip")
+        with (
+            patch("ftm_query.stats", side_effect=Exception("skip")),
+            patch("sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"),
+            patch("metrics.collect_all", side_effect=Exception("skip")),
+            patch("prediction_ledger.list_predictions", side_effect=Exception("skip")),
         ):
             snapshot = sa._collect_snapshot()
         self.assertEqual(snapshot["fusion"]["hotspot_count"], 0)
@@ -255,10 +262,11 @@ class TestTakeSnapshot(unittest.TestCase):
         sa._SNAPSHOT_DIR = self._orig_dir
 
     def test_take_snapshot_creates_file(self):
-        with patch("ftm_query.stats", side_effect=Exception("skip")), patch(
-            "sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"
-        ), patch("metrics.collect_all", side_effect=Exception("skip")), patch(
-            "prediction_ledger.list_predictions", side_effect=Exception("skip")
+        with (
+            patch("ftm_query.stats", side_effect=Exception("skip")),
+            patch("sqlite_bootstrap.DB_PATH", "/nonexistent/path.db"),
+            patch("metrics.collect_all", side_effect=Exception("skip")),
+            patch("prediction_ledger.list_predictions", side_effect=Exception("skip")),
         ):
             result = sa.take_snapshot()
         self.assertIn("date", result)

@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
-import type { ThemeId } from '../lib/theme'
+import { useState, useEffect } from 'react';
+import type { ThemeId } from '../lib/theme';
 
-export type RailTab = 'overview' | 'objects' | 'areas' | 'details' | 'settings'
+export type RailTab = 'overview' | 'objects' | 'areas' | 'details' | 'settings';
 
 const RAIL_ITEMS: { id: RailTab; label: string; icon: string; title: string }[] = [
   { id: 'overview', label: 'OV', icon: '◎', title: 'Overview — briefing & situation' },
@@ -9,35 +9,39 @@ const RAIL_ITEMS: { id: RailTab; label: string; icon: string; title: string }[] 
   { id: 'areas', label: 'AREA', icon: '▦', title: 'Areas — regions & zones' },
   { id: 'details', label: 'DET', icon: '☰', title: 'Details — selected entity' },
   { id: 'settings', label: 'SET', icon: '⚙', title: 'Settings — layers & config' },
-]
+];
 
 export default function CenterRail({
   theme = 'cyber',
   activeTab = 'overview',
   onTabChange,
 }: {
-  theme?: ThemeId
-  activeTab?: RailTab
-  onTabChange?: (tab: RailTab) => void
+  theme?: ThemeId;
+  activeTab?: RailTab;
+  onTabChange?: (tab: RailTab) => void;
 }) {
-  const [internalTab, setInternalTab] = useState<RailTab>(activeTab)
-  const tab = onTabChange ? activeTab : internalTab
+  const [internalTab, setInternalTab] = useState<RailTab>(activeTab);
+  const tab = onTabChange ? activeTab : internalTab;
 
   useEffect(() => {
-    if (onTabChange) return
-    setInternalTab(activeTab)
-  }, [activeTab, onTabChange])
+    if (onTabChange) return;
+    setInternalTab(activeTab);
+  }, [activeTab, onTabChange]);
 
   const handleSelect = (id: RailTab) => {
     if (onTabChange) {
-      onTabChange(id)
+      onTabChange(id);
     } else {
-      setInternalTab(id)
+      setInternalTab(id);
     }
-  }
+  };
 
   return (
-    <nav className={`center-rail${theme === 'mss' ? ' center-rail--mss' : ''}`} role="tablist" aria-label="Center navigation rail">
+    <nav
+      className={`center-rail${theme === 'mss' ? ' center-rail--mss' : ''}`}
+      role="tablist"
+      aria-label="Center navigation rail"
+    >
       {RAIL_ITEMS.map((item) => (
         <button
           key={item.id}
@@ -52,5 +56,5 @@ export default function CenterRail({
         </button>
       ))}
     </nav>
-  )
+  );
 }

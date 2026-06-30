@@ -12,7 +12,7 @@ import {
   HorizontalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource, requestSceneRender } from './layerUtils';
@@ -61,7 +61,7 @@ export function useNodesLayer({
     const src = new CustomDataSource('nodes');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       for (const fn of pulseCleanupByNode.current.values()) fn();
       pulseCleanupByNode.current.clear();
@@ -84,7 +84,7 @@ export function useNodesLayer({
     const seen = new Set<string>();
 
     src.entities.suspendEvents();
-    
+
     for (const n of nodes) {
       if (n.lon == null || n.lat == null) continue;
       const id = n.node_id;
@@ -92,7 +92,7 @@ export function useNodesLayer({
       const temp = n.health?.cpu_temp_c ?? 0;
       const isOnline = n.online === true;
       const pos = Cartesian3.fromDegrees(n.lon, n.lat, 0);
-      
+
       let e = nodeMap.get(id);
       if (e) {
         (e.position as ConstantPositionProperty).setValue(pos);
@@ -132,7 +132,7 @@ export function useNodesLayer({
             age_seconds: n.age_seconds ?? 0,
           },
         });
-        
+
         if (isOnline) {
           pulseCleanupByNode.current.set(
             id,
@@ -146,14 +146,14 @@ export function useNodesLayer({
         }
         nodeMap.set(id, e);
       }
-      
+
       // Handle mesh nodes
       for (const m of n.mesh || []) {
         if (m.lon != null && m.lat != null) {
           const mPos = Cartesian3.fromDegrees(m.lon, m.lat, 0);
           const meshKey = `mesh-${id}-${m.id}`;
           seen.add(meshKey);
-          
+
           if (!src.entities.getById(meshKey)) {
             src.entities.add({
               id: meshKey,
@@ -185,7 +185,7 @@ export function useNodesLayer({
                 pi_node: id,
               },
             });
-            
+
             src.entities.add({
               id: `link-${id}-${m.id}`,
               polyline: {
@@ -198,7 +198,7 @@ export function useNodesLayer({
         }
       }
     }
-    
+
     // Cleanup removed nodes
     for (const [id, e] of nodeMap) {
       if (!seen.has(id)) {
@@ -208,7 +208,7 @@ export function useNodesLayer({
         nodeMap.delete(id);
       }
     }
-    
+
     const allMeshKeys = new Set<string>();
     src.entities.values.forEach((ent: Entity) => {
       const eid = ent.id;
@@ -223,7 +223,7 @@ export function useNodesLayer({
         if (ent) src.entities.remove(ent);
       }
     }
-    
+
     src.entities.resumeEvents();
     setStats((p: Stats) => ({ ...p, nodes: nodeMap.size }));
     requestSceneRender(viewer);

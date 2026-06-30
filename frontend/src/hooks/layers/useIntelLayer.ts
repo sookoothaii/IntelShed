@@ -35,7 +35,11 @@ const SCHEMA_COLORS: Record<string, string> = {
 };
 
 function schemaColor(schema: string | undefined): Color {
-  if (isMssTheme()) return schemaMarkerColor(schema, Color.fromCssColorString(SCHEMA_COLORS[schema || ''] || SCHEMA_COLORS.default));
+  if (isMssTheme())
+    return schemaMarkerColor(
+      schema,
+      Color.fromCssColorString(SCHEMA_COLORS[schema || ''] || SCHEMA_COLORS.default),
+    );
   const hex = SCHEMA_COLORS[schema || ''] || SCHEMA_COLORS.default;
   return Color.fromCssColorString(hex);
 }

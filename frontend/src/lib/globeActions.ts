@@ -1,11 +1,34 @@
 import type { POI } from './pois';
 
 export type LayerKey =
-  | 'aircraft' | 'satellites' | 'orbits' | 'quakes' | 'events' | 'nodes'
-  | 'military' | 'spaceweather' | 'geopolitics' | 'wildfires' | 'lightning'
-  | 'transit' | 'trafficCams' | 'maritime' | 'gdacs' | 'hazards' | 'outages'
-  | 'volcanoes' | 'airquality' | 'weather' | 'pegel' | 'energy' | 'osint'
-  | 'intelFt' | 'darkweb' | 'satelliteChange' | 'detectionBoxes' | 'piAis';
+  | 'aircraft'
+  | 'satellites'
+  | 'orbits'
+  | 'quakes'
+  | 'events'
+  | 'nodes'
+  | 'military'
+  | 'spaceweather'
+  | 'geopolitics'
+  | 'wildfires'
+  | 'lightning'
+  | 'transit'
+  | 'trafficCams'
+  | 'maritime'
+  | 'gdacs'
+  | 'hazards'
+  | 'outages'
+  | 'volcanoes'
+  | 'airquality'
+  | 'weather'
+  | 'pegel'
+  | 'energy'
+  | 'osint'
+  | 'intelFt'
+  | 'darkweb'
+  | 'satelliteChange'
+  | 'detectionBoxes'
+  | 'piAis';
 
 export type GlobeAction =
   | { type: 'fly_to'; lat: number; lon: number; height: number; title: string; lines?: string[] }
@@ -20,10 +43,7 @@ export type ActionExecutor = {
   setVision: (mode: string) => void;
 };
 
-export function executeActions(
-  actions: GlobeAction[],
-  exec: ActionExecutor,
-): void {
+export function executeActions(actions: GlobeAction[], exec: ActionExecutor): void {
   for (const action of actions) {
     switch (action.type) {
       case 'fly_to':

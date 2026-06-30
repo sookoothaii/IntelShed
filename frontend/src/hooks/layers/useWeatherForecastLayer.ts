@@ -8,7 +8,7 @@ import {
   VerticalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
@@ -25,7 +25,7 @@ export function useWeatherForecastLayer({
   active,
   feedActive,
   canFetch,
-  setStats
+  setStats,
 }: {
   viewer: Viewer | null;
   active: boolean;

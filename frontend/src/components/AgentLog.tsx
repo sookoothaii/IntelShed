@@ -57,7 +57,12 @@ export function AgentLog() {
 
   return (
     <div className={`agent-log${open ? '' : ' agent-log--collapsed'}`}>
-      <button type="button" className="agent-log-toggle" onClick={toggle} aria-label="Toggle agent log">
+      <button
+        type="button"
+        className="agent-log-toggle"
+        onClick={toggle}
+        aria-label="Toggle agent log"
+      >
         {open ? '▾' : '▸'} AGENT SWARM
       </button>
       {open && (
@@ -68,11 +73,16 @@ export function AgentLog() {
             entries.map((e) => (
               <div key={e.id} className="agent-log-entry">
                 <span className="agent-log-ts">{e.ts}</span>
-                <span className="agent-log-phase" style={{ color: PHASE_COLORS[e.title] || '#00e5ff' }}>
+                <span
+                  className="agent-log-phase"
+                  style={{ color: PHASE_COLORS[e.title] || '#00e5ff' }}
+                >
                   {e.title.toUpperCase()}
                 </span>
                 {e.lines.map((line, i) => (
-                  <span key={i} className="agent-log-line">{line}</span>
+                  <span key={i} className="agent-log-line">
+                    {line}
+                  </span>
                 ))}
               </div>
             ))

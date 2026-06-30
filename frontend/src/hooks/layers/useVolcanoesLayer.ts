@@ -1,11 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  CustomDataSource,
-  Cartesian3,
-  Color,
-  Viewer
-} from 'cesium';
+import { CustomDataSource, Cartesian3, Color, Viewer } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import type { Stats, Volcano } from '../../lib/types';
@@ -44,7 +39,7 @@ export function useVolcanoesLayer({
     const src = new CustomDataSource('volcanoes');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -59,10 +54,10 @@ export function useVolcanoesLayer({
   useEffect(() => {
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
-    
+
     src.entities.suspendEvents();
     src.entities.removeAll();
-    
+
     let n = 0;
     for (const v of (data.volcanoes || []) as Volcano[]) {
       if (v.lon == null || v.lat == null) continue;
@@ -88,7 +83,7 @@ export function useVolcanoesLayer({
       });
       n++;
     }
-    
+
     src.entities.resumeEvents();
     setStats((p: Stats) => ({ ...p, volcanoes: n }));
   }, [viewer, data, active, setStats]);

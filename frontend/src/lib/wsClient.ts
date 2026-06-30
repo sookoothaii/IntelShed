@@ -29,14 +29,14 @@ class WSClient {
   private bbox: [number, number, number, number] | null = null;
 
   constructor() {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.hostname;
-    const port = import.meta.env.VITE_WORLDBASE_WS_PORT || "8002";
+    const port = import.meta.env.VITE_WORLDBASE_WS_PORT || '8002';
     this.url = `${protocol}//${host}:${port}/api/ws`;
   }
 
   isEnabled(): boolean {
-    return import.meta.env.VITE_WORLDBASE_WS === "1";
+    return import.meta.env.VITE_WORLDBASE_WS === '1';
   }
 
   connect(): void {
@@ -55,12 +55,12 @@ class WSClient {
       this.startHeartbeat();
       // Re-send subscriptions on reconnect
       if (this.layers.length > 0) {
-        this.send({ cmd: "subscribe", layers: this.layers });
+        this.send({ cmd: 'subscribe', layers: this.layers });
       }
       if (this.bbox) {
-        this.send({ cmd: "viewport", bbox: this.bbox });
+        this.send({ cmd: 'viewport', bbox: this.bbox });
       }
-      this.emit({ type: "ws_connected" });
+      this.emit({ type: 'ws_connected' });
     };
 
     this.ws.onmessage = (event) => {
@@ -82,7 +82,7 @@ class WSClient {
       if (!this.intentionallyClosed) {
         this.scheduleReconnect();
       }
-      this.emit({ type: "ws_disconnected" });
+      this.emit({ type: 'ws_disconnected' });
     };
   }
 
@@ -90,7 +90,7 @@ class WSClient {
     this.intentionallyClosed = true;
     this.stopHeartbeat();
     if (this.ws) {
-      this.ws.close(1000, "client disconnect");
+      this.ws.close(1000, 'client disconnect');
       this.ws = null;
     }
     this.connected = false;
@@ -104,12 +104,12 @@ class WSClient {
 
   subscribe(layers: string[]): void {
     this.layers = layers;
-    this.send({ cmd: "subscribe", layers });
+    this.send({ cmd: 'subscribe', layers });
   }
 
   setViewport(bbox: [number, number, number, number]): void {
     this.bbox = bbox;
-    this.send({ cmd: "viewport", bbox });
+    this.send({ cmd: 'viewport', bbox });
   }
 
   on(type: string, handler: EventHandler): () => void {
@@ -141,7 +141,7 @@ class WSClient {
 
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
-      this.send({ cmd: "ping" });
+      this.send({ cmd: 'ping' });
     }, 25000); // 25s — server sends heartbeat at 30s
   }
 
@@ -154,10 +154,7 @@ class WSClient {
 
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
-    const delay = Math.min(
-      this.baseDelay * Math.pow(2, this.reconnectAttempts),
-      this.maxDelay,
-    );
+    const delay = Math.min(this.baseDelay * Math.pow(2, this.reconnectAttempts), this.maxDelay);
     this.reconnectAttempts++;
     setTimeout(() => {
       if (!this.intentionallyClosed) {

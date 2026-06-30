@@ -235,10 +235,10 @@ class TorAuditTests(unittest.IsolatedAsyncioTestCase):
             recorded.append(kwargs)
 
         with patch.object(darkweb_tor, "get_config", return_value=_cfg(rotate=False)):
-            with patch.object(
-                darkweb_tor, "record_audit_event", side_effect=fake_audit
-            ) if hasattr(darkweb_tor, "record_audit_event") else patch(
-                "auth.audit.record_audit_event", side_effect=fake_audit
+            with (
+                patch.object(darkweb_tor, "record_audit_event", side_effect=fake_audit)
+                if hasattr(darkweb_tor, "record_audit_event")
+                else patch("auth.audit.record_audit_event", side_effect=fake_audit)
             ):
                 out = await darkweb_tor.rotate_identity(reason="test")
         self.assertFalse(out["rotated"])

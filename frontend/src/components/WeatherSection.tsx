@@ -1,113 +1,113 @@
-import { useCallback, useEffect, useState } from 'react'
-import type { FocusTarget } from '../lib/focus'
-import { fetchApi } from '../lib/networkFetch'
+import { useCallback, useEffect, useState } from 'react';
+import type { FocusTarget } from '../lib/focus';
+import { fetchApi } from '../lib/networkFetch';
 
 type WeatherCurrent = {
-  time?: string
-  temperature_c?: number
-  humidity_pct?: number
-  wind_speed_ms?: number
-  wind_direction_deg?: number
-  precip_mm_3h?: number
-  pressure_hpa?: number
-  weather_code?: number
-}
+  time?: string;
+  temperature_c?: number;
+  humidity_pct?: number;
+  wind_speed_ms?: number;
+  wind_direction_deg?: number;
+  precip_mm_3h?: number;
+  pressure_hpa?: number;
+  weather_code?: number;
+};
 
 type WeatherHourly = {
-  time?: string
-  temperature_c?: number
-  wind_speed_ms?: number
-  wind_direction_deg?: number
-  precip_prob_pct?: number
-}
+  time?: string;
+  temperature_c?: number;
+  wind_speed_ms?: number;
+  wind_direction_deg?: number;
+  precip_prob_pct?: number;
+};
 
 export type WeatherPayload = {
-  lat: number
-  lon: number
-  source?: string
-  model?: string
-  timezone?: string
-  current?: WeatherCurrent
-  hourly?: WeatherHourly[]
-  error?: string
-}
+  lat: number;
+  lon: number;
+  source?: string;
+  model?: string;
+  timezone?: string;
+  current?: WeatherCurrent;
+  hourly?: WeatherHourly[];
+  error?: string;
+};
 
 type WindyConfig = {
-  point_configured?: boolean
-  map_configured?: boolean
-  map_key?: string | null
-  default_lat?: number
-  default_lon?: number
-  regions?: string[]
-}
+  point_configured?: boolean;
+  map_configured?: boolean;
+  map_key?: string | null;
+  default_lat?: number;
+  default_lon?: number;
+  regions?: string[];
+};
 
 function windArrow(deg: number | undefined): string {
-  if (deg == null) return '—'
-  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
-  return dirs[Math.round(deg / 45) % 8]
+  if (deg == null) return '—';
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(deg / 45) % 8];
 }
 
 export default function WeatherSection({
   onFocus,
   onOpenWindyMap,
 }: {
-  onFocus: (f: Omit<FocusTarget, 'ts'>) => void
-  onOpenWindyMap: (lat: number, lon: number) => void
+  onFocus: (f: Omit<FocusTarget, 'ts'>) => void;
+  onOpenWindyMap: (lat: number, lon: number) => void;
 }) {
-  const [config, setConfig] = useState<WindyConfig | null>(null)
-  const [lat, setLat] = useState(9.55)
-  const [lon, setLon] = useState(100.05)
-  const [region, setRegion] = useState('thailand')
-  const [weather, setWeather] = useState<WeatherPayload | null>(null)
-  const [gridCount, setGridCount] = useState<number | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [config, setConfig] = useState<WindyConfig | null>(null);
+  const [lat, setLat] = useState(9.55);
+  const [lon, setLon] = useState(100.05);
+  const [region, setRegion] = useState('thailand');
+  const [weather, setWeather] = useState<WeatherPayload | null>(null);
+  const [gridCount, setGridCount] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchApi('/api/windy/config')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
-        if (!d) return
-        setConfig(d)
-        if (d.default_lat != null) setLat(d.default_lat)
-        if (d.default_lon != null) setLon(d.default_lon)
+        if (!d) return;
+        setConfig(d);
+        if (d.default_lat != null) setLat(d.default_lat);
+        if (d.default_lon != null) setLon(d.default_lon);
       })
-      .catch(() => {})
-  }, [])
+      .catch(() => {});
+  }, []);
 
   const loadPoint = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
-      const r = await fetchApi(`/api/weather?lat=${lat}&lon=${lon}`)
-      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-      setWeather(await r.json())
+      const r = await fetchApi(`/api/weather?lat=${lat}&lon=${lon}`);
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+      setWeather(await r.json());
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [lat, lon])
+  }, [lat, lon]);
 
   const loadGridMeta = useCallback(async () => {
     try {
-      const r = await fetchApi(`/api/windy/grid?region=${encodeURIComponent(region)}`)
+      const r = await fetchApi(`/api/windy/grid?region=${encodeURIComponent(region)}`);
       if (r.ok) {
-        const d = await r.json()
-        setGridCount(d.count ?? 0)
+        const d = await r.json();
+        setGridCount(d.count ?? 0);
       }
     } catch {
-      setGridCount(null)
+      setGridCount(null);
     }
-  }, [region])
+  }, [region]);
 
   useEffect(() => {
-    loadPoint()
-    loadGridMeta()
-  }, [loadPoint, loadGridMeta])
+    loadPoint();
+    loadGridMeta();
+  }, [loadPoint, loadGridMeta]);
 
-  const cur = weather?.current
-  const canMap = Boolean(config?.map_configured && config?.map_key)
+  const cur = weather?.current;
+  const canMap = Boolean(config?.map_configured && config?.map_key);
 
   return (
     <div className="weather-section">
@@ -129,7 +129,9 @@ export default function WeatherSection({
       </div>
 
       {!config?.point_configured && (
-        <div className="health-status pending">Point forecast: Open-Meteo fallback (no WINDY_POINT_API_KEY)</div>
+        <div className="health-status pending">
+          Point forecast: Open-Meteo fallback (no WINDY_POINT_API_KEY)
+        </div>
       )}
 
       <div className="weather-coords">
@@ -217,7 +219,8 @@ export default function WeatherSection({
           {gridCount != null && <span className="data-count">{gridCount} cells</span>}
         </div>
         <p className="weather-hint">
-          Enable <strong>WEATHER</strong> on the globe ENV layer strip to show temperature labels on the map.
+          Enable <strong>WEATHER</strong> on the globe ENV layer strip to show temperature labels on
+          the map.
         </p>
       </div>
 
@@ -228,15 +231,24 @@ export default function WeatherSection({
             {weather.hourly.map((h) => (
               <div key={h.time} className="weather-hourly-cell">
                 <div className="weather-hourly-time">
-                  {h.time ? new Date(h.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}
+                  {h.time
+                    ? new Date(h.time).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
+                    : '—'}
                 </div>
-                <div className="weather-hourly-temp">{h.temperature_c != null ? `${Math.round(h.temperature_c)}°` : '—'}</div>
-                <div className="weather-hourly-wind">{h.wind_speed_ms != null ? `${h.wind_speed_ms}` : '—'} m/s</div>
+                <div className="weather-hourly-temp">
+                  {h.temperature_c != null ? `${Math.round(h.temperature_c)}°` : '—'}
+                </div>
+                <div className="weather-hourly-wind">
+                  {h.wind_speed_ms != null ? `${h.wind_speed_ms}` : '—'} m/s
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }

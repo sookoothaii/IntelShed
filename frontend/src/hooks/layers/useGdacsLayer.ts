@@ -1,10 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  CustomDataSource,
-  Color,
-  Viewer
-} from 'cesium';
+import { CustomDataSource, Color, Viewer } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint } from './layerUtils';
@@ -26,7 +22,7 @@ export function useGdacsLayer({
   feedActive,
   canFetch,
   setStats,
-  setFeedHud
+  setFeedHud,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -52,7 +48,7 @@ export function useGdacsLayer({
     const src = new CustomDataSource('gdacs');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -67,10 +63,10 @@ export function useGdacsLayer({
   useEffect(() => {
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
-    
+
     src.entities.suspendEvents();
     src.entities.removeAll();
-    
+
     let n = 0;
     for (const a of data.alerts || []) {
       if (a.lon == null || a.lat == null) continue;
@@ -88,14 +84,14 @@ export function useGdacsLayer({
       });
       n++;
     }
-    
+
     src.entities.resumeEvents();
-    
+
     const total = data.count ?? (data.alerts || []).length;
     setStats((p: Stats) => ({ ...p, gdacs: total }));
     setFeedHud((p: FeedHud) => ({
       ...p,
-      gdacs: n < total ? `${n} map` : (data.source ? String(data.source).replace('.org', '') : ''),
+      gdacs: n < total ? `${n} map` : data.source ? String(data.source).replace('.org', '') : '',
     }));
   }, [viewer, data, active, setStats, setFeedHud]);
 }

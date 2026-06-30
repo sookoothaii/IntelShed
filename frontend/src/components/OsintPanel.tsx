@@ -5,41 +5,43 @@ import type { FocusTarget } from '../lib/focus';
 import { useHudSessionState } from '../lib/hudSessionState';
 import OsintReferencePanel from './OsintReferencePanel';
 
-const OSINT_MODES = ['tools', 'reference', 'flowsint'] as const
-type OsintMode = typeof OSINT_MODES[number]
+const OSINT_MODES = ['tools', 'reference', 'flowsint'] as const;
+type OsintMode = (typeof OSINT_MODES)[number];
 
-const OSINT_TOOLS = ['ip', 'domain', 'username', 'email', 'reverse'] as const
-type OsintTool = typeof OSINT_TOOLS[number]
+const OSINT_TOOLS = ['ip', 'domain', 'username', 'email', 'reverse'] as const;
+type OsintTool = (typeof OSINT_TOOLS)[number];
 
 interface OsintResult {
-  error?: string
-  crt_sh_url?: string
-  cert_count?: number
-  cert_names?: string[]
-  breach_check_url?: string
-  breach_count?: number
-  breaches?: string[]
-  lat?: number
-  lon?: number
-  ip?: string
-  country?: string
-  region?: string
-  city?: string
-  isp?: string
-  asn?: string
-  locality?: string
-  [key: string]: unknown
+  error?: string;
+  crt_sh_url?: string;
+  cert_count?: number;
+  cert_names?: string[];
+  breach_check_url?: string;
+  breach_count?: number;
+  breaches?: string[];
+  lat?: number;
+  lon?: number;
+  ip?: string;
+  country?: string;
+  region?: string;
+  city?: string;
+  isp?: string;
+  asn?: string;
+  locality?: string;
+  [key: string]: unknown;
 }
 
 function isOsintMode(v: unknown): v is OsintMode {
-  return typeof v === 'string' && (OSINT_MODES as readonly string[]).includes(v as OsintMode)
+  return typeof v === 'string' && (OSINT_MODES as readonly string[]).includes(v as OsintMode);
 }
 
 function isOsintTool(v: unknown): v is OsintTool {
-  return typeof v === 'string' && (OSINT_TOOLS as readonly string[]).includes(v as OsintTool)
+  return typeof v === 'string' && (OSINT_TOOLS as readonly string[]).includes(v as OsintTool);
 }
 
-const FLOWSINT_URL = (import.meta.env.VITE_FLOWSINT_URL as string | undefined)?.replace(/\/$/, '') || 'http://localhost:5173'
+const FLOWSINT_URL =
+  (import.meta.env.VITE_FLOWSINT_URL as string | undefined)?.replace(/\/$/, '') ||
+  'http://localhost:5173';
 
 export default function OsintPanel({
   onFocus,
@@ -47,53 +49,53 @@ export default function OsintPanel({
   onImportPins,
   pinCount,
 }: {
-  onFocus: (f: Omit<FocusTarget, 'ts'>) => void
-  onAddPin: (pin: Omit<OsintPin, 'ts'>) => void
-  onImportPins: (pins: OsintPin[]) => void
-  pinCount: number
+  onFocus: (f: Omit<FocusTarget, 'ts'>) => void;
+  onAddPin: (pin: Omit<OsintPin, 'ts'>) => void;
+  onImportPins: (pins: OsintPin[]) => void;
+  pinCount: number;
 }) {
-  const [mode, setMode] = useHudSessionState<OsintMode>('osintMode', 'tools', isOsintMode)
-  const [flowsintOk, setFlowsintOk] = useState<boolean | null>(null)
-  const [tool, setTool] = useHudSessionState<OsintTool>('osintTool', 'ip', isOsintTool)
-  const [query, setQuery] = useState('')
-  const [latInput, setLatInput] = useState('')
-  const [lonInput, setLonInput] = useState('')
-  const [result, setResult] = useState<OsintResult | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [importJson, setImportJson] = useState('')
-  const [importMsg, setImportMsg] = useState('')
+  const [mode, setMode] = useHudSessionState<OsintMode>('osintMode', 'tools', isOsintMode);
+  const [flowsintOk, setFlowsintOk] = useState<boolean | null>(null);
+  const [tool, setTool] = useHudSessionState<OsintTool>('osintTool', 'ip', isOsintTool);
+  const [query, setQuery] = useState('');
+  const [latInput, setLatInput] = useState('');
+  const [lonInput, setLonInput] = useState('');
+  const [result, setResult] = useState<OsintResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [importJson, setImportJson] = useState('');
+  const [importMsg, setImportMsg] = useState('');
 
   async function importFlowsintPins() {
-    setImportMsg('')
-    let body: unknown
+    setImportMsg('');
+    let body: unknown;
     try {
-      body = JSON.parse(importJson)
+      body = JSON.parse(importJson);
     } catch {
-      setImportMsg('Invalid JSON')
-      return
+      setImportMsg('Invalid JSON');
+      return;
     }
-    setBusy(true)
+    setBusy(true);
     try {
       const r = await fetchApi('/api/osint/pins/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-      })
-      const d = await r.json()
-      if (!r.ok) throw new Error(d.detail || r.statusText)
-      const pins = (d.pins || []) as OsintPin[]
-      onImportPins(pins)
-      setImportMsg(`Imported ${pins.length} pin(s) → globe`)
-      setViewGlobeAfterImport(pins)
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.detail || r.statusText);
+      const pins = (d.pins || []) as OsintPin[];
+      onImportPins(pins);
+      setImportMsg(`Imported ${pins.length} pin(s) → globe`);
+      setViewGlobeAfterImport(pins);
     } catch (e) {
-      setImportMsg(String(e))
+      setImportMsg(String(e));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   function setViewGlobeAfterImport(pins: OsintPin[]) {
-    const first = pins[0]
+    const first = pins[0];
     if (first) {
       onFocus({
         kind: 'osint',
@@ -102,40 +104,44 @@ export default function OsintPanel({
         height: 400000,
         title: first.title,
         lines: first.lines,
-      })
+      });
     }
   }
 
   useEffect(() => {
-    if (mode !== 'flowsint') return
-    let cancelled = false
+    if (mode !== 'flowsint') return;
+    let cancelled = false;
     const poll = async () => {
       try {
-        const r = await fetchApi('/api/flowsint/health')
-        const d = await r.json()
-        if (!cancelled) setFlowsintOk(!!d.ok)
+        const r = await fetchApi('/api/flowsint/health');
+        const d = await r.json();
+        if (!cancelled) setFlowsintOk(!!d.ok);
       } catch {
-        if (!cancelled) setFlowsintOk(false)
+        if (!cancelled) setFlowsintOk(false);
       }
-    }
-    poll()
-    const t = setInterval(poll, 60000)
-    return () => { cancelled = true; clearInterval(t) }
-  }, [mode])
+    };
+    poll();
+    const t = setInterval(poll, 60000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [mode]);
 
   async function runLookup() {
-    setBusy(true)
-    setResult(null)
+    setBusy(true);
+    setResult(null);
     try {
-      let url = ''
-      if (tool === 'ip') url = `/api/osint/ip/${encodeURIComponent(query)}`
-      else if (tool === 'domain') url = `/api/osint/domain/${encodeURIComponent(query)}`
-      else if (tool === 'username') url = `/api/osint/username/${encodeURIComponent(query)}`
-      else if (tool === 'email') url = `/api/osint/email/${encodeURIComponent(query)}`
-      else if (tool === 'reverse') url = `/api/osint/reverse-geocode?lat=${latInput}&lon=${lonInput}`
-      const r = await fetchApi(url)
-      const d = await r.json()
-      setResult(d)
+      let url = '';
+      if (tool === 'ip') url = `/api/osint/ip/${encodeURIComponent(query)}`;
+      else if (tool === 'domain') url = `/api/osint/domain/${encodeURIComponent(query)}`;
+      else if (tool === 'username') url = `/api/osint/username/${encodeURIComponent(query)}`;
+      else if (tool === 'email') url = `/api/osint/email/${encodeURIComponent(query)}`;
+      else if (tool === 'reverse')
+        url = `/api/osint/reverse-geocode?lat=${latInput}&lon=${lonInput}`;
+      const r = await fetchApi(url);
+      const d = await r.json();
+      setResult(d);
       if (!d.error) {
         if (tool === 'ip' && d.lat != null && d.lon != null) {
           const lines = [
@@ -144,7 +150,7 @@ export default function OsintPanel({
             `City: ${d.city || '—'}`,
             `ISP: ${d.isp || '—'}`,
             `ASN: ${d.asn || '—'}`,
-          ]
+          ];
           onAddPin({
             id: `ip:${d.ip || query}`,
             tool: 'ip',
@@ -153,7 +159,7 @@ export default function OsintPanel({
             lon: d.lon,
             title: `IP ${d.ip || query}`,
             lines,
-          })
+          });
         } else if (tool === 'reverse' && d.lat != null && d.lon != null) {
           onAddPin({
             id: `geo:${d.lat},${d.lon}`,
@@ -167,19 +173,19 @@ export default function OsintPanel({
               `Region: ${d.region || '—'}`,
               `Country: ${d.country || '—'}`,
             ],
-          })
+          });
         }
       }
     } catch (e) {
-      setResult({ error: String(e) })
+      setResult({ error: String(e) });
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
   }
 
   const showOnGlobe = (lat: number, lon: number, title: string, lines: string[]) => {
-    onFocus({ kind: 'osint', lat, lon, height: 400000, title, lines })
-  }
+    onFocus({ kind: 'osint', lat, lon, height: 400000, title, lines });
+  };
 
   const tools = [
     { id: 'ip' as const, label: 'IP' },
@@ -187,18 +193,35 @@ export default function OsintPanel({
     { id: 'username' as const, label: 'USERNAME' },
     { id: 'email' as const, label: 'EMAIL' },
     { id: 'reverse' as const, label: 'REVERSE GEO' },
-  ]
+  ];
 
   return (
-    <div className="panel osint" style={{ padding: mode === 'flowsint' ? 0 : mode === 'reference' ? '0 0 12px' : '0 18px', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div
+      className="panel osint"
+      style={{
+        padding: mode === 'flowsint' ? 0 : mode === 'reference' ? '0 0 12px' : '0 18px',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+      }}
+    >
       <div style={{ padding: '0 18px', flexShrink: 0 }}>
-        <h2>OSINT Reconnaissance {pinCount > 0 && <span style={{ fontSize: 11, color: '#00e5a0' }}>({pinCount} on globe)</span>}</h2>
+        <h2>
+          OSINT Reconnaissance{' '}
+          {pinCount > 0 && (
+            <span style={{ fontSize: 11, color: '#00e5a0' }}>({pinCount} on globe)</span>
+          )}
+        </h2>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
           <button
             type="button"
             className={mode === 'tools' ? 'active' : ''}
             style={{
-              padding: '6px 14px', fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
+              padding: '6px 14px',
+              fontSize: 11,
+              fontFamily: 'monospace',
+              cursor: 'pointer',
               background: mode === 'tools' ? 'rgba(0,229,160,0.2)' : 'rgba(0,229,160,0.05)',
               border: mode === 'tools' ? '1px solid #00e5a0' : '1px solid rgba(0,229,160,0.2)',
               color: mode === 'tools' ? '#00e5a0' : '#6f8c84',
@@ -211,9 +234,13 @@ export default function OsintPanel({
             type="button"
             className={mode === 'reference' ? 'active' : ''}
             style={{
-              padding: '6px 14px', fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
+              padding: '6px 14px',
+              fontSize: 11,
+              fontFamily: 'monospace',
+              cursor: 'pointer',
               background: mode === 'reference' ? 'rgba(255,210,63,0.15)' : 'rgba(255,210,63,0.05)',
-              border: mode === 'reference' ? '1px solid #ffd23f' : '1px solid rgba(255,210,63,0.25)',
+              border:
+                mode === 'reference' ? '1px solid #ffd23f' : '1px solid rgba(255,210,63,0.25)',
               color: mode === 'reference' ? '#ffd23f' : '#6f8c84',
             }}
             onClick={() => setMode('reference')}
@@ -224,7 +251,10 @@ export default function OsintPanel({
             type="button"
             className={mode === 'flowsint' ? 'active' : ''}
             style={{
-              padding: '6px 14px', fontSize: 11, fontFamily: 'monospace', cursor: 'pointer',
+              padding: '6px 14px',
+              fontSize: 11,
+              fontFamily: 'monospace',
+              cursor: 'pointer',
               background: mode === 'flowsint' ? 'rgba(79,195,247,0.2)' : 'rgba(79,195,247,0.05)',
               border: mode === 'flowsint' ? '1px solid #4fc3f7' : '1px solid rgba(79,195,247,0.2)',
               color: mode === 'flowsint' ? '#4fc3f7' : '#6f8c84',
@@ -236,7 +266,12 @@ export default function OsintPanel({
             {flowsintOk === false && <span style={{ marginLeft: 6, color: '#ff6b35' }}>○</span>}
           </button>
           {mode === 'flowsint' && (
-            <a href={FLOWSINT_URL} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#6f8c84', alignSelf: 'center' }}>
+            <a
+              href={FLOWSINT_URL}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 11, color: '#6f8c84', alignSelf: 'center' }}
+            >
               Open in tab ↗
             </a>
           )}
@@ -250,7 +285,15 @@ export default function OsintPanel({
       )}
 
       {mode === 'flowsint' && (
-        <div style={{ flex: 1, minHeight: 320, display: 'flex', flexDirection: 'column', padding: '0 12px 12px' }}>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 320,
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '0 12px 12px',
+          }}
+        >
           <div style={{ marginBottom: 8, flexShrink: 0 }}>
             <div style={{ fontSize: 11, color: '#6f8c84', marginBottom: 6 }}>
               Paste Flowsint export JSON → <code>POST /api/osint/pins/import</code> → globe pins
@@ -272,15 +315,29 @@ export default function OsintPanel({
               }}
             />
             <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
-              <button type="button" onClick={importFlowsintPins} disabled={busy || !importJson.trim()}>
+              <button
+                type="button"
+                onClick={importFlowsintPins}
+                disabled={busy || !importJson.trim()}
+              >
                 {busy ? '…' : 'IMPORT TO GLOBE'}
               </button>
-              {importMsg && <span style={{ fontSize: 11, color: importMsg.startsWith('Imported') ? '#00e5a0' : '#ff6b35' }}>{importMsg}</span>}
+              {importMsg && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: importMsg.startsWith('Imported') ? '#00e5a0' : '#ff6b35',
+                  }}
+                >
+                  {importMsg}
+                </span>
+              )}
             </div>
           </div>
           {flowsintOk === false && (
             <div className="data-error" style={{ marginBottom: 8, fontSize: 12 }}>
-              Flowsint not reachable. On PC: <code>.\scripts\setup-flowsint.ps1</code> then <code>.\scripts\start-flowsint.ps1 -Build</code>
+              Flowsint not reachable. On PC: <code>.\scripts\setup-flowsint.ps1</code> then{' '}
+              <code>.\scripts\start-flowsint.ps1 -Build</code>
               (Docker). UI: {FLOWSINT_URL}
             </div>
           )}
@@ -300,114 +357,147 @@ export default function OsintPanel({
       )}
 
       {mode === 'tools' && (
-      <>
-      <div style={{ padding: '0 18px' }}>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-        {tools.map(t => (
-          <button
-            key={t.id}
-            className={tool === t.id ? 'active' : ''}
-            style={{
-              padding: '6px 14px',
-              fontSize: 11,
-              fontFamily: 'monospace',
-              background: tool === t.id ? 'rgba(0,229,160,0.2)' : 'rgba(0,229,160,0.05)',
-              border: tool === t.id ? '1px solid #00e5a0' : '1px solid rgba(0,229,160,0.2)',
-              color: tool === t.id ? '#00e5a0' : '#6f8c84',
-              cursor: 'pointer',
-            }}
-            onClick={() => { setTool(t.id); setResult(null) }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tool === 'reverse' ? (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <input
-            style={{ flex: 1 }}
-            placeholder="lat"
-            value={latInput}
-            onChange={e => setLatInput(e.target.value)}
-          />
-          <input
-            style={{ flex: 1 }}
-            placeholder="lon"
-            value={lonInput}
-            onChange={e => setLonInput(e.target.value)}
-          />
-          <button onClick={runLookup} disabled={busy}>{busy ? '…' : 'SEARCH'}</button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <input
-            style={{ flex: 1 }}
-            placeholder={`Enter ${tool}…`}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && runLookup()}
-          />
-          <button onClick={runLookup} disabled={busy}>{busy ? '…' : 'SEARCH'}</button>
-        </div>
-      )}
-
-      {busy && <div style={{ color: '#6f8c84', fontSize: 12 }}>Querying…</div>}
-      {result?.error && <div className="data-error">{result.error}</div>}
-
-      {result && !result.error && (
-        <div className="osint-result" style={{ marginTop: 10 }}>
-          {tool === 'domain' && result.crt_sh_url && (
-            <div style={{ fontSize: 11, color: '#8fb7a9', marginBottom: 8 }}>
-              crt.sh: {result.cert_count ?? 0} hostname(s)
-              {result.cert_names && result.cert_names.length > 0 && ` — e.g. ${result.cert_names.slice(0, 3).join(', ')}`}
-              {' · '}
-              <a href={result.crt_sh_url} target="_blank" rel="noreferrer">OPEN ↗</a>
+        <>
+          <div style={{ padding: '0 18px' }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+              {tools.map((t) => (
+                <button
+                  key={t.id}
+                  className={tool === t.id ? 'active' : ''}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: 11,
+                    fontFamily: 'monospace',
+                    background: tool === t.id ? 'rgba(0,229,160,0.2)' : 'rgba(0,229,160,0.05)',
+                    border: tool === t.id ? '1px solid #00e5a0' : '1px solid rgba(0,229,160,0.2)',
+                    color: tool === t.id ? '#00e5a0' : '#6f8c84',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => {
+                    setTool(t.id);
+                    setResult(null);
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
-          )}
-          {tool === 'email' && result.breach_check_url && (
-            <div style={{ fontSize: 11, color: '#8fb7a9', marginBottom: 8 }}>
-              HIBP: {result.breach_count != null ? `${result.breach_count} breach(es)` : 'link-out only'}
-              {result.breaches && result.breaches.length > 0 && ` — ${result.breaches.slice(0, 4).join(', ')}`}
-              {' · '}
-              <a href={result.breach_check_url} target="_blank" rel="noreferrer">OPEN ↗</a>
-            </div>
-          )}
-          {tool === 'ip' && result.lat != null && result.lon != null && (
-            <button
-              className="locate-mini"
-              onClick={() => showOnGlobe(result.lat!, result.lon!, `IP ${result.ip || '—'}`, [
-                `Country: ${result.country || '—'}`,
-                `Region: ${result.region || '—'}`,
-                `City: ${result.city || '—'}`,
-                `ISP: ${result.isp || '—'}`,
-                `ASN: ${result.asn || '—'}`,
-              ])}
-            >
-              ◎ SHOW ON GLOBE
-            </button>
-          )}
-          {tool === 'reverse' && result.locality && (
-            <button
-              className="locate-mini"
-              onClick={() => showOnGlobe(result.lat!, result.lon!, result.locality!, [
-                `City: ${result.city || '—'}`,
-                `Region: ${result.region || '—'}`,
-                `Country: ${result.country || '—'}`,
-              ])}
-            >
-              ◎ SHOW ON GLOBE
-            </button>
-          )}
 
-          <pre style={{ fontSize: 11, color: '#b0c4b1', background: 'rgba(0,0,0,0.3)', padding: 10, borderRadius: 6, overflowX: 'auto', maxHeight: 'calc(100vh - 300px)', overflowY: 'auto' }}>
-            {JSON.stringify(result, null, 2)}
-          </pre>
-        </div>
-      )}
-      </div>
-      </>
+            {tool === 'reverse' ? (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <input
+                  style={{ flex: 1 }}
+                  placeholder="lat"
+                  value={latInput}
+                  onChange={(e) => setLatInput(e.target.value)}
+                />
+                <input
+                  style={{ flex: 1 }}
+                  placeholder="lon"
+                  value={lonInput}
+                  onChange={(e) => setLonInput(e.target.value)}
+                />
+                <button onClick={runLookup} disabled={busy}>
+                  {busy ? '…' : 'SEARCH'}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                <input
+                  style={{ flex: 1 }}
+                  placeholder={`Enter ${tool}…`}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && runLookup()}
+                />
+                <button onClick={runLookup} disabled={busy}>
+                  {busy ? '…' : 'SEARCH'}
+                </button>
+              </div>
+            )}
+
+            {busy && <div style={{ color: '#6f8c84', fontSize: 12 }}>Querying…</div>}
+            {result?.error && <div className="data-error">{result.error}</div>}
+
+            {result && !result.error && (
+              <div className="osint-result" style={{ marginTop: 10 }}>
+                {tool === 'domain' && result.crt_sh_url && (
+                  <div style={{ fontSize: 11, color: '#8fb7a9', marginBottom: 8 }}>
+                    crt.sh: {result.cert_count ?? 0} hostname(s)
+                    {result.cert_names &&
+                      result.cert_names.length > 0 &&
+                      ` — e.g. ${result.cert_names.slice(0, 3).join(', ')}`}
+                    {' · '}
+                    <a href={result.crt_sh_url} target="_blank" rel="noreferrer">
+                      OPEN ↗
+                    </a>
+                  </div>
+                )}
+                {tool === 'email' && result.breach_check_url && (
+                  <div style={{ fontSize: 11, color: '#8fb7a9', marginBottom: 8 }}>
+                    HIBP:{' '}
+                    {result.breach_count != null
+                      ? `${result.breach_count} breach(es)`
+                      : 'link-out only'}
+                    {result.breaches &&
+                      result.breaches.length > 0 &&
+                      ` — ${result.breaches.slice(0, 4).join(', ')}`}
+                    {' · '}
+                    <a href={result.breach_check_url} target="_blank" rel="noreferrer">
+                      OPEN ↗
+                    </a>
+                  </div>
+                )}
+                {tool === 'ip' && result.lat != null && result.lon != null && (
+                  <button
+                    className="locate-mini"
+                    onClick={() =>
+                      showOnGlobe(result.lat!, result.lon!, `IP ${result.ip || '—'}`, [
+                        `Country: ${result.country || '—'}`,
+                        `Region: ${result.region || '—'}`,
+                        `City: ${result.city || '—'}`,
+                        `ISP: ${result.isp || '—'}`,
+                        `ASN: ${result.asn || '—'}`,
+                      ])
+                    }
+                  >
+                    ◎ SHOW ON GLOBE
+                  </button>
+                )}
+                {tool === 'reverse' && result.locality && (
+                  <button
+                    className="locate-mini"
+                    onClick={() =>
+                      showOnGlobe(result.lat!, result.lon!, result.locality!, [
+                        `City: ${result.city || '—'}`,
+                        `Region: ${result.region || '—'}`,
+                        `Country: ${result.country || '—'}`,
+                      ])
+                    }
+                  >
+                    ◎ SHOW ON GLOBE
+                  </button>
+                )}
+
+                <pre
+                  style={{
+                    fontSize: 11,
+                    color: '#b0c4b1',
+                    background: 'rgba(0,0,0,0.3)',
+                    padding: 10,
+                    borderRadius: 6,
+                    overflowX: 'auto',
+                    maxHeight: 'calc(100vh - 300px)',
+                    overflowY: 'auto',
+                  }}
+                >
+                  {JSON.stringify(result, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
-  )
+  );
 }

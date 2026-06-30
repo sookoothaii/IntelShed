@@ -15,9 +15,9 @@ for ep in [
     print(f"=== {ep} ===")
     print(f"Keys: {list(d.keys())}")
     if isinstance(d, dict) and "data" in d:
-        print(f'Data count: {len(d["data"])}')
+        print(f"Data count: {len(d['data'])}")
         if d["data"]:
-            print(f'First item keys: {list(d["data"][0].keys())}')
+            print(f"First item keys: {list(d['data'][0].keys())}")
     elif isinstance(d, dict):
         for k, v in d.items():
             t = type(v).__name__

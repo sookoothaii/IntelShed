@@ -1,73 +1,73 @@
-import { useEffect, useState } from 'react'
-import { fetchApi } from '../lib/networkFetch'
+import { useEffect, useState } from 'react';
+import { fetchApi } from '../lib/networkFetch';
 
 export type WebcamStreamRef = {
-  id: string
-  name?: string
-  source?: string
-  url?: string
-  embed?: string | null
-  detail_url?: string
-  category?: string
-  country?: string
-}
+  id: string;
+  name?: string;
+  source?: string;
+  url?: string;
+  embed?: string | null;
+  detail_url?: string;
+  category?: string;
+  country?: string;
+};
 
 function needsFreshStream(cam: WebcamStreamRef): boolean {
-  return cam.source === 'windy' || cam.id.startsWith('windy-')
+  return cam.source === 'windy' || cam.id.startsWith('windy-');
 }
 
 export default function WebcamStreamPanel({ cam }: { cam: WebcamStreamRef }) {
-  const [streamEmbed, setStreamEmbed] = useState<string | null>(cam.embed || null)
-  const [streamLoading, setStreamLoading] = useState(false)
-  const [streamError, setStreamError] = useState<string | null>(null)
-  const thumb = (cam.url || '').trim()
+  const [streamEmbed, setStreamEmbed] = useState<string | null>(cam.embed || null);
+  const [streamLoading, setStreamLoading] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const thumb = (cam.url || '').trim();
 
   useEffect(() => {
-    let cancelled = false
+    let cancelled = false;
 
     async function loadStream() {
-      setStreamError(null)
+      setStreamError(null);
 
       if (cam.embed) {
-        setStreamEmbed(cam.embed)
-        setStreamLoading(false)
-        return
+        setStreamEmbed(cam.embed);
+        setStreamLoading(false);
+        return;
       }
 
       if (needsFreshStream(cam)) {
-        setStreamLoading(true)
-        setStreamEmbed(null)
+        setStreamLoading(true);
+        setStreamEmbed(null);
         try {
-          const r = await fetchApi(`/api/webcams/${encodeURIComponent(cam.id)}`)
-          if (!r.ok) throw new Error('Stream unavailable')
-          const data = await r.json()
-          const fresh = data.webcam as WebcamStreamRef
-          if (cancelled) return
+          const r = await fetchApi(`/api/webcams/${encodeURIComponent(cam.id)}`);
+          if (!r.ok) throw new Error('Stream unavailable');
+          const data = await r.json();
+          const fresh = data.webcam as WebcamStreamRef;
+          if (cancelled) return;
           if (fresh?.embed) {
-            setStreamEmbed(fresh.embed)
+            setStreamEmbed(fresh.embed);
           } else if (fresh?.url || thumb) {
-            setStreamEmbed(null)
-            setStreamError('No live player — showing snapshot')
+            setStreamEmbed(null);
+            setStreamError('No live player — showing snapshot');
           } else {
-            setStreamError('No stream URL returned')
+            setStreamError('No stream URL returned');
           }
         } catch {
-          if (!cancelled) setStreamError('Failed to load live stream')
+          if (!cancelled) setStreamError('Failed to load live stream');
         } finally {
-          if (!cancelled) setStreamLoading(false)
+          if (!cancelled) setStreamLoading(false);
         }
-        return
+        return;
       }
 
-      setStreamEmbed(cam.embed || null)
-      setStreamLoading(false)
+      setStreamEmbed(cam.embed || null);
+      setStreamLoading(false);
     }
 
-    loadStream()
+    loadStream();
     return () => {
-      cancelled = true
-    }
-  }, [cam.id, cam.embed, cam.source, thumb])
+      cancelled = true;
+    };
+  }, [cam.id, cam.embed, cam.source, thumb]);
 
   return (
     <div className="webcam-player-wrap">
@@ -88,9 +88,7 @@ export default function WebcamStreamPanel({ cam }: { cam: WebcamStreamRef }) {
       {!streamLoading && !streamEmbed && !thumb && (
         <div className="health-status pending">No preview available</div>
       )}
-      {streamError && !streamEmbed && (
-        <div className="health-status pending">{streamError}</div>
-      )}
+      {streamError && !streamEmbed && <div className="health-status pending">{streamError}</div>}
       {cam.detail_url && (
         <p className="webcam-modal-link">
           <a href={cam.detail_url} target="_blank" rel="noopener noreferrer">
@@ -107,5 +105,5 @@ export default function WebcamStreamPanel({ cam }: { cam: WebcamStreamRef }) {
         </p>
       )}
     </div>
-  )
+  );
 }

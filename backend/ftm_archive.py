@@ -135,7 +135,7 @@ def archive_stale_entities(dry_run: bool = False) -> dict[str, Any]:
             con_write.execute(
                 f"""
                 COPY (
-                    SELECT * FROM (VALUES {','.join(['(?,?,?,?,?,?,?,?,?)'] * len(group))})
+                    SELECT * FROM (VALUES {",".join(["(?,?,?,?,?,?,?,?,?)"] * len(group))})
                     AS t(id, schema, caption, properties, datasets, first_seen, last_seen, lat, lon)
                 ) TO '{fpath.as_posix()}' (FORMAT PARQUET);
                 """,

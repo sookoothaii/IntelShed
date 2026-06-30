@@ -75,8 +75,9 @@ class FirewallScanAsyncTests(unittest.IsolatedAsyncioTestCase):
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch.object(fb, "FIREWALL_HOST", "localhost:8001"), patch(
-            "firewall_bridge.httpx.AsyncClient", return_value=mock_client
+        with (
+            patch.object(fb, "FIREWALL_HOST", "localhost:8001"),
+            patch("firewall_bridge.httpx.AsyncClient", return_value=mock_client),
         ):
             result = await fb.firewall_scan(
                 "probe",
@@ -101,9 +102,11 @@ class FirewallScanAsyncTests(unittest.IsolatedAsyncioTestCase):
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch.object(fb, "FIREWALL_HOST", "localhost:8001"), patch.object(
-            fb, "FIREWALL_TRACE", True
-        ), patch("firewall_bridge.httpx.AsyncClient", return_value=mock_client):
+        with (
+            patch.object(fb, "FIREWALL_HOST", "localhost:8001"),
+            patch.object(fb, "FIREWALL_TRACE", True),
+            patch("firewall_bridge.httpx.AsyncClient", return_value=mock_client),
+        ):
             await fb.firewall_scan("x", session_id="s")
 
         headers = mock_client.post.call_args.kwargs["headers"]
@@ -121,8 +124,11 @@ class McpGateTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ctx.exception.detail.get("engine"), "worldbase_slim")
 
     async def test_hak_gal_unreachable_fail_open_by_default(self):
-        with patch.object(fb, "firewall_mcp_enabled", return_value=True), patch.object(
-            fb, "firewall_scan_tool", AsyncMock(return_value={"_available": False})
+        with (
+            patch.object(fb, "firewall_mcp_enabled", return_value=True),
+            patch.object(
+                fb, "firewall_scan_tool", AsyncMock(return_value={"_available": False})
+            ),
         ):
             out = await fb.ensure_mcp_tool_allowed(
                 "worldbase_briefing_generate", {"lang": "en"}
@@ -144,8 +150,11 @@ class ChatGuardTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_guard_chat_fail_open_when_hak_gal_down(self):
         fb._history.clear()
-        with patch.object(fb, "FIREWALL_HOST", "localhost:8001"), patch.object(
-            fb, "firewall_scan", AsyncMock(return_value={"_available": False})
+        with (
+            patch.object(fb, "FIREWALL_HOST", "localhost:8001"),
+            patch.object(
+                fb, "firewall_scan", AsyncMock(return_value={"_available": False})
+            ),
         ):
             meta, block = await fb.guard_chat_user_text(
                 "hello from Thailand GDELT corridor"
@@ -164,8 +173,11 @@ class FirewallTestEndpointTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_firewall_test_benign_when_hak_gal_down(self):
         fb._history.clear()
-        with patch.object(fb, "FIREWALL_HOST", "localhost:8001"), patch.object(
-            fb, "firewall_scan", AsyncMock(return_value={"_available": False})
+        with (
+            patch.object(fb, "FIREWALL_HOST", "localhost:8001"),
+            patch.object(
+                fb, "firewall_scan", AsyncMock(return_value={"_available": False})
+            ),
         ):
             result = await fb.firewall_test({"query": "GDELT pulse Thailand"})
         self.assertFalse(result.get("would_block"))

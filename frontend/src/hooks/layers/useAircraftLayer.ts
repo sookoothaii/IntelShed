@@ -134,7 +134,9 @@ export function useAircraftLayer({
           outlineColor: Color.BLACK,
           outlineWidth: 1,
           scaleByDistance: new NearFarScalar(1e5, 1.6, 1e7, 0.5),
-          ...(isMssTheme() ? { distanceDisplayCondition: new DistanceDisplayCondition(0, 8e6) } : {}),
+          ...(isMssTheme()
+            ? { distanceDisplayCondition: new DistanceDisplayCondition(0, 8e6) }
+            : {}),
           id: pickMeta,
         });
         const label = labels.add({
@@ -165,7 +167,8 @@ export function useAircraftLayer({
     }
 
     setStats((p: Stats) => ({ ...p, aircraft: acMap.size }));
-    if ((data as AircraftApiResponse)?.source) setAircraftSource(String((data as AircraftApiResponse).source));
+    if ((data as AircraftApiResponse)?.source)
+      setAircraftSource(String((data as AircraftApiResponse).source));
     requestSceneRender(viewer);
   }, [viewer, data, isSuccess, active, setStats, setAircraftSource]);
 }

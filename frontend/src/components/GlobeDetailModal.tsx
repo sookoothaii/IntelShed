@@ -1,53 +1,62 @@
-import TrafficCamPanel, { type TrafficCamRef } from './TrafficCamPanel'
-import WebcamStreamPanel, { type WebcamStreamRef } from './WebcamStreamPanel'
-import OsintExternalLinks from './OsintExternalLinks'
-import { fetchApi } from '../lib/networkFetch'
-import { useEffect, useState } from 'react'
+import TrafficCamPanel, { type TrafficCamRef } from './TrafficCamPanel';
+import WebcamStreamPanel, { type WebcamStreamRef } from './WebcamStreamPanel';
+import OsintExternalLinks from './OsintExternalLinks';
+import { fetchApi } from '../lib/networkFetch';
+import { useEffect, useState } from 'react';
 
 export type GlobeDetailTarget = {
-  kind: string
-  title: string
-  lines: string[]
-  lat?: number
-  lon?: number
-  link?: string
-  entityId?: string
-  trafficCam?: TrafficCamRef
-  webcam?: WebcamStreamRef
+  kind: string;
+  title: string;
+  lines: string[];
+  lat?: number;
+  lon?: number;
+  link?: string;
+  entityId?: string;
+  trafficCam?: TrafficCamRef;
+  webcam?: WebcamStreamRef;
   weatherCell?: {
-    lat: number
-    lon: number
-    temperature_c?: number | null
-    wind_speed_ms?: number | null
-    precip_mm_3h?: number | null
-  }
-}
+    lat: number;
+    lon: number;
+    temperature_c?: number | null;
+    wind_speed_ms?: number | null;
+    precip_mm_3h?: number | null;
+  };
+};
 
 function EntityContextCard({ entityId }: { entityId: string }) {
-  const [ctx, setCtx] = useState<{ related?: { id: string; label?: string; type?: string }[]; error?: string } | null>(null)
+  const [ctx, setCtx] = useState<{
+    related?: { id: string; label?: string; type?: string }[];
+    error?: string;
+  } | null>(null);
   useEffect(() => {
-    let active = true
+    let active = true;
     fetchApi(`/api/entity/${entityId}/context`)
       .then((r) => r.json())
       .then((d) => active && setCtx(d))
-      .catch(() => {})
-    return () => { active = false }
-  }, [entityId])
-  if (!ctx || ctx.error) return null
-  const related = ctx.related || []
-  if (!related.length) return null
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [entityId]);
+  if (!ctx || ctx.error) return null;
+  const related = ctx.related || [];
+  if (!related.length) return null;
   return (
     <div className="globe-detail-related">
       <div className="tp-line" style={{ color: '#00ffa3', fontWeight: 'bold' }}>
         RELATED ENTITIES · {related.length}
       </div>
       {related.slice(0, 8).map((r: { id: string; label?: string; type?: string }) => (
-        <div key={r.id} className="tp-line" style={{ paddingLeft: 6, borderLeft: '2px solid #00ffa3' }}>
+        <div
+          key={r.id}
+          className="tp-line"
+          style={{ paddingLeft: 6, borderLeft: '2px solid #00ffa3' }}
+        >
           {r.label || r.id} <span style={{ opacity: 0.5 }}>({r.type})</span>
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 export default function GlobeDetailModal({
@@ -57,23 +66,21 @@ export default function GlobeDetailModal({
   onOpenWindy,
   onAskAI,
 }: {
-  target: GlobeDetailTarget
-  onClose: () => void
-  onSelectTrafficCam?: (cam: TrafficCamRef) => void
-  onOpenWindy?: (lat: number, lon: number) => void
-  onAskAI?: (title: string, lines: string[]) => void
+  target: GlobeDetailTarget;
+  onClose: () => void;
+  onSelectTrafficCam?: (cam: TrafficCamRef) => void;
+  onOpenWindy?: (lat: number, lon: number) => void;
+  onAskAI?: (title: string, lines: string[]) => void;
 }) {
   const isStream =
     (target.kind === 'traffic_cam' && Boolean(target.trafficCam)) ||
-    (target.kind === 'webcam' && Boolean(target.webcam))
+    (target.kind === 'webcam' && Boolean(target.webcam));
 
   return (
     <div className="globe-detail-modal" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="globe-detail-modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="globe-detail-modal-head">
-          <span className="globe-detail-modal-badge">
-            {isStream ? 'LIVE FEED' : 'GLOBE INTEL'}
-          </span>
+          <span className="globe-detail-modal-badge">{isStream ? 'LIVE FEED' : 'GLOBE INTEL'}</span>
           <button type="button" className="globe-detail-close" onClick={onClose} aria-label="Close">
             ✕
           </button>
@@ -82,11 +89,7 @@ export default function GlobeDetailModal({
         <h3 className="globe-detail-title">{target.title}</h3>
 
         {target.kind === 'traffic_cam' && target.trafficCam && (
-          <TrafficCamPanel
-            cam={target.trafficCam}
-            onSelectCam={onSelectTrafficCam}
-            streamMode
-          />
+          <TrafficCamPanel cam={target.trafficCam} onSelectCam={onSelectTrafficCam} streamMode />
         )}
 
         {target.kind === 'webcam' && target.webcam && (
@@ -122,16 +125,14 @@ export default function GlobeDetailModal({
               </div>
             </div>
             <p className="globe-detail-hint">
-              Weather grid cell — not a traffic camera. Enable TRAFFIC CAMS layer and zoom to Singapore
-              for live road feeds, or open Windy for forecast at this point.
+              Weather grid cell — not a traffic camera. Enable TRAFFIC CAMS layer and zoom to
+              Singapore for live road feeds, or open Windy for forecast at this point.
             </p>
             {onOpenWindy && (
               <button
                 type="button"
                 className="refresh-btn"
-                onClick={() =>
-                  onOpenWindy(target.weatherCell!.lat, target.weatherCell!.lon)
-                }
+                onClick={() => onOpenWindy(target.weatherCell!.lat, target.weatherCell!.lon)}
               >
                 OPEN WINDY AT POINT
               </button>
@@ -142,7 +143,9 @@ export default function GlobeDetailModal({
         {target.lines.length > 0 && (
           <div className="globe-detail-lines">
             {target.lines.map((l, i) => (
-              <div key={i} className="tp-line">{l}</div>
+              <div key={i} className="tp-line">
+                {l}
+              </div>
             ))}
           </div>
         )}
@@ -175,5 +178,5 @@ export default function GlobeDetailModal({
         )}
       </div>
     </div>
-  )
+  );
 }

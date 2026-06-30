@@ -1,8 +1,8 @@
-import { Ion } from 'cesium'
-import { fetchApi } from './networkFetch'
+import { Ion } from 'cesium';
+import { fetchApi } from './networkFetch';
 
-let _resolved = false
-let _resolving: Promise<void> | null = null
+let _resolved = false;
+let _resolving: Promise<void> | null = null;
 
 /**
  * Fetch the Cesium Ion token from the backend at runtime.
@@ -15,25 +15,25 @@ let _resolving: Promise<void> | null = null
  * Safe to call multiple times — resolves once per page load.
  */
 export async function initCesiumToken(): Promise<void> {
-  if (_resolved) return
-  if (_resolving) return _resolving
+  if (_resolved) return;
+  if (_resolving) return _resolving;
   _resolving = (async () => {
     // 0. Set env token immediately so Cesium can init without waiting for backend
-    const envToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? ''
+    const envToken = import.meta.env.VITE_CESIUM_ION_TOKEN ?? '';
     if (envToken && envToken !== 'your_cesium_ion_token_here') {
-      Ion.defaultAccessToken = envToken
+      Ion.defaultAccessToken = envToken;
     }
 
     // 1. Try backend endpoint (may override env token with a fresher one)
     try {
-      const r = await fetchApi('/api/config/cesium')
+      const r = await fetchApi('/api/config/cesium');
       if (r.ok) {
-        const data = await r.json()
-        const token = data?.token ?? ''
+        const data = await r.json();
+        const token = data?.token ?? '';
         if (token && token !== 'your_cesium_ion_token_here') {
-          Ion.defaultAccessToken = token
-          _resolved = true
-          return
+          Ion.defaultAccessToken = token;
+          _resolved = true;
+          return;
         }
       }
     } catch {
@@ -45,14 +45,14 @@ export async function initCesiumToken(): Promise<void> {
       console.warn(
         '[WorldBase] Cesium Ion token not available — ellipsoid terrain only. ' +
           'Set CESIUM_ION_TOKEN in backend/.env or VITE_CESIUM_ION_TOKEN in frontend/.env.',
-      )
+      );
     }
-    _resolved = true
-  })()
-  return _resolving
+    _resolved = true;
+  })();
+  return _resolving;
 }
 
 /** True if a Cesium Ion token has been loaded (from backend or env). */
 export function hasCesiumIonToken(): boolean {
-  return Boolean(Ion.defaultAccessToken)
+  return Boolean(Ion.defaultAccessToken);
 }

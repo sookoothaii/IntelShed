@@ -35,9 +35,10 @@ class TelegramBriefingTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_gather_recent_posts(self):
         now = datetime.now(timezone.utc).isoformat()
-        with patch("telegram_briefing.get_config") as gc, patch(
-            "telegram_briefing.telegram_bridge"
-        ) as tb:
+        with (
+            patch("telegram_briefing.get_config") as gc,
+            patch("telegram_briefing.telegram_bridge") as tb,
+        ):
             cfg = MagicMock()
             cfg.telegram_enabled = True
             cfg.briefing_telegram = True

@@ -12,7 +12,7 @@ import {
   HorizontalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
@@ -24,7 +24,7 @@ export function useTransitLayer({
   feedActive,
   canFetch,
   transitCity,
-  setStats
+  setStats,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -51,7 +51,7 @@ export function useTransitLayer({
     const src = new CustomDataSource('transit');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -68,7 +68,7 @@ export function useTransitLayer({
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
     const transitMap = transitMapRef.current;
-    
+
     if (data.error) {
       for (const [id, e] of transitMap) {
         src.entities.remove(e);
@@ -77,18 +77,18 @@ export function useTransitLayer({
       setStats((p: Stats) => ({ ...p, transit: 0 }));
       return;
     }
-    
+
     const vehicles: TransitVehicle[] = data.vehicles || [];
     const seen = new Set<string>();
 
     src.entities.suspendEvents();
-    
+
     for (const v of vehicles) {
       if (v.lon == null || v.lat == null) continue;
       const id = v.id || `${v.lat},${v.lon}`;
       seen.add(id);
       const pos = Cartesian3.fromDegrees(v.lon, v.lat, 0);
-      
+
       let e = transitMap.get(id);
       if (e) {
         (e.position as ConstantPositionProperty).setValue(pos);
@@ -127,14 +127,14 @@ export function useTransitLayer({
         transitMap.set(id, e);
       }
     }
-    
+
     for (const [id, e] of transitMap) {
       if (!seen.has(id)) {
         src.entities.remove(e);
         transitMap.delete(id);
       }
     }
-    
+
     src.entities.resumeEvents();
     setStats((p: Stats) => ({ ...p, transit: transitMap.size }));
   }, [viewer, data, active, setStats]);

@@ -92,8 +92,9 @@ class TestInitAndSearch(unittest.TestCase):
 
     def test_rebuild_indexes_all_sources(self):
         # Mock FtM indexing to avoid DuckDB dependency
-        with patch.object(gs, "_index_ftm_entities", return_value=0), patch.object(
-            gs, "_index_ftm_statements", return_value=0
+        with (
+            patch.object(gs, "_index_ftm_entities", return_value=0),
+            patch.object(gs, "_index_ftm_statements", return_value=0),
         ):
             result = gs.rebuild_index()
         self.assertTrue(result["ok"])
@@ -103,8 +104,9 @@ class TestInitAndSearch(unittest.TestCase):
         self.assertEqual(result["by_source"]["briefing"], 1)
 
     def test_search_finds_entity(self):
-        with patch.object(gs, "_index_ftm_entities", return_value=0), patch.object(
-            gs, "_index_ftm_statements", return_value=0
+        with (
+            patch.object(gs, "_index_ftm_entities", return_value=0),
+            patch.object(gs, "_index_ftm_statements", return_value=0),
         ):
             gs.rebuild_index()
         results = gs.global_search("Alice")
@@ -112,16 +114,18 @@ class TestInitAndSearch(unittest.TestCase):
         self.assertTrue(any(r["source_type"] == "entity_store" for r in results))
 
     def test_search_finds_rag_chunk(self):
-        with patch.object(gs, "_index_ftm_entities", return_value=0), patch.object(
-            gs, "_index_ftm_statements", return_value=0
+        with (
+            patch.object(gs, "_index_ftm_entities", return_value=0),
+            patch.object(gs, "_index_ftm_statements", return_value=0),
         ):
             gs.rebuild_index()
         results = gs.global_search("Bangkok flood")
         self.assertTrue(any(r["source_type"] == "rag_chunk" for r in results))
 
     def test_search_finds_briefing(self):
-        with patch.object(gs, "_index_ftm_entities", return_value=0), patch.object(
-            gs, "_index_ftm_statements", return_value=0
+        with (
+            patch.object(gs, "_index_ftm_entities", return_value=0),
+            patch.object(gs, "_index_ftm_statements", return_value=0),
         ):
             gs.rebuild_index()
         results = gs.global_search("security briefing Thailand")
@@ -134,24 +138,27 @@ class TestInitAndSearch(unittest.TestCase):
         self.assertEqual(results, [])
 
     def test_search_filter_by_source_type(self):
-        with patch.object(gs, "_index_ftm_entities", return_value=0), patch.object(
-            gs, "_index_ftm_statements", return_value=0
+        with (
+            patch.object(gs, "_index_ftm_entities", return_value=0),
+            patch.object(gs, "_index_ftm_statements", return_value=0),
         ):
             gs.rebuild_index()
         results = gs.global_search("Alice", source_type="entity_store")
         self.assertTrue(all(r["source_type"] == "entity_store" for r in results))
 
     def test_search_no_results_for_garbage(self):
-        with patch.object(gs, "_index_ftm_entities", return_value=0), patch.object(
-            gs, "_index_ftm_statements", return_value=0
+        with (
+            patch.object(gs, "_index_ftm_entities", return_value=0),
+            patch.object(gs, "_index_ftm_statements", return_value=0),
         ):
             gs.rebuild_index()
         results = gs.global_search("zzzznonexistentxyzzy")
         self.assertEqual(results, [])
 
     def test_rebuild_clears_old_data(self):
-        with patch.object(gs, "_index_ftm_entities", return_value=0), patch.object(
-            gs, "_index_ftm_statements", return_value=0
+        with (
+            patch.object(gs, "_index_ftm_entities", return_value=0),
+            patch.object(gs, "_index_ftm_statements", return_value=0),
         ):
             gs.rebuild_index()
             # Rebuild again — should not duplicate
@@ -159,8 +166,9 @@ class TestInitAndSearch(unittest.TestCase):
         self.assertEqual(result["total_indexed"], 3)  # Still 3, not 6
 
     def test_search_results_have_required_fields(self):
-        with patch.object(gs, "_index_ftm_entities", return_value=0), patch.object(
-            gs, "_index_ftm_statements", return_value=0
+        with (
+            patch.object(gs, "_index_ftm_entities", return_value=0),
+            patch.object(gs, "_index_ftm_statements", return_value=0),
         ):
             gs.rebuild_index()
         results = gs.global_search("Alice")

@@ -1,92 +1,106 @@
-import { useCallback, useEffect, useState } from 'react'
-import { fetchApi } from '../lib/networkFetch'
+import { useCallback, useEffect, useState } from 'react';
+import { fetchApi } from '../lib/networkFetch';
 
 type Flag = {
-  key: string
-  enabled: boolean
-  source: 'env' | 'sqlite'
-  updated_at: string | null
-  updated_by: string | null
-}
+  key: string;
+  enabled: boolean;
+  source: 'env' | 'sqlite';
+  updated_at: string | null;
+  updated_by: string | null;
+};
 
 type LogEntry = {
-  id?: number
-  key: string
-  old_value: number | null
-  new_value: number
-  updated_by: string
-  at: string
-}
+  id?: number;
+  key: string;
+  old_value: number | null;
+  new_value: number;
+  updated_by: string;
+  at: string;
+};
 
 export default function FeatureFlagsPanel() {
-  const [flags, setFlags] = useState<Flag[]>([])
-  const [log, setLog] = useState<LogEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [showLog, setShowLog] = useState(false)
-  const [busy, setBusy] = useState<string | null>(null)
+  const [flags, setFlags] = useState<Flag[]>([]);
+  const [log, setLog] = useState<LogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showLog, setShowLog] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
 
   const loadFlags = useCallback(async () => {
     try {
-      setError(null)
-      const res = await fetchApi('/api/admin/flags')
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      setFlags(data.flags || [])
+      setError(null);
+      const res = await fetchApi('/api/admin/flags');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setFlags(data.flags || []);
     } catch (e: unknown) {
-      setError((e as Error).message || 'Failed to load flags')
+      setError((e as Error).message || 'Failed to load flags');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   const loadLog = useCallback(async () => {
     try {
-      const res = await fetchApi('/api/admin/flags/log?limit=50')
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      setLog(data.entries || [])
+      const res = await fetchApi('/api/admin/flags/log?limit=50');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setLog(data.entries || []);
     } catch (e: unknown) {
-      setError((e as Error).message || 'Failed to load log')
+      setError((e as Error).message || 'Failed to load log');
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    loadFlags()
-  }, [loadFlags])
+    loadFlags();
+  }, [loadFlags]);
 
   const toggleFlag = useCallback(
     async (key: string, enabled: boolean) => {
-      setBusy(key)
+      setBusy(key);
       try {
         const res = await fetchApi(`/api/admin/flags/${key}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled, updated_by: 'hud' }),
-        })
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        await loadFlags()
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        await loadFlags();
       } catch (e: unknown) {
-        setError((e as Error).message || `Failed to toggle ${key}`)
+        setError((e as Error).message || `Failed to toggle ${key}`);
       } finally {
-        setBusy(null)
+        setBusy(null);
       }
     },
     [loadFlags],
-  )
+  );
 
   if (loading) {
-    return <div className="flags-panel"><p style={{ color: '#888' }}>Loading flags…</p></div>
+    return (
+      <div className="flags-panel">
+        <p style={{ color: '#888' }}>Loading flags…</p>
+      </div>
+    );
   }
 
   return (
     <div className="flags-panel" style={{ padding: '12px 16px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '12px',
+        }}
+      >
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Feature Flags</h2>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             className="hud-btn"
-            onClick={() => { loadFlags(); if (showLog) loadLog() }}
+            onClick={() => {
+              loadFlags();
+              if (showLog) loadLog();
+            }}
             style={{ fontSize: '0.8rem', padding: '4px 10px' }}
           >
             ↻ Refresh
@@ -94,8 +108,8 @@ export default function FeatureFlagsPanel() {
           <button
             className="hud-btn"
             onClick={() => {
-              if (!showLog) loadLog()
-              setShowLog(!showLog)
+              if (!showLog) loadLog();
+              setShowLog(!showLog);
             }}
             style={{ fontSize: '0.8rem', padding: '4px 10px' }}
           >
@@ -105,7 +119,9 @@ export default function FeatureFlagsPanel() {
       </div>
 
       {error && (
-        <div className="data-error" style={{ marginBottom: '8px' }}>{error}</div>
+        <div className="data-error" style={{ marginBottom: '8px' }}>
+          {error}
+        </div>
       )}
 
       {showLog ? (
@@ -158,9 +174,7 @@ export default function FeatureFlagsPanel() {
                 }}
               >
                 <div>
-                  <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
-                    {flag.key}
-                  </span>
+                  <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{flag.key}</span>
                   <span
                     style={{
                       marginLeft: '8px',
@@ -202,5 +216,5 @@ export default function FeatureFlagsPanel() {
         </div>
       )}
     </div>
-  )
+  );
 }

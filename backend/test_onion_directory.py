@@ -208,8 +208,11 @@ News,,ProPublica,https://p53lf57qovyuvwsc6xnrppyply3vtqm7l6pcobkmyqsiofyeznfu5uq
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch.object(onion_directory, "_enabled", return_value=True), patch.object(
-            onion_directory.httpx, "AsyncClient", return_value=mock_client
+        with (
+            patch.object(onion_directory, "_enabled", return_value=True),
+            patch.object(
+                onion_directory.httpx, "AsyncClient", return_value=mock_client
+            ),
         ):
             result = await onion_directory._gather_directory()
 
@@ -226,8 +229,11 @@ News,,ProPublica,https://p53lf57qovyuvwsc6xnrppyply3vtqm7l6pcobkmyqsiofyeznfu5uq
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
-        with patch.object(onion_directory, "_enabled", return_value=True), patch.object(
-            onion_directory.httpx, "AsyncClient", return_value=mock_client
+        with (
+            patch.object(onion_directory, "_enabled", return_value=True),
+            patch.object(
+                onion_directory.httpx, "AsyncClient", return_value=mock_client
+            ),
         ):
             result = await onion_directory._gather_directory()
 

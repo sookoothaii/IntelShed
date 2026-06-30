@@ -89,13 +89,14 @@ class TelegramBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["count"], 0)
 
     async def test_refresh_no_channels(self):
-        with patch.object(
-            telegram_bridge._tg_config, "configured", return_value=True
-        ), patch.object(
-            type(telegram_bridge._tg_config),
-            "channels",
-            new_callable=PropertyMock,
-            return_value=[],
+        with (
+            patch.object(telegram_bridge._tg_config, "configured", return_value=True),
+            patch.object(
+                type(telegram_bridge._tg_config),
+                "channels",
+                new_callable=PropertyMock,
+                return_value=[],
+            ),
         ):
             result = await telegram_bridge.refresh_telegram_posts()
             self.assertTrue(result["enabled"])
@@ -223,13 +224,12 @@ class TelegramEntityMatchingTests(unittest.TestCase):
         """Ingest should return linked_entities list (even if empty)."""
         import ftm_query as real_ftm
 
-        with patch.object(
-            telegram_bridge._tg_config, "configured", return_value=True
-        ), patch.object(
-            telegram_bridge, "_list_person_org_entities", return_value=[]
-        ), patch.object(
-            real_ftm, "upsert", side_effect=lambda e, **kw: e
-        ), patch.object(real_ftm, "add_edge", side_effect=lambda **kw: None):
+        with (
+            patch.object(telegram_bridge._tg_config, "configured", return_value=True),
+            patch.object(telegram_bridge, "_list_person_org_entities", return_value=[]),
+            patch.object(real_ftm, "upsert", side_effect=lambda e, **kw: e),
+            patch.object(real_ftm, "add_edge", side_effect=lambda **kw: None),
+        ):
             posts = [
                 {
                     "id": "p1",

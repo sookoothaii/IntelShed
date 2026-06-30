@@ -678,10 +678,12 @@ async def fusion_heatmap(
     if compare_hours is not None:
         compare_meta = apply_compare(ranked, cell_deg, compare_hours)
         ranked.sort(
-            key=lambda c: -(
-                abs(float(c.get("delta_score") or 0))
-                if c.get("delta_score") is not None
-                else float(c.get("score") or 0)
+            key=lambda c: (
+                -(
+                    abs(float(c.get("delta_score") or 0))
+                    if c.get("delta_score") is not None
+                    else float(c.get("score") or 0)
+                )
             ),
         )
 

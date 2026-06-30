@@ -53,7 +53,7 @@ function clamp01(n: number | null | undefined): number {
 function getArr(data: unknown, key: string): Record<string, unknown>[] {
   if (!data || typeof data !== 'object') return [];
   const arr = (data as Record<string, unknown>)[key];
-  return Array.isArray(arr) ? arr as Record<string, unknown>[] : [];
+  return Array.isArray(arr) ? (arr as Record<string, unknown>[]) : [];
 }
 
 function normaliseFusionHotspots(raw: unknown): DetectionItem[] {
@@ -66,7 +66,11 @@ function normaliseFusionHotspots(raw: unknown): DetectionItem[] {
       lon: h.lon as number,
       confidence: clamp01(h.score as number),
       type: 'conflict' as DetectionType,
-      label: String(h.label || h.summary || `Fusion ${(h.lat as number).toFixed(1)}, ${(h.lon as number).toFixed(1)}`),
+      label: String(
+        h.label ||
+          h.summary ||
+          `Fusion ${(h.lat as number).toFixed(1)}, ${(h.lon as number).toFixed(1)}`,
+      ),
       source: 'fusion',
       boxDeg: 0.5,
     }));
@@ -74,7 +78,11 @@ function normaliseFusionHotspots(raw: unknown): DetectionItem[] {
 
 // ── Entity property updater (type-safe via unknown cast) ─────────────────────────
 
-function setRectProp(ent: Entity, key: 'coordinates' | 'fill' | 'material' | 'outline' | 'outlineColor', value: unknown): void {
+function setRectProp(
+  ent: Entity,
+  key: 'coordinates' | 'fill' | 'material' | 'outline' | 'outlineColor',
+  value: unknown,
+): void {
   const rect = ent.rectangle;
   if (!rect) return;
   const props = rect as unknown as Record<string, { setValue?: (v: unknown) => void } | undefined>;

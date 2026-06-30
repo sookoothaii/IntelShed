@@ -8,8 +8,9 @@ from middleware import rate_limit as rl
 
 class RateLimitBackendTests(unittest.TestCase):
     def test_memory_backend_uses_key_prefix_and_fallback(self):
-        with patch.object(rl, "RATE_LIMIT_STORAGE", "memory"), patch.object(
-            rl, "REDIS_URL", None
+        with (
+            patch.object(rl, "RATE_LIMIT_STORAGE", "memory"),
+            patch.object(rl, "REDIS_URL", None),
         ):
             limiter = rl.create_limiter()
         self.assertEqual(limiter._key_prefix, "worldbase:ratelimit:")
@@ -17,8 +18,9 @@ class RateLimitBackendTests(unittest.TestCase):
         self.assertGreater(len(limiter._default_limits), 0)
 
     def test_redis_backend_short_timeouts_and_pool(self):
-        with patch.object(rl, "RATE_LIMIT_STORAGE", "redis"), patch.object(
-            rl, "REDIS_URL", "redis://127.0.0.1:6379/0"
+        with (
+            patch.object(rl, "RATE_LIMIT_STORAGE", "redis"),
+            patch.object(rl, "REDIS_URL", "redis://127.0.0.1:6379/0"),
         ):
             opts = rl._redis_storage_options()
             limiter = rl.create_limiter()
@@ -28,8 +30,9 @@ class RateLimitBackendTests(unittest.TestCase):
         self.assertEqual(limiter._storage_uri, "redis://127.0.0.1:6379/0")
 
     def test_redis_status_probe_when_local_redis_up(self):
-        with patch.object(rl, "RATE_LIMIT_STORAGE", "redis"), patch.object(
-            rl, "REDIS_URL", "redis://127.0.0.1:6379/0"
+        with (
+            patch.object(rl, "RATE_LIMIT_STORAGE", "redis"),
+            patch.object(rl, "REDIS_URL", "redis://127.0.0.1:6379/0"),
         ):
             status = rl.get_rate_limit_backend_status()
         if status["backend"] != "redis":

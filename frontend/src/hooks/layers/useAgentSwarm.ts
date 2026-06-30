@@ -47,13 +47,7 @@ type ActivePulse = {
   expireAt: number;
 };
 
-export function useAgentSwarm({
-  viewer,
-  active,
-}: {
-  viewer: Viewer | null;
-  active: boolean;
-}) {
+export function useAgentSwarm({ viewer, active }: { viewer: Viewer | null; active: boolean }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const pulsesRef = useRef(new Map<string, ActivePulse>());
 

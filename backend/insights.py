@@ -386,7 +386,7 @@ def _narration_prompt(items: list[dict[str, Any]]) -> str:
         place = (ins.get("center") or {}).get("place", "")
         lines.append(
             f"{i}. {place} score={ins.get('score')} delta={ins.get('delta_score')}/24h "
-            f"sources=[{sources}] sample=\"{sample}\" entities=[{ents}]"
+            f'sources=[{sources}] sample="{sample}" entities=[{ents}]'
         )
     return "\n".join(lines)
 

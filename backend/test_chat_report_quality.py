@@ -565,21 +565,25 @@ class TestOrchestratorReportQuality(unittest.IsolatedAsyncioTestCase):
             {"text": "Bangkok security situation stable", "source": "gdelt"},
         ]
         modules = self._patch_modules(route_block="Bangkok context", route_hits=hits)
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator,
-            "get_config",
-            return_value=self._ConfigStub(blackboard_enabled=True),
-        ), patch.object(
-            agent_blackboard,
-            "get_config",
-            return_value=self._ConfigStub(blackboard_enabled=True),
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator,
+                "get_config",
+                return_value=self._ConfigStub(blackboard_enabled=True),
+            ),
+            patch.object(
+                agent_blackboard,
+                "get_config",
+                return_value=self._ConfigStub(blackboard_enabled=True),
+            ),
         ):
             result = await agent_orchestrator.orchestrate("Analyze Bangkok security")
 
@@ -601,21 +605,25 @@ class TestOrchestratorReportQuality(unittest.IsolatedAsyncioTestCase):
             },
         ]
         modules = self._patch_modules(route_block="earthquake context", route_hits=hits)
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator,
-            "get_config",
-            return_value=self._ConfigStub(blackboard_enabled=True),
-        ), patch.object(
-            agent_blackboard,
-            "get_config",
-            return_value=self._ConfigStub(blackboard_enabled=True),
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator,
+                "get_config",
+                return_value=self._ConfigStub(blackboard_enabled=True),
+            ),
+            patch.object(
+                agent_blackboard,
+                "get_config",
+                return_value=self._ConfigStub(blackboard_enabled=True),
+            ),
         ):
             result = await agent_orchestrator.orchestrate(
                 "Analyze earthquake near Bangkok"
@@ -632,24 +640,28 @@ class TestOrchestratorReportQuality(unittest.IsolatedAsyncioTestCase):
         import agent_blackboard
 
         modules = self._patch_modules(route_block="thin context")
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator,
-            "get_config",
-            return_value=self._ConfigStub(
-                blackboard_enabled=True, two_pass_enabled=True
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
             ),
-        ), patch.object(
-            agent_blackboard,
-            "get_config",
-            return_value=self._ConfigStub(
-                blackboard_enabled=True, two_pass_enabled=True
+            patch.object(
+                agent_orchestrator,
+                "get_config",
+                return_value=self._ConfigStub(
+                    blackboard_enabled=True, two_pass_enabled=True
+                ),
+            ),
+            patch.object(
+                agent_blackboard,
+                "get_config",
+                return_value=self._ConfigStub(
+                    blackboard_enabled=True, two_pass_enabled=True
+                ),
             ),
         ):
             result = await agent_orchestrator.orchestrate("/analyze Bangkok situation")

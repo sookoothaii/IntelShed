@@ -3,33 +3,33 @@
  */
 
 type Ctx = {
-  lat?: number
-  lon?: number
-  zoom?: number
-  icao?: string
-  hex?: string
-  mmsi?: string
-  domain?: string
-  ip?: string
-  email?: string
-  url?: string
-  query?: string
-}
+  lat?: number;
+  lon?: number;
+  zoom?: number;
+  icao?: string;
+  hex?: string;
+  mmsi?: string;
+  domain?: string;
+  ip?: string;
+  email?: string;
+  url?: string;
+  query?: string;
+};
 
 function fmtCoord(n: number, digits = 4): string {
-  return Number.isFinite(n) ? n.toFixed(digits) : ''
+  return Number.isFinite(n) ? n.toFixed(digits) : '';
 }
 
 function geoCtx(ctx: Ctx): { lat: number; lon: number; zoom: number } | null {
-  const { lat, lon } = ctx
-  if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) return null
-  return { lat, lon, zoom: ctx.zoom ?? 11 }
+  const { lat, lon } = ctx;
+  if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon, zoom: ctx.zoom ?? 11 };
 }
 
 function bboxAround(ctx: Ctx, pad = 0.45): string | null {
-  const g = geoCtx(ctx)
-  if (!g) return null
-  return `${fmtCoord(g.lon - pad, 5)},${fmtCoord(g.lat - pad, 5)},${fmtCoord(g.lon + pad, 5)},${fmtCoord(g.lat + pad, 5)}`
+  const g = geoCtx(ctx);
+  if (!g) return null;
+  return `${fmtCoord(g.lon - pad, 5)},${fmtCoord(g.lat - pad, 5)},${fmtCoord(g.lon + pad, 5)},${fmtCoord(g.lat + pad, 5)}`;
 }
 
 export const OSINT_TOOLS_EXTENDED = [
@@ -68,11 +68,11 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['ads-b', 'research'],
     kinds: ['aircraft', 'military'],
     buildUrl: (ctx: Ctx) => {
-      const hex = (ctx.icao || ctx.hex || '').toLowerCase()
-      if (hex) return `https://opensky-network.org/network/tracks?icao=${encodeURIComponent(hex)}`
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://opensky-network.org/network/explorer?lat=${fmtCoord(g.lat, 5)}&lng=${fmtCoord(g.lon, 5)}&zoom=${g.zoom}`
+      const hex = (ctx.icao || ctx.hex || '').toLowerCase();
+      if (hex) return `https://opensky-network.org/network/tracks?icao=${encodeURIComponent(hex)}`;
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://opensky-network.org/network/explorer?lat=${fmtCoord(g.lat, 5)}&lng=${fmtCoord(g.lon, 5)}&zoom=${g.zoom}`;
     },
   },
   {
@@ -86,11 +86,11 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['ads-b', 'flight'],
     kinds: ['aircraft', 'military'],
     buildUrl: (ctx: Ctx) => {
-      const hex = (ctx.icao || ctx.hex || '').toLowerCase()
-      if (hex) return `https://www.flightradar24.com/data/aircraft/${encodeURIComponent(hex)}`
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://www.flightradar24.com/${fmtCoord(g.lat, 5)},${fmtCoord(g.lon, 5)},${g.zoom}`
+      const hex = (ctx.icao || ctx.hex || '').toLowerCase();
+      if (hex) return `https://www.flightradar24.com/data/aircraft/${encodeURIComponent(hex)}`;
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://www.flightradar24.com/${fmtCoord(g.lat, 5)},${fmtCoord(g.lon, 5)},${g.zoom}`;
     },
   },
   {
@@ -104,9 +104,9 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['ads-b', 'airport'],
     kinds: ['aircraft'],
     buildUrl: (ctx: Ctx) => {
-      const hex = (ctx.icao || ctx.hex || '').toLowerCase()
-      if (hex) return `https://flightaware.com/live/flight/id/${encodeURIComponent(hex)}`
-      return null
+      const hex = (ctx.icao || ctx.hex || '').toLowerCase();
+      if (hex) return `https://flightaware.com/live/flight/id/${encodeURIComponent(hex)}`;
+      return null;
     },
   },
   {
@@ -131,10 +131,11 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['ais', 'vessel'],
     kinds: ['maritime'],
     buildUrl: (ctx: Ctx) => {
-      if (ctx.mmsi) return `https://www.vesselfinder.com/vessels/details/${encodeURIComponent(ctx.mmsi)}`
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://www.vesselfinder.com/?lat=${fmtCoord(g.lat, 5)}&lon=${fmtCoord(g.lon, 5)}&zoom=${g.zoom}`
+      if (ctx.mmsi)
+        return `https://www.vesselfinder.com/vessels/details/${encodeURIComponent(ctx.mmsi)}`;
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://www.vesselfinder.com/?lat=${fmtCoord(g.lat, 5)}&lon=${fmtCoord(g.lon, 5)}&zoom=${g.zoom}`;
     },
   },
   {
@@ -171,9 +172,9 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['conflict', 'events', 'data'],
     kinds: ['geopolitics', 'gdelt_geo', 'situation', 'hazard', 'event'],
     buildUrl: (ctx: Ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return 'https://acleddata.com/monitor/'
-      return `https://acleddata.com/monitor/#map/${g.zoom}/${fmtCoord(g.lat, 5)}/${fmtCoord(g.lon, 5)}`
+      const g = geoCtx(ctx);
+      if (!g) return 'https://acleddata.com/monitor/';
+      return `https://acleddata.com/monitor/#map/${g.zoom}/${fmtCoord(g.lat, 5)}/${fmtCoord(g.lon, 5)}`;
     },
   },
   {
@@ -203,16 +204,17 @@ export const OSINT_TOOLS_EXTENDED = [
     id: 'nasa-worldview',
     label: 'NASA Worldview',
     category: 'imagery',
-    description: 'Near-real-time satellite layers with timeline animation — disasters, fires, storms.',
+    description:
+      'Near-real-time satellite layers with timeline animation — disasters, fires, storms.',
     stackNote: 'Same NASA family as GIBS overlays on WorldBase globe.',
     stackRelation: 'complement',
     homeUrl: 'https://worldview.earthdata.nasa.gov/',
     tags: ['nasa', 'timeline', 'disaster'],
     kinds: ['wildfire', 'event', 'gdacs', 'weather', 'quake'],
     buildUrl: (ctx: Ctx) => {
-      const bb = bboxAround(ctx)
-      if (!bb) return null
-      return `https://worldview.earthdata.nasa.gov/?v=${bb}`
+      const bb = bboxAround(ctx);
+      if (!bb) return null;
+      return `https://worldview.earthdata.nasa.gov/?v=${bb}`;
     },
   },
   {
@@ -226,9 +228,9 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['firms', 'fire'],
     kinds: ['wildfire'],
     buildUrl: (ctx: Ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://firms.modaps.eosdis.nasa.gov/map/#v:${fmtCoord(g.lat, 5)}:${fmtCoord(g.lon, 5)}:${g.zoom}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://firms.modaps.eosdis.nasa.gov/map/#v:${fmtCoord(g.lat, 5)}:${fmtCoord(g.lon, 5)}:${g.zoom}`;
     },
   },
   {
@@ -242,9 +244,9 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['weather', 'satellite'],
     kinds: ['weather', 'wildfire', 'gdacs'],
     buildUrl: (ctx: Ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://zoom.earth/#${fmtCoord(g.lat, 5)},${fmtCoord(g.lon, 5)},${g.zoom}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://zoom.earth/#${fmtCoord(g.lat, 5)},${fmtCoord(g.lon, 5)},${g.zoom}`;
     },
   },
   {
@@ -258,9 +260,9 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['sentinel', 'landsat'],
     kinds: ['wildfire', 'event', 'situation'],
     buildUrl: (ctx: Ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://apps.sentinel-hub.com/eo-browser/?lat=${fmtCoord(g.lat, 5)}&lng=${fmtCoord(g.lon, 5)}&zoom=${g.zoom}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://apps.sentinel-hub.com/eo-browser/?lat=${fmtCoord(g.lat, 5)}&lng=${fmtCoord(g.lon, 5)}&zoom=${g.zoom}`;
     },
   },
   {
@@ -278,7 +280,8 @@ export const OSINT_TOOLS_EXTENDED = [
     id: 'usgs-earthexplorer',
     label: 'USGS EarthExplorer',
     category: 'imagery',
-    description: 'Historical aerial and declassified satellite archives — free account for download.',
+    description:
+      'Historical aerial and declassified satellite archives — free account for download.',
     stackNote: 'Heavy workflow; desktop GIS follow-up with QGIS.',
     stackRelation: 'reference',
     homeUrl: 'https://earthexplorer.usgs.gov/',
@@ -294,9 +297,9 @@ export const OSINT_TOOLS_EXTENDED = [
     homeUrl: 'https://www.openstreetmap.org/',
     tags: ['osm', 'map'],
     buildUrl: (ctx: Ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://www.openstreetmap.org/#map=${Math.min(18, g.zoom + 2)}/${fmtCoord(g.lat, 5)}/${fmtCoord(g.lon, 5)}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://www.openstreetmap.org/#map=${Math.min(18, g.zoom + 2)}/${fmtCoord(g.lat, 5)}/${fmtCoord(g.lon, 5)}`;
     },
   },
   {
@@ -355,7 +358,8 @@ export const OSINT_TOOLS_EXTENDED = [
     id: 'cloudflare-radar',
     label: 'Cloudflare Radar',
     category: 'infra',
-    description: 'Traffic trends, attacks, and anomalies — optional token enhances WorldBase outages.',
+    description:
+      'Traffic trends, attacks, and anomalies — optional token enhances WorldBase outages.',
     stackNote: 'Set CLOUDFLARE_API_TOKEN in backend/.env for /api/outages CF rows.',
     stackRelation: 'complement',
     homeUrl: 'https://radar.cloudflare.com/',
@@ -394,9 +398,9 @@ export const OSINT_TOOLS_EXTENDED = [
     homeUrl: 'http://radio.garden/',
     tags: ['radio', 'audio'],
     buildUrl: (ctx: Ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `http://radio.garden/visit/${fmtCoord(g.lat, 5)}/${fmtCoord(g.lon, 5)}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `http://radio.garden/visit/${fmtCoord(g.lat, 5)}/${fmtCoord(g.lon, 5)}`;
     },
   },
   {
@@ -421,8 +425,8 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['tls', 'subdomain'],
     kinds: ['osint'],
     buildUrl: (ctx: Ctx) => {
-      if (!ctx.domain) return null
-      return `https://crt.sh/?q=${encodeURIComponent(`%.${ctx.domain}`)}`
+      if (!ctx.domain) return null;
+      return `https://crt.sh/?q=${encodeURIComponent(`%.${ctx.domain}`)}`;
     },
   },
   {
@@ -436,9 +440,10 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['iot', 'infra'],
     kinds: ['osint'],
     buildUrl: (ctx: Ctx) => {
-      if (ctx.ip) return `https://www.shodan.io/host/${encodeURIComponent(ctx.ip)}`
-      if (ctx.domain) return `https://www.shodan.io/search?query=hostname:${encodeURIComponent(ctx.domain)}`
-      return null
+      if (ctx.ip) return `https://www.shodan.io/host/${encodeURIComponent(ctx.ip)}`;
+      if (ctx.domain)
+        return `https://www.shodan.io/search?query=hostname:${encodeURIComponent(ctx.domain)}`;
+      return null;
     },
   },
   {
@@ -452,9 +457,10 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['scan', 'certs'],
     kinds: ['osint'],
     buildUrl: (ctx: Ctx) => {
-      if (ctx.ip) return `https://search.censys.io/hosts/${encodeURIComponent(ctx.ip)}`
-      if (ctx.domain) return `https://search.censys.io/search?resource=hosts&q=${encodeURIComponent(ctx.domain)}`
-      return null
+      if (ctx.ip) return `https://search.censys.io/hosts/${encodeURIComponent(ctx.ip)}`;
+      if (ctx.domain)
+        return `https://search.censys.io/search?resource=hosts&q=${encodeURIComponent(ctx.domain)}`;
+      return null;
     },
   },
   {
@@ -468,10 +474,10 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['web', 'scan'],
     kinds: ['osint'],
     buildUrl: (ctx: Ctx) => {
-      if (ctx.domain) return `https://urlscan.io/domain/${encodeURIComponent(ctx.domain)}`
-      const u = ctx.url || ctx.query
-      if (u?.startsWith('http')) return `https://urlscan.io/search/#${encodeURIComponent(u)}`
-      return null
+      if (ctx.domain) return `https://urlscan.io/domain/${encodeURIComponent(ctx.domain)}`;
+      const u = ctx.url || ctx.query;
+      if (u?.startsWith('http')) return `https://urlscan.io/search/#${encodeURIComponent(u)}`;
+      return null;
     },
   },
   {
@@ -485,8 +491,8 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['dns', 'history'],
     kinds: ['osint'],
     buildUrl: (ctx: Ctx) => {
-      if (!ctx.domain) return null
-      return `https://securitytrails.com/domain/${encodeURIComponent(ctx.domain)}/dns`
+      if (!ctx.domain) return null;
+      return `https://securitytrails.com/domain/${encodeURIComponent(ctx.domain)}/dns`;
     },
   },
   {
@@ -500,9 +506,9 @@ export const OSINT_TOOLS_EXTENDED = [
     tags: ['archive', 'web'],
     kinds: ['osint'],
     buildUrl: (ctx: Ctx) => {
-      const host = ctx.domain || (ctx.url?.replace(/^https?:\/\//, '').split('/')[0])
-      if (!host) return null
-      return `https://web.archive.org/web/*/${encodeURIComponent(`https://${host}`)}`
+      const host = ctx.domain || ctx.url?.replace(/^https?:\/\//, '').split('/')[0];
+      if (!host) return null;
+      return `https://web.archive.org/web/*/${encodeURIComponent(`https://${host}`)}`;
     },
   },
   {
@@ -515,9 +521,9 @@ export const OSINT_TOOLS_EXTENDED = [
     homeUrl: 'https://wigle.net/',
     tags: ['wifi', 'geo'],
     buildUrl: (ctx: Ctx) => {
-      const g = geoCtx(ctx)
-      if (!g) return null
-      return `https://wigle.net/map?maplat=${fmtCoord(g.lat, 5)}&maplon=${fmtCoord(g.lon, 5)}&mapzoom=${g.zoom}`
+      const g = geoCtx(ctx);
+      if (!g) return null;
+      return `https://wigle.net/map?maplat=${fmtCoord(g.lat, 5)}&maplon=${fmtCoord(g.lon, 5)}&mapzoom=${g.zoom}`;
     },
   },
   // --- identity extended ---
@@ -526,14 +532,15 @@ export const OSINT_TOOLS_EXTENDED = [
     label: 'Have I Been Pwned',
     category: 'identity',
     description: 'Check emails/passwords against known breaches.',
-    stackNote: 'WorldBase /api/osint/email returns breach_check_url + optional HIBP_API_KEY lookup.',
+    stackNote:
+      'WorldBase /api/osint/email returns breach_check_url + optional HIBP_API_KEY lookup.',
     stackRelation: 'complement',
     homeUrl: 'https://haveibeenpwned.com/',
     tags: ['breach', 'email'],
     kinds: ['osint'],
     buildUrl: (ctx: Ctx) => {
-      if (!ctx.email) return null
-      return `https://haveibeenpwned.com/account/${encodeURIComponent(ctx.email)}`
+      if (!ctx.email) return null;
+      return `https://haveibeenpwned.com/account/${encodeURIComponent(ctx.email)}`;
     },
   },
   {
@@ -596,4 +603,4 @@ export const OSINT_TOOLS_EXTENDED = [
     homeUrl: 'https://www.spiderfoot.net/',
     tags: ['automation', 'self-host'],
   },
-]
+];

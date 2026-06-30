@@ -1,17 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react';
 import {
   buildOsintToolLinks,
   OSINT_CATEGORIES,
   parseOsintContext,
   type OsintContext,
   type OsintToolLink,
-} from '../lib/osintToolkit'
+} from '../lib/osintToolkit';
 
 function openUrl(url: string) {
   if (url.startsWith('/')) {
-    window.open(`${window.location.origin}${url}`, '_blank', 'noopener,noreferrer')
+    window.open(`${window.location.origin}${url}`, '_blank', 'noopener,noreferrer');
   } else {
-    window.open(url, '_blank', 'noopener,noreferrer')
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 }
 
@@ -25,9 +25,11 @@ function LinkButton({ link, compact }: { link: OsintToolLink; compact?: boolean 
     >
       <span className="osint-ext-link-label">{link.label}</span>
       {link.contextual && <span className="osint-ext-link-badge">CTX</span>}
-      <span className="osint-ext-link-arrow" aria-hidden>↗</span>
+      <span className="osint-ext-link-arrow" aria-hidden>
+        ↗
+      </span>
     </button>
-  )
+  );
 }
 
 export default function OsintExternalLinks({
@@ -38,26 +40,26 @@ export default function OsintExternalLinks({
   lon,
   maxInitial = 10,
 }: {
-  kind?: string
-  title?: string
-  lines?: string[]
-  lat?: number
-  lon?: number
-  maxInitial?: number
+  kind?: string;
+  title?: string;
+  lines?: string[];
+  lat?: number;
+  lon?: number;
+  maxInitial?: number;
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(false);
 
   const ctx = useMemo(
     () => parseOsintContext({ kind, title, lines, lat, lon }),
     [kind, title, lines, lat, lon],
-  )
+  );
 
-  const links = useMemo(() => buildOsintToolLinks(ctx), [ctx])
-  const contextual = links.filter((l) => l.contextual || l.relevance >= 35)
-  const top = expanded ? links : links.slice(0, maxInitial)
-  const hasMore = links.length > maxInitial
+  const links = useMemo(() => buildOsintToolLinks(ctx), [ctx]);
+  const contextual = links.filter((l) => l.contextual || l.relevance >= 35);
+  const top = expanded ? links : links.slice(0, maxInitial);
+  const hasMore = links.length > maxInitial;
 
-  if (!links.length) return null
+  if (!links.length) return null;
 
   return (
     <div className="osint-ext-links">
@@ -82,11 +84,12 @@ export default function OsintExternalLinks({
       )}
 
       <div className="osint-ext-links-section">
-        {!expanded && contextual.length > 0 && (
-          <div className="osint-ext-links-sub">ALL TOOLS</div>
-        )}
+        {!expanded && contextual.length > 0 && <div className="osint-ext-links-sub">ALL TOOLS</div>}
         <div className="osint-ext-links-grid">
-          {(expanded ? top : top.filter((l) => !contextual.slice(0, 6).some((c) => c.id === l.id))).map((l) => (
+          {(expanded
+            ? top
+            : top.filter((l) => !contextual.slice(0, 6).some((c) => c.id === l.id))
+          ).map((l) => (
             <LinkButton key={`all-${l.id}`} link={l} compact />
           ))}
         </div>
@@ -102,24 +105,24 @@ export default function OsintExternalLinks({
         </button>
       )}
     </div>
-  )
+  );
 }
 
 /** Standalone context builder for the reference panel. */
 export function OsintContextPreview({ ctx }: { ctx: OsintContext }) {
-  const links = useMemo(() => buildOsintToolLinks(ctx), [ctx])
+  const links = useMemo(() => buildOsintToolLinks(ctx), [ctx]);
   const byCat = useMemo(() => {
-    const m = new Map<string, OsintToolLink[]>()
-    for (const cat of OSINT_CATEGORIES) m.set(cat.id, [])
-    for (const l of links) m.get(l.category)?.push(l)
-    return m
-  }, [links])
+    const m = new Map<string, OsintToolLink[]>();
+    for (const cat of OSINT_CATEGORIES) m.set(cat.id, []);
+    for (const l of links) m.get(l.category)?.push(l);
+    return m;
+  }, [links]);
 
   return (
     <div className="osint-ref-preview">
       {OSINT_CATEGORIES.map((cat) => {
-        const items = byCat.get(cat.id) || []
-        if (!items.length) return null
+        const items = byCat.get(cat.id) || [];
+        if (!items.length) return null;
         return (
           <div key={cat.id} className="osint-ref-cat-block">
             <div className="osint-ref-cat-head">{cat.label}</div>
@@ -129,8 +132,8 @@ export function OsintContextPreview({ ctx }: { ctx: OsintContext }) {
               ))}
             </div>
           </div>
-        )
+        );
       })}
     </div>
-  )
+  );
 }

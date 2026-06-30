@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   CustomDataSource,
   Color,
@@ -8,10 +8,10 @@ import {
   Cartesian2,
   DistanceDisplayCondition,
   Viewer,
-} from 'cesium'
-import { fetchApi } from '../../lib/networkFetch'
-import { attachDataSource, detachDataSource, feedPos, feedPoint } from './layerUtils'
-import type { Stats } from '../../lib/types'
+} from 'cesium';
+import { fetchApi } from '../../lib/networkFetch';
+import { attachDataSource, detachDataSource, feedPos, feedPoint } from './layerUtils';
+import type { Stats } from '../../lib/types';
 
 const DARKWEB_COLOR = '#9d4edd';
 

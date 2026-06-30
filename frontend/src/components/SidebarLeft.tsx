@@ -1,27 +1,27 @@
-import { useCallback, useEffect, useState } from 'react'
-import { fetchApi } from '../lib/networkFetch'
-import LayerTree from './LayerTree'
+import { useCallback, useEffect, useState } from 'react';
+import { fetchApi } from '../lib/networkFetch';
+import LayerTree from './LayerTree';
 
 /* ── Types ────────────────────────────────────────────────────────────────── */
 
 type HealthResponse = {
-  status?: string
-  feeds_fresh?: number
-  feeds_stale?: number
-  feed_count?: number | string
-  feeds?: Record<string, Record<string, unknown>>
-  ftm?: { ready?: boolean; entities?: number | string }
-  [key: string]: unknown
-}
+  status?: string;
+  feeds_fresh?: number;
+  feeds_stale?: number;
+  feed_count?: number | string;
+  feeds?: Record<string, Record<string, unknown>>;
+  ftm?: { ready?: boolean; entities?: number | string };
+  [key: string]: unknown;
+};
 
 type FeedRow = {
-  key: string
-  status?: string
-  fresh?: boolean
-  age_sec?: number
-  count?: number | null
-  error?: string | null
-}
+  key: string;
+  status?: string;
+  fresh?: boolean;
+  age_sec?: number;
+  count?: number | null;
+  error?: string | null;
+};
 
 /* ── Component ─────────────────────────────────────────────────────────────── */
 
@@ -32,42 +32,50 @@ export default function SidebarLeft({
   onToggleCollapse,
   stats,
 }: {
-  layers: Record<string, boolean>
-  onToggleLayer: (k: string) => void
-  collapsed: boolean
-  onToggleCollapse: () => void
-  stats?: Record<string, number>
+  layers: Record<string, boolean>;
+  onToggleLayer: (k: string) => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  stats?: Record<string, number>;
 }) {
-  const [health, setHealth] = useState<HealthResponse | null>(null)
+  const [health, setHealth] = useState<HealthResponse | null>(null);
 
   const loadHealth = useCallback(async () => {
     try {
-      const r = await fetchApi('/api/health')
-      if (r.ok) setHealth(await r.json())
-    } catch { /* fail-soft */ }
-  }, [])
+      const r = await fetchApi('/api/health');
+      if (r.ok) setHealth(await r.json());
+    } catch {
+      /* fail-soft */
+    }
+  }, []);
 
   useEffect(() => {
-    loadHealth()
-    const t = setInterval(loadHealth, 60_000)
-    return () => clearInterval(t)
-  }, [loadHealth])
+    loadHealth();
+    const t = setInterval(loadHealth, 60_000);
+    return () => clearInterval(t);
+  }, [loadHealth]);
 
   const feeds: FeedRow[] = health?.feeds
     ? Object.entries(health.feeds).map(([key, val]) => ({ key, ...val }))
-    : []
-  const freshCount = feeds.filter((f) => f.fresh !== false && f.status !== 'stale' && f.status !== 'error').length
-  const staleCount = feeds.filter((f) => f.fresh === false || f.status === 'stale').length
-  const errorCount = feeds.filter((f) => f.status === 'error').length
+    : [];
+  const freshCount = feeds.filter(
+    (f) => f.fresh !== false && f.status !== 'stale' && f.status !== 'error',
+  ).length;
+  const staleCount = feeds.filter((f) => f.fresh === false || f.status === 'stale').length;
+  const errorCount = feeds.filter((f) => f.status === 'error').length;
 
   if (collapsed) {
     return (
       <aside className="hud-sidebar hud-sidebar--left hud-sidebar--collapsed">
-        <button className="sidebar-expand-btn" onClick={onToggleCollapse} title="Expand left sidebar">
+        <button
+          className="sidebar-expand-btn"
+          onClick={onToggleCollapse}
+          title="Expand left sidebar"
+        >
           ▸
         </button>
       </aside>
-    )
+    );
   }
 
   return (
@@ -104,9 +112,11 @@ export default function SidebarLeft({
                 className="sidebar-feed-dot"
                 style={{
                   background:
-                    f.status === 'error' ? '#ff4d5e'
-                    : f.fresh === false || f.status === 'stale' ? '#ffd23f'
-                    : 'var(--accent)',
+                    f.status === 'error'
+                      ? '#ff4d5e'
+                      : f.fresh === false || f.status === 'stale'
+                        ? '#ffd23f'
+                        : 'var(--accent)',
                 }}
               />
               <span className="sidebar-feed-name">{f.key}</span>
@@ -116,5 +126,5 @@ export default function SidebarLeft({
         </div>
       </div>
     </aside>
-  )
+  );
 }

@@ -8,7 +8,7 @@ import {
   VerticalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
@@ -27,7 +27,7 @@ export function useAirqualityLayer({
   active,
   feedActive,
   canFetch,
-  setStats
+  setStats,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -52,7 +52,7 @@ export function useAirqualityLayer({
     const src = new CustomDataSource('airquality');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -67,10 +67,10 @@ export function useAirqualityLayer({
   useEffect(() => {
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
-    
+
     src.entities.suspendEvents();
     src.entities.removeAll();
-    
+
     for (const c of data.cities || []) {
       if (c.lon == null || c.lat == null) continue;
       const col = Color.fromCssColorString(aqColor(c.pm25));
@@ -102,7 +102,7 @@ export function useAirqualityLayer({
         },
       });
     }
-    
+
     src.entities.resumeEvents();
     setStats((p: Stats) => ({ ...p, airquality: (data?.cities || []).length }));
   }, [viewer, data, active, setStats]);

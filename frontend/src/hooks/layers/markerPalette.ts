@@ -14,10 +14,10 @@ export type MarkerCategory = 'critical' | 'warning' | 'info' | 'intel' | 'own';
 /** MSS palette: 5 colors, each carries semantic meaning. */
 const MSS_PALETTE: Record<MarkerCategory, Color> = {
   critical: Color.fromCssColorString('#EF4444'), // red — quakes, wildfires, geopolitics
-  warning: Color.fromCssColorString('#F59E0B'),  // amber — events, gdacs, volcanoes, hazards
-  info: Color.fromCssColorString('#60A5FA'),     // blue — aircraft, satellites, maritime, transit
-  intel: Color.fromCssColorString('#A78BFA'),    // purple — intelFt, darkweb, outages
-  own: Color.fromCssColorString('#8BC34A'),      // green/accent — nodes, osint
+  warning: Color.fromCssColorString('#F59E0B'), // amber — events, gdacs, volcanoes, hazards
+  info: Color.fromCssColorString('#60A5FA'), // blue — aircraft, satellites, maritime, transit
+  intel: Color.fromCssColorString('#A78BFA'), // purple — intelFt, darkweb, outages
+  own: Color.fromCssColorString('#8BC34A'), // green/accent — nodes, osint
 };
 
 /** Dim context color — single muted hue for non-selected markers. */
@@ -128,7 +128,9 @@ export function focusContextColor(
  * @param maxHeight Maximum camera height (meters) at which markers are visible.
  *                  Default: 8e6 (~viewing continent level).
  */
-export function mssZoomGate(maxHeight = 8e6): { distanceDisplayCondition?: { near: number; far: number } } {
+export function mssZoomGate(maxHeight = 8e6): {
+  distanceDisplayCondition?: { near: number; far: number };
+} {
   if (!isMssTheme()) return {};
   return { distanceDisplayCondition: { near: 0, far: maxHeight } };
 }

@@ -1,28 +1,28 @@
-import { memo } from 'react'
+import { memo } from 'react';
 
 export interface TrustGaugeProps {
-  value: number | null | undefined
-  label: string
-  size?: number
-  compact?: boolean
+  value: number | null | undefined;
+  label: string;
+  size?: number;
+  compact?: boolean;
 }
 
 function gaugeColor(v: number): string {
-  if (v >= 0.7) return 'var(--green)'
-  if (v >= 0.4) return 'var(--amber)'
-  return 'var(--red)'
+  if (v >= 0.7) return 'var(--green)';
+  if (v >= 0.4) return 'var(--amber)';
+  return 'var(--red)';
 }
 
 function TrustGaugeBase({ value, label, size = 80, compact = false }: TrustGaugeProps) {
-  const v = value != null && !isNaN(value) ? Math.max(0, Math.min(1, value)) : null
-  const pct = v != null ? Math.round(v * 100) : 0
-  const stroke = compact ? 3 : 4
-  const radius = size / 2 - stroke
-  const circumference = Math.PI * radius
-  const dashoffset = v != null ? circumference * (1 - v) : circumference
-  const color = v != null ? gaugeColor(v) : 'var(--txt-muted)'
-  const half = size / 2
-  const height = half + stroke + 2
+  const v = value != null && !isNaN(value) ? Math.max(0, Math.min(1, value)) : null;
+  const pct = v != null ? Math.round(v * 100) : 0;
+  const stroke = compact ? 3 : 4;
+  const radius = size / 2 - stroke;
+  const circumference = Math.PI * radius;
+  const dashoffset = v != null ? circumference * (1 - v) : circumference;
+  const color = v != null ? gaugeColor(v) : 'var(--txt-muted)';
+  const half = size / 2;
+  const height = half + stroke + 2;
 
   return (
     <div
@@ -53,17 +53,14 @@ function TrustGaugeBase({ value, label, size = 80, compact = false }: TrustGauge
             style={{ transition: 'stroke-dashoffset 500ms ease' }}
           />
         </svg>
-        <div
-          className="trust-gauge-value"
-          style={{ fontSize: compact ? 11 : 14 }}
-        >
+        <div className="trust-gauge-value" style={{ fontSize: compact ? 11 : 14 }}>
           {v != null ? `${pct}%` : '—'}
         </div>
       </div>
       <div className="trust-gauge-label">{label}</div>
     </div>
-  )
+  );
 }
 
-const TrustGauge = memo(TrustGaugeBase)
-export default TrustGauge
+const TrustGauge = memo(TrustGaugeBase);
+export default TrustGauge;

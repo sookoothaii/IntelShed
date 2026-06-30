@@ -1,67 +1,67 @@
-import { useState, useEffect, useCallback } from 'react'
-import { fetchApi } from '../lib/networkFetch'
-import type { FocusTarget } from '../lib/focus'
-import { hudStore, type SatelliteChangeData } from '../stores/hudStore'
+import { useState, useEffect, useCallback } from 'react';
+import { fetchApi } from '../lib/networkFetch';
+import type { FocusTarget } from '../lib/focus';
+import { hudStore, type SatelliteChangeData } from '../stores/hudStore';
 
 interface AnomalyFeature {
-  type: 'Feature'
+  type: 'Feature';
   geometry: {
-    type: 'Polygon'
-    coordinates: number[][][]
-  }
+    type: 'Polygon';
+    coordinates: number[][][];
+  };
   properties: {
-    class: 'increase' | 'decrease'
-    mean_delta: number
-    max_delta: number
-    min_delta: number
-    pixel_count: number
-    confidence: number
-  }
+    class: 'increase' | 'decrease';
+    mean_delta: number;
+    max_delta: number;
+    min_delta: number;
+    pixel_count: number;
+    confidence: number;
+  };
 }
 
 interface ChangeResult {
-  type: 'FeatureCollection'
+  type: 'FeatureCollection';
   properties: {
-    before_id: string
-    after_id: string
-    before_scene?: { id: string; datetime?: string; cloud_cover?: number }
-    after_scene?: { id: string; datetime?: string; cloud_cover?: number }
-    index: string
-    threshold: number
-    feature_count: number
-    total_pixels: number
-    bbox: number[]
-    crs: string
-    resolution: number
-  }
-  features: AnomalyFeature[]
-  cached?: boolean
-  cached_at?: string
+    before_id: string;
+    after_id: string;
+    before_scene?: { id: string; datetime?: string; cloud_cover?: number };
+    after_scene?: { id: string; datetime?: string; cloud_cover?: number };
+    index: string;
+    threshold: number;
+    feature_count: number;
+    total_pixels: number;
+    bbox: number[];
+    crs: string;
+    resolution: number;
+  };
+  features: AnomalyFeature[];
+  cached?: boolean;
+  cached_at?: string;
 }
 
 interface SatelliteHealth {
-  enabled: boolean
-  rasterio_available: boolean
-  stac_source?: string
-  stac_url?: string
-  collections: string[]
+  enabled: boolean;
+  rasterio_available: boolean;
+  stac_source?: string;
+  stac_url?: string;
+  collections: string[];
 }
 
 interface NdviResult {
-  region: string
-  scene_id: string
-  scene_datetime?: string
-  cloud_cover?: number
-  valid_pixels: number
-  mean: number | null
-  std: number | null
-  min: number | null
-  max: number | null
-  histogram: Array<{ bin_low: number; count: number }>
-  bbox: number[]
-  crs: string
-  resolution: number
-  error?: string
+  region: string;
+  scene_id: string;
+  scene_datetime?: string;
+  cloud_cover?: number;
+  valid_pixels: number;
+  mean: number | null;
+  std: number | null;
+  min: number | null;
+  max: number | null;
+  histogram: Array<{ bin_low: number; count: number }>;
+  bbox: number[];
+  crs: string;
+  resolution: number;
+  error?: string;
 }
 
 const REGIONS = [
@@ -72,68 +72,68 @@ const REGIONS = [
   { id: 'asean', label: 'Southeast Asia' },
   { id: 'germany', label: 'Germany' },
   { id: 'rhein', label: 'Rhein corridor' },
-]
+];
 
 function formatDateInput(d: Date): string {
-  return d.toISOString().split('T')[0]
+  return d.toISOString().split('T')[0];
 }
 
 function polygonCentroid(coords: number[][][]): { lat: number; lon: number } | null {
-  const ring = coords[0]
-  if (!ring || ring.length === 0) return null
-  let lat = 0
-  let lon = 0
-  let n = 0
+  const ring = coords[0];
+  if (!ring || ring.length === 0) return null;
+  let lat = 0;
+  let lon = 0;
+  let n = 0;
   for (const [x, y] of ring) {
-    lon += x
-    lat += y
-    n += 1
+    lon += x;
+    lat += y;
+    n += 1;
   }
-  return n === 0 ? null : { lat: lat / n, lon: lon / n }
+  return n === 0 ? null : { lat: lat / n, lon: lon / n };
 }
 
 export default function SatellitePanel({
   onFocus,
 }: {
-  onFocus: (f: Omit<FocusTarget, 'ts'>) => void
+  onFocus: (f: Omit<FocusTarget, 'ts'>) => void;
 }) {
-  const [health, setHealth] = useState<SatelliteHealth | null>(null)
-  const [region, setRegion] = useState('bangkok')
+  const [health, setHealth] = useState<SatelliteHealth | null>(null);
+  const [region, setRegion] = useState('bangkok');
   const [before, setBefore] = useState(() => {
-    const d = new Date()
-    d.setDate(d.getDate() - 60)
-    return formatDateInput(d)
-  })
-  const [after, setAfter] = useState(() => formatDateInput(new Date()))
-  const [index, setIndex] = useState('ndvi')
-  const [threshold, setThreshold] = useState(0.2)
-  const [resolution, setResolution] = useState(60)
-  const [cloudCover, setCloudCover] = useState(25)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<ChangeResult | null>(null)
-  const [ndviResult, setNdviResult] = useState<NdviResult | null>(null)
-  const [ndviLoading, setNdviLoading] = useState(false)
-  const [ndviError, setNdviError] = useState<string | null>(null)
-  const [showOnGlobe, setShowOnGlobe] = useState(true)
+    const d = new Date();
+    d.setDate(d.getDate() - 60);
+    return formatDateInput(d);
+  });
+  const [after, setAfter] = useState(() => formatDateInput(new Date()));
+  const [index, setIndex] = useState('ndvi');
+  const [threshold, setThreshold] = useState(0.2);
+  const [resolution, setResolution] = useState(60);
+  const [cloudCover, setCloudCover] = useState(25);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ChangeResult | null>(null);
+  const [ndviResult, setNdviResult] = useState<NdviResult | null>(null);
+  const [ndviLoading, setNdviLoading] = useState(false);
+  const [ndviError, setNdviError] = useState<string | null>(null);
+  const [showOnGlobe, setShowOnGlobe] = useState(true);
 
   const loadHealth = useCallback(async () => {
     try {
-      const r = await fetchApi('/api/satellite/health')
-      if (r.ok) setHealth(await r.json())
+      const r = await fetchApi('/api/satellite/health');
+      if (r.ok) setHealth(await r.json());
     } catch {
       // ignore
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    loadHealth()
-  }, [loadHealth])
+    loadHealth();
+  }, [loadHealth]);
 
   const handleRun = async () => {
-    setLoading(true)
-    setError(null)
-    setResult(null)
+    setLoading(true);
+    setError(null);
+    setResult(null);
     try {
       const params = new URLSearchParams({
         region,
@@ -143,54 +143,54 @@ export default function SatellitePanel({
         threshold: String(threshold),
         resolution: String(resolution),
         cloud_cover_max: String(cloudCover),
-      })
-      const r = await fetchApi(`/api/satellite/change?${params.toString()}`)
+      });
+      const r = await fetchApi(`/api/satellite/change?${params.toString()}`);
       if (!r.ok) {
-        const body = await r.json().catch(() => ({}))
-        throw new Error(body.detail || `${r.status} ${r.statusText}`)
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail || `${r.status} ${r.statusText}`);
       }
-      setResult(await r.json())
+      setResult(await r.json());
       // Push to HUD store for globe layer rendering
-      const data = (await r.clone().json()) as SatelliteChangeData
-      if (showOnGlobe) hudStore.setSatelliteChangeData(data)
+      const data = (await r.clone().json()) as SatelliteChangeData;
+      if (showOnGlobe) hudStore.setSatelliteChangeData(data);
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleNdvi = async () => {
-    setNdviLoading(true)
-    setNdviError(null)
-    setNdviResult(null)
+    setNdviLoading(true);
+    setNdviError(null);
+    setNdviResult(null);
     try {
-      const r = await fetchApi(`/api/satellite/ndvi/${region}`)
+      const r = await fetchApi(`/api/satellite/ndvi/${region}`);
       if (!r.ok) {
-        const body = await r.json().catch(() => ({}))
-        throw new Error(body.detail || `${r.status} ${r.statusText}`)
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.detail || `${r.status} ${r.statusText}`);
       }
-      setNdviResult(await r.json())
+      setNdviResult(await r.json());
     } catch (e) {
-      setNdviError((e as Error).message)
+      setNdviError((e as Error).message);
     } finally {
-      setNdviLoading(false)
+      setNdviLoading(false);
     }
-  }
+  };
 
   const toggleGlobeLayer = (on: boolean) => {
-    setShowOnGlobe(on)
+    setShowOnGlobe(on);
     if (on && result) {
-      hudStore.setSatelliteChangeData(result as SatelliteChangeData)
+      hudStore.setSatelliteChangeData(result as SatelliteChangeData);
     } else if (!on) {
-      hudStore.setSatelliteChangeData(null)
+      hudStore.setSatelliteChangeData(null);
     }
-  }
+  };
 
   const focusAnomaly = (f: AnomalyFeature) => {
-    const c = polygonCentroid(f.geometry.coordinates)
-    if (!c) return
-    const props = f.properties
+    const c = polygonCentroid(f.geometry.coordinates);
+    if (!c) return;
+    const props = f.properties;
     onFocus({
       kind: 'satellite_change',
       lon: c.lon,
@@ -204,8 +204,8 @@ export default function SatellitePanel({
         `PIXELS: ${props.pixel_count}`,
         `CONFIDENCE: ${(props.confidence * 100).toFixed(1)}%`,
       ],
-    })
-  }
+    });
+  };
 
   const tagStyle = (color: string) => ({
     padding: '2px 6px',
@@ -215,7 +215,7 @@ export default function SatellitePanel({
     color,
     marginRight: 4,
     display: 'inline-block',
-  })
+  });
 
   return (
     <div style={{ padding: 12, height: '100%', overflow: 'auto' }}>
@@ -236,11 +236,24 @@ export default function SatellitePanel({
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          marginBottom: 12,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+        }}
+      >
         <select
           value={region}
           onChange={(e) => setRegion(e.target.value)}
-          style={{ padding: 4, background: '#0b1d1d', color: '#b0c4bf', border: '1px solid #1e3a3a' }}
+          style={{
+            padding: 4,
+            background: '#0b1d1d',
+            color: '#b0c4bf',
+            border: '1px solid #1e3a3a',
+          }}
         >
           {REGIONS.map((r) => (
             <option key={r.id} value={r.id}>
@@ -251,7 +264,12 @@ export default function SatellitePanel({
         <select
           value={index}
           onChange={(e) => setIndex(e.target.value)}
-          style={{ padding: 4, background: '#0b1d1d', color: '#b0c4bf', border: '1px solid #1e3a3a' }}
+          style={{
+            padding: 4,
+            background: '#0b1d1d',
+            color: '#b0c4bf',
+            border: '1px solid #1e3a3a',
+          }}
         >
           <option value="ndvi">NDVI (vegetation)</option>
           <option value="ndwi">NDWI (water)</option>
@@ -260,13 +278,23 @@ export default function SatellitePanel({
           type="date"
           value={before}
           onChange={(e) => setBefore(e.target.value)}
-          style={{ padding: 4, background: '#0b1d1d', color: '#b0c4bf', border: '1px solid #1e3a3a' }}
+          style={{
+            padding: 4,
+            background: '#0b1d1d',
+            color: '#b0c4bf',
+            border: '1px solid #1e3a3a',
+          }}
         />
         <input
           type="date"
           value={after}
           onChange={(e) => setAfter(e.target.value)}
-          style={{ padding: 4, background: '#0b1d1d', color: '#b0c4bf', border: '1px solid #1e3a3a' }}
+          style={{
+            padding: 4,
+            background: '#0b1d1d',
+            color: '#b0c4bf',
+            border: '1px solid #1e3a3a',
+          }}
         />
         <input
           type="number"
@@ -276,7 +304,13 @@ export default function SatellitePanel({
           value={threshold}
           onChange={(e) => setThreshold(Number(e.target.value))}
           title="threshold"
-          style={{ padding: 4, width: 70, background: '#0b1d1d', color: '#b0c4bf', border: '1px solid #1e3a3a' }}
+          style={{
+            padding: 4,
+            width: 70,
+            background: '#0b1d1d',
+            color: '#b0c4bf',
+            border: '1px solid #1e3a3a',
+          }}
         />
         <input
           type="number"
@@ -286,7 +320,13 @@ export default function SatellitePanel({
           value={resolution}
           onChange={(e) => setResolution(Number(e.target.value))}
           title="resolution (m)"
-          style={{ padding: 4, width: 80, background: '#0b1d1d', color: '#b0c4bf', border: '1px solid #1e3a3a' }}
+          style={{
+            padding: 4,
+            width: 80,
+            background: '#0b1d1d',
+            color: '#b0c4bf',
+            border: '1px solid #1e3a3a',
+          }}
         />
         <input
           type="number"
@@ -296,7 +336,13 @@ export default function SatellitePanel({
           value={cloudCover}
           onChange={(e) => setCloudCover(Number(e.target.value))}
           title="max cloud %"
-          style={{ padding: 4, width: 70, background: '#0b1d1d', color: '#b0c4bf', border: '1px solid #1e3a3a' }}
+          style={{
+            padding: 4,
+            width: 70,
+            background: '#0b1d1d',
+            color: '#b0c4bf',
+            border: '1px solid #1e3a3a',
+          }}
         />
         <button onClick={handleRun} disabled={loading} style={{ padding: '4px 10px' }}>
           {loading ? 'Running…' : 'Run change detection'}
@@ -304,14 +350,28 @@ export default function SatellitePanel({
         <button onClick={handleNdvi} disabled={ndviLoading} style={{ padding: '4px 10px' }}>
           {ndviLoading ? 'Querying…' : 'Query NDVI'}
         </button>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#b0c4bf' }}>
-          <input type="checkbox" checked={showOnGlobe} onChange={(e) => toggleGlobeLayer(e.target.checked)} />
+        <label
+          style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#b0c4bf' }}
+        >
+          <input
+            type="checkbox"
+            checked={showOnGlobe}
+            onChange={(e) => toggleGlobeLayer(e.target.checked)}
+          />
           Globe overlay
         </label>
       </div>
 
       {error && (
-        <div style={{ padding: 8, marginBottom: 12, border: '1px solid #ff4d5e', color: '#ff4d5e', borderRadius: 4 }}>
+        <div
+          style={{
+            padding: 8,
+            marginBottom: 12,
+            border: '1px solid #ff4d5e',
+            color: '#ff4d5e',
+            borderRadius: 4,
+          }}
+        >
           {error}
         </div>
       )}
@@ -321,9 +381,8 @@ export default function SatellitePanel({
           <div style={{ fontSize: 12, color: '#6f8c84', marginBottom: 8 }}>
             Scenes: {result.properties.before_scene?.id} → {result.properties.after_scene?.id} ·
             Index: {result.properties.index} · Threshold: {result.properties.threshold} ·
-            Resolution: {result.properties.resolution}m ·
-            Features: {result.properties.feature_count} ·
-            Pixels: {result.properties.total_pixels}
+            Resolution: {result.properties.resolution}m · Features:{' '}
+            {result.properties.feature_count} · Pixels: {result.properties.total_pixels}
             {result.cached && ' · cached'}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -349,7 +408,9 @@ export default function SatellitePanel({
                   <span style={{ color: '#6f8c84', fontSize: 11 }}>
                     {f.properties.pixel_count} pixels
                   </span>
-                  <span style={tagStyle('#ffd23f')}>conf {(f.properties.confidence * 100).toFixed(0)}%</span>
+                  <span style={tagStyle('#ffd23f')}>
+                    conf {(f.properties.confidence * 100).toFixed(0)}%
+                  </span>
                   <button
                     onClick={() => focusAnomaly(f)}
                     style={{ padding: '2px 8px', fontSize: 11, marginLeft: 'auto' }}
@@ -370,35 +431,79 @@ export default function SatellitePanel({
       )}
 
       {ndviError && (
-        <div style={{ padding: 8, marginBottom: 12, border: '1px solid #ff4d5e', color: '#ff4d5e', borderRadius: 4 }}>
+        <div
+          style={{
+            padding: 8,
+            marginBottom: 12,
+            border: '1px solid #ff4d5e',
+            color: '#ff4d5e',
+            borderRadius: 4,
+          }}
+        >
           {ndviError}
         </div>
       )}
 
       {ndviResult && (
-        <div style={{ marginBottom: 12, border: '1px solid #1e3a3a', borderRadius: 6, padding: 10, background: '#0b1d1d' }}>
-          <h3 style={{ margin: '0 0 8px 0', fontSize: 13, color: '#00e5a0' }}>NDVI SINGLE-EPOCH — {ndviResult.region}</h3>
+        <div
+          style={{
+            marginBottom: 12,
+            border: '1px solid #1e3a3a',
+            borderRadius: 6,
+            padding: 10,
+            background: '#0b1d1d',
+          }}
+        >
+          <h3 style={{ margin: '0 0 8px 0', fontSize: 13, color: '#00e5a0' }}>
+            NDVI SINGLE-EPOCH — {ndviResult.region}
+          </h3>
           {ndviResult.error ? (
             <div style={{ color: '#ff4d5e', fontSize: 12 }}>{ndviResult.error}</div>
           ) : (
             <>
               <div style={{ fontSize: 12, color: '#b0c4bf', marginBottom: 6 }}>
-                Scene: {ndviResult.scene_id} · {ndviResult.scene_datetime || '—'} ·
-                Cloud: {ndviResult.cloud_cover != null ? `${ndviResult.cloud_cover.toFixed(1)}%` : '—'} ·
+                Scene: {ndviResult.scene_id} · {ndviResult.scene_datetime || '—'} · Cloud:{' '}
+                {ndviResult.cloud_cover != null ? `${ndviResult.cloud_cover.toFixed(1)}%` : '—'} ·
                 Pixels: {ndviResult.valid_pixels}
               </div>
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 12, color: '#b0c4bf' }}>
-                <span>Mean: <strong style={{ color: ndviResult.mean != null && ndviResult.mean > 0.3 ? '#00e5a0' : '#ffd23f' }}>{ndviResult.mean != null ? ndviResult.mean.toFixed(4) : '—'}</strong></span>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 16,
+                  flexWrap: 'wrap',
+                  fontSize: 12,
+                  color: '#b0c4bf',
+                }}
+              >
+                <span>
+                  Mean:{' '}
+                  <strong
+                    style={{
+                      color:
+                        ndviResult.mean != null && ndviResult.mean > 0.3 ? '#00e5a0' : '#ffd23f',
+                    }}
+                  >
+                    {ndviResult.mean != null ? ndviResult.mean.toFixed(4) : '—'}
+                  </strong>
+                </span>
                 <span>Std: {ndviResult.std != null ? ndviResult.std.toFixed(4) : '—'}</span>
                 <span>Min: {ndviResult.min != null ? ndviResult.min.toFixed(4) : '—'}</span>
                 <span>Max: {ndviResult.max != null ? ndviResult.max.toFixed(4) : '—'}</span>
               </div>
               {ndviResult.histogram.length > 0 && (
-                <div style={{ marginTop: 8, display: 'flex', alignItems: 'flex-end', height: 40, gap: 1 }}>
+                <div
+                  style={{
+                    marginTop: 8,
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    height: 40,
+                    gap: 1,
+                  }}
+                >
                   {ndviResult.histogram.map((h, i) => {
-                    const maxCount = Math.max(...ndviResult.histogram.map((x) => x.count), 1)
-                    const hPct = (h.count / maxCount) * 100
-                    const isHealthy = h.bin_low > 0.2
+                    const maxCount = Math.max(...ndviResult.histogram.map((x) => x.count), 1);
+                    const hPct = (h.count / maxCount) * 100;
+                    const isHealthy = h.bin_low > 0.2;
                     return (
                       <div
                         key={i}
@@ -411,7 +516,7 @@ export default function SatellitePanel({
                           minWidth: 4,
                         }}
                       />
-                    )
+                    );
                   })}
                 </div>
               )}
@@ -420,5 +525,5 @@ export default function SatellitePanel({
         </div>
       )}
     </div>
-  )
+  );
 }

@@ -506,7 +506,7 @@ def execute_spatial_plan(plan: SpatialQueryPlan) -> dict[str, Any]:
 
         ids = set()
         for e in entities:
-            eid = e.get("id", f"{e.get('lat',0)},{e.get('lon',0)}")
+            eid = e.get("id", f"{e.get('lat', 0)},{e.get('lon', 0)}")
             ids.add(eid)
             all_results[eid] = e
         result_sets.append(ids)

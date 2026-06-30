@@ -95,14 +95,17 @@ class FormatContextTests(unittest.TestCase):
 
 class RefreshNewsFeedsTests(unittest.IsolatedAsyncioTestCase):
     async def test_refresh_stores_in_cache(self):
-        with patch.object(
-            news_feeds,
-            "fetch_reliefweb_disasters",
-            new=AsyncMock(return_value={"count": 1, "data": []}),
-        ), patch.object(
-            news_feeds,
-            "fetch_rss_headlines",
-            new=AsyncMock(return_value={"count": 1, "data": []}),
+        with (
+            patch.object(
+                news_feeds,
+                "fetch_reliefweb_disasters",
+                new=AsyncMock(return_value={"count": 1, "data": []}),
+            ),
+            patch.object(
+                news_feeds,
+                "fetch_rss_headlines",
+                new=AsyncMock(return_value={"count": 1, "data": []}),
+            ),
         ):
             result = await news_feeds.refresh_news_feeds()
         self.assertEqual(result["reliefweb"]["count"], 1)

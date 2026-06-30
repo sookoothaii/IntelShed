@@ -1,88 +1,91 @@
-import { useEffect, useMemo, useState } from 'react'
-import { fetchApi } from '../lib/networkFetch'
-import { PRIMARY_EDGE_NODE } from './EdgePanel'
+import { useEffect, useMemo, useState } from 'react';
+import { fetchApi } from '../lib/networkFetch';
+import { PRIMARY_EDGE_NODE } from './EdgePanel';
 
 type NodeRow = {
-  node_id: string
-  name?: string
-  online?: boolean
-  age_seconds?: number | null
-  updated_at?: string
-  sensors?: { temp_c?: number; humidity_pct?: number }
-  health?: { cpu_temp_c?: number }
-}
+  node_id: string;
+  name?: string;
+  online?: boolean;
+  age_seconds?: number | null;
+  updated_at?: string;
+  sensors?: { temp_c?: number; humidity_pct?: number };
+  health?: { cpu_temp_c?: number };
+};
 
 type NodesResponse = {
-  count: number
-  nodes: NodeRow[]
-}
+  count: number;
+  nodes: NodeRow[];
+};
 
-const POLL_MS = 60_000
+const POLL_MS = 60_000;
 
 function formatAge(seconds: number | null | undefined): string {
-  if (seconds == null || !Number.isFinite(seconds)) return 'unknown'
-  const s = Math.max(0, Math.floor(seconds))
-  if (s < 90) return `${s}s ago`
-  const m = Math.floor(s / 60)
-  if (m < 90) return `${m}m ago`
-  const h = m / 60
-  if (h < 48) return `${h.toFixed(h < 10 ? 1 : 0)}h ago`
-  return `${Math.floor(h / 24)}d ago`
+  if (seconds == null || !Number.isFinite(seconds)) return 'unknown';
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 90) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 90) return `${m}m ago`;
+  const h = m / 60;
+  if (h < 48) return `${h.toFixed(h < 10 ? 1 : 0)}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 export function NodeHealthBanner() {
-  const [nodes, setNodes] = useState<NodeRow[]>([])
-  const [dismissedOffline, setDismissedOffline] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [nodes, setNodes] = useState<NodeRow[]>([]);
+  const [dismissedOffline, setDismissedOffline] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let alive = true
+    let alive = true;
     const tick = async () => {
       try {
-        const r = await fetchApi('/api/nodes')
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        const data: NodesResponse = await r.json()
-        if (!alive) return
-        setNodes(data.nodes || [])
-        setError(null)
+        const r = await fetchApi('/api/nodes');
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data: NodesResponse = await r.json();
+        if (!alive) return;
+        setNodes(data.nodes || []);
+        setError(null);
       } catch (e: unknown) {
-        if (!alive) return
-        setError(e instanceof Error ? e.message : 'fetch failed')
+        if (!alive) return;
+        setError(e instanceof Error ? e.message : 'fetch failed');
       }
-    }
-    tick()
-    const id = window.setInterval(tick, POLL_MS)
-    return () => { alive = false; window.clearInterval(id) }
-  }, [])
+    };
+    tick();
+    const id = window.setInterval(tick, POLL_MS);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
 
   const primary = useMemo(
     () => nodes.find((n) => n.node_id === PRIMARY_EDGE_NODE) || null,
     [nodes],
-  )
+  );
 
   useEffect(() => {
-    if (primary?.online) setDismissedOffline(false)
-  }, [primary?.online])
+    if (primary?.online) setDismissedOffline(false);
+  }, [primary?.online]);
 
-  if (error) return null
+  if (error) return null;
 
   if (primary?.online) {
-    const cpu = primary.health?.cpu_temp_c
-    const room = primary.sensors?.temp_c
+    const cpu = primary.health?.cpu_temp_c;
+    const room = primary.sensors?.temp_c;
     const parts = [
       cpu != null ? `CPU ${cpu}°C` : null,
       room != null ? `room ${room}°C` : null,
       `push ${formatAge(primary.age_seconds)}`,
-    ].filter(Boolean)
+    ].filter(Boolean);
     return (
       <div className="node-banner node-banner--online" role="status">
         <span className="node-banner-tag node-banner-tag--online">EDGE ONLINE</span>
         <span className="node-banner-online-detail">{parts.join(' · ')}</span>
       </div>
-    )
+    );
   }
 
-  if (!primary || dismissedOffline) return null
+  if (!primary || dismissedOffline) return null;
 
   return (
     <div className="node-banner" role="status">
@@ -105,5 +108,5 @@ export function NodeHealthBanner() {
         ×
       </button>
     </div>
-  )
+  );
 }

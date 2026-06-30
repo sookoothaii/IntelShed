@@ -250,8 +250,9 @@ class TestRateLimiting(unittest.TestCase):
                 sleep_calls.append(sec)
                 await original_sleep(0)
 
-            with patch("httpx.AsyncClient") as mock_client_cls, patch(
-                "asyncio.sleep", side_effect=mock_sleep
+            with (
+                patch("httpx.AsyncClient") as mock_client_cls,
+                patch("asyncio.sleep", side_effect=mock_sleep),
             ):
                 mock_client_cls.return_value.__aenter__ = AsyncMock(
                     return_value=mock_client
@@ -318,9 +319,11 @@ class TestFtmEnrichment(unittest.TestCase):
 
     def test_enrich_ftm_skips_not_found(self):
         """Enrichment should skip platforms where found is not True."""
-        with patch("ftm_query.make_entity") as mock_make, patch(
-            "ftm_query.upsert"
-        ) as mock_upsert, patch("ftm_query.add_edge") as mock_edge:
+        with (
+            patch("ftm_query.make_entity") as mock_make,
+            patch("ftm_query.upsert") as mock_upsert,
+            patch("ftm_query.add_edge") as mock_edge,
+        ):
             mock_entity = MagicMock()
             mock_entity.id = "test-acct-id"
             mock_make.return_value = mock_entity

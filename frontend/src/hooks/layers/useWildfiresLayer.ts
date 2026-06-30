@@ -16,8 +16,8 @@ import { requestSceneRender, viewerAlive } from './layerUtils';
 import { isMssTheme } from './markerPalette';
 import type { ThemeId } from '../../lib/theme';
 
-const CLUSTER_MIN_FIRES = 800
-const CLUSTER_MIN_HEIGHT_M = 400_000
+const CLUSTER_MIN_FIRES = 800;
+const CLUSTER_MIN_HEIGHT_M = 400_000;
 
 function wildfireColor(f: WildfireRow): string {
   const conf = f.confidence ?? 0;
@@ -47,7 +47,10 @@ function clusterCellDeg(cameraHeightM: number): number {
   return 4;
 }
 
-function clusterWildfires(fires: WildfireRow[], cellDeg: number): Array<WildfireRow & { cluster_count?: number }> {
+function clusterWildfires(
+  fires: WildfireRow[],
+  cellDeg: number,
+): Array<WildfireRow & { cluster_count?: number }> {
   const buckets = new Map<string, WildfireRow[]>();
   for (const f of fires) {
     if (f.lon == null || f.lat == null) continue;
@@ -107,7 +110,10 @@ function attachPointCollection(viewer: Viewer, collection: PointPrimitiveCollect
   }
 }
 
-function detachPointCollection(viewer: Viewer | null, collection: PointPrimitiveCollection | null): void {
+function detachPointCollection(
+  viewer: Viewer | null,
+  collection: PointPrimitiveCollection | null,
+): void {
   if (!collection || !viewerAlive(viewer)) return;
   try {
     viewer.scene.primitives.remove(collection);
@@ -216,7 +222,7 @@ export function useWildfiresLayer({
 
     const mapped = fires.filter((f) => f.lon != null && f.lat != null).length;
     setStats((p: Stats) => ({ ...p, wildfires: data.count ?? mapped }));
-    const source = data.source === 'eonet_fallback' ? 'eonet' : (data.source || '');
+    const source = data.source === 'eonet_fallback' ? 'eonet' : data.source || '';
     setFeedHud((p: FeedHud) => ({ ...p, wildfires: source || (data.errors ? 'degraded' : '') }));
   }, [viewer, data, active, setStats, setFeedHud]);
 
@@ -238,7 +244,11 @@ export function useWildfiresLayer({
     };
     viewer.camera.changed.addEventListener(onCamera);
     return () => {
-      try { viewer.camera.changed.removeEventListener(onCamera) } catch { /* teardown */ }
+      try {
+        viewer.camera.changed.removeEventListener(onCamera);
+      } catch {
+        /* teardown */
+      }
     };
   }, [viewer, active]);
 }

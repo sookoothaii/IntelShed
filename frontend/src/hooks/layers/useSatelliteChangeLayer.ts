@@ -1,11 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  CustomDataSource,
-  Color,
-  PolygonGraphics,
-  Cartesian3,
-  type Viewer,
-} from 'cesium';
+import { CustomDataSource, Color, PolygonGraphics, Cartesian3, type Viewer } from 'cesium';
 import { attachDataSource, detachDataSource, requestSceneRender } from './layerUtils';
 import { hudStore, type SatelliteChangeData } from '../../stores/hudStore';
 

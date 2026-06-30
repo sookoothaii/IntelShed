@@ -93,7 +93,7 @@ export function useMaritimeLayer({
     const src = new CustomDataSource('maritime');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       removeGeoJsonPrimitive(viewer, primRef.current);
@@ -177,7 +177,15 @@ export function useMaritimeLayer({
           const vtype = props.type as string | undefined;
           const typeColor = flagged
             ? '#ff2d00'
-            : (vtype === 'Cargo' ? '#8B4513' : vtype === 'Tanker' ? '#000080' : vtype === 'Passenger' ? '#FF69B4' : vtype === 'Fishing' ? '#32CD32' : '#00e5ff');
+            : vtype === 'Cargo'
+              ? '#8B4513'
+              : vtype === 'Tanker'
+                ? '#000080'
+                : vtype === 'Passenger'
+                  ? '#FF69B4'
+                  : vtype === 'Fishing'
+                    ? '#32CD32'
+                    : '#00e5ff';
           return {
             color: Color.fromCssColorString(typeColor).withAlpha(0.95),
             outlineColor: flagged ? Color.fromCssColorString('#ffd23f') : Color.WHITE,
@@ -213,7 +221,15 @@ export function useMaritimeLayer({
           const flagged = sanctioned.has(String(v.mmsi || ''));
           const typeColor = flagged
             ? '#ff2d00'
-            : (v.type === 'Cargo' ? '#8B4513' : v.type === 'Tanker' ? '#000080' : v.type === 'Passenger' ? '#FF69B4' : v.type === 'Fishing' ? '#32CD32' : '#00e5ff');
+            : v.type === 'Cargo'
+              ? '#8B4513'
+              : v.type === 'Tanker'
+                ? '#000080'
+                : v.type === 'Passenger'
+                  ? '#FF69B4'
+                  : v.type === 'Fishing'
+                    ? '#32CD32'
+                    : '#00e5ff';
           const vesselColor = isMssTheme()
             ? mssMaritimeColor(flagged)
             : Color.fromCssColorString(typeColor);
@@ -224,12 +240,14 @@ export function useMaritimeLayer({
             point: {
               pixelSize: flagged ? 13 : 10,
               color: vesselColor.withAlpha(0.95),
-              outlineColor: flagged ? Color.fromCssColorString(isMssTheme() ? '#F59E0B' : '#ffd23f') : Color.WHITE,
+              outlineColor: flagged
+                ? Color.fromCssColorString(isMssTheme() ? '#F59E0B' : '#ffd23f')
+                : Color.WHITE,
               outlineWidth: flagged ? 2 : 1,
               scaleByDistance: new NearFarScalar(1e5, 1.8, 1e7, 0.5),
             },
             label: {
-              text: `${flagged ? '⚠ ' : ''}${(v.name?.substring(0, 12) || v.type || 'Vessel')}`,
+              text: `${flagged ? '⚠ ' : ''}${v.name?.substring(0, 12) || v.type || 'Vessel'}`,
               font: '600 9px "Courier New"',
               fillColor: Color.fromCssColorString(typeColor),
               outlineColor: Color.BLACK,

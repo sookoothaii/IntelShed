@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react';
 import {
   searchDarkweb,
   searchDarkwebEntities,
@@ -15,208 +15,253 @@ import {
   type DarkwebResult,
   type DarkwebEngineInfo,
   type DarkwebMention,
-} from '../lib/darkwebApi'
+} from '../lib/darkwebApi';
 
 export default function DarkwebPanel() {
-  const [query, setQuery] = useState('')
-  const [engines, setEngines] = useState('')
-  const [mode, setMode] = useState<'auto' | 'clear' | 'tor'>('auto')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [results, setResults] = useState<DarkwebResult[]>([])
-  const [matches, setMatches] = useState<Array<{
-    result: DarkwebResult
-    entity_ids: string[]
-    matched_names: string[]
-  }>>([])
-  const [mentions, setMentions] = useState<DarkwebMention[]>([])
-  const [status, setStatus] = useState<{ enabled: boolean; engines: string[]; modes?: string[]; tor_proxy: string | null } | null>(null)
-  const [engineList, setEngineList] = useState<DarkwebEngineInfo[]>([])
-  const [activeTab, setActiveTab] = useState<'search' | 'browse' | 'deep' | 'mentions' | 'ransomware'>('search')
-  const [ransomwareGroups, setRansomwareGroups] = useState<Array<{ name: string; url: string; tor_url: string; description: string; source: string; active: boolean }>>([])
-  const [selectedRansomwareGroup, setSelectedRansomwareGroup] = useState('')
-  const [ransomwareVictims, setRansomwareVictims] = useState<Array<{ victim: string; group: string; discovered?: string; published?: string; country?: string; activity?: string; description?: string; post_url?: string; website?: string; screenshot?: string; source: string }>>([])
-  const [ransomwareLoading, setRansomwareLoading] = useState(false)
-  const [browseUrl, setBrowseUrl] = useState('')
-  const [browseLoading, setBrowseLoading] = useState(false)
-  const [browseResult, setBrowseResult] = useState<{ url: string; ok: boolean; error?: string; text: string; entities: Record<string, string[]> } | null>(null)
-  const [browseHistory, setBrowseHistory] = useState<string[]>([])
-  const [deepLoading, setDeepLoading] = useState(false)
-  const [deepResults, setDeepResults] = useState<Array<{ result: DarkwebResult; scrape: { ok: boolean; error?: string; text: string; entities: Record<string, string[]> }; entity_ids: string[]; matched_names: string[] }>>([])
-  const [deepQuery, setDeepQuery] = useState('')
-  const [deepScrapeLimit, setDeepScrapeLimit] = useState(3)
+  const [query, setQuery] = useState('');
+  const [engines, setEngines] = useState('');
+  const [mode, setMode] = useState<'auto' | 'clear' | 'tor'>('auto');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [results, setResults] = useState<DarkwebResult[]>([]);
+  const [matches, setMatches] = useState<
+    Array<{
+      result: DarkwebResult;
+      entity_ids: string[];
+      matched_names: string[];
+    }>
+  >([]);
+  const [mentions, setMentions] = useState<DarkwebMention[]>([]);
+  const [status, setStatus] = useState<{
+    enabled: boolean;
+    engines: string[];
+    modes?: string[];
+    tor_proxy: string | null;
+  } | null>(null);
+  const [engineList, setEngineList] = useState<DarkwebEngineInfo[]>([]);
+  const [activeTab, setActiveTab] = useState<
+    'search' | 'browse' | 'deep' | 'mentions' | 'ransomware'
+  >('search');
+  const [ransomwareGroups, setRansomwareGroups] = useState<
+    Array<{
+      name: string;
+      url: string;
+      tor_url: string;
+      description: string;
+      source: string;
+      active: boolean;
+    }>
+  >([]);
+  const [selectedRansomwareGroup, setSelectedRansomwareGroup] = useState('');
+  const [ransomwareVictims, setRansomwareVictims] = useState<
+    Array<{
+      victim: string;
+      group: string;
+      discovered?: string;
+      published?: string;
+      country?: string;
+      activity?: string;
+      description?: string;
+      post_url?: string;
+      website?: string;
+      screenshot?: string;
+      source: string;
+    }>
+  >([]);
+  const [ransomwareLoading, setRansomwareLoading] = useState(false);
+  const [browseUrl, setBrowseUrl] = useState('');
+  const [browseLoading, setBrowseLoading] = useState(false);
+  const [browseResult, setBrowseResult] = useState<{
+    url: string;
+    ok: boolean;
+    error?: string;
+    text: string;
+    entities: Record<string, string[]>;
+  } | null>(null);
+  const [browseHistory, setBrowseHistory] = useState<string[]>([]);
+  const [deepLoading, setDeepLoading] = useState(false);
+  const [deepResults, setDeepResults] = useState<
+    Array<{
+      result: DarkwebResult;
+      scrape: { ok: boolean; error?: string; text: string; entities: Record<string, string[]> };
+      entity_ids: string[];
+      matched_names: string[];
+    }>
+  >([]);
+  const [deepQuery, setDeepQuery] = useState('');
+  const [deepScrapeLimit, setDeepScrapeLimit] = useState(3);
 
   const loadStatus = useCallback(async () => {
     try {
-      const [s, e] = await Promise.all([getDarkwebStatus(), getDarkwebEngines()])
-      setStatus(s)
-      setEngines(s.engines.join(','))
-      setEngineList(e.engines)
+      const [s, e] = await Promise.all([getDarkwebStatus(), getDarkwebEngines()]);
+      setStatus(s);
+      setEngines(s.engines.join(','));
+      setEngineList(e.engines);
     } catch {
-      setStatus({ enabled: false, engines: [], tor_proxy: null })
+      setStatus({ enabled: false, engines: [], tor_proxy: null });
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    loadStatus()
-  }, [loadStatus])
+    loadStatus();
+  }, [loadStatus]);
 
   const loadMentions = useCallback(async () => {
     try {
-      const data = await getDarkwebMentions(50)
-      setMentions(data.mentions || [])
+      const data = await getDarkwebMentions(50);
+      setMentions(data.mentions || []);
     } catch {
       // ignore
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    if (activeTab === 'mentions') loadMentions()
-  }, [activeTab, loadMentions])
+    if (activeTab === 'mentions') loadMentions();
+  }, [activeTab, loadMentions]);
 
   const loadRansomwareGroups = useCallback(async () => {
     try {
-      setRansomwareLoading(true)
-      const data = await getRansomwareGroups()
-      setRansomwareGroups(data.groups || [])
+      setRansomwareLoading(true);
+      const data = await getRansomwareGroups();
+      setRansomwareGroups(data.groups || []);
     } catch {
-      setRansomwareGroups([])
+      setRansomwareGroups([]);
     } finally {
-      setRansomwareLoading(false)
+      setRansomwareLoading(false);
     }
-  }, [])
+  }, []);
 
   const loadRansomwareVictims = async (groupId: string) => {
-    if (!groupId) return
-    setRansomwareLoading(true)
-    setError(null)
+    if (!groupId) return;
+    setRansomwareLoading(true);
+    setError(null);
     try {
-      const data = await getRansomwareVictims(groupId, 50)
-      setRansomwareVictims(data.victims || [])
+      const data = await getRansomwareVictims(groupId, 50);
+      setRansomwareVictims(data.victims || []);
     } catch (e) {
-      setError((e as Error).message)
-      setRansomwareVictims([])
+      setError((e as Error).message);
+      setRansomwareVictims([]);
     } finally {
-      setRansomwareLoading(false)
+      setRansomwareLoading(false);
     }
-  }
+  };
 
   const handleRefreshRansomware = async () => {
-    setRansomwareLoading(true)
-    setError(null)
+    setRansomwareLoading(true);
+    setError(null);
     try {
-      await refreshRansomware()
-      await loadRansomwareGroups()
+      await refreshRansomware();
+      await loadRansomwareGroups();
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setRansomwareLoading(false)
+      setRansomwareLoading(false);
     }
-  }
+  };
 
   const handleIngestRansomware = async () => {
-    if (!selectedRansomwareGroup) return
-    setRansomwareLoading(true)
-    setError(null)
+    if (!selectedRansomwareGroup) return;
+    setRansomwareLoading(true);
+    setError(null);
     try {
-      await ingestRansomwareVictims(selectedRansomwareGroup, 50)
-      await loadMentions()
+      await ingestRansomwareVictims(selectedRansomwareGroup, 50);
+      await loadMentions();
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setRansomwareLoading(false)
+      setRansomwareLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    if (activeTab === 'ransomware') loadRansomwareGroups()
-  }, [activeTab, loadRansomwareGroups])
+    if (activeTab === 'ransomware') loadRansomwareGroups();
+  }, [activeTab, loadRansomwareGroups]);
 
   useEffect(() => {
     if (selectedRansomwareGroup) {
-      loadRansomwareVictims(selectedRansomwareGroup)
+      loadRansomwareVictims(selectedRansomwareGroup);
     }
-  }, [selectedRansomwareGroup])
+  }, [selectedRansomwareGroup]);
 
   const handleSearch = async () => {
-    if (!query.trim()) return
-    setLoading(true)
-    setError(null)
+    if (!query.trim()) return;
+    setLoading(true);
+    setError(null);
     try {
       const [searchData, entityData] = await Promise.all([
         searchDarkweb(query.trim(), engines, 50, false, mode),
         searchDarkwebEntities(query.trim(), engines, 50, mode),
-      ])
-      setResults(searchData.results || [])
-      setMatches(entityData.matches || [])
+      ]);
+      setResults(searchData.results || []);
+      setMatches(entityData.matches || []);
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const handleBrowse = async (url?: string) => {
-    const target = (url || browseUrl).trim()
-    if (!target) return
-    setBrowseLoading(true)
-    setError(null)
-    setBrowseResult(null)
+    const target = (url || browseUrl).trim();
+    if (!target) return;
+    setBrowseLoading(true);
+    setError(null);
+    setBrowseResult(null);
     try {
-      const data = await scrapeDarkwebUrl(target, true)
-      setBrowseResult(data)
+      const data = await scrapeDarkwebUrl(target, true);
+      setBrowseResult(data);
       if (data.ok && !browseHistory.includes(target)) {
-        setBrowseHistory((prev) => [target, ...prev].slice(0, 10))
+        setBrowseHistory((prev) => [target, ...prev].slice(0, 10));
       }
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setBrowseLoading(false)
+      setBrowseLoading(false);
     }
-  }
+  };
 
   const openInBrowse = (url: string) => {
-    setBrowseUrl(url)
-    setActiveTab('browse')
-    handleBrowse(url)
-  }
+    setBrowseUrl(url);
+    setActiveTab('browse');
+    handleBrowse(url);
+  };
 
   const handleDeepSearch = async () => {
-    const q = deepQuery.trim()
-    if (!q) return
-    setDeepLoading(true)
-    setError(null)
-    setDeepResults([])
+    const q = deepQuery.trim();
+    if (!q) return;
+    setDeepLoading(true);
+    setError(null);
+    setDeepResults([]);
     try {
-      const data = await deepSearchDarkweb(q, engines, 20, deepScrapeLimit, mode)
-      setDeepResults(data.matches || [])
+      const data = await deepSearchDarkweb(q, engines, 20, deepScrapeLimit, mode);
+      setDeepResults(data.matches || []);
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setDeepLoading(false)
+      setDeepLoading(false);
     }
-  }
+  };
 
   const handleIngest = async (q?: string) => {
-    const target = (q || query).trim()
-    if (!target) return
-    setLoading(true)
-    setError(null)
+    const target = (q || query).trim();
+    if (!target) return;
+    setLoading(true);
+    setError(null);
     try {
-      await ingestDarkweb(target, engines, 50, mode)
-      await loadMentions()
-      setActiveTab('mentions')
+      await ingestDarkweb(target, engines, 50, mode);
+      await loadMentions();
+      setActiveTab('mentions');
     } catch (e) {
-      setError((e as Error).message)
+      setError((e as Error).message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const renderEngineBadges = () => (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
       {engineList.map((e) => {
-        const configured = status?.engines.includes(e.name)
+        const configured = status?.engines.includes(e.name);
         return (
           <span
             key={e.name}
@@ -233,10 +278,10 @@ export default function DarkwebPanel() {
             {e.name}
             {e.tor_required && ' ⚡'}
           </span>
-        )
+        );
       })}
     </div>
-  )
+  );
 
   return (
     <div style={{ padding: 12, height: '100%', overflow: 'auto' }}>
@@ -326,7 +371,11 @@ export default function DarkwebPanel() {
             <button className="hud-button" onClick={handleSearch} disabled={loading}>
               {loading ? '...' : 'SEARCH'}
             </button>
-            <button className="hud-button" onClick={() => handleIngest()} disabled={loading || !query}>
+            <button
+              className="hud-button"
+              onClick={() => handleIngest()}
+              disabled={loading || !query}
+            >
               INGEST
             </button>
           </div>
@@ -348,12 +397,8 @@ export default function DarkwebPanel() {
                     background: '#ffffff08',
                   }}
                 >
-                  <div style={{ fontSize: 12, color: '#00e5a0' }}>
-                    {m.matched_names.join(', ')}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#b0c4bf' }}>
-                    {m.result.title}
-                  </div>
+                  <div style={{ fontSize: 12, color: '#00e5a0' }}>{m.matched_names.join(', ')}</div>
+                  <div style={{ fontSize: 11, color: '#b0c4bf' }}>{m.result.title}</div>
                   <div style={{ fontSize: 10, color: '#6f8c84', wordBreak: 'break-all' }}>
                     {m.result.url}
                   </div>
@@ -381,10 +426,10 @@ export default function DarkwebPanel() {
                     <span style={{ fontSize: 12, color: '#e0f2f1' }}>{r.title}</span>
                     <span style={{ fontSize: 10, color: '#8fb7a9' }}>{r.engine}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: '#b0c4bf', marginTop: 4 }}>
-                    {r.snippet}
-                  </div>
-                  <div style={{ fontSize: 10, color: '#6f8c84', wordBreak: 'break-all', marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: '#b0c4bf', marginTop: 4 }}>{r.snippet}</div>
+                  <div
+                    style={{ fontSize: 10, color: '#6f8c84', wordBreak: 'break-all', marginTop: 4 }}
+                  >
                     {r.url}
                   </div>
                   <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
@@ -445,9 +490,19 @@ export default function DarkwebPanel() {
                   <button
                     key={idx}
                     className="hud-button"
-                    style={{ fontSize: 10, padding: '2px 6px', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    style={{
+                      fontSize: 10,
+                      padding: '2px 6px',
+                      maxWidth: 200,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
                     title={h}
-                    onClick={() => { setBrowseUrl(h); handleBrowse(h) }}
+                    onClick={() => {
+                      setBrowseUrl(h);
+                      handleBrowse(h);
+                    }}
                   >
                     {h}
                   </button>
@@ -510,7 +565,8 @@ export default function DarkwebPanel() {
 
           {!browseResult && !browseLoading && !error && (
             <div style={{ color: '#6f8c84' }}>
-              Enter a URL above to scrape and view page content. Works with .onion URLs when Tor proxy is configured.
+              Enter a URL above to scrape and view page content. Works with .onion URLs when Tor
+              proxy is configured.
             </div>
           )}
         </>
@@ -581,7 +637,9 @@ export default function DarkwebPanel() {
                     <span style={{ fontSize: 12, color: '#e0f2f1' }}>{d.result.title}</span>
                     <span style={{ fontSize: 10, color: '#8fb7a9' }}>{d.result.engine}</span>
                   </div>
-                  <div style={{ fontSize: 10, color: '#6f8c84', wordBreak: 'break-all', marginTop: 2 }}>
+                  <div
+                    style={{ fontSize: 10, color: '#6f8c84', wordBreak: 'break-all', marginTop: 2 }}
+                  >
                     {d.result.url}
                   </div>
                   {d.matched_names.length > 0 && (
@@ -640,7 +698,8 @@ export default function DarkwebPanel() {
 
           {deepResults.length === 0 && !deepLoading && !error && (
             <div style={{ color: '#6f8c84' }}>
-              Deep search runs a normal search, then scrapes the top results and extracts entities from each page.
+              Deep search runs a normal search, then scrapes the top results and extracts entities
+              from each page.
             </div>
           )}
         </>
@@ -652,7 +711,7 @@ export default function DarkwebPanel() {
             <div style={{ color: '#6f8c84' }}>No dark web mentions ingested yet.</div>
           )}
           {mentions.map((m, idx) => {
-            const p = m.properties || {}
+            const p = m.properties || {};
             return (
               <div
                 key={idx}
@@ -663,9 +722,7 @@ export default function DarkwebPanel() {
                   background: '#ffffff08',
                 }}
               >
-                <div style={{ fontSize: 12, color: '#e0f2f1' }}>
-                  {(p.name || ['Unknown'])[0]}
-                </div>
+                <div style={{ fontSize: 12, color: '#e0f2f1' }}>{(p.name || ['Unknown'])[0]}</div>
                 <div style={{ fontSize: 10, color: '#8fb7a9' }}>
                   source: {(p.source || ['darkweb'])[0]}
                 </div>
@@ -673,7 +730,7 @@ export default function DarkwebPanel() {
                   {(p.url || [''])[0]}
                 </div>
               </div>
-            )
+            );
           })}
         </div>
       )}
@@ -725,17 +782,16 @@ export default function DarkwebPanel() {
             >
               <div style={{ fontSize: 12, color: '#e0f2f1' }}>{v.victim}</div>
               <div style={{ fontSize: 10, color: '#8fb7a9' }}>
-                group: {v.group} {v.discovered && `· ${v.discovered}`} {v.country && `· ${v.country}`}
+                group: {v.group} {v.discovered && `· ${v.discovered}`}{' '}
+                {v.country && `· ${v.country}`}
               </div>
               {v.description && (
-                <div style={{ fontSize: 10, color: '#6f8c84', marginTop: 4 }}>
-                  {v.description}
-                </div>
+                <div style={{ fontSize: 10, color: '#6f8c84', marginTop: 4 }}>{v.description}</div>
               )}
             </div>
           ))}
         </div>
       )}
     </div>
-  )
+  );
 }

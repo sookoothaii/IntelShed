@@ -1,13 +1,13 @@
 // Points of interest for cinematic camera fly-to presets.
 
 export type POI = {
-  name: string
-  lon: number
-  lat: number
-  height: number // camera height in meters
-  heading?: number
-  pitch?: number // degrees
-}
+  name: string;
+  lon: number;
+  lat: number;
+  height: number; // camera height in meters
+  heading?: number;
+  pitch?: number; // degrees
+};
 
 export const POIS: POI[] = [
   { name: 'Earth', lon: 0, lat: 20, height: 20000000, pitch: -90 },
@@ -22,4 +22,4 @@ export const POIS: POI[] = [
   { name: 'Area 51', lon: -115.812, lat: 37.235, height: 12000, pitch: -35 },
   { name: 'Berlin', lon: 13.405, lat: 52.52, height: 3000, pitch: -30 },
   { name: 'Sydney', lon: 151.2153, lat: -33.8568, height: 3000, pitch: -30 },
-]
+];

@@ -11,14 +11,14 @@
  */
 
 export type TabKey =
-  | "globe"
-  | "map"
-  | "data"
-  | "chat"
-  | "news"
-  | "osint"
-  | "situations"
-  | "analysis";
+  | 'globe'
+  | 'map'
+  | 'data'
+  | 'chat'
+  | 'news'
+  | 'osint'
+  | 'situations'
+  | 'analysis';
 
 export interface GlobeCameraState {
   lon: number;
@@ -33,21 +33,21 @@ export interface LayerVisibility {
 }
 
 export interface SatelliteChangeData {
-  type: 'FeatureCollection'
+  type: 'FeatureCollection';
   features: Array<{
-    type: 'Feature'
-    geometry: { type: 'Polygon'; coordinates: number[][][] }
+    type: 'Feature';
+    geometry: { type: 'Polygon'; coordinates: number[][][] };
     properties: {
-      class: 'increase' | 'decrease'
-      mean_delta: number
-      max_delta: number
-      min_delta: number
-      pixel_count: number
-      confidence: number
-    }
-  }>
-  properties?: Record<string, unknown>
-  cached?: boolean
+      class: 'increase' | 'decrease';
+      mean_delta: number;
+      max_delta: number;
+      min_delta: number;
+      pixel_count: number;
+      confidence: number;
+    };
+  }>;
+  properties?: Record<string, unknown>;
+  cached?: boolean;
 }
 
 interface HUDState {
@@ -70,7 +70,7 @@ class HUDStore {
 
   constructor() {
     this.state = {
-      activeTab: "globe",
+      activeTab: 'globe',
       splitView: false,
       splitTab: null,
       darkMode: true,

@@ -25,7 +25,7 @@ void main() {
   nvg *= vig;
   out_FragColor = vec4(nvg, 1.0);
 }
-`
+`;
 
 export const THERMAL_FRAGMENT = `
 uniform sampler2D colorTexture;
@@ -48,7 +48,7 @@ void main() {
   lum = pow(lum, 0.8);
   out_FragColor = vec4(thermal(lum), 1.0);
 }
-`
+`;
 
 export const CRT_FRAGMENT = `
 uniform sampler2D colorTexture;
@@ -73,7 +73,7 @@ void main() {
   col *= vig;
   out_FragColor = vec4(col, 1.0);
 }
-`
+`;
 
 export const NIGHT_FRAGMENT = `
 uniform sampler2D colorTexture;
@@ -88,9 +88,9 @@ void main() {
   night = pow(night, vec3(0.9));
   out_FragColor = vec4(night, 1.0);
 }
-`
+`;
 
-export type VisionMode = 'normal' | 'nvg' | 'thermal' | 'crt' | 'night'
+export type VisionMode = 'normal' | 'nvg' | 'thermal' | 'crt' | 'night';
 
 export const VISION_MODES: { id: VisionMode; label: string }[] = [
   { id: 'normal', label: 'OPTICAL' },
@@ -98,4 +98,4 @@ export const VISION_MODES: { id: VisionMode; label: string }[] = [
   { id: 'thermal', label: 'THERMAL' },
   { id: 'crt', label: 'CRT' },
   { id: 'night', label: 'NIGHT' },
-]
+];

@@ -6,7 +6,7 @@
  * sessionStorage remains for session-specific state (active filters, selected entities).
  */
 
-const STORAGE_KEY = "worldbase.preferences";
+const STORAGE_KEY = 'worldbase.preferences';
 
 export interface Preferences {
   activeTab: string;
@@ -19,7 +19,7 @@ export interface Preferences {
 }
 
 const DEFAULTS: Preferences = {
-  activeTab: "globe",
+  activeTab: 'globe',
   splitView: false,
   splitTab: null,
   darkMode: true,

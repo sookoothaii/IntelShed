@@ -121,10 +121,10 @@ class InsightBuildTests(unittest.TestCase):
                 [{"cell_id": "a", "delta_score": 0.2}],
             )
 
-        with patch.object(
-            insights.fusion_heatmap, "top_hotspots_for_llm", fake
-        ), patch.object(insights, "_entities_for", lambda bbox: []), patch.object(
-            insights, "_LLM_ENABLED", False
+        with (
+            patch.object(insights.fusion_heatmap, "top_hotspots_for_llm", fake),
+            patch.object(insights, "_entities_for", lambda bbox: []),
+            patch.object(insights, "_LLM_ENABLED", False),
         ):
             payload = asyncio.run(insights.build_insights(top=10))
         self.assertEqual(payload["count"], 1)
@@ -170,8 +170,9 @@ class NarrationTests(unittest.TestCase):
         async def fake_complete(prompt):
             return "1| LLM headline :: LLM so what sentence."
 
-        with patch.object(insights, "_ollama_complete", fake_complete), patch.object(
-            insights, "_LLM_ENABLED", True
+        with (
+            patch.object(insights, "_ollama_complete", fake_complete),
+            patch.object(insights, "_LLM_ENABLED", True),
         ):
             out = asyncio.run(insights.narrate_insights(ins))
         self.assertEqual(out[0]["headline"], "LLM headline")
@@ -186,8 +187,9 @@ class NarrationTests(unittest.TestCase):
         async def empty(prompt):
             return ""
 
-        with patch.object(insights, "_ollama_complete", empty), patch.object(
-            insights, "_LLM_ENABLED", True
+        with (
+            patch.object(insights, "_ollama_complete", empty),
+            patch.object(insights, "_LLM_ENABLED", True),
         ):
             out = asyncio.run(insights.narrate_insights(ins))
         self.assertEqual(out[0]["headline"], template_headline)
@@ -201,8 +203,9 @@ class NarrationTests(unittest.TestCase):
         async def boom(prompt):
             raise AssertionError("should not be called when disabled")
 
-        with patch.object(insights, "_ollama_complete", boom), patch.object(
-            insights, "_LLM_ENABLED", False
+        with (
+            patch.object(insights, "_ollama_complete", boom),
+            patch.object(insights, "_LLM_ENABLED", False),
         ):
             out = asyncio.run(insights.narrate_insights(ins))
         self.assertEqual(out[0]["narrative_source"], "template")
@@ -217,8 +220,9 @@ class NarrationTests(unittest.TestCase):
             calls["n"] += 1
             return "1| Cached headline :: Cached so what."
 
-        with patch.object(insights, "_ollama_complete", once), patch.object(
-            insights, "_LLM_ENABLED", True
+        with (
+            patch.object(insights, "_ollama_complete", once),
+            patch.object(insights, "_LLM_ENABLED", True),
         ):
             asyncio.run(insights.narrate_insights(ins))
             # rebuild identical insight → should hit cache, not call LLM again

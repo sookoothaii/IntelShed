@@ -8,7 +8,7 @@ import {
   VerticalOrigin,
   Cartesian2,
   DistanceDisplayCondition,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
@@ -16,13 +16,19 @@ import type { Stats } from '../../lib/types';
 
 const infraColor = (itype: string | undefined) => {
   switch (itype) {
-    case 'hospital': return '#ff2d00';
-    case 'power': return '#ffd23f';
-    case 'airport': return '#00e5ff';
-    case 'bridge': return '#a855f7';
+    case 'hospital':
+      return '#ff2d00';
+    case 'power':
+      return '#ffd23f';
+    case 'airport':
+      return '#00e5ff';
+    case 'bridge':
+      return '#a855f7';
     case 'fire_station':
-    case 'police': return '#ff6b35';
-    default: return '#4fc3f7';
+    case 'police':
+      return '#ff6b35';
+    default:
+      return '#4fc3f7';
   }
 };
 
@@ -31,7 +37,7 @@ export function useOsmLayer({
   active,
   feedActive,
   canFetch,
-  setStats
+  setStats,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -44,7 +50,9 @@ export function useOsmLayer({
   const { data } = useQuery({
     queryKey: ['osm-infrastructure'],
     queryFn: async () => {
-      const r = await fetchApi('/api/osm/infrastructure?types=hospital,power,airport,bridge,fire_station,police');
+      const r = await fetchApi(
+        '/api/osm/infrastructure?types=hospital,power,airport,bridge,fire_station,police',
+      );
       return r.json();
     },
     refetchInterval: 7200000,

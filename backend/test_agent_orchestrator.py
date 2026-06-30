@@ -144,15 +144,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         modules = self._patch_modules(
             classify_query="graph", route_block="graph context"
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate(
                 "near Bangkok", route="spatial"
@@ -168,15 +171,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         modules = self._patch_modules(
             classify_query="spatial", route_block="spatial context"
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("within 50km of Bangkok")
 
@@ -188,15 +194,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         import agent_orchestrator
 
         modules = self._patch_modules(route_block="context")
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("test")
 
@@ -215,15 +224,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
             coverage_gaps=["block_too_short"],
             coverage_needs=True,
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("test")
 
@@ -246,15 +258,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
                 "meta": {},
             }
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("near Bangkok")
 
@@ -269,15 +284,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         modules = self._patch_modules(
             classify_query="hybrid", route_block="hybrid context"
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("who is near Bangkok")
 
@@ -294,15 +312,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         modules = self._patch_modules(
             route_block="[source] claim", corroborated=1, uncorroborated=0
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("test")
 
@@ -331,15 +352,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
                 },
             )
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("test")
 
@@ -358,15 +382,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         modules["chat_agentic"].assess_coverage = MagicMock(
             side_effect=RuntimeError("coverage crash")
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("test")
 
@@ -382,15 +409,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         modules = self._patch_modules(
             route_block="context", bus_enabled=True, bus_delivered=2
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("test")
 
@@ -402,15 +432,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         import agent_orchestrator
 
         modules = self._patch_modules(route_block="context")
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("test")
 
@@ -428,17 +461,20 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         modules["query_router"].route_retrieval = AsyncMock(
             side_effect=asyncio.sleep(60)
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator,
-            "get_config",
-            return_value=_ConfigStub(enabled=True, phase_timeout=0.01),
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator,
+                "get_config",
+                return_value=_ConfigStub(enabled=True, phase_timeout=0.01),
+            ),
         ):
             result = await agent_orchestrator.orchestrate("test")
 
@@ -467,14 +503,17 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
             circuit_breaker_window=60,
         )
 
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(agent_orchestrator, "get_config", return_value=cfg):
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(agent_orchestrator, "get_config", return_value=cfg),
+        ):
             # First call records one failure.
             await agent_orchestrator.orchestrate("test")
             # Second call should record the second failure and then skip.
@@ -492,13 +531,16 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         import agent_orchestrator
 
         modules = self._patch_modules(bus_enabled=False)
-        with patch.dict(
-            sys.modules,
-            {
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             status = await agent_orchestrator.agent_status()
 
@@ -517,17 +559,20 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         import agent_orchestrator
 
         modules = self._patch_modules()
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator,
-            "get_config",
-            return_value=_ConfigStub(enabled=True, max_workers=16),
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator,
+                "get_config",
+                return_value=_ConfigStub(enabled=True, max_workers=16),
+            ),
         ):
             _ = await agent_orchestrator.orchestrate("test")
             status = await agent_orchestrator.agent_status()
@@ -541,15 +586,18 @@ class TestAgentOrchestrator(unittest.IsolatedAsyncioTestCase):
         modules = self._patch_modules(
             classify_query="graph", route_block="graph context"
         )
-        with patch.dict(
-            sys.modules,
-            {
-                "query_router": modules["query_router"],
-                "chat_agentic": modules["chat_agentic"],
-                "agent_bus": modules["agent_bus"],
-            },
-        ), patch.object(
-            agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+        with (
+            patch.dict(
+                sys.modules,
+                {
+                    "query_router": modules["query_router"],
+                    "chat_agentic": modules["chat_agentic"],
+                    "agent_bus": modules["agent_bus"],
+                },
+            ),
+            patch.object(
+                agent_orchestrator, "get_config", return_value=_ConfigStub(enabled=True)
+            ),
         ):
             result = await agent_orchestrator.orchestrate("test", route="invalid")
 

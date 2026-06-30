@@ -11,14 +11,15 @@ import routes.aircraft as ac
 
 class AircraftRouteTests(unittest.IsolatedAsyncioTestCase):
     async def test_returns_empty_envelope_when_no_cache_and_fetch_fails(self):
-        with patch.object(ac, "cache_get", return_value=None), patch.object(
-            ac, "cache_get_stale", return_value=None
-        ), patch.object(
-            ac.aircraft_provider, "last_known_states", return_value=None
-        ), patch.object(
-            ac.aircraft_provider,
-            "fetch_live_states",
-            AsyncMock(side_effect=TimeoutError("slow")),
+        with (
+            patch.object(ac, "cache_get", return_value=None),
+            patch.object(ac, "cache_get_stale", return_value=None),
+            patch.object(ac.aircraft_provider, "last_known_states", return_value=None),
+            patch.object(
+                ac.aircraft_provider,
+                "fetch_live_states",
+                AsyncMock(side_effect=TimeoutError("slow")),
+            ),
         ):
             out = await ac.get_aircraft(limit=10)
         self.assertEqual(out["count"], 0)
@@ -51,12 +52,14 @@ class AircraftRouteTests(unittest.IsolatedAsyncioTestCase):
                 ]
             ],
         }
-        with patch.object(ac, "cache_get", return_value=None), patch.object(
-            ac, "cache_get_stale", return_value=stale
-        ), patch.object(
-            ac.aircraft_provider,
-            "fetch_live_states",
-            AsyncMock(side_effect=TimeoutError("slow")),
+        with (
+            patch.object(ac, "cache_get", return_value=None),
+            patch.object(ac, "cache_get_stale", return_value=stale),
+            patch.object(
+                ac.aircraft_provider,
+                "fetch_live_states",
+                AsyncMock(side_effect=TimeoutError("slow")),
+            ),
         ):
             out = await ac.get_aircraft(limit=10)
         self.assertEqual(out["count"], 1)
@@ -88,9 +91,10 @@ class AircraftRouteTests(unittest.IsolatedAsyncioTestCase):
                 ]
             ],
         }
-        with patch.object(
-            ac, "cache_get", side_effect=asyncio.CancelledError()
-        ), patch.object(ac, "cache_get_stale", return_value=stale):
+        with (
+            patch.object(ac, "cache_get", side_effect=asyncio.CancelledError()),
+            patch.object(ac, "cache_get_stale", return_value=stale),
+        ):
             out = await ac.get_aircraft(limit=5)
         self.assertEqual(out["count"], 1)
         self.assertEqual(out["source"], "stale")

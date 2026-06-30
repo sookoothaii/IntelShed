@@ -8,7 +8,7 @@ import {
   LabelStyle,
   VerticalOrigin,
   HorizontalOrigin,
-  Viewer
+  Viewer,
 } from 'cesium';
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
@@ -19,7 +19,7 @@ export function useSpaceweatherLayer({
   active,
   feedActive,
   canFetch,
-  setStats
+  setStats,
 }: {
   viewer: Viewer | null;
   active: boolean;
@@ -44,7 +44,7 @@ export function useSpaceweatherLayer({
     const src = new CustomDataSource('spaceweather');
     attachDataSource(viewer, src);
     srcRef.current = src;
-    
+
     return () => {
       detachDataSource(viewer, src);
       srcRef.current = null;
@@ -60,12 +60,12 @@ export function useSpaceweatherLayer({
     if (!data || !srcRef.current || !active) return;
     const src = srcRef.current;
     const kp = data.kp_index ?? 0;
-    
+
     src.entities.suspendEvents();
     src.entities.removeAll();
-    
+
     const auroraLat = Math.min(55 + kp * 3, 75);
-    
+
     // Northern hemisphere
     const pts: Cartesian3[] = [];
     for (let i = 0; i <= 128; i++) {
@@ -82,7 +82,7 @@ export function useSpaceweatherLayer({
         }),
       },
     });
-    
+
     // Southern hemisphere
     const ptsS: Cartesian3[] = [];
     for (let i = 0; i <= 128; i++) {
@@ -99,7 +99,7 @@ export function useSpaceweatherLayer({
         }),
       },
     });
-    
+
     // Kp label
     src.entities.add({
       position: Cartesian3.fromDegrees(0, 88, 200000),
@@ -114,7 +114,7 @@ export function useSpaceweatherLayer({
         horizontalOrigin: HorizontalOrigin.CENTER,
       },
     });
-    
+
     src.entities.resumeEvents();
     setStats((p: Stats) => ({ ...p, spaceweather: kp }));
   }, [viewer, data, active, setStats]);
