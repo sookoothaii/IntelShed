@@ -9,7 +9,7 @@
  *  - Cache-first for Cesium terrain/tiles (large, immutable)
  */
 
-const SW_VERSION = 'intelshed-sw-v1';
+const SW_VERSION = 'intelshed-sw-v2';
 const SHELL_CACHE = `${SW_VERSION}-shell`;
 const API_CACHE = `${SW_VERSION}-api`;
 const ASSET_CACHE = `${SW_VERSION}-assets`;

@@ -56,6 +56,10 @@ services:
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       WORLDBASE_BACKEND_URL: http://backend:8002
+      # Piper TTS (V4-29) — voice model baked into image at /app/models/tts
+      WORLDBASE_TTS_BRIDGE: ${WORLDBASE_TTS_BRIDGE:-1}
+      WORLDBASE_TTS_MODEL: ${WORLDBASE_TTS_MODEL:-en_US-lessac-medium}
+      WORLDBASE_TTS_MODEL_PATH: /app/models/tts
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

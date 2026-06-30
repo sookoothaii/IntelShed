@@ -103,12 +103,14 @@ def _synthesize_to_wav(text: str) -> bytes:
     sample_rate = _SAMPLE_RATE
 
     try:
-        for chunk in voice.synthesize(
-            text,
+        from piper.config import SynthesisConfig
+
+        syn_config = SynthesisConfig(
             length_scale=_LENGTH_SCALE,
             noise_scale=_NOISE_SCALE,
-            noise_w=_NOISE_W,
-        ):
+            noise_w_scale=_NOISE_W,
+        )
+        for chunk in voice.synthesize(text, syn_config=syn_config):
             if hasattr(chunk, "audio_int16_bytes"):
                 audio_chunks.append(chunk.audio_int16_bytes)
             elif hasattr(chunk, "audio_bytes"):

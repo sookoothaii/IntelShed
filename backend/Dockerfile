@@ -1,7 +1,7 @@
 # WorldBase backend — multi-stage build (build deps → slim runtime, non-root)
 #
-# Builder: install build tools (libicu-dev, pkg-config, gcc) + pip install
-# Runtime: copy site-packages, install only runtime libs (libicu72, curl for healthcheck)
+# Builder: create venv, install build tools + pip install
+# Runtime: copy venv, install only runtime libs (libicu76, curl for healthcheck)
 
 # --- Stage 1: builder ---
 FROM python:3.12-slim AS builder
@@ -19,14 +19,24 @@ RUN apt-get update \
         pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
+# Create venv so pip can see already-installed packages across RUN layers
+RUN python -m venv /venv
+ENV PATH="/venv/bin:${PATH}"
+
 COPY requirements.txt ./
-RUN pip install --target=/install -r requirements.txt
+RUN pip install -r requirements.txt
+
+# Torch CPU-only (must be installed before optional deps that depend on torch)
+RUN pip install \
+    "torch>=2.6" \
+    --index-url https://download.pytorch.org/whl/cpu
 
 # Optional dependencies (lazy-imported by backend but needed for full stack):
 # splink (entity resolution), gliner+transformers (NER),
 # pdfplumber (PDF extract), onnxruntime+optimum+sentence-transformers (RAG reranker),
-# pyarrow (Splink/arrow), loguru (glirel).
-RUN pip install --target=/install \
+# pyarrow (Splink/arrow), loguru (glirel), piper-tts (TTS bridge).
+# torch CPU is already in venv — gliner/sentence-transformers/piper-tts will reuse it.
+RUN pip install \
     "splink>=4.0,<5" \
     "gliner>=0.2.27" \
     "transformers>=4.51.3,<5" \
@@ -36,12 +46,8 @@ RUN pip install --target=/install \
     "optimum>=2.0" \
     "sentence-transformers>=3.0" \
     "pyarrow>=15.0" \
-    "loguru>=0.7"
-
-# Torch CPU-only (separate index to avoid overriding PyPI for other packages)
-RUN pip install --target=/install \
-    "torch>=2.6" \
-    --index-url https://download.pytorch.org/whl/cpu
+    "loguru>=0.7" \
+    "piper-tts>=1.3.0"
 
 # --- Stage 2: runtime ---
 FROM python:3.12-slim
@@ -49,27 +55,30 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     WORLDBASE_DB_PATH=/data/worldbase.db \
-    PYTHONPATH=/app:/install \
-    PATH="/install/bin:${PATH}"
+    PYTHONPATH=/app \
+    PATH="/venv/bin:${PATH}"
 
 WORKDIR /app
 
 # curl: healthcheck; libicu76: runtime for pyicu/followthemoney (Debian Trixie)
 # libgomp1: OpenMP runtime for torch/onnxruntime in CPU mode
+# espeak-ng: phonemization for piper-tts
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl libicu76 libgomp1 \
+    && apt-get install -y --no-install-recommends curl libicu76 libgomp1 espeak-ng \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed Python packages from builder
-COPY --from=builder /install /install
+# Copy venv from builder (includes all installed packages)
+COPY --from=builder /venv /venv
 
 # Copy application source
 COPY . .
 
-# Persistent SQLite lives in /data (named volume); run unprivileged
+# Create user, download Piper voice model, and set ownership in one layer
 RUN useradd --create-home --uid 10001 worldbase \
-    && mkdir -p /data \
+    && mkdir -p /data /app/models/tts \
+    && python -m piper.download_voices --data-dir /app/models/tts en_US-lessac-medium \
     && chown -R worldbase:worldbase /app /data
+
 USER worldbase
 
 EXPOSE 8002
