@@ -22,6 +22,9 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from auth.security import API_KEY, INGEST_TOKEN, lan_auth_required
 from mcp.server.fastmcp import FastMCP
 
+import mcp_jmespath
+import mcp_schema
+
 try:
     from auth.audit import record_audit_event
 except Exception:
@@ -85,6 +88,8 @@ _DEFAULT_MCP_TOOL_POLICY: dict[str, str] = {
     "domain_intel": "readonly",
     "orchestrate": "readonly",
     "chat": "readonly",
+    "describe_tool": "readonly",
+    "list_tools": "readonly",
 }
 
 _ROLE_LEVELS: dict[str, int] = {
@@ -414,6 +419,7 @@ mcp = FastMCP(
 
 
 @mcp.tool(name="worldbase_health")
+@mcp_jmespath.with_jmespath
 async def worldbase_health() -> dict[str, Any]:
     """WorldBase liveness: time, FtM readiness, feed cache count."""
     await _gate_mcp_tool("worldbase_health", {}, write=False)
@@ -421,6 +427,7 @@ async def worldbase_health() -> dict[str, Any]:
 
 
 @mcp.tool(name="worldbase_briefing_latest")
+@mcp_jmespath.with_jmespath
 async def worldbase_briefing_latest(include_full_text: bool = False) -> dict[str, Any]:
     """Latest 24h security briefing (digest, intel summary, text preview)."""
     await _gate_mcp_tool("worldbase_briefing_latest", {}, write=False)
@@ -428,6 +435,7 @@ async def worldbase_briefing_latest(include_full_text: bool = False) -> dict[str
 
 
 @mcp.tool(name="worldbase_nodes")
+@mcp_jmespath.with_jmespath
 async def worldbase_nodes() -> dict[str, Any]:
     """Edge nodes (Pi online state, mesh GPS, sensors snapshot)."""
     await _gate_mcp_tool("worldbase_nodes", {}, write=False)
@@ -435,6 +443,7 @@ async def worldbase_nodes() -> dict[str, Any]:
 
 
 @mcp.tool(name="worldbase_situations")
+@mcp_jmespath.with_jmespath
 async def worldbase_situations(limit: int = 20) -> dict[str, Any]:
     """Unified situation board (correlations, anomalies, GDACS, pegel, sensors)."""
     await _gate_mcp_tool("worldbase_situations", {"limit": limit}, write=False)
@@ -442,6 +451,7 @@ async def worldbase_situations(limit: int = 20) -> dict[str, Any]:
 
 
 @mcp.tool(name="worldbase_fusion_hotspots")
+@mcp_jmespath.with_jmespath
 async def worldbase_fusion_hotspots(top: int = 10) -> dict[str, Any]:
     """Top fusion heatmap cells ranked for situational awareness."""
     await _gate_mcp_tool("worldbase_fusion_hotspots", {"top": top}, write=False)
@@ -449,6 +459,7 @@ async def worldbase_fusion_hotspots(top: int = 10) -> dict[str, Any]:
 
 
 @mcp.tool(name="worldbase_intel_subgraph")
+@mcp_jmespath.with_jmespath
 async def worldbase_intel_subgraph(
     hops: int = 2,
     window_hours: int = 24,
@@ -483,6 +494,7 @@ async def worldbase_intel_subgraph(
 
 
 @mcp.tool(name="worldbase_feed_sample")
+@mcp_jmespath.with_jmespath
 async def worldbase_feed_sample(feed_id: str, limit: int = 5) -> dict[str, Any]:
     """Sample rows from an allowlisted feed (cache first, then live bridge)."""
     await _gate_mcp_tool(
@@ -492,6 +504,7 @@ async def worldbase_feed_sample(feed_id: str, limit: int = 5) -> dict[str, Any]:
 
 
 @mcp.tool(name="worldbase_feed_allowlist")
+@mcp_jmespath.with_jmespath
 async def worldbase_feed_allowlist() -> dict[str, Any]:
     """List feed_id values valid for worldbase_feed_sample."""
     await _gate_mcp_tool("worldbase_feed_allowlist", {}, write=False)
@@ -499,6 +512,7 @@ async def worldbase_feed_allowlist() -> dict[str, Any]:
 
 
 @mcp.tool(name="worldbase_orchestrate")
+@mcp_jmespath.with_jmespath
 async def worldbase_orchestrate(
     query: str,
     route: str | None = None,
@@ -516,6 +530,7 @@ async def worldbase_orchestrate(
 
 
 @mcp.tool(name="worldbase_agent_status")
+@mcp_jmespath.with_jmespath
 async def worldbase_agent_status() -> dict[str, Any]:
     """Status of the multi-agent orchestrator and the Agent Bus."""
     await _gate_mcp_tool("worldbase_agent_status", {}, write=False)
@@ -525,6 +540,7 @@ async def worldbase_agent_status() -> dict[str, Any]:
 
 
 @mcp.tool(name="worldbase_entity_search")
+@mcp_jmespath.with_jmespath
 async def worldbase_entity_search(
     entity_id: str | None = None,
     schema: str | None = None,
@@ -585,6 +601,7 @@ async def worldbase_entity_search(
 
 
 @mcp.tool(name="worldbase_chat")
+@mcp_jmespath.with_jmespath
 async def worldbase_chat(
     message: str,
     context: bool = True,
@@ -744,6 +761,7 @@ async def worldbase_chat(
 
 
 @mcp.tool(name="worldbase_feed_status")
+@mcp_jmespath.with_jmespath
 async def worldbase_feed_status(feed_id: str | None = None) -> dict[str, Any]:
     """Freshness status of all cached feeds (age, TTL, fresh/stale/error classification).
 
@@ -836,6 +854,7 @@ async def worldbase_feed_status(feed_id: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool(name="worldbase_darkweb_search")
+@mcp_jmespath.with_jmespath
 async def worldbase_darkweb_search(
     query: str,
     engines: list[str] | None = None,
@@ -880,6 +899,7 @@ async def worldbase_darkweb_search(
 
 
 @mcp.tool(name="worldbase_domain_intel")
+@mcp_jmespath.with_jmespath
 async def worldbase_domain_intel(
     domain: str,
     wayback_limit: int = 50,
@@ -1003,6 +1023,7 @@ _gate_mcp_write = _gate_mcp_tool
 if mcp_write_enabled():
 
     @mcp.tool(name="worldbase_briefing_generate")
+    @mcp_jmespath.with_jmespath
     async def worldbase_briefing_generate(
         lang: str | None = None,
         include_full_text: bool = False,
@@ -1020,6 +1041,7 @@ if mcp_write_enabled():
 if mcp_globe_enabled():
 
     @mcp.tool(name="worldbase_globe_fly_to")
+    @mcp_jmespath.with_jmespath
     async def worldbase_globe_fly_to(
         lat: float | None = None,
         lon: float | None = None,
@@ -1051,6 +1073,7 @@ if mcp_globe_enabled():
         )
 
     @mcp.tool(name="worldbase_globe_toggle_layer")
+    @mcp_jmespath.with_jmespath
     async def worldbase_globe_toggle_layer(
         layer: str, enabled: bool | None = None
     ) -> dict[str, Any]:
@@ -1064,6 +1087,7 @@ if mcp_globe_enabled():
         return await agent_bus.publish_toggle_layer(layer=layer, enabled=enabled)
 
     @mcp.tool(name="worldbase_globe_get_camera")
+    @mcp_jmespath.with_jmespath
     async def worldbase_globe_get_camera() -> dict[str, Any]:
         """Last camera position synced from the open HUD globe session."""
         await _gate_mcp_tool("worldbase_globe_get_camera", {}, write=False)
@@ -1073,12 +1097,65 @@ if mcp_globe_enabled():
         return {"camera": cam or None, "subscribers": agent_bus.subscriber_count()}
 
     @mcp.tool(name="worldbase_globe_layers")
+    @mcp_jmespath.with_jmespath
     async def worldbase_globe_layers() -> dict[str, Any]:
         """Valid layer_id values for worldbase_globe_toggle_layer."""
         await _gate_mcp_tool("worldbase_globe_layers", {}, write=False)
         import agent_bus
 
         return {"layers": sorted(agent_bus.GLOBE_LAYER_KEYS)}
+
+
+# ---------------------------------------------------------------------------
+# V4-44: describe_tool + list_tools meta-tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(name="worldbase_describe_tool")
+@mcp_jmespath.with_jmespath
+async def worldbase_describe_tool(tool_name: str) -> dict[str, Any]:
+    """Return the full uncompressed tool definition (input + output schema).
+
+    Useful when the compressed tools/list description is ambiguous.
+    Pass a tool name like 'worldbase_health' or 'worldbase_briefing_latest'.
+    """
+    await _gate_mcp_tool(
+        "worldbase_describe_tool", {"tool_name": tool_name}, write=False
+    )
+    return mcp_schema.describe_tool(tool_name, mcp_instance=mcp)
+
+
+@mcp.tool(name="worldbase_list_tools")
+@mcp_jmespath.with_jmespath
+async def worldbase_list_tools() -> dict[str, Any]:
+    """List all WorldBase MCP tools with their output schema availability."""
+    await _gate_mcp_tool("worldbase_list_tools", {}, write=False)
+    names = mcp_schema.list_tool_names()
+    return {
+        "count": len(names),
+        "tools": [
+            {
+                "name": n,
+                "output_schema_available": mcp_schema.get_output_schema(n) is not None,
+                "jmespath_supported": True,
+            }
+            for n in names
+        ],
+    }
+
+
+def _patch_output_schemas() -> None:
+    """Patch curated output schemas onto registered FastMCP tools."""
+    if not mcp_schema.output_schema_enabled():
+        return
+    schemas = mcp_schema.all_output_schemas()
+    for tool_name, schema in schemas.items():
+        try:
+            tool = mcp._tool_manager.get_tool(tool_name)
+            # cached_property stores in instance __dict__; bypass via object.__setattr__
+            object.__setattr__(tool, "output_schema", schema)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1182,6 +1259,7 @@ def mount_worldbase_mcp(app) -> None:
     mcp.streamable_http_app()
     wrapped = _get_mcp_asgi()
     app.mount("/api/mcp", wrapped)
+    _patch_output_schemas()
     auth_note = (
         "X-API-Key required" if mcp_auth_required() else "open (localhost, no API key)"
     )

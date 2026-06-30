@@ -22,6 +22,8 @@ rasterio>=1.3.0
 
 # MCP read tools (Cursor / Claude) — Streamable HTTP at /api/mcp
 mcp>=1.27,<2
+# V4-44: JMESPath server-side projection for MCP tool responses
+jmespath>=1.0
 
 # Intelligence layer: canonical entity schema (FollowTheMoney) on DuckDB.
 # NOTE (Windows): followthemoney -> normality -> pyicu has no PyPI wheel for

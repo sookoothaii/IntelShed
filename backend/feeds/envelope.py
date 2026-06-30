@@ -24,6 +24,8 @@ HEALTH_META_KEYS = frozenset(
         "geocoded",
         "circuit_state",
         "circuit_open_until",
+        "etag",
+        "last_modified",
     }
 )
 
@@ -62,6 +64,10 @@ def extract_health_feed_meta(val: dict[str, Any]) -> dict[str, Any]:
         meta["circuit_state"] = val.get("circuit_state")
     if "circuit_open_until" in val:
         meta["circuit_open_until"] = val.get("circuit_open_until")
+    if "etag" in val:
+        meta["etag"] = val.get("etag")
+    if "last_modified" in val:
+        meta["last_modified"] = val.get("last_modified")
     return meta
 
 
@@ -137,6 +143,8 @@ class FeedEnvelope:
     demo_mode: bool | None = None
     stream_connected: bool | None = None
     geocoded: int | None = None
+    etag: str | None = None
+    last_modified: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     def merge(self, **fields: Any) -> dict[str, Any]:
@@ -169,6 +177,10 @@ def build_feed_envelope(envelope: FeedEnvelope, **fields: Any) -> dict[str, Any]
         out["stream_connected"] = envelope.stream_connected
     if envelope.geocoded is not None:
         out["geocoded"] = envelope.geocoded
+    if envelope.etag is not None:
+        out["etag"] = envelope.etag
+    if envelope.last_modified is not None:
+        out["last_modified"] = envelope.last_modified
     if envelope.extra:
         out.update(envelope.extra)
     out.update(fields)

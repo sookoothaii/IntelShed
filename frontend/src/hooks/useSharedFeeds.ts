@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchApi } from '../lib/networkFetch'
+import { fetchBootstrapFast, fetchBootstrapSlow } from '../lib/bootstrapApi'
 
 /**
  * Shared React-Query hooks for endpoints that several components poll.
@@ -89,5 +90,37 @@ export function useModelsQuery(opts?: SharedOpts) {
     queryFn: () => getJson<ModelsResponse>('/api/models'),
     refetchInterval: opts?.refetchInterval ?? 60_000,
     enabled: opts?.enabled ?? true,
+  })
+}
+
+// V4-45: Bootstrap hydration hooks — fetch aggregated data on page load.
+// When bootstrap is disabled on the backend, these return null and
+// components fall back to individual endpoint polling.
+
+export function useBootstrapFast(opts?: SharedOpts) {
+  return useQuery({
+    queryKey: ['bootstrap-fast'],
+    queryFn: async () => {
+      const data = await fetchBootstrapFast()
+      if (!data) throw new Error('bootstrap disabled')
+      return data
+    },
+    refetchInterval: opts?.refetchInterval ?? 1200_000, // 20 min matching s-maxage
+    enabled: opts?.enabled ?? true,
+    retry: false, // Don't retry when disabled
+  })
+}
+
+export function useBootstrapSlow(opts?: SharedOpts) {
+  return useQuery({
+    queryKey: ['bootstrap-slow'],
+    queryFn: async () => {
+      const data = await fetchBootstrapSlow()
+      if (!data) throw new Error('bootstrap disabled')
+      return data
+    },
+    refetchInterval: opts?.refetchInterval ?? 7200_000, // 2h matching s-maxage
+    enabled: opts?.enabled ?? true,
+    retry: false,
   })
 }
