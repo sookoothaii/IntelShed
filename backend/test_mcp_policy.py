@@ -77,7 +77,9 @@ class TestPolicyLookup(unittest.TestCase):
 
     def test_env_override_takes_precedence(self):
         with patch.dict(
-            os.environ, {"WORLDBASE_MCP_POLICY_BRIEFING_GENERATE": "readonly"}
+            os.environ,
+            {"WORLDBASE_MCP_POLICY_BRIEFING_GENERATE": "readonly"},
+            clear=True,
         ):
             from mcp_server import _get_mcp_tool_required_role
 
@@ -87,7 +89,9 @@ class TestPolicyLookup(unittest.TestCase):
 
     def test_env_override_invalid_value_falls_back_to_default(self):
         with patch.dict(
-            os.environ, {"WORLDBASE_MCP_POLICY_BRIEFING_GENERATE": "superuser"}
+            os.environ,
+            {"WORLDBASE_MCP_POLICY_BRIEFING_GENERATE": "superuser"},
+            clear=True,
         ):
             from mcp_server import _get_mcp_tool_required_role
 
@@ -96,7 +100,9 @@ class TestPolicyLookup(unittest.TestCase):
             )
 
     def test_env_override_none_disables_check(self):
-        with patch.dict(os.environ, {"WORLDBASE_MCP_POLICY_HEALTH": "none"}):
+        with patch.dict(
+            os.environ, {"WORLDBASE_MCP_POLICY_HEALTH": "none"}, clear=True
+        ):
             from mcp_server import _get_mcp_tool_required_role
 
             self.assertEqual(_get_mcp_tool_required_role("worldbase_health"), "none")
@@ -205,7 +211,9 @@ class TestGateMcpTool(unittest.IsolatedAsyncioTestCase):
         _set_mcp_role("readonly")
         with patch("mcp_server.mcp_policy_enabled", return_value=True):
             with patch.dict(
-                os.environ, {"WORLDBASE_MCP_POLICY_BRIEFING_GENERATE": "readonly"}
+                os.environ,
+                {"WORLDBASE_MCP_POLICY_BRIEFING_GENERATE": "readonly"},
+                clear=True,
             ):
                 with patch("firewall_bridge.ensure_mcp_tool_allowed", new=AsyncMock()):
                     from mcp_server import _gate_mcp_tool
@@ -216,7 +224,9 @@ class TestGateMcpTool(unittest.IsolatedAsyncioTestCase):
         """Env override can raise a read tool's requirement to operator."""
         _set_mcp_role("readonly")
         with patch("mcp_server.mcp_policy_enabled", return_value=True):
-            with patch.dict(os.environ, {"WORLDBASE_MCP_POLICY_HEALTH": "operator"}):
+            with patch.dict(
+                os.environ, {"WORLDBASE_MCP_POLICY_HEALTH": "operator"}, clear=True
+            ):
                 from mcp_server import _gate_mcp_tool
 
                 with self.assertRaises(PermissionError) as ctx:
