@@ -440,6 +440,20 @@ async def _stack_warmup() -> None:
             )
     except Exception as e:
         log.warning("warmup_reranker_failed", error=str(e))
+    # V4-15: BLIP image captioning warmup (ONNX or NVIDIA VLM)
+    try:
+        import blip_bridge
+
+        if blip_bridge._enabled():
+            result = await blip_bridge.warmup_blip()
+            log.info(
+                "warmup_blip",
+                state=result.get("state"),
+                backend=result.get("backend"),
+                elapsed_s=result.get("elapsed_s"),
+            )
+    except Exception as e:
+        log.warning("warmup_blip_failed", error=str(e))
 
 
 async def _entity_resolution_autopilot() -> None:

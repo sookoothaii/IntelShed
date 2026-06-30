@@ -91,6 +91,8 @@ def register_routers(app) -> None:
     import webcam_bridge
     import weather_forecast_bridge
     import windy_bridge
+    import blip_bridge
+    import colqwen2_service
 
     app.include_router(agent_bus.router)
     app.include_router(core_feeds.router)
@@ -170,6 +172,8 @@ def register_routers(app) -> None:
     app.include_router(connectors_router.router)
     app.include_router(traffic_bridge.router)
     app.include_router(model_cookbook.router)
+    app.include_router(blip_bridge.router)
+    app.include_router(colqwen2_service.router)
     from routes import admin as admin_routes
     from routes import duckdb_queue as duckdb_queue_routes
     from routes import metrics as metrics_routes

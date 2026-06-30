@@ -227,6 +227,8 @@ Widersprüchlicher Status:
 
 **Ziel:** Bilder/Video im OSINT-Workflow nutzen; client-seitige ML-Scoring.
 
+**Status:** ✅ Shipped — 78 Tests (60 backend + 18 frontend), alle grün.
+
 **V4-Items:**
 - V4-15 BLIP Image Captioning
 - V4-22 ColQwen2 (als On-Demand-Microservice)
@@ -236,9 +238,109 @@ Widersprüchlicher Status:
 - `backend/blip_bridge.py` — ONNX GPU/CPU + optional NVIDIA VLM API
 - `backend/colqwen2_service.py` — separater Prozess, on-demand start/stop
 - `frontend/src/lib/browser_ml.ts` — Transformers.js ONNX für Headline-Scoring + NER
-- Tests: `test_blip_bridge.py`, `test_colqwen2_service.py`, `test_browser_ml.ts`
+- Tests: `test_blip_bridge.py` (30 tests), `test_colqwen2_service.py` (30 tests), `test_browser_ml.test.ts` (18 tests)
 
 **Abhängigkeiten:** V4-51 (Session 8) für VRAM-Scheduling
+
+### Technische Details
+
+#### V4-15 — BLIP Image Captioning (`backend/blip_bridge.py`)
+
+**Architektur:** Lazy-loading Singleton mit `asyncio.Lock`. Auto-Backend-Auswahl: NVIDIA VLM API wenn `NVIDIA_API_KEY` gesetzt, sonst ONNX Runtime (CUDA/CPU). ONNX-Export beim ersten Start via `transformers` library.
+
+**Routes (FastAPI):**
+- `GET /api/vision/blip/status` — Modell-Status, Backend, Warmup-State
+- `POST /api/vision/blip/caption` — Upload Image File → Caption
+- `POST /api/vision/blip/caption-url` — Body `{"url": "..."}` → Caption (via HTTP-Download)
+
+**Env-Vars:**
+- `WORLDBASE_BLIP=0` — default off, opt-in
+- `WORLDBASE_BLIP_BACKEND=auto` — auto/onnx/nvidia (auto=nvidia wenn `NVIDIA_API_KEY` gesetzt)
+- `WORLDBASE_BLIP_MODEL=Salesforce/blip-image-captioning-base`
+- `WORLDBASE_BLIP_DEVICE=auto` — auto/cuda/cpu (ONNX only)
+- `WORLDBASE_BLIP_ONNX_DIR=data/models/blip_onnx` — ONNX model cache dir
+- `WORLDBASE_BLIP_NVIDIA_MODEL=meta/llama-3.2-90b-vision-instruct`
+- `WORLDBASE_BLIP_MAX_IMAGES=8` — Rate-Limit
+- `WORLDBASE_BLIP_TIMEOUT=30` — NVIDIA API Timeout (Sekunden)
+
+**Warmup:** In `lifespan.py` `_stack_warmup()` registriert — lädt Modell vorab nach Boot (nach RAG reranker warmup).
+
+**ONNX-Details:**
+- Export: `OnnxBlipCaptioner` Klasse mit `onnxruntime.InferenceSession`, CUDA + CPU Execution Providers
+- Tokenizer: `transformers.AutoTokenizer` aus model cache dir
+- Fallback: CPU wenn CUDA nicht verfügbar
+
+**NVIDIA VLM API:**
+- OpenAI-compatible endpoint (`NVIDIA_BASE_URL` + `/chat/completions`)
+- Vision-Model: `meta/llama-3.2-90b-vision-instruct` (configurierbar)
+- Image als base64 data URL im message content
+- Fail-soft: Fallback auf ONNX bei API-Fehler
+
+#### V4-22 — ColQwen2 Visual Document Understanding (`backend/colqwen2_service.py`)
+
+**Architektur:** On-demand Subprocess-Microservice. Hauptprozess schreibt ein Python-Script (`_write_script()`) mit minimalem HTTP-Server (uvicorn), startet es als Subprocess und proxyt Requests. Idle-Monitor auto-stopt nach konfigurierbarem Timeout.
+
+**Routes (FastAPI):**
+- `GET /api/vision/colqwen2/status` — Prozess-Status, PID, Port, Uptime, Idle
+- `POST /api/vision/colqwen2/start` — Startet Subprocess (mit Health-Check-Polling)
+- `POST /api/vision/colqwen2/stop` — Stoppt Subprocess + Idle-Monitor
+- `POST /api/vision/colqwen2/query` — Body `{"images": ["base64..."], "query": "text"}` → Antwort
+- `POST /api/vision/colqwen2/ingest` — Body `{"images": ["base64..."], "doc_id": "..."}` → Indexierung
+
+**Env-Vars:**
+- `WORLDBASE_COLQWEN2=0` — default off, opt-in
+- `WORLDBASE_COLQWEN2_MODEL=vidore/colqwen2-v0.1`
+- `WORLDBASE_COLQWEN2_PORT=8009` — Microservice-Port
+- `WORLDBASE_COLQWEN2_DEVICE=auto` — auto/cuda/cpu
+- `WORLDBASE_COLQWEN2_IDLE_TIMEOUT=300` — Auto-Stop nach N Sekunden Idle
+- `WORLDBASE_COLQWEN2_START_TIMEOUT=120` — Max Sekunden für Startup
+- `WORLDBASE_COLQWEN2_MAX_CONCURRENT=4` — Semaphore für parallele Requests
+
+**Subprocess-Lifecycle:**
+1. `start_service()` → `_write_script()` + `subprocess.Popen` → `_wait_for_health()` pollt `/health`
+2. `_idle_monitor()` → Background-Task, prüft alle 10s `_last_activity`, killt bei Timeout
+3. `stop_service()` → `_kill_process()` (terminate → wait → kill) + Cancel idle monitor
+4. `_proxy_post()` → `httpx.AsyncClient` POST an `127.0.0.1:{port}/query` oder `/ingest`
+
+**Concurrency:** `asyncio.Semaphore(_MAX_CONCURRENT)` begrenzt parallele Proxy-Requests.
+
+#### V4-48 — Browser-Side ML (`frontend/src/lib/browser_ml.ts`)
+
+**Architektur:** Transformers.js (ONNX Runtime Web) im Browser. Lazy-loading via dynamischem Import (`_setLoader()` für Test-Injection). Variable-basierte Import-Strings um Vite static analysis zu umgehen (Package ist optional).
+
+**Modelle (downloaded from HuggingFace Hub, cached in IndexedDB):**
+- NER: `Xenova/bert-base-NER-uncased` (~110MB) — token-classification
+- Sentiment: `Xenova/distilbert-base-uncased-finetuned-sst-2-english` (~65MB) — text-classification
+
+**API (exported functions):**
+- `initBrowserMl()` — Lädt beide Pipelines (idempotent, cached via `_initPromise`)
+- `getBrowserMlStatus()` — `{ ready, nerLoaded, sentimentLoaded, error }`
+- `extractEntities(text)` → `NerEntity[]` — Person/Organization/Location mit B-/I-Prefix-Stripping
+- `scoreHeadline(text)` → `{ score, sentiment, sentimentScore, entities, text }` — 0–1 Relevance Score
+- `scoreHeadlines(texts[])` → Batch-Scoring (sequenziell, `BATCH_SIZE=8`)
+- `rankHeadlines(scores[], minScore?)` → Sortiert nach Score desc, optional Filter
+- `aggregateEntities(scores[])` → Entity-Frequency über alle Headlines
+- `preloadBrowserMl()` — Fail-soft Preload
+- `_setLoader(fn)` — Test-Hook: Override Transformers.js Loader
+
+**Scoring-Logik:**
+- Basis: Sentiment-Score (NEGATIVE → hoch, POSITIVE → niedrig)
+- Boost: Intelligence-Relevante Keywords (drone, strike, military, border, explosion, ...)
+- NER-Entity-Boost: Mehr Entities → höhere Relevanz
+- Clamping: 0.0–1.0
+
+**Type-Mapping:** `B-PER` → `PER` → `Person` (strip `B-`/`I-` prefix, dann `ENTITY_TYPE_MAP`)
+
+**Frontend-Test-Strategie:** `_setLoader()` injiziert Mock-Loader → `mockPipelineFn` returned `mockNerPipeline` / `mockSentimentPipeline` → Keine echten Modelle nötig. 18 Vitest-Tests in `test_browser_ml.test.ts`.
+
+### Wiring
+
+| Datei | Änderung |
+|---|---|
+| `backend/routes/registry.py` | Router für `blip_bridge` + `colqwen2_service` registriert |
+| `backend/lifespan.py` | BLIP warmup in `_stack_warmup()` (nach RAG reranker) |
+| `backend/.env.example` | Alle Env-Vars dokumentiert (V4-15, V4-22, V4-48) |
+| `frontend/src/lib/browser_ml.d.ts` | Ambient TS declarations für optionale dynamic imports |
 
 ---
 
@@ -390,7 +492,7 @@ WorldMonitor ist das reifere **Software-Produkt** (API-Verträge via Protobuf, 5
 | Circuit Breakers | V4-64 Feed Circuit Breaker | ✅ Session 1 shipped |
 | ETag/304 | V4-64 ETag-Tracking | ✅ Session 1 shipped |
 | API-Verträge (Protobuf → OpenAPI) | V4-49 Pydantic → OpenAPI → TS | Session 13 geplant |
-| Browser-side ML (ONNX) | V4-48 Browser-Side ML | Session 10 geplant |
+| Browser-side ML (ONNX) | V4-48 Browser-Side ML | ✅ Session 10 shipped |
 | Smart Poll Loop | V4-46 SmartPollLoop | Session 14 geplant |
 | Bootstrap Hydration | V4-45 Bootstrap Endpoint | ✅ Session 1 shipped |
 | MCP outputSchema | V4-44 MCP Schema + JMESPath | ✅ Session 1 shipped |
