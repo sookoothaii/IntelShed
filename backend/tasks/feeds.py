@@ -65,7 +65,7 @@ def ingest_feed(self, source_name: str) -> dict[str, Any]:
         Non-retryable: HTTP 4xx (except 429) — logged and returned as error dict.
     """
     url = f"{_BACKEND_URL}/api/intel/feeds/run"
-    params = {"sources": source_name}
+    params = {"sources": source_name, "skip_post_ingest": "true"}
     try:
         resp = httpx.post(url, params=params, headers=_headers(), timeout=600.0)
         resp.raise_for_status()
@@ -104,6 +104,50 @@ def ingest_feed(self, source_name: str) -> dict[str, Any]:
         raise self.retry(exc=exc)
     except (httpx.HTTPError, OSError, ConnectionError) as exc:
         log.warning("celery_feed_retry", source=source_name, error=str(exc))
+        raise
+
+
+@celery_app.task(
+    bind=True,
+    name="tasks.feeds.post_ingest_pipeline",
+    autoretry_for=(httpx.HTTPError, OSError, ConnectionError),
+    retry_backoff=60,
+    retry_backoff_max=_FEED_CB_MAX_BACKOFF,
+    retry_jitter=True,
+    max_retries=3,
+)
+def post_ingest_pipeline(self) -> dict[str, Any]:
+    """Run the post-ingest intelligence pipeline via the backend API.
+
+    Calls ``POST /api/intel/feeds/post-ingest`` which runs spatial edges,
+    semantic edges, sanction edges, and subgraph export. Scheduled by Beat
+    with a 120s countdown offset after per-feed ingest tasks fire.
+    """
+    url = f"{_BACKEND_URL}/api/intel/feeds/post-ingest"
+    try:
+        resp = httpx.post(url, headers=_headers(), timeout=600.0)
+        resp.raise_for_status()
+        data = resp.json()
+        log.info("celery_post_ingest_pipeline", result=data)
+        return data
+    except httpx.ReadTimeout as exc:
+        log.warning("celery_post_ingest_read_timeout", error=str(exc))
+        return {"error": "read timeout"}
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status == 503:
+            log.warning("celery_post_ingest_circuit_breaker_open", status=status)
+            raise self.retry(exc=exc)
+        if 400 <= status < 500 and status != 429:
+            log.error(
+                "celery_post_ingest_client_error",
+                status=status,
+                body=exc.response.text[:500],
+            )
+            return {"error": f"HTTP {status}"}
+        raise self.retry(exc=exc)
+    except (httpx.HTTPError, OSError, ConnectionError) as exc:
+        log.warning("celery_post_ingest_retry", error=str(exc))
         raise
 
 

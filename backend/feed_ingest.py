@@ -305,7 +305,77 @@ async def _index_mapping_records_to_rag(
     return await rag_memory.index_chunk_entries(entries)
 
 
-async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
+async def run_post_ingest_pipeline(*, window_hours: int = 24) -> dict:
+    """Run post-ingest intelligence pipeline: spatial edges, semantic edges, subgraph export.
+
+    Extracted from ``run_feed_ingest`` so that per-feed Celery tasks can skip it
+    and a dedicated beat task runs it once after all feeds are ingested.
+
+    Returns:
+        Dict with spatial_edges, semantic_edges, sanction_edges, subgraph_export results.
+    """
+    import intel_graph_export
+    import intel_proximity
+    import intel_semantic_links
+
+    out: dict[str, Any] = {"ok": True, "errors": []}
+    totals_edges = 0
+
+    try:
+        if intel_proximity.enabled():
+            spatial = await asyncio.to_thread(
+                intel_proximity.link_proximity_edges,
+                window_hours=window_hours,
+            )
+            out["spatial_edges"] = spatial
+            totals_edges += spatial.get("edges_added", 0)
+    except Exception:
+        out["errors"].append("spatial: failed")
+        logger.exception("spatial proximity failed")
+
+    try:
+        if intel_semantic_links.enabled():
+            semantic = await asyncio.to_thread(
+                intel_semantic_links.link_semantic_edges,
+                window_hours=window_hours,
+            )
+            out["semantic_edges"] = semantic
+            totals_edges += semantic.get("edges_added", 0)
+        if intel_semantic_links.sanctions_enabled():
+            sanction = await intel_semantic_links.link_sanction_edges(
+                window_hours=window_hours
+            )
+            out["sanction_edges"] = sanction
+            totals_edges += sanction.get("edges_added", 0)
+    except Exception:
+        out["errors"].append("semantic: failed")
+        logger.exception("semantic links failed")
+
+    try:
+        if intel_graph_export.enabled():
+            exported = await asyncio.to_thread(
+                intel_graph_export.export_operator_subgraph
+            )
+            out["subgraph_export"] = {
+                "node_count": exported.get("node_count"),
+                "edge_count": exported.get("edge_count"),
+                "export_path": exported.get("export_path"),
+            }
+    except Exception:
+        out["errors"].append("subgraph_export: failed")
+        logger.exception("subgraph export failed")
+
+    out["edges_added"] = totals_edges
+    out["ok"] = True
+    logger.info("post_ingest_pipeline: +%d edges", totals_edges)
+    return out
+
+
+async def run_feed_ingest(
+    *,
+    sources: list[str] | None = None,
+    skip_post_ingest: bool = False,
+) -> dict:
     global _LAST_RUN, _LAST_ERROR
     started = _now()
     _t0 = time.monotonic()
@@ -391,72 +461,40 @@ async def run_feed_ingest(*, sources: list[str] | None = None) -> dict:
         "errors": errors[:10],
     }
 
-    if resolve_after_feeds() and out["ok"]:
-        try:
-            import entity_resolution
+    if not skip_post_ingest:
+        if resolve_after_feeds() and out["ok"]:
+            try:
+                import entity_resolution
 
-            resolution = await asyncio.to_thread(entity_resolution.run_resolution)
-            out["resolution"] = {
-                "edges_added": resolution.get("edges_added", 0),
-                "exact_edges": resolution.get("exact_edges", 0),
-                "subset_edges": resolution.get("subset_edges", 0),
-                "splink_edges": resolution.get("splink_edges", 0),
-                "resolution_edges_total": resolution.get("resolution_edges_total", 0),
-            }
-        except Exception:
-            out["errors"] = list(out["errors"]) + ["resolution: failed"]
-            logger.exception("post-feed resolution failed")
-
-    if out["ok"]:
-        try:
-            import intel_proximity
-
-            if intel_proximity.enabled():
-                spatial = await asyncio.to_thread(
-                    intel_proximity.link_proximity_edges,
-                    window_hours=24,
-                )
-                out["spatial_edges"] = spatial
-                totals["edges"] += spatial.get("edges_added", 0)
-        except Exception:
-            out["errors"] = list(out["errors"]) + ["spatial: failed"]
-            logger.exception("spatial proximity failed")
-
-        try:
-            import intel_semantic_links
-
-            if intel_semantic_links.enabled():
-                semantic = await asyncio.to_thread(
-                    intel_semantic_links.link_semantic_edges,
-                    window_hours=24,
-                )
-                out["semantic_edges"] = semantic
-                totals["edges"] += semantic.get("edges_added", 0)
-            if intel_semantic_links.sanctions_enabled():
-                sanction = await intel_semantic_links.link_sanction_edges(
-                    window_hours=24
-                )
-                out["sanction_edges"] = sanction
-                totals["edges"] += sanction.get("edges_added", 0)
-        except Exception:
-            out["errors"] = list(out["errors"]) + ["semantic: failed"]
-            logger.exception("semantic links failed")
-
-        try:
-            import intel_graph_export
-
-            if intel_graph_export.enabled():
-                exported = await asyncio.to_thread(
-                    intel_graph_export.export_operator_subgraph
-                )
-                out["subgraph_export"] = {
-                    "node_count": exported.get("node_count"),
-                    "edge_count": exported.get("edge_count"),
-                    "export_path": exported.get("export_path"),
+                resolution = await asyncio.to_thread(entity_resolution.run_resolution)
+                out["resolution"] = {
+                    "edges_added": resolution.get("edges_added", 0),
+                    "exact_edges": resolution.get("exact_edges", 0),
+                    "subset_edges": resolution.get("subset_edges", 0),
+                    "splink_edges": resolution.get("splink_edges", 0),
+                    "resolution_edges_total": resolution.get(
+                        "resolution_edges_total", 0
+                    ),
                 }
-        except Exception:
-            out["errors"] = list(out["errors"]) + ["subgraph_export: failed"]
-            logger.exception("subgraph export failed")
+            except Exception:
+                out["errors"] = list(out["errors"]) + ["resolution: failed"]
+                logger.exception("post-feed resolution failed")
+
+        if out["ok"]:
+            pipeline = await run_post_ingest_pipeline(window_hours=24)
+            if pipeline.get("spatial_edges"):
+                out["spatial_edges"] = pipeline["spatial_edges"]
+                totals["edges"] += pipeline["spatial_edges"].get("edges_added", 0)
+            if pipeline.get("semantic_edges"):
+                out["semantic_edges"] = pipeline["semantic_edges"]
+                totals["edges"] += pipeline["semantic_edges"].get("edges_added", 0)
+            if pipeline.get("sanction_edges"):
+                out["sanction_edges"] = pipeline["sanction_edges"]
+                totals["edges"] += pipeline["sanction_edges"].get("edges_added", 0)
+            if pipeline.get("subgraph_export"):
+                out["subgraph_export"] = pipeline["subgraph_export"]
+            if pipeline.get("errors"):
+                out["errors"] = list(out["errors"]) + pipeline["errors"]
 
     _elapsed = time.monotonic() - _t0
     out["duration_sec"] = round(_elapsed, 2)
@@ -510,14 +548,36 @@ async def feeds_status():
 @router.post("/run")
 async def feeds_run(
     sources: str | None = Query(None, description="Comma-separated source ids"),
+    skip_post_ingest: bool = Query(
+        False, description="Skip post-ingest pipeline (Celery per-feed mode)"
+    ),
     _auth: str | None = Depends(verify_lan_auth),
 ):
     src_list = [s.strip() for s in sources.split(",") if s.strip()] if sources else None
     try:
-        return await run_feed_ingest(sources=src_list)
+        return await run_feed_ingest(
+            sources=src_list, skip_post_ingest=skip_post_ingest
+        )
     except Exception as exc:
         logger.exception("feed ingest failed")
         raise HTTPException(status_code=503, detail="feed ingest failed") from exc
+
+
+@router.post("/post-ingest")
+async def post_ingest_run(
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Run post-ingest intelligence pipeline (spatial edges, semantic edges, subgraph export).
+
+    Called by a dedicated Celery beat task after all per-feed ingest tasks complete.
+    """
+    try:
+        return await run_post_ingest_pipeline(window_hours=24)
+    except Exception as exc:
+        logger.exception("post-ingest pipeline failed")
+        raise HTTPException(
+            status_code=503, detail="post-ingest pipeline failed"
+        ) from exc
 
 
 @router.post("/validate")

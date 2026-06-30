@@ -76,6 +76,18 @@ class CeleryAppTests(unittest.TestCase):
         for key in feed_keys:
             self.assertEqual(beat_schedule[key]["task"], "tasks.feeds.ingest_feed")
 
+    def test_beat_schedule_has_post_ingest_task(self):
+        from tasks.celery_app import beat_schedule
+
+        self.assertIn("post-ingest-pipeline", beat_schedule)
+        self.assertEqual(
+            beat_schedule["post-ingest-pipeline"]["task"],
+            "tasks.feeds.post_ingest_pipeline",
+        )
+        self.assertEqual(
+            beat_schedule["post-ingest-pipeline"]["options"]["countdown"], 120
+        )
+
     def test_beat_schedule_has_briefing_task(self):
         from tasks.celery_app import beat_schedule
 
@@ -200,6 +212,21 @@ class FeedTaskTests(unittest.TestCase):
             with self.assertRaises(httpx.ConnectError):
                 ingest_feed.run("gdacs")
 
+    def test_ingest_feed_passes_skip_post_ingest(self):
+        """Per-feed task should pass skip_post_ingest=true to avoid running pipeline per feed."""
+        from tasks.feeds import ingest_feed
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"ok": True}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("tasks.feeds.httpx.post", return_value=mock_response) as mock_post:
+            ingest_feed.run("gdacs")
+            call_args = mock_post.call_args
+            params = call_args.kwargs.get("params") or call_args[1].get("params")
+            self.assertEqual(params["skip_post_ingest"], "true")
+
     def test_ingest_feed_passes_source_param(self):
         """Task should pass source_name as query param."""
         from tasks.feeds import ingest_feed
@@ -250,6 +277,66 @@ class FeedTaskTests(unittest.TestCase):
                 self.assertEqual(headers["X-API-Key"], "test-secret-key")
         finally:
             feeds_module._API_KEY = old_key
+
+    def test_post_ingest_pipeline_success(self):
+        """Post-ingest pipeline task calls the dedicated endpoint."""
+        from tasks.feeds import post_ingest_pipeline
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"ok": True, "edges_added": 12}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("tasks.feeds.httpx.post", return_value=mock_response) as mock_post:
+            result = post_ingest_pipeline.run()
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["edges_added"], 12)
+        call_url = (
+            mock_post.call_args.args[0]
+            if mock_post.call_args.args
+            else mock_post.call_args[0][0]
+        )
+        self.assertIn("/api/intel/feeds/post-ingest", call_url)
+
+    def test_post_ingest_pipeline_read_timeout_fail_soft(self):
+        """ReadTimeout on post-ingest should fail soft — no retry."""
+        from tasks.feeds import post_ingest_pipeline
+
+        import httpx
+
+        with patch(
+            "tasks.feeds.httpx.post", side_effect=httpx.ReadTimeout("timed out")
+        ):
+            with patch.object(
+                post_ingest_pipeline, "retry", return_value={"retried": True}
+            ) as mock_retry:
+                result = post_ingest_pipeline.run()
+                mock_retry.assert_not_called()
+                self.assertIn("error", result)
+                self.assertEqual(result["error"], "read timeout")
+
+    def test_post_ingest_pipeline_503_triggers_retry(self):
+        """HTTP 503 on post-ingest should trigger retry."""
+        from tasks.feeds import post_ingest_pipeline
+
+        mock_response = MagicMock()
+        mock_response.status_code = 503
+        mock_response.text = "Service Unavailable"
+
+        import httpx
+
+        httpx_exc = httpx.HTTPStatusError(
+            "503 Server Error", request=MagicMock(), response=mock_response
+        )
+
+        with patch("tasks.feeds.httpx.post", side_effect=httpx_exc):
+            with patch.object(
+                post_ingest_pipeline, "retry", side_effect=celery.exceptions.Retry()
+            ) as mock_retry:
+                with self.assertRaises(celery.exceptions.Retry):
+                    post_ingest_pipeline.run()
+                mock_retry.assert_called_once()
 
 
 class BriefingTaskTests(unittest.TestCase):

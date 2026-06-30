@@ -91,7 +91,7 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       WORLDBASE_BACKEND_URL: http://backend:8002
       WORLDBASE_TASK_QUEUE: celery
-    command: ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info", "--concurrency=1"]
+    command: ["celery", "-A", "tasks.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
     healthcheck:
       test: ["CMD-SHELL", "celery -A tasks.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
       interval: 30s

@@ -70,6 +70,13 @@ beat_schedule: dict = {
     for src in _FEED_SOURCES
 }
 
+beat_schedule["post-ingest-pipeline"] = {
+    "task": "tasks.feeds.post_ingest_pipeline",
+    "schedule": _feed_interval,
+    "args": (),
+    "options": {"countdown": 120},
+}
+
 beat_schedule["generate-briefing"] = {
     "task": "tasks.briefing.generate_briefing",
     "schedule": _briefing_interval,

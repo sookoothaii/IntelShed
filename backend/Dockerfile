@@ -74,7 +74,7 @@ USER worldbase
 
 EXPOSE 8002
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=25s --retries=5 \
+HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \
     CMD curl -fsS http://127.0.0.1:8002/api/health/ping || exit 1
 
 CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8002"]
