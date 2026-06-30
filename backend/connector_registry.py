@@ -179,6 +179,17 @@ CONNECTOR_CATALOG: dict[str, ConnectorManifest] = {
         bridge="cve_bridge.py",
         cache_key="cve",
     ),
+    "cii": _c(
+        "cii",
+        "Country Instability Index (CII)",
+        "intel",
+        ("/api/cii/country", "/api/cii/rankings"),
+        ttl_sec=300,
+        region=("global",),
+        bridge="cii_engine.py",
+        cache_key="cii",
+        notes="Composite 0-100 instability score from GDELT, NewsData, ACLED. 4 signal families: conflict, economy, climate, governance.",
+    ),
     "darkweb": _c(
         "darkweb",
         "Dark web / darknet OSINT monitor",

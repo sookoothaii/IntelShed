@@ -140,6 +140,7 @@ async def get_german_energy():
 
     result = {
         "region": "DE",
+        "count": series_ok,
         "updated": datetime.now(timezone.utc).isoformat(),
         "source": "smard.de",
         "total_generation_mw": round(total_gen_mw, 2),

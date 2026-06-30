@@ -41,7 +41,6 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "feed_cache_count": {"type": "integer"},
             "mcp_auth_required": {"type": "boolean"},
         },
-        "required": ["status", "time", "ftm_ready", "feed_cache_count"],
     },
     "worldbase_briefing_latest": {
         "type": "object",

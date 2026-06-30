@@ -83,6 +83,7 @@ def build_security_advisor_prompt(
             "MARITIME ANOMALIES — AIS pattern-of-life (always include, even if no anomalies)\n"
             "SATELLITE CHANGE DETECTION — Sentinel-2 NDVI change (always include, even if no anomalies)\n"
             "ANOMALY ALERT — Isolation Forest feed anomalies (always include, even if no anomalies)\n"
+            "COUNTRY INSTABILITY INDEX — top countries by CII risk score (always include if enabled)\n"
             "RECOMMENDATION — 1–2 sentences: calm, actionable, no panic\n"
         )
         no_data_clause = (
@@ -242,6 +243,15 @@ def build_security_advisor_prompt(
         prompt += "LIGHTNING ACTIVITY (Blitzortung, recent strikes):\n"
         for line in lightning["lines"]:
             prompt += f"  - {line}\n"
+        prompt += "\n"
+    cii = digest.get("cii") or {}
+    if cii.get("enabled"):
+        prompt += "COUNTRY INSTABILITY INDEX (CII, 0-100, 24h delta + 7-day trend):\n"
+        if cii.get("lines"):
+            for line in cii["lines"]:
+                prompt += f"  - {line.get('text', line)}\n"
+        else:
+            prompt += "  - No significant instability signals detected.\n"
         prompt += "\n"
     osm = digest.get("osm") or {}
     if osm.get("enabled") and osm.get("lines"):

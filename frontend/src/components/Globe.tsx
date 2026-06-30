@@ -380,6 +380,7 @@ type Stats = {
   acled: number;
   osm: number;
   weatherForecast: number;
+  cii: number;
   fps: number;
 };
 
@@ -415,6 +416,7 @@ type GlobeLayers = {
   acled: boolean;
   osm: boolean;
   weatherForecast: boolean;
+  cii: boolean;
 };
 
 type LayerKey = keyof GlobeLayers;
@@ -755,6 +757,13 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
         color: '#ff2d00',
         tip: 'ACLED conflict events (ASEAN, 7-day window).',
       },
+      {
+        layer: 'cii',
+        label: 'CII',
+        statKey: 'cii',
+        color: '#ff4d5e',
+        tip: 'Country Instability Index — 0-100 composite risk score.',
+      },
     ],
   },
 ];
@@ -808,6 +817,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       acled: false,
       osm: false,
       weatherForecast: false,
+      cii: false,
     },
     collapsed: { motion: false, geo: false, env: false, infra: true, intel: true },
     trails: false,
@@ -848,6 +858,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       acled: false,
       osm: false,
       weatherForecast: false,
+      cii: false,
     },
     collapsed: { motion: true, geo: false, env: true, infra: false, intel: true },
     trails: false,
@@ -888,6 +899,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       acled: true,
       osm: false,
       weatherForecast: true,
+      cii: true,
     },
     collapsed: { motion: true, geo: true, env: true, infra: true, intel: false },
     trails: false,
@@ -928,6 +940,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       acled: true,
       osm: true,
       weatherForecast: true,
+      cii: true,
     },
     collapsed: { motion: false, geo: false, env: false, infra: false, intel: false },
     trails: true,
@@ -1181,6 +1194,7 @@ export default function Globe({
     acled: 0,
     osm: 0,
     weatherForecast: 0,
+    cii: 0,
     fps: 0,
   });
   const [gibsLayer, setGibsLayer] = useState<'off' | 'fires' | 'goes' | 'viirs'>('off');
@@ -3042,6 +3056,7 @@ export default function Globe({
                   'osm',
                   'satelliteChange',
                   'detectionBoxes',
+                  'cii',
                 ] as const
               ).map((k) => (
                 <label key={k} className={layers[k] ? 'on' : ''}>

@@ -1195,6 +1195,7 @@ def format_digest_sections(
     osm_digest: dict[str, Any] | None = None,
     weather_forecast_digest: dict[str, Any] | None = None,
     lightning_digest: dict[str, Any] | None = None,
+    cii_digest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
@@ -1348,5 +1349,6 @@ def format_digest_sections(
         "weather_forecast": weather_forecast_digest
         or {"enabled": False, "count": 0, "lines": []},
         "lightning": lightning_digest or {"enabled": False, "count": 0, "lines": []},
+        "cii": cii_digest or {"enabled": False, "count": 0, "lines": []},
         "_gdelt_collected": gdelt_collected,
     }

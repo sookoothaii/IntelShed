@@ -482,6 +482,7 @@ async def _generate_briefing_unlocked(
     osm_digest: dict = {"enabled": False, "count": 0, "lines": []}
     weather_forecast_digest: dict = {"enabled": False, "count": 0, "lines": []}
     lightning_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    cii_digest: dict = {"enabled": False, "count": 0, "lines": []}
     try:
         import darkweb_bridge
 
@@ -601,6 +602,14 @@ async def _generate_briefing_unlocked(
         pass
     if lightning_digest:
         snap["lightning_digest"] = lightning_digest
+    try:
+        from cii_engine import gather_cii_digest
+
+        cii_digest = gather_cii_digest()
+    except Exception:
+        pass
+    if cii_digest:
+        snap["cii_digest"] = cii_digest
     digest = format_digest_sections(
         snap,
         alerts,
@@ -624,6 +633,7 @@ async def _generate_briefing_unlocked(
         osm_digest=osm_digest,
         weather_forecast_digest=weather_forecast_digest,
         lightning_digest=lightning_digest,
+        cii_digest=cii_digest,
     )
     from briefing_agentic import run_briefing_agentic_loop
 

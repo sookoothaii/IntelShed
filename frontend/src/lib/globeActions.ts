@@ -28,7 +28,8 @@ export type LayerKey =
   | 'darkweb'
   | 'satelliteChange'
   | 'detectionBoxes'
-  | 'piAis';
+  | 'piAis'
+  | 'cii';
 
 export type GlobeAction =
   | { type: 'fly_to'; lat: number; lon: number; height: number; title: string; lines?: string[] }

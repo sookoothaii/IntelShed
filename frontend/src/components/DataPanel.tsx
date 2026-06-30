@@ -217,6 +217,7 @@ import {
 import WildfiresPanel from './WildfiresPanel';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import DarkwebPanel from './DarkwebPanel';
+import CiiPanel from './CiiPanel';
 import TelegramPanel from './TelegramPanel';
 import { ErrorBoundary } from './ErrorBoundary';
 import { useHudSessionState } from '../lib/hudSessionState';
@@ -254,6 +255,7 @@ export const DATA_TABS = [
   'sanctions',
   'intel',
   'darkweb',
+  'cii',
   'telegram',
   'flags',
 ] as const;
@@ -1811,6 +1813,7 @@ export default function DataPanel({
       )}
 
       {tab === 'darkweb' && <DarkwebPanel />}
+      {tab === 'cii' && <CiiPanel />}
       {tab === 'telegram' && <TelegramPanel />}
       {tab === 'flags' && <FeatureFlagsPanel />}
     </div>

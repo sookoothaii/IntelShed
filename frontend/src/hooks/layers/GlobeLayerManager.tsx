@@ -33,6 +33,7 @@ import { useAcledLayer } from './useAcledLayer';
 import { useOsmLayer } from './useOsmLayer';
 import { useWeatherForecastLayer } from './useWeatherForecastLayer';
 import { useAgentSwarm } from './useAgentSwarm';
+import { useCiiLayer } from './useCiiLayer';
 
 export function GlobeLayerManager({
   viewer,
@@ -183,6 +184,7 @@ export function GlobeLayerManager({
     setStats,
   });
   useAgentSwarm({ viewer, active: true });
+  useCiiLayer({ viewer, active: layers.cii ?? false, feedActive, canFetch, setStats });
 
   return null;
 }

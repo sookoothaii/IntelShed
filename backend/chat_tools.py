@@ -127,7 +127,7 @@ async def _verify_claim(
 async def _geocode_place(query: str) -> dict[str, Any] | None:
     """Resolve a place name to lat/lon via OpenStreetMap Nominatim (fail-soft)."""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             r = await client.get(
                 _NOMINATIM_URL,
                 params={"q": query, "format": "json", "limit": 1},

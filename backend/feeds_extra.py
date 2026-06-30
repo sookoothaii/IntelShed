@@ -918,14 +918,19 @@ async def air_quality():
                     )
                 except Exception:
                     continue
-        out = {"cities": results, "updated": datetime.now(timezone.utc).isoformat()}
+        out = {
+            "count": len(results),
+            "cities": results,
+            "source": "open-meteo",
+            "updated": datetime.now(timezone.utc).isoformat(),
+        }
         await _set(key, out)
         return out
     except Exception as e:
         stale = await _stale(key)
         if stale:
             return stale
-        return {"cities": [], "error": str(e)}
+        return {"count": 0, "cities": [], "source": "open-meteo", "error": str(e)}
 
 
 # ---------------------------------------------------------------------------

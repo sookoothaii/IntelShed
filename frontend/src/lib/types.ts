@@ -30,6 +30,7 @@ export type Stats = {
   acled: number;
   osm: number;
   weatherForecast: number;
+  cii: number;
   fps: number;
 };
 

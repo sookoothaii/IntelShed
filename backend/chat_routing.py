@@ -47,9 +47,9 @@ def resolve_chat_options(
     provider = payload.get("provider", "ollama")
     model = payload.get("model", default_model)
     use_stream = bool(payload.get("stream", False))
-    # Tools default ON for Ollama; for other providers the UI sends an explicit flag.
+    # Tools default ON for Ollama and NVIDIA NIM; for other providers the UI sends an explicit flag.
     use_tools_explicit = "use_tools" in payload
-    use_tools = bool(payload.get("use_tools", provider == "ollama"))
+    use_tools = bool(payload.get("use_tools", provider in ("ollama", "nvidia")))
     force_fast = bool(payload.get("force_fast") or payload.get("entity_context"))
     if force_fast and not use_tools_explicit:
         use_tools = False

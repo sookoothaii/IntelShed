@@ -86,6 +86,7 @@ const LAYER_GROUPS: LayerGroup[] = [
       },
       { key: 'geopolitics', label: 'Geopolitics', statKey: 'geopolitics' },
       { key: 'satelliteChange', label: 'Sat Change' },
+      { key: 'cii', label: 'Instability Index', color: '#ff4d5e', statKey: 'cii' },
     ],
   },
   {

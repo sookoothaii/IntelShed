@@ -24,6 +24,7 @@ def register_routers(app) -> None:
     import anomaly_river
     import acled_bridge
     import blitzortung_bridge
+    import cii_engine
     import bootstrap
     import cams_bridge
     import cap_bridge
@@ -100,6 +101,7 @@ def register_routers(app) -> None:
     app.include_router(nasa_firms.router)
     app.include_router(blitzortung_bridge.router)
     app.include_router(acled_bridge.router)
+    app.include_router(cii_engine.router)
     app.include_router(osm_bridge.router)
     app.include_router(weather_forecast_bridge.router)
     app.include_router(smard_bridge.router)

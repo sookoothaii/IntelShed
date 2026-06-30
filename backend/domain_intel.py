@@ -265,7 +265,9 @@ async def _fetch_rdap(domain: str, client: httpx.AsyncClient) -> dict[str, Any]:
 
 async def _gather_domain_intel(domain: str, wayback_limit: int = 50) -> dict[str, Any]:
     """Fetch all three sources in parallel."""
-    async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_UA) as client:
+    async with httpx.AsyncClient(
+        timeout=_TIMEOUT, headers=_UA, follow_redirects=True
+    ) as client:
         certs_task = _fetch_crt_sh(domain, client)
         wayback_task = _fetch_wayback(domain, client, limit=wayback_limit)
         rdap_task = _fetch_rdap(domain, client)
@@ -363,7 +365,9 @@ async def domain_certs(
             return cached
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_UA) as client:
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT, headers=_UA, follow_redirects=True
+        ) as client:
             result = await _fetch_crt_sh(domain, client)
         result["domain"] = domain
         result["source"] = "crt.sh"
@@ -395,7 +399,9 @@ async def domain_wayback(
             return cached
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_UA) as client:
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT, headers=_UA, follow_redirects=True
+        ) as client:
             result = await _fetch_wayback(domain, client, limit=limit)
         result["domain"] = domain
         result["source"] = "wayback.cdx"
@@ -426,7 +432,9 @@ async def domain_rdap(
             return cached
 
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_UA) as client:
+        async with httpx.AsyncClient(
+            timeout=_TIMEOUT, headers=_UA, follow_redirects=True
+        ) as client:
             result = await _fetch_rdap(domain, client)
         result["domain"] = domain
         result["source"] = "rdap.org"
