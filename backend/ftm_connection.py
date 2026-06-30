@@ -318,6 +318,13 @@ def _rebuild_and_swap() -> bool:
                 os.remove(bak_path)
             except OSError:
                 pass
+        # Move old WAL alongside .bak (orphaned WAL causes geometry replay crash)
+        _old_wal = db_path + ".wal"
+        if os.path.exists(_old_wal):
+            try:
+                os.replace(_old_wal, bak_path + ".wal")
+            except OSError:
+                pass
         if os.path.exists(db_path):
             os.replace(db_path, bak_path)
         os.replace(recovery_path, db_path)
@@ -386,6 +393,15 @@ def reset_store(*, hard: bool = False) -> bool:
                 log.info("ftm_hard_reset", path=_DB_PATH, action="deleted")
             except OSError as exc:
                 log.warning("ftm_hard_reset_failed", path=_DB_PATH, error=str(exc))
+        # Also remove the WAL file — an orphaned WAL with geometry types
+        # causes "Unsupported geometry type in legacy geometry" on replay.
+        _wal = _DB_PATH + ".wal"
+        if os.path.exists(_wal):
+            try:
+                os.remove(_wal)
+                log.info("ftm_hard_reset_wal_deleted", path=_wal)
+            except OSError as exc:
+                log.warning("ftm_hard_reset_wal_failed", path=_wal, error=str(exc))
     return init_store()
 
 
