@@ -523,6 +523,18 @@ def _collect_digest_items(snap: dict, alerts: list[dict]) -> list[dict]:
                 )
             )
 
+    breach_digest = snap.get("breach_digest") or {}
+    if breach_digest.get("enabled"):
+        for line in (breach_digest.get("lines") or [])[:5]:
+            items.append(
+                _line(
+                    line.get("severity", "high"),
+                    line.get("text", ""),
+                    "global",
+                    sources=line.get("sources", ["hibp"]),
+                )
+            )
+
     maritime_anomaly_digest = snap.get("maritime_anomaly_digest") or {}
     if maritime_anomaly_digest.get("enabled"):
         for line in (maritime_anomaly_digest.get("lines") or [])[:5]:
@@ -1017,6 +1029,16 @@ def build_watch_items(
         except Exception:
             pass
 
+    breach_digest = snap.get("breach_digest") or {}
+    if breach_digest.get("enabled"):
+        try:
+            from breach_bridge import build_breach_watch_items
+
+            for item in build_breach_watch_items(breach_digest):
+                candidates.append(item)
+        except Exception:
+            pass
+
     telegram_digest = snap.get("telegram_digest") or {}
     if telegram_digest.get("enabled"):
         try:
@@ -1182,6 +1204,7 @@ def format_digest_sections(
     lang: str | None = None,
     darkweb_digest: dict[str, Any] | None = None,
     ransomware_digest: dict[str, Any] | None = None,
+    breach_digest: dict[str, Any] | None = None,
     telegram_digest: dict[str, Any] | None = None,
     maritime_anomaly_digest: dict[str, Any] | None = None,
     spaceweather_digest: dict[str, Any] | None = None,
@@ -1332,6 +1355,7 @@ def format_digest_sections(
         "nodes": node_lines,
         "darkweb": darkweb_digest or {"enabled": False, "count": 0, "lines": []},
         "ransomware": ransomware_digest or {"enabled": False, "count": 0, "lines": []},
+        "breach": breach_digest or {"enabled": False, "count": 0, "lines": []},
         "telegram": telegram_digest or {"enabled": False, "count": 0, "lines": []},
         "maritime": maritime_anomaly_digest
         or {"enabled": False, "count": 0, "lines": []},

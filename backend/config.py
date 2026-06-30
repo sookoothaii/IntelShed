@@ -103,6 +103,10 @@ class WorldBaseConfig(BaseModel):
     ransomware_cache_sec: int = 3600
     ransomware_max_results: int = 100
     briefing_ransomware: bool = False
+    breach_enabled: bool = False
+    breach_cache_sec: int = 3600
+    briefing_breach: bool = False
+    hibp_api_key: str = ""
     telegram_enabled: bool = False
     telegram_cache_sec: int = 600
     telegram_post_limit: int = 50
@@ -323,6 +327,10 @@ class WorldBaseConfig(BaseModel):
             briefing_ransomware=_truthy(
                 os.getenv("WORLDBASE_BRIEFING_RANSOMWARE", "0")
             ),
+            breach_enabled=_truthy(os.getenv("WORLDBASE_BREACH", "0")),
+            breach_cache_sec=int(os.getenv("WORLDBASE_BREACH_CACHE_SEC", "3600")),
+            briefing_breach=_truthy(os.getenv("WORLDBASE_BRIEFING_BREACH", "0")),
+            hibp_api_key=os.getenv("WORLDBASE_HIBP_API_KEY", ""),
             telegram_enabled=_truthy(os.getenv("WORLDBASE_TELEGRAM", "0")),
             telegram_cache_sec=int(os.getenv("WORLDBASE_TELEGRAM_CACHE_SEC", "600")),
             telegram_post_limit=int(os.getenv("WORLDBASE_TELEGRAM_POST_LIMIT", "50")),

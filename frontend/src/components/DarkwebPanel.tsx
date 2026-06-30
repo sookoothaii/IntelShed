@@ -12,9 +12,16 @@ import {
   ingestRansomwareVictims,
   scrapeDarkwebUrl,
   deepSearchDarkweb,
+  checkEmailBreach,
+  checkPasswordBreach,
+  getBreachMonitors,
+  removeBreachMonitor,
+  refreshBreachMonitors,
   type DarkwebResult,
   type DarkwebEngineInfo,
   type DarkwebMention,
+  type BreachInfo,
+  type BreachMonitor,
 } from '../lib/darkwebApi';
 
 export default function DarkwebPanel() {
@@ -40,7 +47,7 @@ export default function DarkwebPanel() {
   } | null>(null);
   const [engineList, setEngineList] = useState<DarkwebEngineInfo[]>([]);
   const [activeTab, setActiveTab] = useState<
-    'search' | 'browse' | 'deep' | 'mentions' | 'ransomware'
+    'search' | 'browse' | 'deep' | 'mentions' | 'ransomware' | 'breach'
   >('search');
   const [ransomwareGroups, setRansomwareGroups] = useState<
     Array<{
@@ -69,6 +76,26 @@ export default function DarkwebPanel() {
     }>
   >([]);
   const [ransomwareLoading, setRansomwareLoading] = useState(false);
+  const [breachEmail, setBreachEmail] = useState('');
+  const [breachPassword, setBreachPassword] = useState('');
+  const [breachLoading, setBreachLoading] = useState(false);
+  const [breachResult, setBreachResult] = useState<{
+    email: string;
+    breached: boolean;
+    breaches: BreachInfo[];
+    count: number;
+    error?: string;
+  } | null>(null);
+  const [breachPasswordResult, setBreachPasswordResult] = useState<{
+    compromised: boolean;
+    count: number;
+    error?: string;
+  } | null>(null);
+  const [breachMonitors, setBreachMonitors] = useState<BreachMonitor[]>([]);
+  const [breachRefreshResult, setBreachRefreshResult] = useState<{
+    checked: number;
+    new_breaches: number;
+  } | null>(null);
   const [browseUrl, setBrowseUrl] = useState('');
   const [browseLoading, setBrowseLoading] = useState(false);
   const [browseResult, setBrowseResult] = useState<{
@@ -182,6 +209,74 @@ export default function DarkwebPanel() {
       loadRansomwareVictims(selectedRansomwareGroup);
     }
   }, [selectedRansomwareGroup]);
+
+  const loadBreachMonitors = useCallback(async () => {
+    try {
+      const data = await getBreachMonitors();
+      setBreachMonitors(data.monitors || []);
+    } catch {
+      setBreachMonitors([]);
+    }
+  }, []);
+
+  const handleBreachCheck = async () => {
+    if (!breachEmail.trim()) return;
+    setBreachLoading(true);
+    setError(null);
+    setBreachResult(null);
+    try {
+      const data = await checkEmailBreach(breachEmail, true);
+      setBreachResult(data);
+      await loadBreachMonitors();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBreachLoading(false);
+    }
+  };
+
+  const handlePasswordCheck = async () => {
+    if (!breachPassword.trim()) return;
+    setBreachLoading(true);
+    setError(null);
+    setBreachPasswordResult(null);
+    try {
+      const data = await checkPasswordBreach(breachPassword);
+      setBreachPasswordResult(data);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBreachLoading(false);
+    }
+  };
+
+  const handleBreachRefresh = async () => {
+    setBreachLoading(true);
+    setError(null);
+    setBreachRefreshResult(null);
+    try {
+      const data = await refreshBreachMonitors();
+      setBreachRefreshResult({ checked: data.checked, new_breaches: data.new_breaches });
+      await loadBreachMonitors();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBreachLoading(false);
+    }
+  };
+
+  const handleRemoveMonitor = async (monitorId: number) => {
+    try {
+      await removeBreachMonitor(monitorId);
+      await loadBreachMonitors();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'breach') loadBreachMonitors();
+  }, [activeTab, loadBreachMonitors]);
 
   const handleSearch = async () => {
     if (!query.trim()) return;
@@ -335,6 +430,12 @@ export default function DarkwebPanel() {
           onClick={() => setActiveTab('ransomware')}
         >
           RANSOMWARE
+        </button>
+        <button
+          className={activeTab === 'breach' ? 'hud-button active' : 'hud-button'}
+          onClick={() => setActiveTab('breach')}
+        >
+          BREACH
         </button>
       </div>
 
@@ -790,6 +891,171 @@ export default function DarkwebPanel() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {activeTab === 'breach' && (
+        <div>
+          <div style={{ marginBottom: 16 }}>
+            <h3 style={{ fontSize: 13, color: '#00e5a0', margin: '0 0 8px 0' }}>
+              EMAIL BREACH CHECK (HIBP)
+            </h3>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input
+                className="hud-input"
+                style={{ flex: 1 }}
+                placeholder="email@example.com"
+                value={breachEmail}
+                onChange={(e) => setBreachEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleBreachCheck()}
+              />
+              <button
+                className="hud-button"
+                onClick={handleBreachCheck}
+                disabled={breachLoading || !breachEmail.trim()}
+              >
+                {breachLoading ? '...' : 'CHECK'}
+              </button>
+            </div>
+            {breachResult && (
+              <div style={{ fontSize: 11, marginTop: 8 }}>
+                {breachResult.error ? (
+                  <div style={{ color: '#ff4d5e' }}>Error: {breachResult.error}</div>
+                ) : breachResult.breached ? (
+                  <div>
+                    <div style={{ color: '#ff4d5e', marginBottom: 4 }}>
+                      {breachResult.email} — {breachResult.count} breach(es) found
+                    </div>
+                    {breachResult.breaches.map((b) => (
+                      <div
+                        key={b.name}
+                        style={{
+                          background: '#00000033',
+                          padding: 6,
+                          borderRadius: 3,
+                          marginBottom: 4,
+                        }}
+                      >
+                        <div style={{ color: '#ff8a65', fontSize: 11 }}>
+                          {b.title} ({b.breach_date})
+                        </div>
+                        <div style={{ fontSize: 10, color: '#b0c4bf' }}>
+                          {b.pwn_count.toLocaleString()} accounts · Classes: {b.data_classes.join(', ')}
+                        </div>
+                        {b.is_sensitive && (
+                          <span style={{ fontSize: 10, color: '#ffd23f' }}> SENSITIVE</span>
+                        )}
+                        {!b.is_verified && (
+                          <span style={{ fontSize: 10, color: '#ffd23f' }}> UNVERIFIED</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ color: '#00e5a0' }}>
+                    {breachResult.email} — No breaches found
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <h3 style={{ fontSize: 13, color: '#00e5a0', margin: '0 0 8px 0' }}>
+              PASSWORD CHECK (k-anonymity)
+            </h3>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input
+                className="hud-input"
+                type="password"
+                style={{ flex: 1 }}
+                placeholder="Password to check (SHA1 sent via k-anonymity)"
+                value={breachPassword}
+                onChange={(e) => setBreachPassword(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handlePasswordCheck()}
+              />
+              <button
+                className="hud-button"
+                onClick={handlePasswordCheck}
+                disabled={breachLoading || !breachPassword.trim()}
+              >
+                {breachLoading ? '...' : 'CHECK'}
+              </button>
+            </div>
+            {breachPasswordResult && (
+              <div style={{ fontSize: 11, marginTop: 4 }}>
+                {breachPasswordResult.error ? (
+                  <div style={{ color: '#ff4d5e' }}>Error: {breachPasswordResult.error}</div>
+                ) : breachPasswordResult.compromised ? (
+                  <div style={{ color: '#ff4d5e' }}>
+                    COMPROMISED — found {breachPasswordResult.count.toLocaleString()} time(s) in breach dumps
+                  </div>
+                ) : (
+                  <div style={{ color: '#00e5a0' }}>Not found in any known breach</div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <h3 style={{ fontSize: 13, color: '#00e5a0', margin: 0 }}>
+                MONITORED EMAILS ({breachMonitors.length})
+              </h3>
+              <button
+                className="hud-button"
+                onClick={handleBreachRefresh}
+                disabled={breachLoading || breachMonitors.length === 0}
+                style={{ fontSize: 10 }}
+              >
+                {breachLoading ? '...' : 'REFRESH ALL'}
+              </button>
+            </div>
+            {breachRefreshResult && (
+              <div style={{ fontSize: 11, color: '#b0c4bf', marginBottom: 8 }}>
+                Checked: {breachRefreshResult.checked} · New breaches: {breachRefreshResult.new_breaches}
+              </div>
+            )}
+            {breachMonitors.length === 0 ? (
+              <div style={{ fontSize: 11, color: '#6f8c84' }}>
+                No monitored emails. Check an email above with monitor=true to add it.
+              </div>
+            ) : (
+              breachMonitors.map((m) => (
+                <div
+                  key={m.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: '#00000033',
+                    padding: 6,
+                    borderRadius: 3,
+                    marginBottom: 4,
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: 11, color: '#00e5a0' }}>{m.email_label}</span>
+                    <span style={{ fontSize: 10, color: '#6f8c84', marginLeft: 8 }}>
+                      {m.last_breach_count} breach(es)
+                    </span>
+                    {m.last_checked && (
+                      <span style={{ fontSize: 10, color: '#6f8c84', marginLeft: 8 }}>
+                        checked: {new Date(m.last_checked).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    className="hud-button"
+                    onClick={() => handleRemoveMonitor(m.id)}
+                    style={{ fontSize: 10, padding: '2px 6px' }}
+                  >
+                    REMOVE
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       )}
     </div>

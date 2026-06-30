@@ -469,6 +469,7 @@ async def _generate_briefing_unlocked(
 
     darkweb_digest: dict = {"enabled": False, "count": 0, "lines": []}
     ransomware_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    breach_digest: dict = {"enabled": False, "count": 0, "lines": []}
     telegram_digest: dict = {"enabled": False, "count": 0, "lines": []}
     maritime_anomaly_digest: dict = {"enabled": False, "count": 0, "lines": []}
     spaceweather_digest: dict = {"enabled": False, "count": 0, "lines": []}
@@ -493,6 +494,12 @@ async def _generate_briefing_unlocked(
         from darkweb_briefing import gather_ransomware_briefing
 
         ransomware_digest = await gather_ransomware_briefing()
+    except Exception:
+        pass
+    try:
+        from breach_bridge import gather_breach_briefing
+
+        breach_digest = await gather_breach_briefing()
     except Exception:
         pass
     try:
@@ -522,6 +529,8 @@ async def _generate_briefing_unlocked(
 
     if ransomware_digest:
         snap["ransomware_digest"] = ransomware_digest
+    if breach_digest:
+        snap["breach_digest"] = breach_digest
     if telegram_digest:
         snap["telegram_digest"] = telegram_digest
     if maritime_anomaly_digest:
@@ -620,6 +629,7 @@ async def _generate_briefing_unlocked(
         lang=lang,
         darkweb_digest=darkweb_digest,
         ransomware_digest=ransomware_digest,
+        breach_digest=breach_digest,
         telegram_digest=telegram_digest,
         maritime_anomaly_digest=maritime_anomaly_digest,
         spaceweather_digest=spaceweather_digest,

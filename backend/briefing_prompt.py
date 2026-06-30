@@ -157,6 +157,12 @@ def build_security_advisor_prompt(
         for line in ransomware["lines"]:
             prompt += f"  - {line.get('text')}\n"
         prompt += "\n"
+    breach = digest.get("breach") or {}
+    if breach.get("enabled") and breach.get("lines"):
+        prompt += "BREACH / CREDENTIAL-LEAK (24h, HIBP — passive metadata only):\n"
+        for line in breach["lines"]:
+            prompt += f"  - {line.get('text')}\n"
+        prompt += "\n"
     telegram = digest.get("telegram") or {}
     if telegram.get("enabled") and telegram.get("lines"):
         prompt += "TELEGRAM SOCMINT (24h, allow-listed public channels only):\n"

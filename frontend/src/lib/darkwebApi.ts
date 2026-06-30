@@ -266,3 +266,133 @@ export async function deepSearchDarkweb(
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   return r.json();
 }
+
+// ---------------------------------------------------------------------------
+// Breach / credential-leak intelligence (P8.8)
+// ---------------------------------------------------------------------------
+
+export interface BreachInfo {
+  name: string;
+  title: string;
+  domain: string;
+  breach_date: string;
+  added_date: string;
+  pwn_count: number;
+  data_classes: string[];
+  is_verified: boolean;
+  is_fabricated: boolean;
+  is_sensitive: boolean;
+  is_retired: boolean;
+  is_spam_list: boolean;
+}
+
+export interface BreachCheckResponse {
+  email: string;
+  breached: boolean;
+  breaches: BreachInfo[];
+  count: number;
+  error?: string;
+}
+
+export interface BreachMonitor {
+  id: number;
+  email_hash: string;
+  email_label: string;
+  added_at: string;
+  last_checked: string | null;
+  last_breach_count: number;
+  last_breach_names: string;
+}
+
+export interface BreachStatusResponse {
+  enabled: boolean;
+  briefing_enabled: boolean;
+  hibp_key_configured: boolean;
+  cache_sec: number;
+  monitor_count: number;
+  monitors: BreachMonitor[];
+}
+
+export async function getBreachStatus(): Promise<BreachStatusResponse> {
+  const r = await fetchApi('/api/darkweb/breach/status');
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+export async function checkEmailBreach(
+  email: string,
+  monitor = false,
+  label?: string,
+): Promise<BreachCheckResponse> {
+  const r = await fetchApi('/api/darkweb/breach/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, monitor, label }),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+export async function checkPasswordBreach(password: string): Promise<{
+  compromised: boolean;
+  count: number;
+  error?: string;
+}> {
+  const r = await fetchApi('/api/darkweb/breach/password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+export async function addBreachMonitor(
+  email: string,
+  label?: string,
+): Promise<{ ok: boolean; email_hash?: string; label?: string; error?: string }> {
+  const r = await fetchApi('/api/darkweb/breach/monitor', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, label }),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+export async function getBreachMonitors(): Promise<{
+  monitors: BreachMonitor[];
+  count: number;
+}> {
+  const r = await fetchApi('/api/darkweb/breach/monitors');
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+export async function removeBreachMonitor(
+  monitorId: number,
+): Promise<{ ok: boolean; deleted?: number; error?: string }> {
+  const r = await fetchApi(`/api/darkweb/breach/monitor/${monitorId}`, {
+    method: 'DELETE',
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+export async function refreshBreachMonitors(): Promise<{
+  checked: number;
+  new_breaches: number;
+  results: Array<{
+    email_hash: string;
+    label: string;
+    breach_count?: number;
+    new_breaches?: string[];
+    is_new?: boolean;
+    skipped?: boolean;
+    error?: string;
+  }>;
+}> {
+  const r = await fetchApi('/api/darkweb/breach/refresh', { method: 'POST' });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}

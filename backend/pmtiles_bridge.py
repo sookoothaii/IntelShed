@@ -188,8 +188,11 @@ def pmtiles_file(name: str, request: Request):
 
     start, end = rng
     length = end - start + 1
-    return StreamingResponse(
-        _iter_file(target, start, end),
+    with target.open("rb") as fp:
+        fp.seek(start)
+        data = fp.read(length)
+    return Response(
+        content=data,
         status_code=206,
         headers={
             **common_headers,
