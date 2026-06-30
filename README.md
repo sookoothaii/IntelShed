@@ -107,6 +107,17 @@ pip install -r backend/requirements.txt
 
 **Verify stack (venv):** `./scripts/smoke-test.ps1` (Windows) or `./scripts/smoke-test.sh` (Linux) → 33 checks. This script targets the venv backend at `127.0.0.1:8002`, not the Docker stack.
 
+Optional Python packages (venv only — Docker image includes these):
+
+```bash
+# BGE reranker (CPU or GPU):
+pip install sentence-transformers   # when RAG_RERANK=1 in backend/.env
+# Anomaly detection (Isolation Forest):
+pip install scikit-learn            # when WORLDBASE_ANOMALY_DETECTION=1
+# Predictive analytics (LightGBM):
+pip install lightgbm numpy          # when WORLDBASE_PREDICTIVE=1
+```
+
 ### MCP + Agent Bus (optional)
 
 For Cursor / Claude automation — full guide: [`docs/MCP.md`](docs/MCP.md).
@@ -122,17 +133,6 @@ VITE_WORLDBASE_AGENT_BUS=1     # HUD must be open
 ```
 
 MCP endpoint: `https://localhost/api/mcp` (Docker) or `http://127.0.0.1:8002/api/mcp` (venv). Requires `X-API-Key` header when `WORLDBASE_API_KEY` is set. 13 tools available when Agent Bus is enabled. Per-tool RBAC policy enforced (read tools → `readonly`, write tools → `operator`).
-
-Optional Python packages (venv only — Docker image includes these):
-
-```bash
-# BGE reranker (CPU or GPU):
-pip install sentence-transformers   # when RAG_RERANK=1 in backend/.env
-# Anomaly detection (Isolation Forest):
-pip install scikit-learn            # when WORLDBASE_ANOMALY_DETECTION=1
-# Predictive analytics (LightGBM):
-pip install lightgbm numpy          # when WORLDBASE_PREDICTIVE=1
-```
 
 ### Screenshots
 
@@ -206,23 +206,40 @@ Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](do
 
 ## Documentation
 
+**Operation & setup:**
+
 | Doc | Purpose |
 |-----|---------|
 | [`AGENTS.md`](AGENTS.md) | Runtime, endpoints, key files, architecture notes, troubleshooting |
 | [`docs/FEATURES.md`](docs/FEATURES.md) | Optional features — env vars, setup, guardrails |
+| [`docs/DOCKER.md`](docs/DOCKER.md) | Docker stack operations, troubleshooting |
+| [`docs/SECRETS.md`](docs/SECRETS.md) | Secret management — env, vault, Cesium token |
+
+**Features & modules:**
+
+| Doc | Purpose |
+|-----|---------|
+| [`docs/GLOBE.md`](docs/GLOBE.md) | Click-to-detail, layers, INTEL FtM, traffic cams |
+| [`docs/DARKWEB.md`](docs/DARKWEB.md) | Dark Web OSINT (P8) — engines, Tor proxy, OPSEC |
+| [`docs/TELEGRAM.md`](docs/TELEGRAM.md) | Telegram SOCMINT (K3) — channels, SEA scoring |
+| [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md) | Optional document intel ingest (GLiNER) |
+| [`docs/FIREWALL.md`](docs/FIREWALL.md) | Slim prompt guard + optional HAK_GAL bridge |
+
+**Roadmaps & migration:**
+
+| Doc | Purpose |
+|-----|---------|
 | [`docs/WORLDBASE_ROADMAP_V4.md`](docs/WORLDBASE_ROADMAP_V4.md) | V4 roadmap — sprints, ADRs, shipped features |
 | [`docs/WORLDBASE_ROADMAP_V2.md`](docs/WORLDBASE_ROADMAP_V2.md) | Compact roadmap — shipped items reference + open work |
 | [`docs/LINUX_MIGRATION_PLAN.md`](docs/LINUX_MIGRATION_PLAN.md) | Migrate WorldBase from Windows to Linux |
+
+**Integration:**
+
+| Doc | Purpose |
+|-----|---------|
 | [`docs/MCP.md`](docs/MCP.md) | Cursor MCP tools, Agent Bus, Docker gateway |
-| [`docs/FIREWALL.md`](docs/FIREWALL.md) | Slim prompt guard + optional HAK_GAL bridge |
-| [`docs/DARKWEB.md`](docs/DARKWEB.md) | Dark Web OSINT (P8) — engines, Tor proxy, OPSEC |
-| [`docs/TELEGRAM.md`](docs/TELEGRAM.md) | Telegram SOCMINT (K3) — channels, SEA scoring |
-| [`docs/GLOBE.md`](docs/GLOBE.md) | Click-to-detail, layers, INTEL FtM, traffic cams |
-| [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md) | Optional document intel ingest (GLiNER) |
-| [`docs/DOCKER.md`](docs/DOCKER.md) | Docker stack operations, troubleshooting |
-| [`docs/SECRETS.md`](docs/SECRETS.md) | Secret management — env, vault, Cesium token |
-| [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Optional ML licenses, attribution, lineage |
 | [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) | Pi ↔ PC sync |
+| [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) | Optional ML licenses, attribution, lineage |
 
 ---
 
