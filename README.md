@@ -10,6 +10,8 @@
 
 **Spatial intelligence workstation** — OSINT feeds on a Cesium globe, fusion analytics, local AI chat, and optional Pi edge sync.
 
+WorldBase is designed for OSINT analysts and security researchers who require a local, offline-capable platform for situational awareness. It combines 30+ live data feeds, a FollowTheMoney entity graph, hybrid RAG, and a 24h security briefing with agentic verification — without cloud dependency for core functions.
+
 WorldBase is an integration layer over existing libraries, datasets, and tools. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for attributions.
 
 `FastAPI` · `React` · `Vite` · `SQLite` · `DuckDB` · `Ollama` · `NVIDIA NIM` · `Docker` · optional `Pi` edge sync
@@ -44,7 +46,12 @@ Full feature catalog with env vars and setup → [`docs/FEATURES.md`](docs/FEATU
 
 ## Quick start
 
-**Prerequisites:** Docker, [Ollama](https://ollama.com/) (`qwen3:8b`, `nomic-embed-text`), free [Cesium Ion](https://ion.cesium.com/tokens) token. Optional: [NVIDIA NIM API key](https://build.nvidia.com/) for cloud reasoning models.
+**Prerequisites:** Docker, [Ollama](https://ollama.com/) with models pulled (`qwen3:8b`, `nomic-embed-text`), free [Cesium Ion](https://ion.cesium.com/tokens) token. Optional: [NVIDIA NIM API key](https://build.nvidia.com/) for cloud reasoning models.
+
+```bash
+ollama pull qwen3:8b
+ollama pull nomic-embed-text   # required for RAG embeddings
+```
 
 ### Docker (default)
 
@@ -64,11 +71,13 @@ docker compose up -d --build
 | **Health** | https://localhost/api/health/ping |
 | **Flower** | http://localhost:5555 (Celery dashboard) |
 
-**API key:** Retrieve with `docker compose exec backend python -c "import os; print(os.getenv('WORLDBASE_API_KEY','NOT_SET'))"`. Use as `X-API-Key` header for authenticated endpoints. If `WORLDBASE_API_KEY` is not set in `backend/.env`, all endpoints are open.
+**API key:** Retrieve with `docker compose exec backend python -c "import os; print(os.getenv('WORLDBASE_API_KEY','NOT_SET'))"`. Use as `X-API-Key` header for authenticated endpoints.
+
+> **Warning:** If `WORLDBASE_API_KEY` is not set in `backend/.env`, all API endpoints are open without authentication. Set a key for any instance exposed beyond localhost.
 
 **Docker notes:**
 - `docker compose down` stops services; `docker compose down -v` also wipes the database volume — use with caution.
-- Caddy uses a self-signed TLS certificate. Browsers will warn; `curl` from Windows may return empty — use a browser or `curl -k`.
+- Caddy uses a self-signed TLS certificate. Browsers will warn — proceed or accept. For `curl`, use `-k` to skip verification. On Windows, `curl` may return empty even with `-k`; use a browser or `Invoke-WebRequest -SkipCertificateCheck` in PowerShell.
 - Do not run the venv backend and Docker stack simultaneously — they use separate databases, causing data divergence.
 - Feature flags at `GET /api/admin/flags` may show `enabled: false` when not explicitly set in `.env`. Code defaults in `config.py` / `features.py` apply at runtime. See [`AGENTS.md`](AGENTS.md) for details.
 
@@ -114,14 +123,14 @@ VITE_WORLDBASE_AGENT_BUS=1     # HUD must be open
 
 MCP endpoint: `https://localhost/api/mcp` (Docker) or `http://127.0.0.1:8002/api/mcp` (venv). Requires `X-API-Key` header when `WORLDBASE_API_KEY` is set. 13 tools available when Agent Bus is enabled. Per-tool RBAC policy enforced (read tools → `readonly`, write tools → `operator`).
 
+Optional Python packages (venv only — Docker image includes these):
+
 ```bash
-ollama pull qwen3:8b
-ollama pull nomic-embed-text   # RAG embeddings
-# Optional BGE reranker (CPU or GPU):
+# BGE reranker (CPU or GPU):
 pip install sentence-transformers   # when RAG_RERANK=1 in backend/.env
-# Optional anomaly detection (Isolation Forest):
+# Anomaly detection (Isolation Forest):
 pip install scikit-learn            # when WORLDBASE_ANOMALY_DETECTION=1
-# Optional predictive analytics (LightGBM):
+# Predictive analytics (LightGBM):
 pip install lightgbm numpy          # when WORLDBASE_PREDICTIVE=1
 ```
 
