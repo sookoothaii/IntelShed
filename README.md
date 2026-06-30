@@ -1,4 +1,4 @@
-# intelshed
+# IntelShed
 
 ![MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)
