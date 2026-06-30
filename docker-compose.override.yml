@@ -1,0 +1,11 @@
+# Optional: expose the backend API directly on the host (debugging).
+# Copy to docker-compose.override.yml to auto-apply.
+#
+# NOTE: On Windows, binding 127.0.0.1:8002 can fail with "access denied" due to
+# WinNAT/Hyper-V. If so, run an elevated shell:  net stop winnat; <up>; net start winnat
+# or pick a different host port below (e.g. 18002).
+
+services:
+  backend:
+    ports:
+      - "127.0.0.1:8002:8002"
