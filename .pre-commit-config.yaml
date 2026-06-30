@@ -16,9 +16,8 @@ repos:
     hooks:
       - id: tsc
         name: tsc --noEmit
-        entry: npx --prefix frontend --package typescript tsc --noEmit --project frontend/tsconfig.json
-        language: node
+        entry: bash -c 'cd frontend && npx tsc --noEmit'
+        language: system
         types_or: [ts, tsx]
         files: ^frontend/
         pass_filenames: false
-        additional_dependencies: [typescript@~5.6]
