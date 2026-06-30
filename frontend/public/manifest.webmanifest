@@ -1,0 +1,22 @@
+{
+  "name": "intelshed · Spatial Open Intelligence Shed",
+  "short_name": "intelshed",
+  "description": "Spatial intelligence workstation with live feeds, entity graph, and 24h security briefing.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#04070d",
+  "theme_color": "#04070d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities", "news"],
+  "scope": "/",
+  "lang": "en",
+  "dir": "ltr"
+}

@@ -193,23 +193,31 @@ Widersprüchlicher Status:
 
 ---
 
-## Session 9 — Voice, TTS, PWA & Pi Offline RAG
+## Session 9 — Voice, TTS, PWA & Pi Offline RAG ✅
 
 **Ziel:** Hands-free Bedienung + Mobile + Off-Grid-Fähigkeit.
 
+**Status:** Shipped — 44 tests passed (29 Python + 15 Vitest)
+
 **V4-Items:**
-- V4-28 Whisper Voice Control
-- V4-29 Piper TTS
-- V4-30 PWA
-- V4-33 Pi Offline RAG Service
+- ✅ V4-28 Whisper Voice Control
+- ✅ V4-29 Piper TTS
+- ✅ V4-30 PWA
+- ✅ V4-33 Pi Offline RAG Service
 
 **Deliverables:**
-- `backend/whisper_bridge.py` — faster-whisper CUDA/CPU + Hotkey-Handler
-- `backend/tts_bridge.py` — Piper CPU-TTS für Briefing-Narration
-- PWA-Manifest + Service Worker (offline Caching von App-Shell)
-- Pi: Mini-Vector-Store (sqlite-vec) + condensed KB sync
-- `offgrid-raspi/offgrid/bin/offline_rag.py`
-- Tests: `test_whisper_bridge.py`, `test_tts_bridge.py`, `test_pwa.py` (Vitest SW)
+- ✅ `backend/whisper_bridge.py` — faster-whisper CUDA/CPU + Hotkey-Handler (PTT via keyboard+sounddevice)
+  - Routes: `GET /api/whisper/status`, `POST /api/whisper/transcribe`, `POST /api/whisper/start-listener`, `POST /api/whisper/stop-listener`, `GET /api/whisper/transcripts`, `GET /api/whisper/kb/export`
+- ✅ `backend/tts_bridge.py` — Piper CPU-TTS für Briefing-Narration (fallback WAV generator)
+  - Routes: `GET /api/tts/status`, `POST /api/tts/speak`, `POST /api/tts/narrate`, `GET /api/tts/voices`
+- ✅ PWA-Manifest + Service Worker (offline Caching von App-Shell)
+  - `frontend/public/manifest.webmanifest` + `frontend/public/sw.js` (network-first API, SWR assets, cache-first Cesium)
+  - SW registration in `frontend/src/main.tsx`, manifest+apple meta tags in `index.html`
+- ✅ Pi: Mini-Vector-Store (sqlite-vec) + condensed KB sync
+  - `offgrid-raspi/offgrid/bin/offline_rag.py` — FTS5 keyword + sqlite-vec vector search, CLI (`sync`/`search`/`stats`/`serve`), HTTP server mode
+- ✅ Tests: `test_whisper_bridge.py` (15), `test_tts_bridge.py` (14), `test_pwa.test.ts` (15 Vitest)
+
+**Config:** `WORLDBASE_WHISPER_BRIDGE=0` (opt-in), `WORLDBASE_TTS_BRIDGE=0` (opt-in) — both in `config.py` + `.env.example`
 
 **Abhängigkeiten:** Pi Sync ✅
 

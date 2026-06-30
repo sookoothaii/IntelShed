@@ -153,6 +153,8 @@ class WorldBaseConfig(BaseModel):
     relationship_explorer_enabled: bool = True
     entity_timeline_enabled: bool = True
     credential_manager_enabled: bool = True
+    whisper_bridge_enabled: bool = False
+    tts_bridge_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> Self:
@@ -428,6 +430,8 @@ class WorldBaseConfig(BaseModel):
             credential_manager_enabled=_truthy(
                 os.getenv("WORLDBASE_CREDENTIAL_MANAGER", "1")
             ),
+            whisper_bridge_enabled=_truthy(os.getenv("WORLDBASE_WHISPER_BRIDGE", "0")),
+            tts_bridge_enabled=_truthy(os.getenv("WORLDBASE_TTS_BRIDGE", "0")),
         )
 
 
