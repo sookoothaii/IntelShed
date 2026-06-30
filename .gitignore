@@ -99,3 +99,15 @@ PLAN_EXTERNAL_ANALYSIS.md
 BUG_HUNT_PROMPT.md
 BUGS_TRACKER.md
 INITIAL_PROMPT.md
+
+# Local-only research / planning docs (not part of the OSS repo)
+docs/WORLDBASE_SESSION_PLAN.md
+docs/WORLDBASE_ROADMAP_V4.md
+docs/WORLDBASE_SAAS_REWRITE_PLAN.md
+docs/WORLDBASE_STACK_ANALYSIS.md
+docs/MACHBARKEITSSTUDIE_V4.md
+docs/worldbase_sota_recherche_2026.md
+docs/NEWSQUELLEN_RECHERCHE.md
+docs/LINUX_MIGRATION_PLAN.md
+docs/OSINT_TOOLKIT.md
+docs/report.zip
