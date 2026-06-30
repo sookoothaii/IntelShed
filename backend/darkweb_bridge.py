@@ -426,6 +426,17 @@ async def _search_tor_engine(
     if engine == "ahmia_onion":
         return _parse_ahmia_html(text, limit)
 
+    # V4-58: use engine-specific parser when available
+    try:
+        import darkweb_parsers
+
+        if darkweb_parsers.has_engine_parser(engine):
+            parsed = darkweb_parsers.parse_engine_html(engine, text, limit)
+            if parsed:
+                return parsed
+    except Exception:
+        pass
+
     return _parse_tor_html(text, engine, limit)
 
 
