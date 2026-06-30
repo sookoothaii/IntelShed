@@ -10,7 +10,11 @@ dnspython>=2.6.0
 gtfs-realtime-bindings>=1.0.0
 protobuf>=4.0.0
 river>=0.21.0
-duckdb>=1.5.4  # V4-05: R-Tree auto-enables on >=1.6.0 (duckdb-spatial #769 fixed)
+duckdb>=1.5.4
+# Note: R-Tree index on GEOMETRY column is disabled on 1.5.x due to
+# duckdb-spatial #769. The geom column + ST_Within are used without R-Tree.
+# B-Tree index on lat/lon provides sufficient performance for <100k entities.
+# R-Tree auto-enable will be re-evaluated when 1.6.0 is available on PyPI.
 sqlite-vec>=0.1.9
 
 # K4 — Satellite Imagery Change Detection (Sentinel-2 COG window-read via GDAL wheels)
