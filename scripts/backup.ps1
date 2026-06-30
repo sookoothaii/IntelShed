@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-  WorldBase backup — SQLite, DuckDB, subgraph, fusion parquet, .env
+  intelshed backup — SQLite, DuckDB, subgraph, fusion parquet, .env
 
 .DESCRIPTION
-  Creates a timestamped backup of all persistent WorldBase data.
+  Creates a timestamped backup of all persistent intelshed data.
   Safe to run while the API is up (uses VACUUM INTO for SQLite, file copy for DuckDB WAL+main).
 
 .PARAMETER OutDir
@@ -17,7 +17,7 @@
 
 .EXAMPLE
   .\scripts\backup.ps1
-  .\scripts\backup.ps1 -OutDir D:\Backups\WorldBase -IncludeEnv -Compress
+  .\scripts\backup.ps1 -OutDir D:\Backups\intelshed -IncludeEnv -Compress
 #>
 [CmdletBinding()]
 param(
@@ -110,7 +110,7 @@ print("OK")
 
 # --- Main ---------------------------------------------------------------------
 
-Write-Step "WorldBase Backup - $Stamp"
+Write-Step "intelshed Backup - $Stamp"
 Write-Step "Output: $BackupRoot"
 
 New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
@@ -173,7 +173,7 @@ if (Test-Path -LiteralPath $TleDir) {
 # Write manifest
 $manifest = [PSCustomObject]@{
     timestamp    = $Stamp
-    project      = "worldbase"
+    project      = "intelshed"
     backup_dir   = $BackupRoot
     files_copied = $copied
     files_skipped = $skipped

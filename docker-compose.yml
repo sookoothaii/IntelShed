@@ -1,4 +1,4 @@
-# WorldBase — full containerized stack: FastAPI backend + Caddy (TLS, SPA, /api proxy).
+# intelshed — full containerized stack: FastAPI backend + Caddy (TLS, SPA, /api proxy).
 # Quick start:  .\scripts\start-docker.ps1   (ensures a node token, builds, brings up)
 # Manual:       docker compose up -d --build
 #
@@ -9,7 +9,7 @@
 # and from backend/.env (API keys, NODE_INGEST_TOKEN). The latter is optional at
 # parse time but required for a LAN-exposed deployment (WORLDBASE_REQUIRE_NODE_TOKEN).
 
-name: worldbase
+name: intelshed
 
 services:
   redis:
@@ -24,12 +24,12 @@ services:
       timeout: 3s
       retries: 5
     networks:
-      - worldbase
+      - intelshed
 
   backend:
     build:
       context: ./backend
-    image: worldbase-backend:local
+    image: intelshed-backend:local
     depends_on:
       redis:
         condition: service_healthy
@@ -59,7 +59,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - worldbase-db:/data
+      - intelshed-db:/data
       - ./data/pmtiles:/data/pmtiles:ro
     # Backend is NOT published to the host: it is reachable only inside the
     # docker network (Caddy proxies it). This is the most locked-down posture
@@ -71,12 +71,12 @@ services:
       - "8002"
     restart: unless-stopped
     networks:
-      - worldbase
+      - intelshed
 
   celery-worker:
     build:
       context: ./backend
-    image: worldbase-backend:local
+    image: intelshed-backend:local
     depends_on:
       redis:
         condition: service_healthy
@@ -100,12 +100,12 @@ services:
       retries: 3
     restart: unless-stopped
     networks:
-      - worldbase
+      - intelshed
 
   celery-beat:
     build:
       context: ./backend
-    image: worldbase-backend:local
+    image: intelshed-backend:local
     depends_on:
       redis:
         condition: service_healthy
@@ -129,12 +129,12 @@ services:
       retries: 3
     restart: unless-stopped
     networks:
-      - worldbase
+      - intelshed
 
   flower:
     build:
       context: ./backend
-    image: worldbase-backend:local
+    image: intelshed-backend:local
     depends_on:
       redis:
         condition: service_healthy
@@ -157,7 +157,7 @@ services:
       - "127.0.0.1:5555:5555"
     restart: unless-stopped
     networks:
-      - worldbase
+      - intelshed
 
   web:
     build:
@@ -167,7 +167,7 @@ services:
         VITE_FLOWSINT_URL: ${VITE_FLOWSINT_URL:-http://localhost:5173}
         VITE_WORLDBASE_API_KEY: ${VITE_WORLDBASE_API_KEY:-}
         VITE_WORLDBASE_AGENT_BUS: ${VITE_WORLDBASE_AGENT_BUS:-}
-    image: worldbase-web:local
+    image: intelshed-web:local
     depends_on:
       - backend
     environment:
@@ -183,13 +183,13 @@ services:
       - "443:443"
     restart: unless-stopped
     networks:
-      - worldbase
+      - intelshed
 
 volumes:
-  worldbase-db:
+  intelshed-db:
   caddy-data:
   caddy-config:
 
 networks:
-  worldbase:
+  intelshed:
     driver: bridge

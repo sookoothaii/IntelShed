@@ -1,6 +1,6 @@
 /**
  * Operator OSINT toolkit — external deep-links + reference catalog.
- * WorldBase native feeds stay in-app; these open vetted third-party UIs in a new tab.
+ * intelshed native feeds stay in-app; these open vetted third-party UIs in a new tab.
  */
 
 import { OSINT_TOOLS_EXTENDED } from './osintToolkitCatalog';
@@ -72,14 +72,14 @@ export type OsintToolLink = {
 export const OSINT_CATEGORIES: OsintCategory[] = [
   {
     id: 'native',
-    label: 'WORLDBASE NATIVE',
+    label: 'INTELSHED NATIVE',
     blurb: 'Already in your stack — API + globe layers. Use DATA / telemetry toggles first.',
   },
   {
     id: 'air',
     label: 'AIR / ADS-B',
     blurb:
-      'Aircraft detail UIs. Live positions come from adsb.lol / adsb.fi / OpenSky in WorldBase.',
+      'Aircraft detail UIs. Live positions come from adsb.lol / adsb.fi / OpenSky in intelshed.',
   },
   {
     id: 'sea',

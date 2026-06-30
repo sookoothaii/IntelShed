@@ -233,7 +233,7 @@ servers:
       config:
         database_url: sqlite+aiosqlite:////data/worldbase.db
       volumes:
-        - worldbase-mcp-data:/data:ro
+        - intelshed-mcp-data:/data:ro
       secrets: default
       image: souhardyak/mcp-db-server@sha256:0c530cfd08ac28a497e8ccd6365b2e1ca87f7fc3676b3175235d0e301da25d17
       catalog_ref: mcp/docker-mcp-catalog:latest

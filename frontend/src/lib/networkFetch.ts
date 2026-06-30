@@ -14,11 +14,11 @@ export function logFetchError(scope: string, label: string): void {
   const hint = navigator.onLine
     ? 'API briefly unreachable (network change?) — reload the page if errors persist'
     : 'Browser offline';
-  console.warn(`[WorldBase/${scope}] ${label}: ${hint}`);
+  console.warn(`[intelshed/${scope}] ${label}: ${hint}`);
 }
 
 /**
- * Centralized fetch wrapper for WorldBase API.
+ * Centralized fetch wrapper for intelshed API.
  * Automatically injects API key if present in localStorage.
  */
 export async function fetchApi(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {

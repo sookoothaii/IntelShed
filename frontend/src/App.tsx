@@ -139,7 +139,7 @@ function useAlertNotifications() {
           titles.unshift(`DE power price negative: ${price.toFixed(1)} €/MWh`);
         }
         if (titles.length > 0) {
-          new Notification('WorldBase Alert', {
+          new Notification('intelshed Alert', {
             body: titles.join(' | '),
             icon: '/favicon.ico',
             tag: price != null && price < 0 ? 'worldbase-energy' : 'worldbase-alert',
@@ -416,8 +416,8 @@ export default function App() {
         <div className="brand">
           <div className="brand-mark">{theme !== 'mss' && <span className="brand-ring" />}◉</div>
           <div className="brand-text">
-            <div className="logo">WORLDBASE</div>
-            <div className="brand-sub">SPATIAL INTELLIGENCE</div>
+            <div className="logo">INTELSHED</div>
+            <div className="brand-sub">SPATIAL OPEN INTELLIGENCE SHED</div>
           </div>
         </div>
 
@@ -698,7 +698,7 @@ export default function App() {
 
 function BootOverlay() {
   const lines = [
-    '> INITIALIZING WORLDBASE CORE',
+    '> INITIALIZING INTELSHED CORE',
     '> LOADING CESIUM TERRAIN ENGINE',
     '> LINKING OPENSKY / CELESTRAK FEEDS',
     '> SYNCING USGS SEISMIC GRID',
@@ -708,8 +708,8 @@ function BootOverlay() {
   return (
     <div className="boot-overlay">
       <div className="boot-core">
-        <div className="boot-logo">WORLDBASE</div>
-        <div className="boot-sub">SPATIAL INTELLIGENCE WORKSTATION</div>
+        <div className="boot-logo">INTELSHED</div>
+        <div className="boot-sub">SPATIAL OPEN INTELLIGENCE SHED</div>
         <div className="boot-lines">
           {lines.map((l, i) => (
             <div key={i} className="boot-line" style={{ animationDelay: `${i * 0.3}s` }}>

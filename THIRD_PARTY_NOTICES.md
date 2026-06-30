@@ -1,6 +1,6 @@
 # Third-party notices (optional components)
 
-WorldBase core is released under the **MIT License** (see README). Some **optional** features pull in separate Python packages and ML models that are **not** bundled in this repository. You install them yourself into your local virtualenv.
+intelshed core is released under the **MIT License** (see README). Some **optional** features pull in separate Python packages and ML models that are **not** bundled in this repository. You install them yourself into your local virtualenv.
 
 ## Default intel ingest (OSS-safe)
 

@@ -1,4 +1,4 @@
-# AGENTS.md — WorldBase (PC stack)
+# AGENTS.md — intelshed (PC stack)
 
 > For AI coding agents. Operator docs: [`README.md`](README.md). Pi edge: [`offgrid-raspi/AGENTS.md`](offgrid-raspi/AGENTS.md).
 
@@ -6,7 +6,7 @@
 
 ## One sentence
 
-**WorldBase** is a spatial intelligence workstation: React + Cesium globe, FastAPI with 30+ live feeds, local Ollama + NVIDIA NIM chat (6 providers), 3-layer anti-hallucination stack, FtM entity graph, 24h security briefing with agentic loop, and optional Pi↔PC sync for offline briefing on the edge node.
+**intelshed** (Spatial Open Intelligence Shed) is a spatial intelligence workstation: React + Cesium globe, FastAPI with 30+ live feeds, local Ollama + NVIDIA NIM chat (6 providers), 3-layer anti-hallucination stack, FtM entity graph, 24h security briefing with agentic loop, and optional Pi↔PC sync for offline briefing on the edge node.
 
 ---
 

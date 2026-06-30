@@ -1,4 +1,4 @@
-# WorldBase
+# intelshed
 
 ![MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)
 ![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)
@@ -8,15 +8,15 @@
 ![Ollama](https://img.shields.io/badge/LLM-Ollama%20qwen3-black?style=flat-square)
 ![NVIDIA NIM](https://img.shields.io/badge/LLM-NVIDIA%20NIM%20step--3.7--flash-76B900?style=flat-square&logo=nvidia&logoColor=white)
 
-**Spatial intelligence workstation** — OSINT feeds on a Cesium globe, fusion analytics, local AI chat, and optional Pi edge sync.
+**Spatial Open Intelligence Shed** — OSINT feeds on a Cesium globe, fusion analytics, local AI chat, and optional Pi edge sync.
 
-WorldBase is designed for OSINT analysts and security researchers who require a local, offline-capable platform for situational awareness. It combines 30+ live data feeds, a FollowTheMoney entity graph, hybrid RAG, and a 24h security briefing with agentic verification — without cloud dependency for core functions.
+intelshed is designed for OSINT analysts and security researchers who require a local, offline-capable platform for situational awareness. It combines 30+ live data feeds, a FollowTheMoney entity graph, hybrid RAG, and a 24h security briefing with agentic verification — without cloud dependency for core functions.
 
-WorldBase is an integration layer over existing libraries, datasets, and tools. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for attributions.
+intelshed is an integration layer over existing libraries, datasets, and tools. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for attributions.
 
 `FastAPI` · `React` · `Vite` · `SQLite` · `DuckDB` · `Ollama` · `NVIDIA NIM` · `Docker` · optional `Pi` edge sync
 
-WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-raspi`](https://github.com/sookoothaii/offgrid-raspi)) with fusion, a 24h security briefing, and globe UX. Run WorldBase alone on a PC, or Pi + PC together via push/pull sync (see below).
+intelshed is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-raspi`](https://github.com/sookoothaii/offgrid-raspi)) with fusion, a 24h security briefing, and globe UX. Run intelshed alone on a PC, or Pi + PC together via push/pull sync (see below).
 
 ---
 
@@ -56,8 +56,8 @@ ollama pull nomic-embed-text   # required for RAG embeddings
 ### Docker (default)
 
 ```bash
-git clone https://github.com/sookoothaii/worldbase.git
-cd worldbase
+git clone https://github.com/sookoothaii/intelshed.git
+cd intelshed
 git submodule update --init --recursive   # Pi sync scripts in offgrid-raspi/
 cp backend/.env.example backend/.env      # API keys, feature flags
 cp frontend/.env.example frontend/.env    # required: VITE_CESIUM_ION_TOKEN
@@ -86,8 +86,8 @@ docker compose up -d --build
 For local development without Docker. Requires Python 3.12+, Node.js 20+.
 
 ```bash
-git clone https://github.com/sookoothaii/worldbase.git
-cd worldbase
+git clone https://github.com/sookoothaii/intelshed.git
+cd intelshed
 git submodule update --init --recursive
 cp backend/.env.example backend/.env
 cp frontend/.env.example frontend/.env
@@ -231,7 +231,7 @@ Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](do
 |-----|---------|
 | [`docs/WORLDBASE_ROADMAP_V4.md`](docs/WORLDBASE_ROADMAP_V4.md) | V4 roadmap — sprints, ADRs, shipped features |
 | [`docs/WORLDBASE_ROADMAP_V2.md`](docs/WORLDBASE_ROADMAP_V2.md) | Compact roadmap — shipped items reference + open work |
-| [`docs/LINUX_MIGRATION_PLAN.md`](docs/LINUX_MIGRATION_PLAN.md) | Migrate WorldBase from Windows to Linux |
+| [`docs/LINUX_MIGRATION_PLAN.md`](docs/LINUX_MIGRATION_PLAN.md) | Migrate intelshed from Windows to Linux |
 
 **Integration:**
 
@@ -247,13 +247,13 @@ Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](do
 
 | Repo | Role | When you need it |
 |------|------|------------------|
-| **[worldbase](https://github.com/sookoothaii/worldbase)** (this repo) | Windows/Linux PC — Cesium globe, 30+ feeds, Ollama + NVIDIA NIM briefing, node API `:8002` | Spatial intelligence workstation; fusion and LLM digest |
+| **[intelshed](https://github.com/sookoothaii/intelshed)** (this repo) | Windows/Linux PC — Cesium globe, 30+ feeds, Ollama + NVIDIA NIM briefing, node API `:8002` | Spatial intelligence workstation; fusion and LLM digest |
 | **[offgrid-raspi](https://github.com/sookoothaii/offgrid-raspi)** | Raspberry Pi — portal, sensors, mesh, offline services | Edge node that survives without mains; pushes telemetry to the PC |
 
 **Together:** Pi `worldbase_push` → PC `POST /api/node/ingest` · PC briefing → Pi `GET /api/node/pull` (v3: ETag/304, SHA-256, conflict detection, `source: worldbase-pc`, briefing quality) → portal / LCD.  
 **Canonical sync guide:** [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md)
 
-This repo vendors the Pi repo as a **git submodule** at `offgrid-raspi/` (scripts + sync docs). The Pi itself clones `offgrid-raspi` separately; the PC clones `worldbase` and initializes submodules when you work on push/pull scripts.
+This repo vendors the Pi repo as a **git submodule** at `offgrid-raspi/` (scripts + sync docs). The Pi itself clones `offgrid-raspi` separately; the PC clones `intelshed` and initializes submodules when you work on push/pull scripts.
 
 **PC UI — EDGE dashboard:** In the HUD, open **DATA → EDGE** for live Pi stats (CPU/RAM/disk/load/uptime, room DHT, services, mesh) and 24h sparklines. The header shows **EDGE ONLINE** when `offgrid-pi` has pushed within 5 minutes (`GET /api/nodes`).
 
@@ -278,6 +278,6 @@ venv mode: replace `https://localhost` with `http://127.0.0.1:8002` and omit `-k
 
 ## License
 
-MIT — see repository terms for WorldBase core code.
+MIT — see repository terms for intelshed core code.
 
 Optional features (document intel ingest, external feeds, downloaded models) may pull in **separate third-party licenses**. In particular, **GLiREL relation extraction is disabled by default** because it is CC BY-NC-SA (non-commercial). See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [`docs/INTEL_INGEST.md`](docs/INTEL_INGEST.md).

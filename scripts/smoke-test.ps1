@@ -1,4 +1,4 @@
-# WorldBase smoke test - backend APIs, Ollama, Vite proxy, frontend build
+# intelshed smoke test - backend APIs, Ollama, Vite proxy, frontend build
 # Usage: .\scripts\smoke-test.ps1
 
 $ErrorActionPreference = 'Continue'
@@ -70,7 +70,7 @@ function Test-Endpoint {
 }
 
 Write-Host ""
-Write-Host "WORLDBASE SMOKE TEST" -ForegroundColor Cyan
+Write-Host "INTELSHED SMOKE TEST" -ForegroundColor Cyan
 Write-Host "====================" -ForegroundColor Cyan
 Write-Host ""
 

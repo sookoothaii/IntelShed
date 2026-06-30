@@ -1,4 +1,4 @@
-# WorldBase reverse proxy — TLS termination + SPA + /api proxy.
+# intelshed reverse proxy — TLS termination + SPA + /api proxy.
 #
 # HTTPS (internal CA) is served for `localhost` and the PC's LAN IP (set via the
 # WORLDBASE_LAN env, injected by docker-compose / start-docker.ps1). A Pi on the

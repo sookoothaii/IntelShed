@@ -1,4 +1,4 @@
-# WorldBase Windows Starter
+# intelshed Windows Starter
 # Kills alte Prozesse, startet Backend + Frontend frisch
 # Paths with spaces (e.g. D:\MCP Mods\worldbase) are handled via -LiteralPath / WorkingDirectory
 param(

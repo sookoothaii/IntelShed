@@ -205,7 +205,7 @@ export type MeshNode = {
   last_seen?: string;
 };
 
-/** WorldBase node. */
+/** intelshed node. */
 export type WbNode = {
   node_id: string;
   lat: number | null;

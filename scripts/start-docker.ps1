@@ -1,4 +1,4 @@
-# start-docker.ps1 — Build + run the full WorldBase stack in Docker (secure by default).
+# start-docker.ps1 — Build + run the full intelshed stack in Docker (secure by default).
 #
 # - Ensures a NODE_INGEST_TOKEN exists (runs setup-node-security.ps1 if missing)
 # - Auto-detects the PC LAN IP so Caddy issues a TLS cert the Pi can reach
@@ -24,7 +24,7 @@ function Get-EnvValue([string]$file, [string]$key) {
     return ''
 }
 
-Write-Host '=== WorldBase Docker stack ===' -ForegroundColor Cyan
+Write-Host '=== intelshed Docker stack ===' -ForegroundColor Cyan
 
 # 1) Node token (secure-by-default: backend refuses LAN exposure without it)
 $token = Get-EnvValue 'backend\.env' 'NODE_INGEST_TOKEN'
@@ -84,7 +84,7 @@ $ErrorActionPreference = $prev
 if ($code -ne 0) { Write-Host "docker compose exited with code $code" -ForegroundColor Red; exit $code }
 
 Write-Host ''
-Write-Host 'WorldBase is up:' -ForegroundColor Green
+Write-Host 'intelshed is up:' -ForegroundColor Green
 Write-Host "  Browser (this PC):  https://localhost   (accept the internal-CA warning once)"
 Write-Host "  Browser (LAN):      https://$lan"
 Write-Host "  Pi sync target:     https://$lan/api/node/ingest"
