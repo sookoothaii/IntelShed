@@ -478,6 +478,10 @@ async def _generate_briefing_unlocked(
     thai_digest: dict = {"enabled": False, "count": 0, "lines": []}
     forecast_digest: dict = {"enabled": False, "count": 0, "lines": []}
     anomaly_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    acled_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    osm_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    weather_forecast_digest: dict = {"enabled": False, "count": 0, "lines": []}
+    lightning_digest: dict = {"enabled": False, "count": 0, "lines": []}
     try:
         import darkweb_bridge
 
@@ -565,6 +569,38 @@ async def _generate_briefing_unlocked(
         pass
     if anomaly_digest:
         snap["anomaly_digest"] = anomaly_digest
+    try:
+        from acled_bridge import gather_acled_digest
+
+        acled_digest = gather_acled_digest()
+    except Exception:
+        pass
+    if acled_digest:
+        snap["acled_digest"] = acled_digest
+    try:
+        from osm_bridge import gather_osm_digest
+
+        osm_digest = gather_osm_digest()
+    except Exception:
+        pass
+    if osm_digest:
+        snap["osm_digest"] = osm_digest
+    try:
+        from weather_forecast_bridge import gather_forecast_weather_digest
+
+        weather_forecast_digest = gather_forecast_weather_digest()
+    except Exception:
+        pass
+    if weather_forecast_digest:
+        snap["weather_forecast_digest"] = weather_forecast_digest
+    try:
+        from blitzortung_bridge import gather_lightning_digest
+
+        lightning_digest = gather_lightning_digest()
+    except Exception:
+        pass
+    if lightning_digest:
+        snap["lightning_digest"] = lightning_digest
     digest = format_digest_sections(
         snap,
         alerts,
@@ -584,6 +620,10 @@ async def _generate_briefing_unlocked(
         thai_digest=thai_digest,
         forecast_digest=forecast_digest,
         anomaly_digest=anomaly_digest,
+        acled_digest=acled_digest,
+        osm_digest=osm_digest,
+        weather_forecast_digest=weather_forecast_digest,
+        lightning_digest=lightning_digest,
     )
     from briefing_agentic import run_briefing_agentic_loop
 

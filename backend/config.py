@@ -139,6 +139,12 @@ class WorldBaseConfig(BaseModel):
     cloud_ai_enabled: bool = False
     anomaly_detection_enabled: bool = False
     briefing_anomaly: bool = False
+    acled_enabled: bool = False
+    briefing_acled: bool = False
+    osm_enabled: bool = False
+    briefing_osm: bool = False
+    weather_forecast_enabled: bool = False
+    briefing_weather_forecast: bool = False
 
     @classmethod
     def from_env(cls) -> Self:
@@ -390,6 +396,16 @@ class WorldBaseConfig(BaseModel):
                 os.getenv("WORLDBASE_ANOMALY_DETECTION", "0")
             ),
             briefing_anomaly=_truthy(os.getenv("WORLDBASE_BRIEFING_ANOMALY", "0")),
+            acled_enabled=_truthy(os.getenv("WORLDBASE_ACLED", "0")),
+            briefing_acled=_truthy(os.getenv("WORLDBASE_BRIEFING_ACLED", "0")),
+            osm_enabled=_truthy(os.getenv("WORLDBASE_OSM", "0")),
+            briefing_osm=_truthy(os.getenv("WORLDBASE_BRIEFING_OSM", "0")),
+            weather_forecast_enabled=_truthy(
+                os.getenv("WORLDBASE_WEATHER_FORECAST", "0")
+            ),
+            briefing_weather_forecast=_truthy(
+                os.getenv("WORLDBASE_BRIEFING_WEATHER_FORECAST", "0")
+            ),
         )
 
 

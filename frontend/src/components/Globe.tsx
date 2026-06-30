@@ -358,6 +358,9 @@ type Stats = {
   darkweb: number
   energy: number
   piAis: number
+  acled: number
+  osm: number
+  weatherForecast: number
   fps: number
 }
 
@@ -390,6 +393,9 @@ type GlobeLayers = {
   satelliteChange: boolean
   detectionBoxes: boolean
   piAis: boolean
+  acled: boolean
+  osm: boolean
+  weatherForecast: boolean
 }
 
 type LayerKey = keyof GlobeLayers
@@ -525,6 +531,7 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
       },
       { layer: 'airquality', label: 'AIR QUALITY', statKey: 'airquality', color: '#b0c4b1', healthKeys: ['airquality'], tip: 'Air quality (AQI/PM2.5) per city.' },
       { layer: 'weather', label: 'WEATHER', statKey: 'weather', color: '#4fc3f7', healthKeys: ['weather', 'windy'], tip: 'Surface temp grid (Windy Point Forecast).' },
+      { layer: 'weatherForecast', label: 'WX FCST', statKey: 'weatherForecast', color: '#00e5a0', tip: 'Open-Meteo 7-day forecast (severe weather alerts).' },
     ],
   },
   {
@@ -536,6 +543,7 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
       { layer: 'outages', label: 'OUTAGES', statKey: 'outages', color: '#a855f7', hudKey: 'outages', healthKeys: ['outages'], tip: 'Internet disruptions (IODA/Cloudflare).' },
       { layer: 'pegel', label: 'PEGEL', statKey: 'pegel', color: '#4fc3f7', hudKey: 'pegel', healthKeys: ['pegel'], tip: 'German river gauges / flood levels.' },
       { layer: 'energy', label: 'ENERGY', statKey: 'energy', color: '#ffd23f', hudKey: 'energy', healthKeys: ['energy_de'], tip: 'German power mix (SMARD).' },
+      { layer: 'osm', label: 'OSM POI', statKey: 'osm', color: '#4fc3f7', tip: 'Critical infrastructure POIs (hospitals, power, airports via Overpass).' },
     ],
   },
   {
@@ -544,6 +552,7 @@ const TELEMETRY_GROUPS: { id: string; label: string; rows: TelemetryEntry[] }[] 
     rows: [
       { layer: 'intelFt', label: 'INTEL', statKey: 'intelFt', color: '#b794f6', healthKeys: ['intel'], tip: 'FtM entities with coordinates (24h window).' },
       { layer: 'osint', label: 'OSINT', statKey: 'osint', color: '#00ffa3', tip: 'Your research pins on the globe.' },
+      { layer: 'acled', label: 'ACLED', statKey: 'acled', color: '#ff2d00', tip: 'ACLED conflict events (ASEAN, 7-day window).' },
     ],
   },
 ]
@@ -594,6 +603,9 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       satelliteChange: false,
       detectionBoxes: false,
       piAis: false,
+      acled: false,
+      osm: false,
+      weatherForecast: false,
     },
     collapsed: { motion: false, geo: false, env: false, infra: true, intel: true },
     trails: false,
@@ -631,6 +643,9 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       satelliteChange: false,
       detectionBoxes: false,
       piAis: false,
+      acled: false,
+      osm: false,
+      weatherForecast: false,
     },
     collapsed: { motion: true, geo: false, env: true, infra: false, intel: true },
     trails: false,
@@ -668,6 +683,9 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       satelliteChange: false,
       detectionBoxes: true,
       piAis: true,
+      acled: true,
+      osm: false,
+      weatherForecast: true,
     },
     collapsed: { motion: true, geo: true, env: true, infra: true, intel: false },
     trails: false,
@@ -705,6 +723,9 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       satelliteChange: false,
       detectionBoxes: true,
       piAis: true,
+      acled: true,
+      osm: true,
+      weatherForecast: true,
     },
     collapsed: { motion: false, geo: false, env: false, infra: false, intel: false },
     trails: true,
@@ -906,7 +927,7 @@ export default function Globe({
 
   const [vision, setVision] = useState<VisionMode>('normal')
   const [satGroup, setSatGroup] = useState('starlink')
-  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, trafficCams: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, intelFt: 0, darkweb: 0, energy: 0, piAis: 0, fps: 0 })
+  const [stats, setStats] = useState<Stats>({ aircraft: 0, satellites: 0, quakes: 0, events: 0, nodes: 0, military: 0, spaceweather: 0, geopolitics: 0, wildfires: 0, lightning: 0, transit: 0, trafficCams: 0, maritime: 0, gdacs: 0, hazards: 0, outages: 0, volcanoes: 0, airquality: 0, weather: 0, pegel: 0, osint: 0, intelFt: 0, darkweb: 0, energy: 0, piAis: 0, acled: 0, osm: 0, weatherForecast: 0, fps: 0 })
   const [gibsLayer, setGibsLayer] = useState<'off' | 'fires' | 'goes' | 'viirs'>('off')
   const gibsImageryRef = useRef<ImageryLayer | null>(null)
   const gibsDateRef = useRef<string>('')
@@ -2520,7 +2541,7 @@ export default function Globe({
           </button>
           {layersPanelOpen && (
             <>
-              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'pegel', 'energy', 'intelFt', 'osint', 'darkweb', 'satelliteChange', 'detectionBoxes'] as const).map((k) => (
+              {(['aircraft', 'satellites', 'orbits', 'quakes', 'events', 'nodes', 'military', 'spaceweather', 'geopolitics', 'wildfires', 'lightning', 'transit', 'trafficCams', 'maritime', 'gdacs', 'hazards', 'outages', 'volcanoes', 'airquality', 'weather', 'weatherForecast', 'pegel', 'energy', 'intelFt', 'osint', 'darkweb', 'acled', 'osm', 'satelliteChange', 'detectionBoxes'] as const).map((k) => (
                 <label key={k} className={layers[k] ? 'on' : ''}>
                   <input type="checkbox" checked={layers[k]} onChange={() => toggle(k)} />{k.toUpperCase()}
                 </label>

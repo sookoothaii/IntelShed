@@ -27,6 +27,9 @@ export type Stats = {
   darkweb: number;
   energy: number;
   piAis: number;
+  acled: number;
+  osm: number;
+  weatherForecast: number;
   fps: number;
 };
 
@@ -108,6 +111,9 @@ export type HeatmapCell = {
   intensity: number;
   sources?: string[];
   samples?: HeatmapSample[];
+  delta_score?: number | null;
+  baseline_score?: number | null;
+  cell_id?: string;
 };
 
 export type HeatmapSample = {

@@ -1191,6 +1191,10 @@ def format_digest_sections(
     thai_digest: dict[str, Any] | None = None,
     forecast_digest: dict[str, Any] | None = None,
     anomaly_digest: dict[str, Any] | None = None,
+    acled_digest: dict[str, Any] | None = None,
+    osm_digest: dict[str, Any] | None = None,
+    weather_forecast_digest: dict[str, Any] | None = None,
+    lightning_digest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     lang = _resolve_lang(lang)
     items = _collect_digest_items(snap, alerts)
@@ -1339,5 +1343,10 @@ def format_digest_sections(
         or {"enabled": False, "count": 0, "lines": []},
         "forecast": forecast_digest or {"enabled": False, "count": 0, "lines": []},
         "anomaly": anomaly_digest or {"enabled": False, "count": 0, "lines": []},
+        "acled": acled_digest or {"enabled": False, "count": 0, "lines": []},
+        "osm": osm_digest or {"enabled": False, "count": 0, "lines": []},
+        "weather_forecast": weather_forecast_digest
+        or {"enabled": False, "count": 0, "lines": []},
+        "lightning": lightning_digest or {"enabled": False, "count": 0, "lines": []},
         "_gdelt_collected": gdelt_collected,
     }

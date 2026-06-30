@@ -101,3 +101,31 @@ async def get_lightning():
 
     _BLITZ_CACHE["strikes"] = {"ts": now, "data": result}
     return result
+
+
+def gather_lightning_digest() -> dict:
+    """Synchronous digest for briefing integration (reads in-memory cache)."""
+    cached = _BLITZ_CACHE.get("strikes")
+    if not cached:
+        return {"enabled": False, "count": 0, "lines": []}
+    data = cached.get("data") or {}
+    if data.get("error"):
+        return {"enabled": False, "count": 0, "lines": [], "error": data["error"]}
+    strikes = data.get("strikes") or []
+    if not strikes:
+        return {"enabled": True, "count": 0, "lines": []}
+
+    # Summarize: count + most recent strikes
+    lines: list[str] = []
+    recent = sorted(strikes, key=lambda s: s.get("time") or "", reverse=True)[:10]
+    for s in recent:
+        t = s.get("time") or "?"
+        lines.append(
+            f"Strike at ({s.get('lat'):.2f}, {s.get('lon'):.2f}) "
+            f"stations={s.get('stations', 0)} time={t}"
+        )
+    return {
+        "enabled": True,
+        "count": len(strikes),
+        "lines": lines[:10],
+    }

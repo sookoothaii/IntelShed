@@ -222,6 +222,33 @@ def build_security_advisor_prompt(
         else:
             prompt += "  - No anomalies detected in last 24h.\n"
         prompt += "\n"
+    acled = digest.get("acled") or {}
+    if acled.get("enabled"):
+        prompt += "CONFLICT EVENTS (ACLED, last 7 days):\n"
+        if acled.get("lines"):
+            for line in acled["lines"]:
+                prompt += f"  - {line}\n"
+        else:
+            prompt += "  - No conflict events reported.\n"
+        prompt += "\n"
+    weather_fc = digest.get("weather_forecast") or {}
+    if weather_fc.get("enabled") and weather_fc.get("lines"):
+        prompt += "WEATHER FORECAST (Open-Meteo, 7-day, severe weather alerts):\n"
+        for line in weather_fc["lines"]:
+            prompt += f"  - {line}\n"
+        prompt += "\n"
+    lightning = digest.get("lightning") or {}
+    if lightning.get("enabled") and lightning.get("lines"):
+        prompt += "LIGHTNING ACTIVITY (Blitzortung, recent strikes):\n"
+        for line in lightning["lines"]:
+            prompt += f"  - {line}\n"
+        prompt += "\n"
+    osm = digest.get("osm") or {}
+    if osm.get("enabled") and osm.get("lines"):
+        prompt += "CRITICAL INFRASTRUCTURE (OSM Overpass POIs):\n"
+        for line in osm["lines"]:
+            prompt += f"  - {line}\n"
+        prompt += "\n"
     prompt += (
         "Edge nodes:\n"
         + "\n".join(digest["nodes"])

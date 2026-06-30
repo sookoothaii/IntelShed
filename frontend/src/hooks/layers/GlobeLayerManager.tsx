@@ -29,6 +29,9 @@ import { useDarkwebLayer } from './useDarkwebLayer';
 import { useSatelliteChangeLayer } from './useSatelliteChangeLayer';
 import { useDetectionBoxes } from './useDetectionBoxes';
 import { usePiAisLayer } from './usePiAisLayer';
+import { useAcledLayer } from './useAcledLayer';
+import { useOsmLayer } from './useOsmLayer';
+import { useWeatherForecastLayer } from './useWeatherForecastLayer';
 import { useAgentSwarm } from './useAgentSwarm';
 
 export function GlobeLayerManager({
@@ -94,6 +97,9 @@ export function GlobeLayerManager({
   useSatelliteChangeLayer({ viewer, active: layers.satelliteChange ?? false });
   useDetectionBoxes({ viewer, active: layers.detectionBoxes ?? false, feedActive, canFetch, setStats });
   usePiAisLayer({ viewer, active: layers.piAis ?? false, feedActive, canFetch, setStats });
+  useAcledLayer({ viewer, active: layers.acled ?? false, feedActive, canFetch, setStats });
+  useOsmLayer({ viewer, active: layers.osm ?? false, feedActive, canFetch, setStats });
+  useWeatherForecastLayer({ viewer, active: layers.weatherForecast ?? false, feedActive, canFetch, setStats });
   useAgentSwarm({ viewer, active: true });
 
   return null;

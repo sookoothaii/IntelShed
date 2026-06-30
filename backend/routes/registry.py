@@ -22,7 +22,9 @@ def register_routers(app) -> None:
     import aircraft_trails
     import anomaly_detector
     import anomaly_river
+    import acled_bridge
     import blitzortung_bridge
+    import bootstrap
     import cams_bridge
     import cap_bridge
     import connectors.router as connectors_router
@@ -30,8 +32,10 @@ def register_routers(app) -> None:
     import cve_bridge
     import darkweb_bridge
     import domain_intel
+    import feed_circuit_breaker
     import identity_osint
     import onion_directory
+    import osm_bridge
     import ransomware_tracker
     import thai_opendata
     import duckdb_fusion
@@ -43,6 +47,8 @@ def register_routers(app) -> None:
     import flowsint_bridge
     import ftm_store
     import fusion_heatmap
+    import fusion_delta
+    import graph_algorithms
     import gdelt_bridge
     import gibs_bridge
     import global_search
@@ -78,6 +84,7 @@ def register_routers(app) -> None:
     import trust_router
     import volcano_bridge
     import webcam_bridge
+    import weather_forecast_bridge
     import windy_bridge
 
     app.include_router(agent_bus.router)
@@ -92,6 +99,9 @@ def register_routers(app) -> None:
     app.include_router(osint_tools.router)
     app.include_router(nasa_firms.router)
     app.include_router(blitzortung_bridge.router)
+    app.include_router(acled_bridge.router)
+    app.include_router(osm_bridge.router)
+    app.include_router(weather_forecast_bridge.router)
     app.include_router(smard_bridge.router)
     app.include_router(stock_bridge.router)
     app.include_router(gtfs_ingestor.router)
@@ -118,6 +128,7 @@ def register_routers(app) -> None:
     app.include_router(cap_bridge.router)
     app.include_router(anomaly_river.router)
     app.include_router(anomaly_detector.router)
+    app.include_router(bootstrap.router)
     app.include_router(rag_memory.router)
     app.include_router(duckdb_fusion.router)
     app.include_router(gibs_bridge.router)
@@ -130,6 +141,8 @@ def register_routers(app) -> None:
     app.include_router(markets_bridge.router)
     app.include_router(aircraft_trails.router)
     app.include_router(fusion_heatmap.router)
+    app.include_router(fusion_delta.router)
+    app.include_router(graph_algorithms.router)
     app.include_router(situations.router)
     app.include_router(snapshot_archiver.router)
     app.include_router(predictive_analytics.router)
@@ -142,6 +155,7 @@ def register_routers(app) -> None:
     app.include_router(intel_stix_routes.router)
     app.include_router(entity_resolution.router)
     app.include_router(feed_ingest.router)
+    app.include_router(feed_circuit_breaker.router)
     app.include_router(credentials_router.router)
     app.include_router(connectors_router.router)
     app.include_router(traffic_bridge.router)
