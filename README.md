@@ -8,13 +8,13 @@
 ![Ollama](https://img.shields.io/badge/LLM-Ollama%20qwen3-black?style=flat-square)
 ![NVIDIA NIM](https://img.shields.io/badge/LLM-NVIDIA%20NIM%20step--3.7--flash-76B900?style=flat-square&logo=nvidia&logoColor=white)
 
-**Spatial intelligence workstation** — live OSINT feeds on a Cesium globe, fusion analytics, and local AI chat.
+**Spatial intelligence workstation** — OSINT feeds on a Cesium globe, fusion analytics, local AI chat, and optional Pi edge sync.
 
-WorldBase is a thin integration layer: almost everything here rests on libraries, datasets, and tools that other people built and shared. We are grateful to every maintainer whose work makes this project possible.
+WorldBase is an integration layer over existing libraries, datasets, and tools. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for attributions.
 
 `FastAPI` · `React` · `Vite` · `SQLite` · `DuckDB` · `Ollama` · `NVIDIA NIM` · `Docker` · optional `Pi` edge sync
 
-WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-raspi`](https://github.com/sookoothaii/offgrid-raspi)) with heavy fusion, a 24h security briefing, and globe UX. Run WorldBase alone on a PC, or **Pi + PC together** via push/pull sync (see below).
+WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-raspi`](https://github.com/sookoothaii/offgrid-raspi)) with fusion, a 24h security briefing, and globe UX. Run WorldBase alone on a PC, or Pi + PC together via push/pull sync (see below).
 
 ---
 
@@ -25,18 +25,18 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 | **Globe** | 30+ live layers — aircraft, quakes, disasters, energy, maritime, transit, dark web |
 | **MAP** | Offline Protomaps via PMTiles — regional or full planet (~130 GB) |
 | **Briefing** | 24h security digest (LOCAL / REGION / GLOBAL), watch items, prediction ledger, agentic loop, two-pass critique-refine |
-| **Intelligence** | FtM entity graph (45k+ entities), OpenSanctions, hybrid RAG (sqlite-vec + FTS5 + RRF + BGE rerank), GraphRAG-lite |
+| **Intelligence** | FtM entity graph (DuckDB), OpenSanctions, hybrid RAG (sqlite-vec + FTS5 + RRF + BGE rerank), GraphRAG-lite |
 | **AI** | Ollama (`qwen3:8b`) + 6 cloud providers (NVIDIA NIM, Groq, OpenRouter, Cerebras, SambaNova, DeepSeek); 4-layer anti-hallucination stack |
 | **OSINT** | Dark web (P8, 8 search engines + Tor), ransomware intel, identity enumeration (P9, 83 platforms), Telegram SOCMINT, satellite change detection |
 | **Entity resolution** | Per-dataset dedupe → cross-dataset link (Splink), dual-pipeline, human-in-the-loop labelling, FtM 4.0 StatementEntity |
 | **Multi-agent** | 5-agent orchestrator (Coverage → Retrieval → Spatial → Corroboration → Synthesis) + blackboard + evidence chains, 0 VRAM |
 | **Anomaly detection** | Isolation Forest on 8 feed time series (V4-23), River HalfSpaceTrees on live streams, CPU-only |
 | **Predictive** | LightGBM forecasting on snapshot time series (V4-19), 24h entity count forecast |
-| **Edge** | Off-grid Pi pushes sensors → PC fuses → hardened briefing pull back to Pi (delta sync + conflict detection) |
+| **Edge** | Off-grid Pi pushes sensors → PC fuses → briefing pull back to Pi (delta sync + conflict detection) |
 | **Trust** | Rule-based briefing quality + feed drift + connector provenance + route outcome ledger (`GET /api/trust`) |
 | **MCP** | Cursor/Claude: 13 tools — briefing, nodes, feeds, globe control — [`docs/MCP.md`](docs/MCP.md) |
 | **Docker** | Full stack: backend + Caddy (TLS) + Redis + Celery worker/beat + Flower — `docker compose up -d --build` |
-| **Philosophy** | Positive intelligence — better decisions, not attacks |
+| **Approach** | Situational awareness for decision support — not an attack tool |
 
 Full feature catalog with env vars and setup → [`docs/FEATURES.md`](docs/FEATURES.md)
 
@@ -44,9 +44,9 @@ Full feature catalog with env vars and setup → [`docs/FEATURES.md`](docs/FEATU
 
 ## Quick start
 
-**Prerequisites:** Python 3.12+, Node.js 20+, [Ollama](https://ollama.com/) (`qwen3:8b`, `nomic-embed-text`), free [Cesium Ion](https://ion.cesium.com/tokens) token. Optional: [NVIDIA NIM API key](https://build.nvidia.com/) for cloud reasoning models (free tier incl. `stepfun-ai/step-3.7-flash`). Docker for containerized deployment.
+**Prerequisites:** Docker, [Ollama](https://ollama.com/) (`qwen3:8b`, `nomic-embed-text`), free [Cesium Ion](https://ion.cesium.com/tokens) token. Optional: [NVIDIA NIM API key](https://build.nvidia.com/) for cloud reasoning models.
 
-### Docker (recommended)
+### Docker (default)
 
 ```bash
 git clone https://github.com/sookoothaii/worldbase.git
@@ -64,7 +64,17 @@ docker compose up -d --build
 | **Health** | https://localhost/api/health/ping |
 | **Flower** | http://localhost:5555 (Celery dashboard) |
 
-### Native (development)
+**API key:** Retrieve with `docker compose exec backend python -c "import os; print(os.getenv('WORLDBASE_API_KEY','NOT_SET'))"`. Use as `X-API-Key` header for authenticated endpoints. If `WORLDBASE_API_KEY` is not set in `backend/.env`, all endpoints are open.
+
+**Docker notes:**
+- `docker compose down` stops services; `docker compose down -v` also wipes the database volume — use with caution.
+- Caddy uses a self-signed TLS certificate. Browsers will warn; `curl` from Windows may return empty — use a browser or `curl -k`.
+- Do not run the venv backend and Docker stack simultaneously — they use separate databases, causing data divergence.
+- Feature flags at `GET /api/admin/flags` may show `enabled: false` when not explicitly set in `.env`. Code defaults in `config.py` / `features.py` apply at runtime. See [`AGENTS.md`](AGENTS.md) for details.
+
+### Native / venv (development only)
+
+For local development without Docker. Requires Python 3.12+, Node.js 20+.
 
 ```bash
 git clone https://github.com/sookoothaii/worldbase.git
@@ -76,7 +86,7 @@ python -m venv backend/venv
 source backend/venv/bin/activate          # Linux/macOS
 # backend\venv\Scripts\activate            # Windows
 pip install -r backend/requirements.txt
-# Start backend + frontend (see start.sh or start.ps1)
+# Start backend + frontend (see start.ps1 or start.sh)
 ```
 
 | Service | URL (venv mode) |
@@ -84,10 +94,9 @@ pip install -r backend/requirements.txt
 | **UI** | http://localhost:5176 |
 | **API** | http://localhost:8002/docs |
 | **Health** | http://localhost:8002/api/health |
-| **Health (fast)** | http://localhost:8002/api/health/ping |
 | **Ollama** | http://127.0.0.1:11434 |
 
-Open **http://localhost:5176** (Vite). API docs: **http://127.0.0.1:8002/docs**.
+**Verify stack (venv):** `./scripts/smoke-test.ps1` (Windows) or `./scripts/smoke-test.sh` (Linux) → 33 checks. This script targets the venv backend at `127.0.0.1:8002`, not the Docker stack.
 
 ### MCP + Agent Bus (optional)
 
@@ -100,10 +109,10 @@ WORLDBASE_MCP_WRITE=1
 WORLDBASE_AGENT_BUS=1          # globe fly_to / layer toggle via MCP
 
 # frontend/.env
-VITE_WORLDBASE_AGENT_BUS=1     # HUD must be open at :5176
+VITE_WORLDBASE_AGENT_BUS=1     # HUD must be open
 ```
 
-Restart backend + Vite; add `worldbase` to Cursor MCP (`http://127.0.0.1:8002/api/mcp` + `X-API-Key` if set). Expect **13 tools** when Agent Bus is on. Per-tool RBAC policy enforced (read tools → `readonly`, write tools → `operator`).
+MCP endpoint: `https://localhost/api/mcp` (Docker) or `http://127.0.0.1:8002/api/mcp` (venv). Requires `X-API-Key` header when `WORLDBASE_API_KEY` is set. 13 tools available when Agent Bus is enabled. Per-tool RBAC policy enforced (read tools → `readonly`, write tools → `operator`).
 
 ```bash
 ollama pull qwen3:8b
@@ -116,10 +125,6 @@ pip install scikit-learn            # when WORLDBASE_ANOMALY_DETECTION=1
 pip install lightgbm numpy          # when WORLDBASE_PREDICTIVE=1
 ```
 
-**Verify stack:** `./scripts/smoke-test.ps1` (Windows) or `./scripts/smoke-test.sh` (Linux) → expect **33 PASS / 0 FAIL / 1 WARN**.
-
-The start script waits for `GET /api/health/ping` before starting Vite (avoids proxy `ECONNREFUSED`). ~**6 s** after backend boot, a feed warm-up refreshes GDELT local + global pulse, traffic cams, maritime, CAMS haze, air quality, and Bangkok weather.
-
 ### Screenshots
 
 | GLOBE | MAP | DATA | SPLIT |
@@ -128,20 +133,22 @@ The start script waits for `GET /api/health/ping` before starting Vite (avoids p
 
 Full set: [`docs/screenshots/`](docs/screenshots/README.md)
 
-### Pi sync
+### Docker stack with Pi sync
+
+The Docker stack includes Pi sync endpoints. To start with LAN auto-detection and node token:
 
 ```bash
-./scripts/start-docker.sh     # Linux: HTTPS stack + node token + LAN auto-detect
-# .\scripts\start-docker.ps1  # Windows: same
+./scripts/start-docker.sh         # Linux
+# .\scripts\start-docker.ps1     # Windows
 ```
 
-Details → [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) · agent reference → [`AGENTS.md`](AGENTS.md) · Linux migration → [`docs/LINUX_MIGRATION_PLAN.md`](docs/LINUX_MIGRATION_PLAN.md)
+Pi sync details → [`offgrid-raspi/docs/WORLDBASE_PI_SYNC.md`](offgrid-raspi/docs/WORLDBASE_PI_SYNC.md) · Linux migration → [`docs/LINUX_MIGRATION_PLAN.md`](docs/LINUX_MIGRATION_PLAN.md)
 
 ---
 
 ## What works without keys
 
-Most feeds are **fail-soft** (stale cache or empty payload on upstream errors — never a crashed globe).
+Most feeds are fail-soft (stale cache or empty payload on upstream errors — the globe does not crash).
 
 | Tag | Layers | Key |
 |-----|--------|-----|
@@ -150,15 +157,21 @@ Most feeds are **fail-soft** (stale cache or empty payload on upstream errors �
 | `optional` | OpenSky OAuth (recommended for full ADS-B), ENTSO-E EU energy, Blitzortung lightning, AISstream, ReliefWeb | varies |
 | `required` | Cesium terrain/imagery | [Ion token](https://ion.cesium.com/tokens) |
 
-Feed health → `GET /api/health` · trust score → `GET /api/trust` · key catalog (no secrets) → `GET /api/credentials/status` · templates → `backend/.env.example`, `frontend/.env.example`
+Docker: `GET https://localhost/api/health` · `GET https://localhost/api/trust` · `GET https://localhost/api/credentials/status` (add `X-API-Key` header if `WORLDBASE_API_KEY` is set). venv: replace with `http://127.0.0.1:8002/api/...`. Templates: `backend/.env.example`, `frontend/.env.example`.
 
 ---
 
 ## Architecture
 
 ```
+Docker mode:
 ┌─────────────────────────────────────────────────────────┐
-│  React + CesiumJS (+ MapLibre 2D)          :5176        │
+│  Caddy TLS reverse proxy                    :443         │
+│  https://localhost → SPA + /api/* proxy to backend      │
+└───────────────────────────┬─────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────┐
+│  React + CesiumJS (+ MapLibre 2D)   served by Caddy      │
 │  Globe · DATA · AI chat · Agent Bus · Agent Swarm       │
 └───────────────────────────┬─────────────────────────────┘
                             │ /api/*
@@ -167,19 +180,15 @@ Feed health → `GET /api/health` · trust score → `GET /api/trust` · key cat
 │  MCP · Agent Bus · hybrid RAG · briefing agentic loop   │
 │  5-agent orchestrator · anomaly detection · predictive  │
 │  4-layer anti-hallucination · /api/trust · provenance   │
-│  Celery worker + beat (Docker) · Redis cache/pubsub     │
+│  Celery worker + beat · Redis cache/pubsub              │
 └───────────────────────────┬─────────────────────────────┘
          ┌──────────────────┼──────────────────┐
          ▼                  ▼                  ▼
     USGS · NASA ·      Ollama :11434      Pi :443/ingest
     GDACS · SMARD …    qwen3 + RAG        (offgrid-raspi)
     30+ feeds          6 cloud providers   delta sync
-         │       │       │
-         │       │       └── NVIDIA NIM · Groq · OpenRouter · Cerebras · SambaNova · DeepSeek
-         │       │
-         │       └── Cursor MCP (Streamable HTTP) + Docker MCP gateway
-         │
-         └── Caddy TLS (Docker) → https://localhost
+
+venv mode: Caddy layer absent; Vite serves :5176, FastAPI on :8002.
 ```
 
 Agent reference → [`AGENTS.md`](AGENTS.md) · MCP setup → [`docs/MCP.md`](docs/MCP.md)
@@ -224,15 +233,20 @@ This repo vendors the Pi repo as a **git submodule** at `offgrid-raspi/` (script
 
 ### Operator checks
 
+Docker mode (add `-k` for self-signed cert, `-H "X-API-Key: <key>"` if `WORLDBASE_API_KEY` is set):
+
 | Check | Command |
 |-------|---------|
-| Nodes on PC | `curl -s http://127.0.0.1:8002/api/nodes` |
-| Trust probes | `curl -s http://127.0.0.1:8002/api/trust` |
-| Anomaly status | `curl -s http://127.0.0.1:8002/api/anomalies/iso/status` |
-| PC pull payload (v3) | `GET /api/node/pull` with `X-Node-Token` when `NODE_INGEST_TOKEN` is set |
-| Deploy hardened push/pull scripts | `./scripts/deploy-pi-sync.ps1` (Windows) |
-| Smoke test | `./scripts/smoke-test.ps1` → expect **33 PASS / 0 FAIL / 1 WARN** |
+| Health | `curl -sk https://localhost/api/health/ping` |
+| Nodes | `curl -sk -H "X-API-Key: <key>" https://localhost/api/nodes` |
+| Trust probes | `curl -sk -H "X-API-Key: <key>" https://localhost/api/trust` |
+| Anomaly status | `curl -sk -H "X-API-Key: <key>" https://localhost/api/anomalies/iso/status` |
+| Graph stats | `curl -sk -H "X-API-Key: <key>" https://localhost/api/intel/graph/stats` |
+| Pi pull payload | `curl -sk -H "X-Node-Token: <token>" https://localhost/api/node/pull` |
+| Deploy push/pull scripts | `./scripts/deploy-pi-sync.ps1` (Windows) |
 | Pi disk maintenance | `sudo bash pi-disk-maintenance.sh` (on Pi) |
+
+venv mode: replace `https://localhost` with `http://127.0.0.1:8002` and omit `-k`.
 
 ---
 
