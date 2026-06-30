@@ -13,6 +13,7 @@ import {
 import { fetchApi } from '../../lib/networkFetch';
 import { attachDataSource, detachDataSource } from './layerUtils';
 import { feedPos, feedPoint } from './layerUtils';
+import { attachPulseEllipse, clearPulseCleanups } from './pulseAnimation';
 import {
   GEOJSON_PRIMITIVE_THRESHOLD,
   addGeoJsonPrimitive,
@@ -37,6 +38,7 @@ export function useHeatmapLayer({
 }) {
   const srcRef = useRef<CustomDataSource | null>(null);
   const primRef = useRef<GeoJsonPrimitive | null>(null);
+  const pulseCleanupsRef = useRef<Array<() => void>>([]);
 
   const { data } = useQuery({
     queryKey: ['heatmap'],
@@ -45,6 +47,16 @@ export function useHeatmapLayer({
       return r.json();
     },
     refetchInterval: 120000,
+    enabled: active && feedActive && canFetch,
+  });
+
+  const { data: deltaData } = useQuery({
+    queryKey: ['fusion-delta'],
+    queryFn: async () => {
+      const r = await fetchApi('/api/fusion/delta?compare=24h&cell_deg=2&top=20&include_geojson=0');
+      return r.json();
+    },
+    refetchInterval: 180000,
     enabled: active && feedActive && canFetch,
   });
 
@@ -57,6 +69,7 @@ export function useHeatmapLayer({
     return () => {
       detachDataSource(viewer, src);
       removeGeoJsonPrimitive(viewer, primRef.current);
+      clearPulseCleanups(pulseCleanupsRef.current);
       srcRef.current = null;
       primRef.current = null;
     };
@@ -69,6 +82,9 @@ export function useHeatmapLayer({
       if (primRef.current.polylines) primRef.current.polylines.show = active;
       if (primRef.current.polygons) primRef.current.polygons.show = active;
     }
+    if (!active) {
+      clearPulseCleanups(pulseCleanupsRef.current);
+    }
     if (!active) setHeatmapMeta(null);
   }, [active, setHeatmapMeta]);
 
@@ -76,6 +92,14 @@ export function useHeatmapLayer({
     if (!data || !viewer || !active) return;
     const cells: HeatmapCell[] = (data as HeatmapApiResponse)?.cells || [];
     const usePrimitive = cells.length > GEOJSON_PRIMITIVE_THRESHOLD;
+
+    // Build delta map from delta endpoint
+    const deltaMap = new Map<string, number>();
+    const deltaCells = (deltaData as { cells?: HeatmapCell[] })?.cells || [];
+    for (const dc of deltaCells) {
+      const cid = dc.cell_id || `${dc.lat.toFixed(2)},${dc.lon.toFixed(2)}`;
+      if (dc.delta_score != null) deltaMap.set(cid, dc.delta_score);
+    }
 
     // Clear previous primitive if present
     if (primRef.current) {
@@ -123,22 +147,32 @@ export function useHeatmapLayer({
       src.entities.suspendEvents();
       src.entities.removeAll();
 
+      // Clear previous pulse animations
+      clearPulseCleanups(pulseCleanupsRef.current);
+
       for (const c of cells) {
         const t = Math.min(1, c.score || 0);
         const hueDeg = (1 - t) * 180;
         const cssColor = `hsla(${hueDeg.toFixed(0)}, 90%, ${(45 + t * 25).toFixed(0)}%, ${(0.18 + t * 0.55).toFixed(2)})`;
 
-        src.entities.add({
+        // Check if this cell has a high delta score
+        const cid = c.cell_id || `${c.lat.toFixed(2)},${c.lon.toFixed(2)}`;
+        const delta = deltaMap.get(cid);
+        const hasHighDelta = delta != null && delta > 0.12;
+
+        const ent = src.entities.add({
           id: `fusion-${c.lat}-${c.lon}`,
           position: feedPos(c.lon, c.lat),
           point: feedPoint(8 + t * 14, Color.fromCssColorString(cssColor), {
             outlineWidth: 1,
-            outline: Color.fromCssColorString('#ffffff').withAlpha(0.35),
+            outline: hasHighDelta
+              ? Color.fromCssColorString('#ff6b35').withAlpha(0.8)
+              : Color.fromCssColorString('#ffffff').withAlpha(0.35),
           }),
           label: t > 0.5 ? {
-            text: `${Math.round(c.intensity)}`,
+            text: hasHighDelta ? `${Math.round(c.intensity)} Δ+${delta!.toFixed(2)}` : `${Math.round(c.intensity)}`,
             font: '700 11px "Courier New"',
-            fillColor: Color.fromCssColorString('#ffffff'),
+            fillColor: hasHighDelta ? Color.fromCssColorString('#ff6b35') : Color.fromCssColorString('#ffffff'),
             outlineColor: Color.BLACK,
             outlineWidth: 2,
             style: LabelStyle.FILL_AND_OUTLINE,
@@ -150,14 +184,28 @@ export function useHeatmapLayer({
             kind: 'fusion_cell',
             intensity: c.intensity,
             score: c.score,
+            delta_score: delta ?? null,
             sources: c.sources?.join(', '),
             samples: (c.samples || []).map((s: HeatmapSample) => `${s.source}: ${s.label}`).join(' | '),
           },
         });
+
+        // Attach pulse animation for high-delta cells
+        if (hasHighDelta && ent) {
+          const pulseColor = Color.fromCssColorString('#ff6b35');
+          const cleanup = attachPulseEllipse(ent, {
+            cycleMs: 2000,
+            baseRadius: 30000,
+            pulseScale: 200000,
+            color: pulseColor,
+            alphaScale: 0.4,
+          });
+          pulseCleanupsRef.current.push(cleanup);
+        }
       }
 
       src.entities.resumeEvents();
       setHeatmapMeta({ cells: cells.length, max: (data as HeatmapApiResponse)?.max_intensity || 0, contrib: (data as HeatmapApiResponse)?.contributors || {} });
     }
-  }, [viewer, data, active, setHeatmapMeta]);
+  }, [viewer, data, deltaData, active, setHeatmapMeta]);
 }
