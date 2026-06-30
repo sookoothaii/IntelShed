@@ -14,6 +14,25 @@ from ftm_connection import _is_invalidated_error
 
 
 # ---------------------------------------------------------------------------
+# Cyber / Financial ontology — logical schema mapping
+# ---------------------------------------------------------------------------
+
+CYBER_SCHEMA_MAP: dict[str, str] = {
+    "Organization": "Organization",
+    "Person": "Person",
+    "Document": "Document",
+    "Asset": "Asset",
+    "IpAddress": "Thing",
+    "Domain": "Thing",
+    "Url": "HyperText",
+}
+
+INTEL_EDGE_TYPES: frozenset[str] = frozenset(
+    {"worksFor", "locatedAt", "ownsAsset", "mentionedIn", "linkedTo", "partOf"}
+)
+
+
+# ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
 
@@ -67,11 +86,23 @@ def _create_schema(con: duckdb.DuckDBPyConnection) -> None:
             model_version       VARCHAR,
             confidence_timestamp VARCHAR
         );
+        CREATE TABLE IF NOT EXISTS intel_edges (
+            source_id   VARCHAR NOT NULL,
+            target_id   VARCHAR NOT NULL,
+            kind        VARCHAR NOT NULL,
+            properties  VARCHAR,
+            confidence  DOUBLE,
+            dataset     VARCHAR NOT NULL,
+            source_ref  VARCHAR,
+            seen_at     VARCHAR,
+            UNIQUE (source_id, target_id, kind, dataset)
+        );
         """
     )
     _migrate_statements_schema(con)
     _migrate_resolution_labels_schema(con)
     _ensure_edge_indexes(con)
+    _ensure_intel_edge_indexes(con)
     # Drop any R-Tree index from a previous run (DuckDB 1.5.x bug #769)
     _drop_rtree_index_if_present(con)
     _ensure_entity_geo_indexes(con)
@@ -153,6 +184,16 @@ def _ensure_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
         CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
+        """
+    )
+
+
+def _ensure_intel_edge_indexes(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_intel_edges_source ON intel_edges(source_id);
+        CREATE INDEX IF NOT EXISTS idx_intel_edges_target ON intel_edges(target_id);
+        CREATE INDEX IF NOT EXISTS idx_intel_edges_kind ON intel_edges(kind);
         """
     )
 

@@ -15,10 +15,13 @@ from auth.security import verify_lan_auth
 from ftm_query import (
     entities_for_briefing,
     get_entity_full,
+    get_entity_timeline,
     graph_overview,
     graph_stats,
     graph_view,
     import_ndjson,
+    list_edges_by_type,
+    list_entities_by_schema,
     list_entities_recent,
     stats,
 )
@@ -44,9 +47,16 @@ async def api_intel_entities(
         False, description="Only entities with lat/lon seen in window_hours"
     ),
     window_hours: int = Query(24, ge=1, le=168),
+    schema: str | None = Query(
+        None,
+        description="Filter by FtM schema name (e.g. Organization, IpAddress, Domain)",
+    ),
 ):
-    """Recent entities (compat route). Set geolocated=1 for FtM globe layer."""
+    """Recent entities (compat route). Set geolocated=1 for FtM globe layer.
+    Set schema= to filter by entity schema (e.g. IpAddress, Domain, Organization)."""
     try:
+        if schema:
+            return list_entities_by_schema(schema, limit=limit, dataset=dataset)
         if geolocated:
             ents = entities_for_briefing(
                 window_hours=window_hours,
@@ -290,8 +300,19 @@ async def api_list_edges(
     external: bool = Query(False, description="Only external (review) edges"),
     confirmed: bool | None = None,
     limit: int = 100,
+    type: str | None = Query(
+        None,
+        description="Filter by edge kind (e.g. worksFor, ownsAsset, linkedTo, mentionedIn)",
+    ),
+    dataset: str | None = Query(None, description="Filter by provenance dataset tag"),
 ):
-    """List edges; set external=1 for P5+ review queue."""
+    """List edges; set external=1 for P5+ review queue.
+    Set type= to filter by edge kind (e.g. worksFor, ownsAsset, linkedTo)."""
+    if type:
+        try:
+            return list_edges_by_type(type, limit=limit, dataset=dataset)
+        except Exception as exc:
+            return {"count": 0, "edges": [], "error": str(exc)}
     import edge_review
 
     if external:
@@ -299,7 +320,7 @@ async def api_list_edges(
             "edges": edge_review.list_external_edges(confirmed=confirmed, limit=limit)
         }
     # Default: return graph overview edges (no raw edge list available)
-    return {"edges": [], "note": "external=1 for review queue"}
+    return {"edges": [], "note": "external=1 for review queue, type= for kind filter"}
 
 
 @router.get("/intel/edges/external")
@@ -351,3 +372,20 @@ async def api_edge_review_stats():
     import edge_review
 
     return edge_review.edge_review_stats()
+
+
+# ---------------------------------------------------------------------------
+# Session 7 — Entity Timeline
+# ---------------------------------------------------------------------------
+
+
+@router.get("/intel/entities/{entity_id}/timeline")
+async def api_entity_timeline(entity_id: str):
+    """Chronological timeline for an entity (statements + edges + intel_edges)."""
+    try:
+        return await asyncio.to_thread(get_entity_timeline, entity_id)
+    except Exception as exc:
+        return JSONResponse(
+            {"entity_id": entity_id, "found": False, "error": str(exc)[:200]},
+            status_code=503,
+        )

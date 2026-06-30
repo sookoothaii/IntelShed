@@ -39,6 +39,7 @@ def register_routers(app) -> None:
     import osm_bridge
     import ransomware_tracker
     import breach_bridge
+    import cyber_bridge
     import thai_opendata
     import duckdb_fusion
     import entsoe_bridge
@@ -120,6 +121,7 @@ def register_routers(app) -> None:
     app.include_router(darkweb_bridge.router)
     app.include_router(ransomware_tracker.router)
     app.include_router(breach_bridge.router)
+    app.include_router(cyber_bridge.router)
     app.include_router(domain_intel.router)
     app.include_router(identity_osint.router)
     app.include_router(thai_opendata.router)

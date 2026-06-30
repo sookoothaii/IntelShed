@@ -203,6 +203,8 @@ import StacPanel from './StacPanel';
 import SatellitePanel from './SatellitePanel';
 import SanctionsPanel from './SanctionsPanel';
 import IntelGraphPanel from './IntelGraphPanel';
+import RelationshipExplorer from './RelationshipExplorer';
+import CredentialManagerPanel from './CredentialManagerPanel';
 import EdgePanel from './EdgePanel';
 import WeatherSection from './WeatherSection';
 import FeedsStatusPanel from './FeedsStatusPanel';
@@ -254,6 +256,8 @@ export const DATA_TABS = [
   'stac',
   'sanctions',
   'intel',
+  'relationships',
+  'credentials',
   'darkweb',
   'cii',
   'telegram',
@@ -1809,6 +1813,18 @@ export default function DataPanel({
       {tab === 'intel' && (
         <ErrorBoundary name="IntelGraph">
           <IntelGraphPanel onFocus={onFocus} initialEntityId={intelEntityId} />
+        </ErrorBoundary>
+      )}
+
+      {tab === 'relationships' && (
+        <ErrorBoundary name="RelationshipExplorer">
+          <RelationshipExplorer initialEntityId={intelEntityId} />
+        </ErrorBoundary>
+      )}
+
+      {tab === 'credentials' && (
+        <ErrorBoundary name="CredentialManager">
+          <CredentialManagerPanel />
         </ErrorBoundary>
       )}
 

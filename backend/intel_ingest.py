@@ -113,6 +113,124 @@ RELATION_LABELS: list[str] = list(RELATION_CONSTRAINTS.keys())
 _TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 
 # ---------------------------------------------------------------------------
+# IOC (Indicator of Compromise) regex extraction
+# ---------------------------------------------------------------------------
+
+_IOC_PATTERNS: dict[str, re.Pattern[str]] = {
+    "ipv4": re.compile(
+        r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}"
+        r"(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
+    ),
+    "ipv6": re.compile(r"\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b"),
+    "domain": re.compile(
+        r"\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+"
+        r"(?:[a-zA-Z]{2,})\b"
+    ),
+    "url": re.compile(r"https?://[^\s<>'\"]+"),
+    "sha256": re.compile(r"\b[a-fA-F0-9]{64}\b"),
+    "sha1": re.compile(r"\b[a-fA-F0-9]{40}\b"),
+    "md5": re.compile(r"\b[a-fA-F0-9]{32}\b"),
+    "email": re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b"),
+}
+
+_IOC_SCHEMA_MAP: dict[str, str] = {
+    "ipv4": "IpAddress",
+    "ipv6": "IpAddress",
+    "domain": "Domain",
+    "url": "Url",
+    "sha256": "Asset",
+    "sha1": "Asset",
+    "md5": "Asset",
+    "email": "Person",
+}
+
+# Domains that should not be extracted as IOCs (CDNs, common TLDs in prose)
+_IOC_DOMAIN_EXCLUDE: frozenset[str] = frozenset(
+    {
+        "example.com",
+        "example.org",
+        "localhost",
+    }
+)
+
+
+def extract_iocs(text: str) -> dict[str, list[str]]:
+    """Extract IOCs (IP, Domain, URL, Hash, E-Mail) from text via regex.
+
+    Returns a dict mapping IOC type to a deduplicated list of matches.
+    """
+    results: dict[str, list[str]] = {}
+    for ioc_type, pattern in _IOC_PATTERNS.items():
+        matches: list[str] = []
+        seen: set[str] = set()
+        for m in pattern.findall(text):
+            val = m if isinstance(m, str) else m[0]
+            val = val.strip().rstrip(".,;)")
+            if not val or val.lower() in _IOC_DOMAIN_EXCLUDE:
+                continue
+            if val.lower() in seen:
+                continue
+            seen.add(val.lower())
+            matches.append(val)
+        if matches:
+            results[ioc_type] = matches
+    return results
+
+
+def _ingest_iocs(
+    text: str,
+    *,
+    dataset: str,
+    doc_id: str,
+    seen_at: str,
+) -> dict[str, Any]:
+    """Extract IOCs from text and persist them as cyber entities + intel edges.
+
+    Creates IpAddress, Domain, Url, and Asset (hash) entities, then links
+    them to the source Document via ``mentionedIn`` intel edges.
+    """
+    iocs = extract_iocs(text)
+    if not iocs:
+        return {"ioc_count": 0, "ioc_types": []}
+
+    entity_ids: list[str] = []
+    edge_count = 0
+
+    for ioc_type, values in iocs.items():
+        logical_schema = _IOC_SCHEMA_MAP.get(ioc_type, "Thing")
+        for val in values:
+            # Build entity — use Thing/HyperText as base, override schema post-upsert
+            base_schema = "HyperText" if logical_schema == "Url" else "Thing"
+            props: dict[str, list[str]] = {"name": [val]}
+            if ioc_type in ("sha256", "sha1", "md5"):
+                props["notes"] = [f"Hash type: {ioc_type}"]
+            proxy = ftm_store.make_entity(base_schema, ["cyber", ioc_type, val], props)
+            eid = ftm_store.upsert_cyber_entity(
+                proxy, logical_schema, dataset, seen_at=seen_at
+            )
+            if eid:
+                entity_ids.append(eid)
+                # Link IOC to document via mentionedIn
+                ftm_store.add_intel_edge(
+                    eid,
+                    doc_id,
+                    "mentionedIn",
+                    dataset=dataset,
+                    confidence=1.0,
+                    source_ref="ioc_regex",
+                    seen_at=seen_at,
+                )
+                edge_count += 1
+
+    return {
+        "ioc_count": sum(len(v) for v in iocs.values()),
+        "ioc_types": list(iocs.keys()),
+        "ioc_entities": entity_ids,
+        "ioc_edges": edge_count,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Lazy model singletons
 # ---------------------------------------------------------------------------
 
@@ -442,6 +560,9 @@ def ingest_text(
                     continue
                 _record_edge(ner_ids[h_idx], ner_ids[t_idx], label, score)
 
+    # IOC extraction (regex-based, no ML required)
+    ioc_result = _ingest_iocs(text, dataset=dataset, doc_id=doc_id, seen_at=seen)
+
     return {
         "ok": True,
         "device": device,
@@ -450,11 +571,13 @@ def ingest_text(
         "source": src_label,
         "root_id": doc_id,
         "truncated": truncated,
+        "iocs": ioc_result,
         "counts": {
             "entities": len(entities),
             "edges": len(edges),
             "mentions": sum(1 for e in edges if e["kind"] == "mentions"),
             "relations": sum(1 for e in edges if e["kind"] != "mentions"),
+            "iocs": ioc_result.get("ioc_count", 0),
         },
         "entities": [{"id": k, **v} for k, v in entities.items()],
         "edges": edges,

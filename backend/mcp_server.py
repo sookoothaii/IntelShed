@@ -1003,6 +1003,105 @@ async def worldbase_breach_check_password(password: str) -> dict[str, Any]:
     return await breach_bridge.check_password_hash(sha1)
 
 
+# ---------------------------------------------------------------------------
+# Cyber intelligence tools (Shodan InternetDB + ontology expansion)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(name="worldbase_cyber_ip_lookup")
+@mcp_jmespath.with_jmespath
+async def worldbase_cyber_ip_lookup(ip: str) -> dict[str, Any]:
+    """Look up passive IP intelligence from Shodan InternetDB (keyless, no API key).
+
+    Returns ports, hostnames, domains, tags, CVEs, ISP, and org for the given IP.
+    Results are cached for 1 hour.
+
+    Args:
+        ip: IPv4 or IPv6 address (e.g. 8.8.8.8, 2001:db8::1).
+    """
+    await _gate_mcp_tool("worldbase_cyber_ip_lookup", {"ip": ip}, write=False)
+    import cyber_bridge
+
+    if not cyber_bridge._enabled():
+        return {
+            "enabled": False,
+            "error": "Cyber bridge disabled (WORLDBASE_CYBER_BRIDGE=0)",
+        }
+    return await cyber_bridge.fetch_ip_intel(ip)
+
+
+@mcp.tool(name="worldbase_intel_entities")
+@mcp_jmespath.with_jmespath
+async def worldbase_intel_entities(
+    schema: str,
+    limit: int = 50,
+    dataset: str | None = None,
+) -> dict[str, Any]:
+    """Query FtM entities by schema name. Supports cyber/financial ontology types.
+
+    Args:
+        schema: FtM schema name (e.g. IpAddress, Domain, Url, Organization, Person, Asset).
+        limit: Max entities to return (1–500, default 50).
+        dataset: Filter by provenance dataset tag (e.g. cyber_shodan, intel-ingest).
+    """
+    await _gate_mcp_tool(
+        "worldbase_intel_entities",
+        {"schema": schema, "limit": limit, "dataset": dataset},
+        write=False,
+    )
+    import ftm_query
+
+    limit = max(1, min(limit, 500))
+    return ftm_query.list_entities_by_schema(schema, limit=limit, dataset=dataset)
+
+
+@mcp.tool(name="worldbase_intel_edges")
+@mcp_jmespath.with_jmespath
+async def worldbase_intel_edges(
+    type: str,
+    limit: int = 100,
+    dataset: str | None = None,
+) -> dict[str, Any]:
+    """Query intel edges by edge kind. Supports cyber ontology edge types.
+
+    Args:
+        type: Edge kind (e.g. ownsAsset, linkedTo, mentionedIn, worksFor, locatedAt, partOf).
+        limit: Max edges to return (1–500, default 100).
+        dataset: Filter by provenance dataset tag.
+    """
+    await _gate_mcp_tool(
+        "worldbase_intel_edges",
+        {"type": type, "limit": limit, "dataset": dataset},
+        write=False,
+    )
+    import ftm_query
+
+    limit = max(1, min(limit, 500))
+    return ftm_query.list_edges_by_type(type, limit=limit, dataset=dataset)
+
+
+@mcp.tool(name="worldbase_extract_iocs")
+@mcp_jmespath.with_jmespath
+async def worldbase_extract_iocs(text: str) -> dict[str, Any]:
+    """Extract Indicators of Compromise (IOCs) from text via regex.
+
+    Detects: IPv4, IPv6, domains, URLs, SHA256/SHA1/MD5 hashes, and email addresses.
+    No ML required — pure regex. Returns deduplicated matches grouped by IOC type.
+
+    Args:
+        text: Input text to scan for IOCs.
+    """
+    await _gate_mcp_tool("worldbase_extract_iocs", {"text": text[:200]}, write=False)
+    from intel_ingest import extract_iocs
+
+    iocs = extract_iocs(text)
+    return {
+        "ioc_count": sum(len(v) for v in iocs.values()),
+        "ioc_types": list(iocs.keys()),
+        "iocs": iocs,
+    }
+
+
 async def _gate_mcp_tool(
     tool_name: str,
     arguments: dict[str, Any],

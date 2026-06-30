@@ -253,6 +253,84 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "error": {"type": ["string", "null"]},
         },
     },
+    "worldbase_cyber_ip_lookup": {
+        "type": "object",
+        "properties": {
+            "ip": {"type": "string"},
+            "found": {"type": "boolean"},
+            "source": {"type": "string"},
+            "ports": {"type": "array", "items": {"type": "integer"}},
+            "hostnames": {"type": "array", "items": {"type": "string"}},
+            "domains": {"type": "array", "items": {"type": "string"}},
+            "tags": {"type": "array", "items": {"type": "string"}},
+            "vulns": {"type": "array", "items": {"type": "string"}},
+            "isp": {"type": ["string", "null"]},
+            "org": {"type": ["string", "null"]},
+            "os": {"type": ["string", "null"]},
+            "cpes": {"type": "array"},
+            "error": {"type": ["string", "null"]},
+            "enabled": {"type": "boolean"},
+        },
+    },
+    "worldbase_intel_entities": {
+        "type": "object",
+        "properties": {
+            "count": {"type": "integer"},
+            "schema": {"type": "string"},
+            "entities": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string"},
+                        "schema": {"type": "string"},
+                        "caption": {"type": "string"},
+                        "lat": {"type": ["number", "null"]},
+                        "lon": {"type": ["number", "null"]},
+                        "last_seen": {"type": "string"},
+                        "properties": {"type": "object"},
+                    },
+                },
+            },
+        },
+    },
+    "worldbase_intel_edges": {
+        "type": "object",
+        "properties": {
+            "count": {"type": "integer"},
+            "type": {"type": "string"},
+            "edges": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "source_id": {"type": "string"},
+                        "target_id": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "confidence": {"type": "number"},
+                        "dataset": {"type": "string"},
+                        "source_ref": {"type": "string"},
+                        "seen_at": {"type": "string"},
+                        "properties": {"type": "object"},
+                    },
+                },
+            },
+        },
+    },
+    "worldbase_extract_iocs": {
+        "type": "object",
+        "properties": {
+            "ioc_count": {"type": "integer"},
+            "ioc_types": {"type": "array", "items": {"type": "string"}},
+            "iocs": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+        },
+    },
 }
 
 

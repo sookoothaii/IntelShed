@@ -102,7 +102,7 @@ Widersprüchlicher Status:
 
 ---
 
-## Session 5 — Dark Web & Breach Intelligence vertiefen
+## Session 5 — Dark Web & Breach Intelligence vertiefen  ✅ shipped
 
 **Ziel:** Qualität der Dark-Web-OSINT erhöhen; Credential-Leak-Monitoring ohne Privatsphäre-Verletzung.
 
@@ -133,7 +133,7 @@ Widersprüchlicher Status:
 
 ---
 
-## Session 6 — Cyber Intelligence & Ontology-Expansion (Grundlage)
+## Session 6 — Cyber Intelligence & Ontology-Expansion (Grundlage)    ✅ shipped
 
 **Ziel:** FtM-Schema um Cyber- und Finanz-Entitäten erweitern; Shodan-InternetDB anbinden.
 
@@ -153,7 +153,7 @@ Widersprüchlicher Status:
 
 ---
 
-## Session 7 — Relationship Explorer + Timeline + Credential Manager
+## Session 7 — Relationship Explorer + Timeline + Credential Manager  ✅ shipped
 
 **Ziel:** Frontend für die neue Ontology; interaktive Graph-Exploration und Operator-Profile.
 

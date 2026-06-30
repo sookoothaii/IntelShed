@@ -36,12 +36,15 @@ from ftm_connection import (  # noqa: F401
 
 # Schema + index management
 from ftm_schema import (  # noqa: F401
+    CYBER_SCHEMA_MAP,
+    INTEL_EDGE_TYPES,
     _create_schema,
     _delete_entity_rows,
     _drop_edge_indexes,
     _drop_entity_schema_index,
     _ensure_edge_indexes,
     _ensure_entity_schema_index,
+    _ensure_intel_edge_indexes,
     _is_index_delete_error,
 )
 
@@ -55,6 +58,7 @@ from ftm_query import (  # noqa: F401
     _proxy_with_id,
     _same_as_neighbour_map,
     add_edge,
+    add_intel_edge,
     count_edges_for_dataset,
     delete_edges_for_dataset,
     detect_value_conflicts,
@@ -69,6 +73,8 @@ from ftm_query import (  # noqa: F401
     graph_view,
     import_entities,
     import_ndjson,
+    list_edges_by_type,
+    list_entities_by_schema,
     list_entities_for_resolution,
     list_datasets_for_schema,
     list_entities_recent,
@@ -77,6 +83,7 @@ from ftm_query import (  # noqa: F401
     statement_stats,
     stats,
     upsert,
+    upsert_cyber_entity,
     upsert_legacy,
 )
 

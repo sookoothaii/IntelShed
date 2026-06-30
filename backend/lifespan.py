@@ -668,6 +668,15 @@ def register_lifecycle(app) -> None:
         global _BRIEFING_AUTOPILOT_TASK, _watchdog
         init_db()
         prune_feed_cache()
+        # Session 7 — apply operator-set credentials from JSON store
+        try:
+            from credentials.store import apply_credentials_to_env
+
+            n = apply_credentials_to_env()
+            if n:
+                log.info("credentials_loaded", count=n)
+        except Exception as e:
+            log.warning("credentials_load_failed", error=str(e))
         entity_store.init_entity_db()
         if not ftm_store.init_store():
             log.error("ftm_store_offline", detail="DuckDB locked or missing")

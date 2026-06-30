@@ -5307,6 +5307,62 @@ body,
   opacity: 0.7;
 }
 
+/* ===== Session 7 — Entity Timeline ===== */
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 400px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 6px;
+}
+.timeline-event {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  font-size: 11px;
+}
+.timeline-event:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.timeline-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.timeline-ts {
+  color: var(--txt-dim);
+  font-size: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 120px;
+}
+.timeline-detail {
+  color: var(--txt);
+  word-break: break-word;
+}
+.timeline-entity_created .timeline-icon,
+.timeline-entity_updated .timeline-icon {
+  color: #4ea1ff;
+}
+.timeline-statement .timeline-icon {
+  color: #b07cff;
+}
+.timeline-edge .timeline-icon,
+.timeline-intel_edge .timeline-icon {
+  color: #5bdc8f;
+}
+
+/* ===== Session 7 — Credential Manager ===== */
+.credential-manager-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 /* ===== Market dashboards (crypto + stocks) ===== */
 .market-head {
   display: grid;

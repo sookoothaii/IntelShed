@@ -15,6 +15,7 @@ from followthemoney import model
 
 from ftm_connection import _LOCK, _conn, _run_with_recovery, run_query_ro
 from ftm_schema import (
+    INTEL_EDGE_TYPES,
     _drop_edge_indexes,
     _ensure_edge_indexes,
 )
@@ -1499,3 +1500,354 @@ def reject_external_edge(
 
     result = _run_with_recovery(_do)
     return bool(result)
+
+
+# ---------------------------------------------------------------------------
+# Cyber / Financial ontology — entity + edge helpers
+# ---------------------------------------------------------------------------
+
+
+def upsert_cyber_entity(
+    proxy,
+    logical_type: str,
+    dataset: str,
+    *,
+    seen_at: str | None = None,
+    lat: float | None = None,
+    lon: float | None = None,
+) -> str | None:
+    """Upsert an entity with a custom schema name for cyber/financial entities.
+
+    FtM has no native ``IpAddress``, ``Domain``, or ``Url`` schema, so the
+    proxy is created as ``Thing`` (or ``HyperText`` for URLs) and the
+    ``schema`` column is overridden post-upsert to the logical type name.
+    This keeps the entities queryable via ``WHERE schema = 'IpAddress'``.
+    """
+    eid = upsert(proxy, dataset, seen_at=seen_at, lat=lat, lon=lon)
+    if eid and logical_type and logical_type != proxy.schema.name:
+        try:
+            with _LOCK:
+                _conn().execute(
+                    "UPDATE entities SET schema = ? WHERE id = ?",
+                    [logical_type, eid],
+                )
+        except Exception:
+            pass
+    return eid
+
+
+def list_entities_by_schema(
+    schema: str,
+    limit: int = 50,
+    dataset: str | None = None,
+) -> dict:
+    """List entities filtered by schema name (supports cyber schema names)."""
+    limit = max(1, min(int(limit), 500))
+    with _LOCK:
+        con = _conn()
+        if dataset:
+            rows = con.execute(
+                """
+                SELECT DISTINCT e.id, e.schema, e.caption, e.lat, e.lon,
+                       e.last_seen, e.properties
+                FROM entities e
+                LEFT JOIN statements s ON s.entity_id = e.id
+                WHERE e.schema = ? AND s.dataset = ?
+                ORDER BY e.last_seen DESC
+                LIMIT ?
+                """,
+                [schema, dataset, limit],
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """
+                SELECT id, schema, caption, lat, lon, last_seen, properties
+                FROM entities
+                WHERE schema = ?
+                ORDER BY last_seen DESC
+                LIMIT ?
+                """,
+                [schema, limit],
+            ).fetchall()
+    entities = [
+        {
+            "id": r[0],
+            "schema": r[1],
+            "caption": r[2],
+            "lat": r[3],
+            "lon": r[4],
+            "last_seen": r[5],
+            "properties": json.loads(r[6]) if r[6] else {},
+        }
+        for r in rows
+    ]
+    return {"count": len(entities), "schema": schema, "entities": entities}
+
+
+def list_edges_by_type(
+    edge_type: str,
+    limit: int = 100,
+    dataset: str | None = None,
+) -> dict:
+    """List intel edges filtered by kind (worksFor, locatedAt, ownsAsset, etc.).
+
+    Queries the ``intel_edges`` table first, then falls back to the regular
+    ``edges`` table for backward compatibility.
+    """
+    limit = max(1, min(int(limit), 500))
+    rows: list = []
+    with _LOCK:
+        con = _conn()
+        if dataset:
+            rows = con.execute(
+                """
+                SELECT source_id, target_id, kind, properties, confidence,
+                       dataset, source_ref, seen_at
+                FROM intel_edges
+                WHERE kind = ? AND dataset = ?
+                ORDER BY seen_at DESC
+                LIMIT ?
+                """,
+                [edge_type, dataset, limit],
+            ).fetchall()
+        else:
+            rows = con.execute(
+                """
+                SELECT source_id, target_id, kind, properties, confidence,
+                       dataset, source_ref, seen_at
+                FROM intel_edges
+                WHERE kind = ?
+                ORDER BY seen_at DESC
+                LIMIT ?
+                """,
+                [edge_type, limit],
+            ).fetchall()
+        if not rows:
+            if dataset:
+                rows = con.execute(
+                    """
+                    SELECT source_id, target_id, kind, properties, confidence,
+                           dataset, NULL as source_ref, seen_at
+                    FROM edges
+                    WHERE kind = ? AND dataset = ?
+                    ORDER BY seen_at DESC
+                    LIMIT ?
+                    """,
+                    [edge_type, dataset, limit],
+                ).fetchall()
+            else:
+                rows = con.execute(
+                    """
+                    SELECT source_id, target_id, kind, properties, confidence,
+                           dataset, NULL as source_ref, seen_at
+                    FROM edges
+                    WHERE kind = ?
+                    ORDER BY seen_at DESC
+                    LIMIT ?
+                    """,
+                    [edge_type, limit],
+                ).fetchall()
+    edges = [
+        {
+            "source_id": r[0],
+            "target_id": r[1],
+            "kind": r[2],
+            "properties": json.loads(r[3]) if r[3] else {},
+            "confidence": r[4],
+            "dataset": r[5],
+            "source_ref": r[6],
+            "seen_at": r[7],
+        }
+        for r in rows
+    ]
+    return {"count": len(edges), "type": edge_type, "edges": edges}
+
+
+def add_intel_edge(
+    source_id: str,
+    target_id: str,
+    kind: str,
+    dataset: str = "intel",
+    *,
+    confidence: float = 1.0,
+    properties: dict | None = None,
+    source_ref: str | None = None,
+    seen_at: str | None = None,
+) -> None:
+    """Add an intelligence edge to the ``intel_edges`` table.
+
+    Validates that ``kind`` is one of the defined ``INTEL_EDGE_TYPES``.
+    Falls back to the regular ``add_edge`` if the intel_edges table is
+    unavailable (fail-soft).
+    """
+    if not source_id or not target_id:
+        return
+    if kind not in INTEL_EDGE_TYPES:
+        return
+    ts = seen_at or _now()
+
+    def _do(con) -> None:
+        con.execute(
+            """
+            INSERT OR IGNORE INTO intel_edges
+                (source_id, target_id, kind, properties, confidence,
+                 dataset, source_ref, seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                source_id,
+                target_id,
+                kind,
+                json.dumps(properties or {}),
+                float(confidence),
+                dataset,
+                source_ref,
+                ts,
+            ],
+        )
+
+    try:
+        with _LOCK:
+            _conn().execute("BEGIN TRANSACTION")
+            try:
+                _do(_conn())
+                _conn().execute("COMMIT")
+            except Exception:
+                _conn().execute("ROLLBACK")
+                raise
+    except Exception:
+        add_edge(
+            source_id,
+            target_id,
+            kind,
+            dataset=dataset,
+            confidence=confidence,
+            properties=properties,
+            seen_at=seen_at,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Session 7 — Entity Timeline
+# ---------------------------------------------------------------------------
+
+
+def get_entity_timeline(entity_id: str) -> dict:
+    """Return a chronological timeline for an entity.
+
+    Merges:
+    - Entity metadata (first_seen, last_seen, schema, caption)
+    - Statement history (prop, value, dataset, seen_at)
+    - Edge history from both ``edges`` and ``intel_edges`` tables
+    - Sorted by seen_at ascending
+    """
+    ent = get_entity(entity_id)
+    if not ent:
+        return {"entity_id": entity_id, "found": False, "events": []}
+
+    events: list[dict[str, Any]] = []
+
+    # Entity creation event
+    if ent["first_seen"]:
+        events.append(
+            {
+                "type": "entity_created",
+                "timestamp": ent["first_seen"],
+                "detail": f"Entity created ({ent['schema']})",
+            }
+        )
+    if ent["last_seen"] and ent["last_seen"] != ent["first_seen"]:
+        events.append(
+            {
+                "type": "entity_updated",
+                "timestamp": ent["last_seen"],
+                "detail": f"Entity last seen ({ent['schema']})",
+            }
+        )
+
+    with _LOCK:
+        con = _conn()
+        # Statement history
+        stmt_rows = con.execute(
+            """
+            SELECT prop, value, dataset, seen_at, lang
+            FROM statements WHERE entity_id = ?
+            ORDER BY seen_at ASC
+            """,
+            [entity_id],
+        ).fetchall()
+        # Edge history (regular edges)
+        edge_rows = con.execute(
+            """
+            SELECT source_id, target_id, kind, confidence, dataset, seen_at
+            FROM edges WHERE source_id = ? OR target_id = ?
+            ORDER BY seen_at ASC
+            """,
+            [entity_id, entity_id],
+        ).fetchall()
+        # Intel edge history
+        intel_edge_rows = con.execute(
+            """
+            SELECT source_id, target_id, kind, confidence, dataset, source_ref, seen_at
+            FROM intel_edges WHERE source_id = ? OR target_id = ?
+            ORDER BY seen_at ASC
+            """,
+            [entity_id, entity_id],
+        ).fetchall()
+
+    for s in stmt_rows:
+        events.append(
+            {
+                "type": "statement",
+                "timestamp": s[3] or s[4] or "",
+                "prop": s[0],
+                "value": s[1],
+                "dataset": s[2],
+                "lang": s[4],
+            }
+        )
+
+    for e in edge_rows:
+        direction = "outgoing" if e[0] == entity_id else "incoming"
+        other_id = e[1] if e[0] == entity_id else e[0]
+        events.append(
+            {
+                "type": "edge",
+                "timestamp": e[5] or "",
+                "kind": e[2],
+                "direction": direction,
+                "other_id": other_id,
+                "confidence": e[3],
+                "dataset": e[4],
+            }
+        )
+
+    for e in intel_edge_rows:
+        direction = "outgoing" if e[0] == entity_id else "incoming"
+        other_id = e[1] if e[0] == entity_id else e[0]
+        events.append(
+            {
+                "type": "intel_edge",
+                "timestamp": e[6] or "",
+                "kind": e[2],
+                "direction": direction,
+                "other_id": other_id,
+                "confidence": e[3],
+                "dataset": e[4],
+                "source_ref": e[5],
+            }
+        )
+
+    # Sort all events by timestamp (empty timestamps last)
+    events.sort(key=lambda ev: (ev.get("timestamp") or "9999",))
+
+    return {
+        "entity_id": entity_id,
+        "found": True,
+        "schema": ent["schema"],
+        "caption": ent["caption"],
+        "first_seen": ent["first_seen"],
+        "last_seen": ent["last_seen"],
+        "event_count": len(events),
+        "events": events,
+    }

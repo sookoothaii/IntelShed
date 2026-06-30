@@ -119,6 +119,7 @@ class WorldBaseConfig(BaseModel):
     briefing_identity: bool = False
     domain_intel_enabled: bool = True
     briefing_domain: bool = False
+    cyber_bridge_enabled: bool = True
     thai_opendata_enabled: bool = False
     briefing_thai: bool = False
     onion_dir_enabled: bool = False
@@ -149,6 +150,9 @@ class WorldBaseConfig(BaseModel):
     briefing_osm: bool = False
     weather_forecast_enabled: bool = False
     briefing_weather_forecast: bool = False
+    relationship_explorer_enabled: bool = True
+    entity_timeline_enabled: bool = True
+    credential_manager_enabled: bool = True
 
     @classmethod
     def from_env(cls) -> Self:
@@ -351,6 +355,7 @@ class WorldBaseConfig(BaseModel):
             briefing_identity=_truthy(os.getenv("WORLDBASE_BRIEFING_IDENTITY", "0")),
             domain_intel_enabled=_truthy(os.getenv("WORLDBASE_DOMAIN_INTEL", "1")),
             briefing_domain=_truthy(os.getenv("WORLDBASE_BRIEFING_DOMAIN", "0")),
+            cyber_bridge_enabled=_truthy(os.getenv("WORLDBASE_CYBER_BRIDGE", "1")),
             thai_opendata_enabled=_truthy(os.getenv("WORLDBASE_THAI_OPENDATA", "0")),
             briefing_thai=_truthy(os.getenv("WORLDBASE_BRIEFING_THAI", "0")),
             onion_dir_enabled=_truthy(os.getenv("WORLDBASE_ONION_DIR", "0")),
@@ -413,6 +418,15 @@ class WorldBaseConfig(BaseModel):
             ),
             briefing_weather_forecast=_truthy(
                 os.getenv("WORLDBASE_BRIEFING_WEATHER_FORECAST", "0")
+            ),
+            relationship_explorer_enabled=_truthy(
+                os.getenv("WORLDBASE_RELATIONSHIP_EXPLORER", "1")
+            ),
+            entity_timeline_enabled=_truthy(
+                os.getenv("WORLDBASE_ENTITY_TIMELINE", "1")
+            ),
+            credential_manager_enabled=_truthy(
+                os.getenv("WORLDBASE_CREDENTIAL_MANAGER", "1")
             ),
         )
 
