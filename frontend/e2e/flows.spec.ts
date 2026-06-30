@@ -4,7 +4,7 @@ test.describe('E2E 1 — Globe boots + layer toggle', () => {
   test('globe renders and layer toggles work', async ({ page }) => {
     await page.goto('/')
     // Wait for the globe container to appear
-    await expect(page.locator('[data-testid="globe"], .cesium-viewer, canvas')).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator('[data-testid="globe"], .cesium-viewer, canvas').first()).toBeVisible({ timeout: 30_000 })
     // Try clicking a nav item if globe not immediately visible
     const globeNav = page.locator('text=GLOBE').first()
     if (await globeNav.isVisible()) {
@@ -55,6 +55,7 @@ test.describe('E2E 4 — DATA panel loads', () => {
 })
 
 test.describe('E2E 5 — Visual regression', () => {
+  test.skip(!!process.env.CI, 'Visual regression needs a real Cesium token — skipped in CI')
   test('globe viewport screenshot', async ({ page }) => {
     await page.goto('/')
     await page.waitForTimeout(3_000)
