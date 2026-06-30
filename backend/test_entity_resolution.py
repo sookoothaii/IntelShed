@@ -114,6 +114,10 @@ class EntityResolutionTest(unittest.TestCase):
         # Regression: with the Splink stage enabled, EM training on a name-derived
         # blocking rule with only a name comparison produced invalid SQL.
         # >= _EM_MIN_ROWS distinct persons with no country must run clean.
+        try:
+            import splink  # noqa: F401
+        except ModuleNotFoundError:
+            self.skipTest("splink not installed")
         n = entity_resolution._EM_MIN_ROWS + 5
         for i in range(n):
             p = ftm_store.make_entity(

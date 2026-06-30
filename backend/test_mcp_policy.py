@@ -78,7 +78,7 @@ class TestPolicyLookup(unittest.TestCase):
     def test_env_override_takes_precedence(self):
         with patch.dict(
             os.environ,
-            {"WORLDBASE_MCP_POLICY_BRIEFING_GENERATE": "readonly"},
+            {"WORLDBASE_MCP_POLICY_briefing_generate": "readonly"},
             clear=True,
         ):
             from mcp_server import _get_mcp_tool_required_role
@@ -90,7 +90,7 @@ class TestPolicyLookup(unittest.TestCase):
     def test_env_override_invalid_value_falls_back_to_default(self):
         with patch.dict(
             os.environ,
-            {"WORLDBASE_MCP_POLICY_BRIEFING_GENERATE": "superuser"},
+            {"WORLDBASE_MCP_POLICY_briefing_generate": "superuser"},
             clear=True,
         ):
             from mcp_server import _get_mcp_tool_required_role
@@ -101,7 +101,7 @@ class TestPolicyLookup(unittest.TestCase):
 
     def test_env_override_none_disables_check(self):
         with patch.dict(
-            os.environ, {"WORLDBASE_MCP_POLICY_HEALTH": "none"}, clear=True
+            os.environ, {"WORLDBASE_MCP_POLICY_health": "none"}, clear=True
         ):
             from mcp_server import _get_mcp_tool_required_role
 
@@ -212,7 +212,7 @@ class TestGateMcpTool(unittest.IsolatedAsyncioTestCase):
         with patch("mcp_server.mcp_policy_enabled", return_value=True):
             with patch.dict(
                 os.environ,
-                {"WORLDBASE_MCP_POLICY_BRIEFING_GENERATE": "readonly"},
+                {"WORLDBASE_MCP_POLICY_briefing_generate": "readonly"},
                 clear=True,
             ):
                 with patch("firewall_bridge.ensure_mcp_tool_allowed", new=AsyncMock()):
@@ -225,7 +225,7 @@ class TestGateMcpTool(unittest.IsolatedAsyncioTestCase):
         _set_mcp_role("readonly")
         with patch("mcp_server.mcp_policy_enabled", return_value=True):
             with patch.dict(
-                os.environ, {"WORLDBASE_MCP_POLICY_HEALTH": "operator"}, clear=True
+                os.environ, {"WORLDBASE_MCP_POLICY_health": "operator"}, clear=True
             ):
                 from mcp_server import _gate_mcp_tool
 
