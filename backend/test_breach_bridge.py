@@ -139,16 +139,30 @@ class BreachBridgeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["count"], 0)
             self.assertIn("disabled", result["error"])
 
-    async def test_check_email_breaches_no_key(self):
+    async def test_check_email_breaches_no_key_uses_xposedornot(self):
+        """Without HIBP key, should fall back to XposedOrNot (not return error)."""
         with patch.object(breach_bridge, "get_config") as mock_cfg:
             cfg = MagicMock()
             cfg.breach_enabled = True
             cfg.hibp_api_key = ""
             cfg.breach_cache_sec = 3600
             mock_cfg.return_value = cfg
-            result = await breach_bridge.check_email_breaches("test@example.com")
-            self.assertFalse(result["breached"])
-            self.assertIn("API key", result["error"])
+
+            mock_resp = MagicMock()
+            mock_resp.status_code = 404
+            mock_resp.raise_for_status = MagicMock()
+
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(return_value=mock_resp)
+
+            with patch("httpx.AsyncClient", return_value=mock_client):
+                result = await breach_bridge.check_email_breaches("test@example.com")
+                self.assertFalse(result["breached"])
+                self.assertEqual(result["count"], 0)
+                self.assertIsNone(result["error"])
+                self.assertEqual(result["provider"], "xposedornot")
 
     async def test_check_email_breaches_404(self):
         with patch.object(breach_bridge, "get_config") as mock_cfg:
@@ -429,6 +443,138 @@ class BreachBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/api/darkweb/breach/monitor", routes)
         self.assertIn("/api/darkweb/breach/monitors", routes)
         self.assertIn("/api/darkweb/breach/refresh", routes)
+
+    # --- XposedOrNot fallback (no HIBP key) ---
+
+    async def test_xposedornot_check_email_breached(self):
+        with patch.object(breach_bridge, "get_config") as mock_cfg:
+            cfg = MagicMock()
+            cfg.breach_enabled = True
+            cfg.hibp_api_key = ""
+            cfg.breach_cache_sec = 3600
+            mock_cfg.return_value = cfg
+
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.raise_for_status = MagicMock()
+            mock_resp.json = MagicMock(
+                return_value={
+                    "breaches": [["Adobe", "LinkedIn", "Dropbox"]],
+                    "email": "test@example.com",
+                    "status": "success",
+                }
+            )
+
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(return_value=mock_resp)
+
+            with patch("httpx.AsyncClient", return_value=mock_client):
+                result = await breach_bridge.check_email_breaches("test@example.com")
+                self.assertTrue(result["breached"])
+                self.assertEqual(result["count"], 3)
+                self.assertEqual(result["provider"], "xposedornot")
+                self.assertIsNone(result["error"])
+                names = [b["name"] for b in result["breaches"]]
+                self.assertIn("Adobe", names)
+                self.assertIn("LinkedIn", names)
+
+    async def test_xposedornot_check_email_clean(self):
+        with patch.object(breach_bridge, "get_config") as mock_cfg:
+            cfg = MagicMock()
+            cfg.breach_enabled = True
+            cfg.hibp_api_key = ""
+            cfg.breach_cache_sec = 3600
+            mock_cfg.return_value = cfg
+
+            mock_resp = MagicMock()
+            mock_resp.status_code = 404
+            mock_resp.raise_for_status = MagicMock()
+
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(return_value=mock_resp)
+
+            with patch("httpx.AsyncClient", return_value=mock_client):
+                result = await breach_bridge.check_email_breaches("clean@example.com")
+                self.assertFalse(result["breached"])
+                self.assertEqual(result["count"], 0)
+                self.assertEqual(result["provider"], "xposedornot")
+
+    async def test_xposedornot_rate_limited(self):
+        with patch.object(breach_bridge, "get_config") as mock_cfg:
+            cfg = MagicMock()
+            cfg.breach_enabled = True
+            cfg.hibp_api_key = ""
+            cfg.breach_cache_sec = 3600
+            mock_cfg.return_value = cfg
+
+            mock_resp = MagicMock()
+            mock_resp.status_code = 429
+            mock_resp.raise_for_status = MagicMock()
+
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(return_value=mock_resp)
+
+            with patch("httpx.AsyncClient", return_value=mock_client):
+                result = await breach_bridge.check_email_breaches("test@example.com")
+                self.assertFalse(result["breached"])
+                self.assertIn("rate limit", result["error"])
+                self.assertEqual(result["provider"], "xposedornot")
+
+    async def test_xposedornot_network_error(self):
+        with patch.object(breach_bridge, "get_config") as mock_cfg:
+            cfg = MagicMock()
+            cfg.breach_enabled = True
+            cfg.hibp_api_key = ""
+            cfg.breach_cache_sec = 3600
+            mock_cfg.return_value = cfg
+
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(
+                side_effect=Exception("connection refused")
+            )
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+
+            with patch("httpx.AsyncClient", return_value=mock_client):
+                result = await breach_bridge.check_email_breaches("test@example.com")
+                self.assertFalse(result["breached"])
+                self.assertIn("connection refused", result["error"])
+                self.assertEqual(result["provider"], "xposedornot")
+
+    async def test_xposedornot_flat_breach_list(self):
+        """XposedOrNot may return breaches as flat list instead of nested."""
+        with patch.object(breach_bridge, "get_config") as mock_cfg:
+            cfg = MagicMock()
+            cfg.breach_enabled = True
+            cfg.hibp_api_key = ""
+            cfg.breach_cache_sec = 3600
+            mock_cfg.return_value = cfg
+
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.raise_for_status = MagicMock()
+            mock_resp.json = MagicMock(
+                return_value={
+                    "breaches": ["Adobe", "LinkedIn"],
+                    "email": "test@example.com",
+                    "status": "success",
+                }
+            )
+
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(return_value=mock_resp)
+
+            with patch("httpx.AsyncClient", return_value=mock_client):
+                result = await breach_bridge.check_email_breaches("test@example.com")
+                self.assertTrue(result["breached"])
+                self.assertEqual(result["count"], 2)
 
 
 if __name__ == "__main__":

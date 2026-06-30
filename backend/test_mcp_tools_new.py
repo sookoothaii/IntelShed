@@ -320,5 +320,57 @@ class DomainIntelTests(unittest.IsolatedAsyncioTestCase):
         mock_get.assert_called_once_with("example.com")
 
 
+class BreachMCPTests(unittest.IsolatedAsyncioTestCase):
+    async def test_breach_status(self):
+        fake_cfg = MagicMock()
+        fake_cfg.breach_enabled = True
+        fake_cfg.briefing_breach = True
+        fake_cfg.hibp_api_key = ""
+        fake_cfg.breach_cache_sec = 3600
+        with patch("breach_bridge.get_config", return_value=fake_cfg):
+            with patch("breach_bridge.list_monitors", return_value=[]):
+                out = await mcp_server.worldbase_breach_status()
+        self.assertTrue(out["enabled"])
+        self.assertTrue(out["briefing_enabled"])
+        self.assertFalse(out["hibp_key_configured"])
+        self.assertEqual(out["provider"], "xposedornot")
+        self.assertEqual(out["monitor_count"], 0)
+
+    async def test_breach_check_password_compromised(self):
+        fake_result = {"compromised": True, "count": 42, "error": None}
+        with patch(
+            "breach_bridge.check_password_hash",
+            new=AsyncMock(return_value=fake_result),
+        ):
+            out = await mcp_server.worldbase_breach_check_password(
+                password="password123"
+            )
+        self.assertTrue(out["compromised"])
+        self.assertEqual(out["count"], 42)
+        self.assertIsNone(out["error"])
+
+    async def test_breach_check_password_clean(self):
+        fake_result = {"compromised": False, "count": 0, "error": None}
+        with patch(
+            "breach_bridge.check_password_hash",
+            new=AsyncMock(return_value=fake_result),
+        ):
+            out = await mcp_server.worldbase_breach_check_password(
+                password="x9K#vQ2m!pL7$nRw"
+            )
+        self.assertFalse(out["compromised"])
+        self.assertEqual(out["count"], 0)
+
+    async def test_breach_check_password_error(self):
+        fake_result = {"compromised": False, "count": 0, "error": "network timeout"}
+        with patch(
+            "breach_bridge.check_password_hash",
+            new=AsyncMock(return_value=fake_result),
+        ):
+            out = await mcp_server.worldbase_breach_check_password(password="test")
+        self.assertFalse(out["compromised"])
+        self.assertEqual(out["error"], "network timeout")
+
+
 if __name__ == "__main__":
     unittest.main()

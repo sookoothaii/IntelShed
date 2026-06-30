@@ -233,6 +233,26 @@ _OUTPUT_SCHEMAS: dict[str, dict[str, Any]] = {
             "layers": {"type": "array", "items": {"type": "string"}},
         },
     },
+    "worldbase_breach_status": {
+        "type": "object",
+        "properties": {
+            "enabled": {"type": "boolean"},
+            "briefing_enabled": {"type": "boolean"},
+            "hibp_key_configured": {"type": "boolean"},
+            "provider": {"type": "string"},
+            "cache_sec": {"type": "integer"},
+            "monitor_count": {"type": "integer"},
+            "monitors": {"type": "array", "items": {"type": "object"}},
+        },
+    },
+    "worldbase_breach_check_password": {
+        "type": "object",
+        "properties": {
+            "compromised": {"type": "boolean"},
+            "count": {"type": "integer"},
+            "error": {"type": ["string", "null"]},
+        },
+    },
 }
 
 

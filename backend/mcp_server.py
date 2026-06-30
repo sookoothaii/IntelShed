@@ -86,6 +86,8 @@ _DEFAULT_MCP_TOOL_POLICY: dict[str, str] = {
     "globe_toggle_layer": "operator",
     "darkweb_search": "readonly",
     "domain_intel": "readonly",
+    "breach_status": "readonly",
+    "breach_check_password": "readonly",
     "orchestrate": "readonly",
     "chat": "readonly",
     "describe_tool": "readonly",
@@ -956,6 +958,49 @@ async def worldbase_domain_intel(
         result["ftm_ingest"] = enrich_result
 
     return result
+
+
+@mcp.tool(name="worldbase_breach_status")
+@mcp_jmespath.with_jmespath
+async def worldbase_breach_status() -> dict[str, Any]:
+    """Breach / credential-leak monitor status: enabled flags, HIBP key state, monitor count and list."""
+    await _gate_mcp_tool("worldbase_breach_status", {}, write=False)
+    import breach_bridge
+
+    cfg = breach_bridge.get_config()
+    monitors = breach_bridge.list_monitors() if cfg.breach_enabled else []
+    provider = "hibp" if cfg.hibp_api_key else "xposedornot"
+    return {
+        "enabled": cfg.breach_enabled,
+        "briefing_enabled": cfg.briefing_breach,
+        "hibp_key_configured": bool(cfg.hibp_api_key),
+        "provider": provider,
+        "cache_sec": cfg.breach_cache_sec,
+        "monitor_count": len(monitors),
+        "monitors": monitors,
+    }
+
+
+@mcp.tool(name="worldbase_breach_check_password")
+@mcp_jmespath.with_jmespath
+async def worldbase_breach_check_password(password: str) -> dict[str, Any]:
+    """Check if a password has been found in known data breaches using HIBP Pwned Passwords k-anonymity API.
+
+    The password is never sent to the server — only the first 5 chars of its SHA1 hash
+    are transmitted (k-anonymity). No API key required.
+
+    Args:
+        password: The password to check (plain text, never transmitted in full).
+    """
+    await _gate_mcp_tool(
+        "worldbase_breach_check_password", {"password": "***"}, write=False
+    )
+    import hashlib
+
+    import breach_bridge
+
+    sha1 = hashlib.sha1(password.encode("utf-8")).hexdigest()
+    return await breach_bridge.check_password_hash(sha1)
 
 
 async def _gate_mcp_tool(

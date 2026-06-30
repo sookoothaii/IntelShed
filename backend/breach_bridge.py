@@ -1,8 +1,11 @@
-"""Breach / credential-leak intelligence (P8.8) — HIBP API v3 + monitoring.
+"""Breach / credential-leak intelligence (P8.8) — HIBP API v3 + XposedOrNot fallback.
 
 Integrates with the Have I Been Pwned API v3 to check monitored email addresses
 against known data breaches.  Uses the k-anonymity password range API as a
 secondary credential-leak indicator (no API key required).
+
+When no HIBP API key is configured, falls back to the free XposedOrNot API
+(api.xposedornot.com) which requires no authentication (100 req/day per IP).
 
 Design constraints:
 - Passive metadata only: breach name, date, data classes, pwn count.  No
@@ -16,7 +19,7 @@ Env:
   WORLDBASE_BREACH=1                 (default off, opt-in)
   WORLDBASE_BREACH_CACHE_SEC=3600
   WORLDBASE_BRIEFING_BREACH=0        (opt-in, requires WORLDBASE_BREACH=1)
-  WORLDBASE_HIBP_API_KEY=            (required for email breach checks)
+  WORLDBASE_HIBP_API_KEY=            (required for HIBP email checks; XposedOrNot fallback works without key)
 """
 
 from __future__ import annotations
@@ -40,11 +43,13 @@ router = APIRouter(prefix="/api/darkweb/breach", tags=["darkweb"])
 
 _HIBP_BASE = "https://haveibeenpwned.com/api/v3"
 _PWNEDPW_BASE = "https://api.pwnedpasswords.com/range"
+_XON_BASE = "https://api.xposedornot.com/v1"
 _UA = {"User-Agent": "WorldBase/1.0 (OSINT research; breach monitoring)"}
 
 SOURCE_RELIABILITY: dict[str, float] = {
     "hibp": 0.85,
     "pwnedpasswords": 0.90,
+    "xposedornot": 0.75,
 }
 
 # ---------------------------------------------------------------------------
@@ -166,6 +171,83 @@ def _hibp_headers() -> dict[str, str]:
     return headers
 
 
+async def _xposedornot_check_email(email: str, cache_key: str) -> dict[str, Any]:
+    """Check email via free XposedOrNot API (no key required, 100 req/day).
+
+    API: GET https://api.xposedornot.com/v1/check-email/{email}
+    Returns breach names only (no metadata like HIBP).  Fail-soft.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0), headers=_UA
+        ) as client:
+            resp = await client.get(f"{_XON_BASE}/check-email/{email.strip()}")
+            if resp.status_code == 404:
+                return {
+                    "email": _ensure_label(email),
+                    "breached": False,
+                    "breaches": [],
+                    "count": 0,
+                    "error": None,
+                    "provider": "xposedornot",
+                }
+            if resp.status_code == 429:
+                return {
+                    "email": _ensure_label(email),
+                    "breached": False,
+                    "breaches": [],
+                    "count": 0,
+                    "error": "XposedOrNot rate limit (429)",
+                    "provider": "xposedornot",
+                }
+            resp.raise_for_status()
+            data = resp.json()
+            breach_names: list[str] = []
+            raw_breaches = data.get("breaches", [])
+            if raw_breaches and isinstance(raw_breaches, list):
+                # XposedOrNot returns breaches as a nested list, e.g.
+                # [["Adobe", "LinkedIn"]] — flatten it.
+                for item in raw_breaches:
+                    if isinstance(item, list):
+                        breach_names.extend(item)
+                    elif isinstance(item, str):
+                        breach_names.append(item)
+            breaches = [
+                {
+                    "name": name,
+                    "title": name,
+                    "domain": "",
+                    "breach_date": "",
+                    "added_date": "",
+                    "pwn_count": 0,
+                    "data_classes": [],
+                    "is_verified": False,
+                    "is_fabricated": False,
+                    "is_sensitive": False,
+                    "is_retired": False,
+                    "is_spam_list": False,
+                }
+                for name in breach_names
+            ]
+            return {
+                "email": _ensure_label(email),
+                "breached": len(breaches) > 0,
+                "breaches": breaches,
+                "count": len(breaches),
+                "error": None,
+                "provider": "xposedornot",
+            }
+    except Exception as exc:
+        return {
+            "email": _ensure_label(email),
+            "breached": False,
+            "breaches": [],
+            "count": 0,
+            "error": str(exc),
+            "provider": "xposedornot",
+        }
+
+
 async def check_email_breaches(email: str) -> dict[str, Any]:
     """Check an email address against HIBP API v3.
 
@@ -197,13 +279,7 @@ async def check_email_breaches(email: str) -> dict[str, Any]:
         return result
 
     if not cfg.hibp_api_key:
-        result = {
-            "email": _ensure_label(email),
-            "breached": False,
-            "breaches": [],
-            "count": 0,
-            "error": "no HIBP API key configured",
-        }
+        result = await _xposedornot_check_email(email, cache_key)
         await _set_cached(cache_key, result)
         return result
 
@@ -524,10 +600,12 @@ class CheckPasswordRequest(BaseModel):
 async def api_breach_status() -> dict[str, Any]:
     cfg = get_config()
     monitors = list_monitors() if cfg.breach_enabled else []
+    provider = "hibp" if cfg.hibp_api_key else "xposedornot"
     return {
         "enabled": cfg.breach_enabled,
         "briefing_enabled": cfg.briefing_breach,
         "hibp_key_configured": bool(cfg.hibp_api_key),
+        "provider": provider,
         "cache_sec": cfg.breach_cache_sec,
         "monitor_count": len(monitors),
         "monitors": monitors,
