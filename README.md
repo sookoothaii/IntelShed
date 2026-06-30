@@ -22,7 +22,7 @@ WorldBase is the **PC stack**. It extends the off-grid Pi workshop ([`offgrid-ra
 
 ## At a glance
 
-| | |
+| Category | Description |
 |---|---|
 | **Globe** | 30+ live layers — aircraft, quakes, disasters, energy, maritime, transit, dark web |
 | **MAP** | Offline Protomaps via PMTiles — regional or full planet (~130 GB) |
