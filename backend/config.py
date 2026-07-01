@@ -155,6 +155,14 @@ class WorldBaseConfig(BaseModel):
     credential_manager_enabled: bool = True
     whisper_bridge_enabled: bool = False
     tts_bridge_enabled: bool = False
+    react_agent_enabled: bool = False
+    react_agent_max_steps: int = 5
+    react_agent_step_timeout: float = 15.0
+    multi_hypothesis_enabled: bool = False
+    multi_hypothesis_num_drafts: int = 3
+    temporal_engine_enabled: bool = False
+    temporal_engine_max_lag: int = 3
+    temporal_engine_min_points: int = 5
 
     @classmethod
     def from_env(cls) -> Self:
@@ -432,6 +440,28 @@ class WorldBaseConfig(BaseModel):
             ),
             whisper_bridge_enabled=_truthy(os.getenv("WORLDBASE_WHISPER_BRIDGE", "0")),
             tts_bridge_enabled=_truthy(os.getenv("WORLDBASE_TTS_BRIDGE", "0")),
+            react_agent_enabled=_truthy(os.getenv("WORLDBASE_REACT_AGENT", "0")),
+            react_agent_max_steps=max(
+                1, int(os.getenv("WORLDBASE_REACT_AGENT_MAX_STEPS", "5"))
+            ),
+            react_agent_step_timeout=max(
+                1.0, float(os.getenv("WORLDBASE_REACT_AGENT_STEP_TIMEOUT", "15.0"))
+            ),
+            multi_hypothesis_enabled=_truthy(
+                os.getenv("WORLDBASE_MULTI_HYPOTHESIS", "0")
+            ),
+            multi_hypothesis_num_drafts=max(
+                2, int(os.getenv("WORLDBASE_MULTI_HYPOTHESIS_DRAFTS", "3"))
+            ),
+            temporal_engine_enabled=_truthy(
+                os.getenv("WORLDBASE_TEMPORAL_ENGINE", "0")
+            ),
+            temporal_engine_max_lag=max(
+                1, int(os.getenv("WORLDBASE_TEMPORAL_ENGINE_MAX_LAG", "3"))
+            ),
+            temporal_engine_min_points=max(
+                3, int(os.getenv("WORLDBASE_TEMPORAL_ENGINE_MIN_POINTS", "5"))
+            ),
         )
 
 

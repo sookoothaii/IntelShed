@@ -282,6 +282,71 @@ async def run_chat_agentic_loop(
         trace["phases"].append(corro_meta)
         trace["rounds"] += 1
 
+    # Phase 4: Temporal Analysis (optional, injects temporal context block)
+    try:
+        from temporal_engine import (
+            run_temporal_analysis,
+            temporal_engine_enabled,
+        )
+
+        if temporal_engine_enabled():
+            temporal_result = await run_temporal_analysis()
+            if temporal_result.formatted_block:
+                block = block.rstrip() + "\n\n" + temporal_result.formatted_block
+            trace["temporal"] = temporal_result.to_dict()
+            trace["phases"].append(
+                {
+                    "phase": "temporal",
+                    "series_count": temporal_result.series_count,
+                    "trends": len(temporal_result.trends),
+                    "granger_probes": len(temporal_result.granger_results),
+                }
+            )
+    except Exception:
+        pass
+
+    # Phase 5: ReAct Agent Loop (optional, iterative retrieval + synthesis)
+    try:
+        from react_agent import react_agent_enabled, run_react_loop
+
+        if react_agent_enabled():
+            react_trace = await run_react_loop(query, block)
+            if react_trace.final_block:
+                block = react_trace.final_block
+            trace["react"] = react_trace.to_dict()
+            trace["phases"].append(
+                {
+                    "phase": "react",
+                    "steps": len(react_trace.steps),
+                    "converged": react_trace.converged,
+                }
+            )
+    except Exception:
+        pass
+
+    # Phase 6: Multi-Hypothesis Synthesis (optional, 3 drafts + comparison)
+    try:
+        from multi_hypothesis import (
+            multi_hypothesis_enabled,
+            run_multi_hypothesis,
+        )
+
+        if multi_hypothesis_enabled():
+            mh_result = await run_multi_hypothesis(query, block)
+            if mh_result.merged_block:
+                block = block.rstrip() + "\n\n" + mh_result.merged_block
+            trace["multi_hypothesis"] = mh_result.to_dict()
+            trace["phases"].append(
+                {
+                    "phase": "multi_hypothesis",
+                    "drafts": len(mh_result.drafts),
+                    "best_stance": mh_result.best_stance,
+                    "llm_used": mh_result.llm_used,
+                }
+            )
+    except Exception:
+        pass
+
     trace["final_chars"] = len(block)
     trace["status"] = "done"
 
