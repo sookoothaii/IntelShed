@@ -121,12 +121,105 @@ form-action 'self';
 
 ---
 
+## Session E2 — CI Workflows + Cache Stampede Protection
+
+### E-03: CI-Workflows erweitern
+
+**Files:** `.github/workflows/security-audit.yml`, `feed-validation.yml`, `typecheck.yml`, `deploy-gate.yml`
+
+Four new GitHub Actions workflows complement the existing `ci.yml`:
+
+| Workflow | Trigger | Jobs | Purpose |
+|----------|---------|------|---------|
+| `security-audit.yml` | PR + daily schedule | `pip-audit`, `npm-audit` | Dependency vulnerability scanning (Python + npm) |
+| `feed-validation.yml` | PR (bridge paths) + daily | `feed-smoke` | Import all feed bridges, validate FeedEnvelope, run mapping validator |
+| `typecheck.yml` | PR (backend/frontend paths) | `mypy`, `tsc` | Static type checking (mypy non-blocking, tsc blocking) |
+| `deploy-gate.yml` | PR | Aggregate + 8 re-declared jobs | Single required status check for branch protection |
+
+**Deploy Gate** aggregates all CI jobs (`frontend`, `frontend-test`, `backend`, `backend-tests`, `pre-commit`, `typecheck`, `security-audit`, `feed-validation`) into one `deploy-gate` job. Configure branch protection to require this single check instead of individual jobs.
+
+**Path filters** — `feed-validation.yml` only triggers on changes to `backend/feeds/**`, `backend/*_bridge.py`, and related files. `typecheck.yml` triggers on `backend/**/*.py` and `frontend/src/**`.
+
+**Tests:** `backend/tests/test_ci_workflows.py` (16 tests — YAML structure validation, job existence, trigger configuration)
+
+### E-04: Cache Stampede Protection
+
+**File:** `backend/cache_coalesce.py`
+**Config:** `WORLDBASE_CACHE_COALESCE=1` (default on)
+
+When multiple concurrent requests miss the cache for the same key, only the first request ("leader") triggers the upstream fetch. All concurrent waiters share the same `asyncio.Future` and receive the identical result.
+
+**Architecture:**
+
+```
+Request A ─┐
+Request B ──┼──→ cached_fetch_json("iss", ttl=4) ──→ 1 upstream fetch
+Request C ──┘         │                                (not 3)
+                      ├─ Cache hit? → return immediately
+                      ├─ In-flight? → await shared Future
+                      └─ Cache miss → become leader, fetch, cache, resolve Future
+```
+
+**Integration points:**
+- `backend/routes/core_feeds.py` — `/api/iss` endpoint (4s TTL, most stampede-prone)
+- `backend/runtime_cache.py` — `cache_invalidate()` added for manual cache eviction
+- `backend/config.py` — `cache_coalesce_enabled` field in `WorldBaseConfig`
+
+**Usage:**
+```python
+from cache_coalesce import cached_fetch_json
+
+data = await cached_fetch_json(
+    key="eonet",
+    ttl=300,
+    fetcher=lambda: _fetch_eonet(),
+    persist=True,  # optional: also write to feed_registry (SQLite)
+)
+```
+
+**Environment Variables:**
+
+| Var | Default | Description |
+|-----|---------|-------------|
+| `WORLDBASE_CACHE_COALESCE` | `1` | Enable coalescing (set `0` for pass-through mode) |
+
+**Tests:** `backend/tests/test_cache_coalesce.py` (16 tests — single fetch, concurrent coalescing, TTL expiry, exception propagation, persist, disabled mode, large batch)
+
+---
+
+## Remaining Items (identified, not yet implemented)
+
+### E-08: Cesium Memory Cap
+- `releaseGeometryInstances` on Primitive-based layers
+- `maximumMemoryUsage` on 3D Tilesets
+- Heap monitor (`performance.memory.usedJSHeapSize`, 800MB threshold, 30s interval)
+- LRU layer eviction (not `primitives.removeAll()`)
+
+### E-09: CSP Single Source of Truth
+- `backend/csp_policy.py` — `CSPPolicy` class with `to_header()`, `to_meta_tag()`, `to_caddyfile()`
+- Vite plugin to auto-sync `index.html` + `Caddyfile` at build time
+- `security_headers.py` imports from `csp_policy` instead of hardcoded string
+
+### E-10: Golden Queries Expansion (15 → 50+)
+- "Critical Pairs" method: Spatial+Live, Temporal+Graph, Multi-Hypothesis+Prognostic, Agentic+Low-Provenance, Empty-Results
+- Languages: EN + TH (operator region)
+- Agentic modes: Off (default) + 5-Agent (most complex)
+- Each route covered at least once
+
+---
+
 ## Verification
 
 ```powershell
 # Run rate limiter + CSP tests
 cd backend
 venv\Scripts\python.exe -m pytest tests/test_rate_limiter.py -v
+
+# Run cache coalesce tests
+venv\Scripts\python.exe -m pytest tests/test_cache_coalesce.py -v
+
+# Run CI workflow structure tests
+venv\Scripts\python.exe -m pytest tests/test_ci_workflows.py -v
 
 # Run full test suite
 venv\Scripts\python.exe -m pytest -v --tb=short --maxfail=50 -q

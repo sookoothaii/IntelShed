@@ -188,22 +188,21 @@ async def get_events(limit: int = 100):
 
 @router.get("/api/iss")
 async def get_iss():
-    """Precise ISS position (cached 4s)."""
-    data = cache_get("iss", ttl=4.0)
-    if data is None:
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.get("https://api.wheretheiss.at/v1/satellites/25544")
-                r.raise_for_status()
-                data = r.json()
-            cache_set("iss", data)
-        except httpx.TimeoutException as exc:
-            raise HTTPException(status_code=503, detail=f"ISS upstream timeout: {exc}")
-        except httpx.RequestError as exc:
-            raise HTTPException(
-                status_code=502, detail=f"ISS upstream unreachable: {exc}"
-            )
-    return data
+    """Precise ISS position (cached 4s, coalesced)."""
+    from cache_coalesce import cached_fetch_json
+
+    async def _fetch_iss():
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get("https://api.wheretheiss.at/v1/satellites/25544")
+            r.raise_for_status()
+            return r.json()
+
+    try:
+        return await cached_fetch_json("iss", ttl=4.0, fetcher=_fetch_iss)
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=503, detail=f"ISS upstream timeout: {exc}")
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"ISS upstream unreachable: {exc}")
 
 
 @router.get("/api/world")

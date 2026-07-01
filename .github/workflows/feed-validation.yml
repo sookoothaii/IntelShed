@@ -1,0 +1,69 @@
+name: Feed Validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "backend/feeds/**"
+      - "backend/*_bridge.py"
+      - "backend/feeds_extra.py"
+      - "backend/connector_registry.py"
+      - "backend/feed_registry.py"
+      - "backend/feed_ingest.py"
+  schedule:
+    # Daily at 08:00 UTC
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+jobs:
+  feed-smoke:
+    name: Feed connectors smoke test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Import all feed bridges
+        run: |
+          python -c "
+          import importlib, sys, traceback
+          bridges = [
+              'gdelt_bridge', 'ais_bridge', 'gdacs_bridge', 'cams_bridge',
+              'osm_bridge', 'acled_bridge', 'weather_forecast_bridge',
+              'news_feeds', 'darkweb_bridge', 'breach_bridge',
+              'sanctions_bridge', 'humanitarian_bridge', 'ransomware_tracker',
+              'onion_directory', 'thai_opendata', 'telegram_bridge',
+              'newsdata_bridge', 'blip_bridge',
+          ]
+          failed = []
+          for mod in bridges:
+              try:
+                  importlib.import_module(mod)
+              except Exception:
+                  failed.append(mod)
+                  traceback.print_exc()
+          if failed:
+              print(f'FAILED imports: {failed}')
+              sys.exit(1)
+          print(f'OK: {len(bridges)} feed bridges imported')
+          "
+      - name: Feed envelope validation
+        run: |
+          python -c "
+          from feeds.envelope import FeedEnvelope
+          e = FeedEnvelope(count=1, source='test', updated='2026-01-01T00:00:00Z')
+          p = e.merge(items=[{'id': 1}])
+          assert p['count'] == 1
+          assert p['source'] == 'test'
+          assert 'items' in p
+          print('FeedEnvelope OK')
+          "
+      - name: Mapping validator
+        run: python -c "import mapping_validator; r=mapping_validator.validate_all_mappings(); exit(0 if r['ok'] else 1)"

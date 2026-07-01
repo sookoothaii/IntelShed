@@ -36,3 +36,9 @@ def cache_get_stale(key: str):
     with _STORE_LOCK:
         item = STORE.get(key)
         return item[1] if item else None
+
+
+def cache_invalidate(key: str) -> None:
+    """Remove a key from the in-memory cache (for manual invalidation)."""
+    with _STORE_LOCK:
+        STORE.pop(key, None)

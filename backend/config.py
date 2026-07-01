@@ -136,6 +136,8 @@ class WorldBaseConfig(BaseModel):
     secrets_manager_enabled: bool = False
     secrets_provider: str = "env"
     mcp_policy_enabled: bool = False
+    mcp_quota_enabled: bool = False
+    mcp_conformance_enabled: bool = False
     task_queue: str = "lifespan"
     celery_broker_url: str = "redis://redis:6379/0"
     celery_result_backend: str = "redis://redis:6379/1"
@@ -177,6 +179,7 @@ class WorldBaseConfig(BaseModel):
     rate_limit_enabled: bool = True
     rate_limit_rpm: int = 60
     rate_limit_window_sec: float = 60.0
+    cache_coalesce_enabled: bool = True
 
     @classmethod
     def from_env(cls) -> Self:
@@ -413,6 +416,10 @@ class WorldBaseConfig(BaseModel):
             .strip()
             .lower(),
             mcp_policy_enabled=_truthy(os.getenv("WORLDBASE_MCP_POLICY", "0")),
+            mcp_quota_enabled=_truthy(os.getenv("WORLDBASE_MCP_QUOTA", "0")),
+            mcp_conformance_enabled=_truthy(
+                os.getenv("WORLDBASE_MCP_CONFORMANCE", "0")
+            ),
             blackboard_enabled=_truthy(os.getenv("WORLDBASE_BLACKBOARD", "0")),
             two_pass_enabled=_truthy(os.getenv("WORLDBASE_TWO_PASS", "0")),
             route_ledger_enabled=_truthy(os.getenv("WORLDBASE_ROUTE_LEDGER", "1")),
@@ -498,6 +505,7 @@ class WorldBaseConfig(BaseModel):
             rate_limit_window_sec=max(
                 1.0, float(os.getenv("WORLDBASE_RATE_LIMIT_WINDOW_SEC", "60"))
             ),
+            cache_coalesce_enabled=_truthy(os.getenv("WORLDBASE_CACHE_COALESCE", "1")),
         )
 
 
