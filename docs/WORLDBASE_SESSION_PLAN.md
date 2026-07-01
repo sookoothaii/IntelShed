@@ -707,37 +707,100 @@ Track-E-Sessions können unabhängig von Sessions 4–16 ausgeführt werden. Emp
 **Items (nur echte Lücken):**
 
 #### E-08 Cesium Memory Cap + Heap Throttling
-- `releaseGeometryInstances = true` auf allen `Primitive`-Erstellungen in `Globe.tsx` und layer hooks — verhindert GPU-Memory-Leak bei wiederholtem layer toggle
-- `maximumMemoryUsage` (z.B. 512 MB) auf 3D-Tilesets (`osmBuildingsRef`, `photorealRef`) — Cesium default ist unlimited
-- Heap-Monitoring: wenn `performance.memory.usedJSHeapSize > 600 MB`, rendering pausieren (layer updates skippen bis Heap fällt). Feature-flag: `VITE_WORLDBASE_HEAP_GUARD=1` (default off)
-- Tests: manuell verifizierbar (Chrome DevTools Memory tab), kein automated test möglich (Chrome `performance.memory` ist nicht in headless)
+
+**Gap:** `viewer.destroy()` und `requestRenderMode` sind vorhanden, aber ohne `releaseGeometryInstances` und `maximumMemoryUsage` frisst Cesium bei langen Sessions (Analysten lassen den Tab stundenlang offen) GPU-Speicher. `usedJSHeapSize`-Monitor fehlt komplett.
+
+**Implementation:**
+
+**1. `releaseGeometryInstances` auf Primitives**
+- In Layer-Hooks (`layers/`), die `Primitive`-basiert sind (z.B. AIS-Trajektorien als `PolylineCollection`): `releaseGeometryInstances: true` auf allen `Cesium.Primitive`-Erstellungen setzen
+- Für `Entity`-basierte Layer (meiste Feeds): nicht direkt setzbar — Cesium managed das intern. Hier sicherstellen, dass `useEffect`-cleanup jedes Layer-Hooks explizit `viewer.entities.remove()` oder `dataSource.entities.removeAll()` aufruft
+- Audit der 38 Layer-Hooks: welche nutzen `Primitive` vs `Entity`? Nur `Primitive`-basierte brauchen das Flag
+
+**2. `maximumMemoryUsage` auf 3D-Tilesets**
+- `osmBuildingsRef` und `photorealRef` in `Globe.tsx`: `maximumMemoryUsage: 512` (MB) setzen — Cesium default ist unlimited
+- `maximumScreenSpaceError: 16` als Qualität/Speicher-Tradeoff
+
+**3. Heap-Monitoring als Quiescence-Trigger**
+- `frontend/src/lib/heapGuard.ts` — `setInterval` (30s) prüft `performance.memory.usedJSHeapSize`
+- Threshold: 800 MB (vor Browser-Crash bei ~1-1.5 GB Heap Limit)
+- Bei Überschreitung: nicht-aktive Layer entladen (LRU — "zuletzt verwendet vor 10 Minuten"), Cesium tile cache flushen (`scene.globe.tileCacheSize` reduzieren), User-Notification via Toast
+- **Nicht** `primitives.removeAll()` — das ist ein Hammer; selektives LRU-Entladen stattdessen
+- Feature-flag: `VITE_WORLDBASE_HEAP_GUARD=1` (default off, opt-in für lange Sessions)
+- Tests: manuell verifizierbar (Chrome DevTools Memory tab), kein automated test möglich (`performance.memory` nicht in headless)
 
 #### E-09 CSP Single Source of Truth
-- `backend/csp_policy.py` — zentrale CSP-Policy als Python dict/string
-- `SecurityHeadersMiddleware` liest aus `csp_policy.py` statt hardcoded string
-- `Caddyfile` wird via `envsubst` oder Caddy `import` aus generiertem File befüllt
-- `frontend/vite.config.ts` Plugin injiziert CSP `<meta>` tag zur Build-Zeit aus selbiger Quelle
-- Eliminiert Drift zwischen 3 synchronisierten CSP-Quellen (index.html, Caddyfile, middleware)
-- Tests: `test_csp_policy.py` — validiert dass alle 3 Quellen identische Policy produzieren
 
-#### E-10 Golden Queries Expansion
-- `test_chat_report_quality.py` von 15 → 50+ golden queries
-- Coverage: alle 5 query-router routes (vector/graph/spatial/hybrid/live), edge cases (empty results, conflict detection, evidence chain refs)
+**Gap:** Drei CSP-Quellen (index.html, Caddyfile, SecurityHeadersMiddleware) müssen manuell synchron gehalten werden — klassisches "vergessenes Update"-Risiko.
+
+**Implementation:**
+
+**1. `backend/csp_policy.py` — Single Source of Truth**
+- `CSPPolicy`-Klasse mit Klassenattributen pro Directive (`DEFAULT_SRC`, `SCRIPT_SRC`, `STYLE_SRC`, etc.)
+- `to_header()` → kompiliert alle Directives zu einem CSP-Header-String
+- `to_meta_tag()` → selbe String für `<meta>` tag
+- `to_caddyfile()` → `header Content-Security-Policy "..."` Format
+- Alle 3 Formate aus derselben Python-Klasse generiert
+
+**2. Build-Step Integration**
+- `frontend/vite.config.ts` — `csp-sync` Plugin: ruft `python -c "from csp_policy import CSPPolicy; print(CSPPolicy.to_meta_tag())"` in `buildStart()` auf, patcht `index.html` und `Caddyfile` automatisch
+- Ein `git commit` auf `csp_policy.py` → Vite-Build synchronisiert alle 3 Quellen
+
+**3. Middleware Integration**
+- `SecurityHeadersMiddleware` importiert `CSPPolicy.to_header()` statt hardcoded String
+- Keine manuelle Synchronisation mehr nötig
+
+**4. Tests**
+- `test_csp_policy.py` — validiert dass `to_header()`, `to_meta_tag()`, `to_caddyfile()` identische Policy produzieren
+- Test: Directive hinzufügen → alle 3 Quellen enthalten sie
+
+#### E-10 Golden Queries Expansion (15 → 50+)
+
+**Gap:** 15 Queries testen nur den Happy Path des Default-Routers. Bei 6 LLM-Providern, 5 Query-Routen und opt-in Features (Agentic, Multi-Hypothesis, Temporal Engine) ist die Kombinatorik hoch.
+
+**Implementation — "Critical Pairs" Methode:**
+
+Nicht alle Kombinationen testen (5×3×3×5×5 = 1.125), sondern die "gefährlichsten" — da, wo Bugs am wahrscheinlichsten sind:
+
+| Kategorie | Beispiel-Query | Warum kritisch |
+|-----------|---------------|----------------|
+| Spatial + Live | "Welche Schiffe sind aktuell im Golf von Thailand?" | Live-Route + Spatial-Route Konflikt |
+| Temporal + Graph | "Hat sich die Beziehung zwischen X und Y in den letzten 6 Monaten verändert?" | Temporal Engine + FtM-Graph |
+| Multi-Hypothesis + Prognostisch | "Was sind die 3 wahrscheinlichsten Szenarien für die Wahl in Thailand?" | 3-Stance-Draft + Forecast |
+| Agentic + Low-Provenance | "Was ist die aktuelle Lage in Myanmar?" | Agentic Loop mit niedrigem Confidence-Score |
+| Edge-Case: Leere Ergebnisse | "Gibt es aktuelle Daten zum Konflikt in Atlantis?" | System muss "Ich weiß es nicht" sagen, nicht halluzinieren |
+
+**Reduktionsstrategie:**
+- Sprache: EN (Default) + TH (`WORLDBASE_OPERATOR_REGION=thailand`), DE sekundär
+- Agentic-Modus: nur Off (Default) + 5-Agent (komplexester)
+- Route: jede Route mindestens einmal mit repräsentativer Query
+- Ziel: 50 Queries = 15 bestehende + 35 neue nach Critical-Pairs-Methode
+
+**Query-Struktur:**
+```python
+GOLDEN_QUERIES = [
+    {"query": "...", "expected_route": "live", "expected_evidence_count": ">=3",
+     "language": "en", "agentic": False},
+    # ... 50 total
+]
+```
+- `pytest.mark.parametrize` über die Liste, mit `quality_score` pro Query
+- Score unter Schwellenwert → Test failt
 - Regressionssicherheit bei Prompt-Changes und LLM-Provider-Switches
-- Tests: erweiterte `test_chat_report_quality.py`
 
 **Deliverables:**
-- `Globe.tsx` + layer hooks: `releaseGeometryInstances` + `maximumMemoryUsage`
-- `frontend/src/lib/heapGuard.ts` — heap monitoring utility
-- `backend/csp_policy.py` — zentrale CSP-Policy
-- `frontend/vite.config.ts` — CSP meta injection plugin
-- `Caddyfile` — CSP aus generiertem File
-- `test_csp_policy.py`, erweiterte `test_chat_report_quality.py`
+- `Globe.tsx` + layer hooks: `releaseGeometryInstances` auf Primitives + `maximumMemoryUsage` auf Tilesets
+- `frontend/src/lib/heapGuard.ts` — LRU-basiertes Heap-Monitoring (30s interval, 800 MB threshold)
+- `backend/csp_policy.py` — `CSPPolicy`-Klasse mit `to_header()` / `to_meta_tag()` / `to_caddyfile()`
+- `frontend/vite.config.ts` — `csp-sync` Plugin (buildStart patcht index.html + Caddyfile)
+- `backend/middleware/security_headers.py` — importiert aus `csp_policy.py` statt hardcoded
+- `test_csp_policy.py` — validiert 3-Quellen-Synchronisation
+- `test_chat_report_quality.py` — erweitert auf 50+ golden queries (Critical-Pairs-Methode)
 - Docs: `docs/ENGINEERING.md` erweitern
 
 **Aufwand:** 2-3 Tage
 
-**Priorität:** P2 — Cesium Memory Cap ist P0-adjacent (UX-Risiko bei langen Sessions), CSP SSoT ist P2 (Drift-Risiko), Golden Queries ist P2 (Regressionssicherheit)
+**Priorität:** P2 — E-08 ist P0-adjacent (UX-Risiko bei langen OSINT-Sessions), E-09 ist P2 (Drift-Risiko), E-10 ist P2 (Regressionssicherheit)
 
 ---
 
