@@ -133,9 +133,7 @@ export function useMapEngine(): UseMapEngineReturn {
       })
       .catch((err) => {
         if (cancelled) return;
-        setDeckError(
-          err instanceof Error ? err.message : 'Failed to load deck.gl'
-        );
+        setDeckError(err instanceof Error ? err.message : 'Failed to load deck.gl');
         setDeckLoading(false);
         // Fallback to cesium
         setEngineState('cesium');

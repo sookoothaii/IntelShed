@@ -8,7 +8,7 @@ declare module '@huggingface/transformers' {
   export function pipeline(
     task: string,
     model: string,
-    options?: { quantized?: boolean; [key: string]: unknown }
+    options?: { quantized?: boolean; [key: string]: unknown },
   ): Promise<any>;
   export const env: { [key: string]: unknown };
 }
@@ -17,7 +17,7 @@ declare module '@xenova/transformers' {
   export function pipeline(
     task: string,
     model: string,
-    options?: { quantized?: boolean; [key: string]: unknown }
+    options?: { quantized?: boolean; [key: string]: unknown },
   ): Promise<any>;
   export const env: { [key: string]: unknown };
 }

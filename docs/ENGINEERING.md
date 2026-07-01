@@ -99,11 +99,11 @@ Three synchronized CSP sources:
 **CSP Policy:**
 ```
 default-src 'self';
-script-src 'self' 'unsafe-inline' 'unsafe-eval';
+script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:;
 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
 font-src 'self' https://fonts.gstatic.com data:;
 img-src 'self' data: blob: https:;
-connect-src 'self' https://api.cesium.com wss: ws:;
+connect-src 'self' https://api.cesium.com https://*.cesium.com https://dev.virtualearth.net wss: ws:;
 worker-src 'self' blob:;
 object-src 'none';
 frame-ancestors 'self';
@@ -113,7 +113,9 @@ form-action 'self';
 
 **Notes:**
 - `'unsafe-inline'` and `'unsafe-eval'` required for Vite dev mode and Cesium web workers
-- `blob:` in `worker-src` and `img-src` for Cesium terrain tiles and dynamic imagery
+- `blob:` in `script-src` and `worker-src` for Cesium web workers (blob URL scripts) and terrain tiles
+- `frame-ancestors 'self'` omitted from `<meta>` tag (browsers ignore it in meta); kept in HTTP header sources (middleware + Caddyfile)
+- `connect-src` includes `https://*.cesium.com` (assets.ion.cesium.com terrain/imagery) and `https://dev.virtualearth.net` (Bing/Esri fallback tiles)
 - `https://api.cesium.com` in `connect-src` for Cesium Ion token API
 - `wss:` and `ws:` for WebSocket connections (AIS streams, chat SSE fallback)
 

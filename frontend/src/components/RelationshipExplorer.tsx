@@ -205,10 +205,10 @@ export default function RelationshipExplorer({ initialEntityId }: Props) {
             lat: n.lat ?? undefined,
             lon: n.lon ?? undefined,
           },
-          classes: [
-            rootIdHint && n.id === rootIdHint ? 'root' : '',
-            expanded?.has(n.id) ? 'expanded' : '',
-          ].filter(Boolean).join(' ') || undefined,
+          classes:
+            [rootIdHint && n.id === rootIdHint ? 'root' : '', expanded?.has(n.id) ? 'expanded' : '']
+              .filter(Boolean)
+              .join(' ') || undefined,
         });
       }
       for (const e of g.edges) {
@@ -247,9 +247,7 @@ export default function RelationshipExplorer({ initialEntityId }: Props) {
       if (!id) return;
       setError(null);
       try {
-        const r = await fetchApi(
-          `/api/entity/${encodeURIComponent(id)}/graph?depth=2&limit=300`,
-        );
+        const r = await fetchApi(`/api/entity/${encodeURIComponent(id)}/graph?depth=2&limit=300`);
         const g: GraphData = await r.json();
         if (!g.found) {
           setError('Entity not found in graph store.');
@@ -276,9 +274,7 @@ export default function RelationshipExplorer({ initialEntityId }: Props) {
         return;
       }
       try {
-        const r = await fetchApi(
-          `/api/entity/${encodeURIComponent(id)}/graph?depth=1&limit=100`,
-        );
+        const r = await fetchApi(`/api/entity/${encodeURIComponent(id)}/graph?depth=1&limit=100`);
         const g: GraphData = await r.json();
         if (!g.found) return;
         const cy = cyRef.current;
@@ -387,10 +383,7 @@ export default function RelationshipExplorer({ initialEntityId }: Props) {
             </button>
           )}
           {selectedEntity && (
-            <button
-              className="data-refresh"
-              onClick={() => setShowTimeline(!showTimeline)}
-            >
+            <button className="data-refresh" onClick={() => setShowTimeline(!showTimeline)}>
               {showTimeline ? 'HIDE TIMELINE' : 'SHOW TIMELINE'}
             </button>
           )}
@@ -438,9 +431,7 @@ export default function RelationshipExplorer({ initialEntityId }: Props) {
         </div>
       </div>
 
-      {showTimeline && selectedEntity && (
-        <EntityTimeline entityId={selectedEntity} />
-      )}
+      {showTimeline && selectedEntity && <EntityTimeline entityId={selectedEntity} />}
     </div>
   );
 }

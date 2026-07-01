@@ -90,9 +90,7 @@ async function _defaultLoader(): Promise<any> {
       const mod = await import(/* @vite-ignore */ xenovaModule);
       return mod;
     } catch {
-      throw new Error(
-        'Transformers.js not installed. Run: npm install @huggingface/transformers'
-      );
+      throw new Error('Transformers.js not installed. Run: npm install @huggingface/transformers');
     }
   }
 }
@@ -236,11 +234,35 @@ export async function scoreHeadline(text: string): Promise<HeadlineScore> {
 
   // Keyword contribution: intelligence-relevant keywords
   const intelKeywords = [
-    'attack', 'strike', 'explosion', 'fire', 'crash', 'collision',
-    'sanction', 'arrest', 'raid', 'seizure', 'cyber', 'breach',
-    'missile', 'drone', 'military', 'naval', 'border', 'conflict',
-    'evacuate', 'emergency', 'casualt', 'death', 'kill', 'wound',
-    'threat', 'alert', 'warning', 'critical', 'urgent',
+    'attack',
+    'strike',
+    'explosion',
+    'fire',
+    'crash',
+    'collision',
+    'sanction',
+    'arrest',
+    'raid',
+    'seizure',
+    'cyber',
+    'breach',
+    'missile',
+    'drone',
+    'military',
+    'naval',
+    'border',
+    'conflict',
+    'evacuate',
+    'emergency',
+    'casualt',
+    'death',
+    'kill',
+    'wound',
+    'threat',
+    'alert',
+    'warning',
+    'critical',
+    'urgent',
   ];
   const lowerText = text.toLowerCase();
   const keywordHits = intelKeywords.filter((kw) => lowerText.includes(kw)).length;
@@ -251,7 +273,7 @@ export async function scoreHeadline(text: string): Promise<HeadlineScore> {
 
   return {
     score: round(score, 3),
-    sentiment: sentimentResult?.label?.toLowerCase() as HeadlineScore['sentiment'] || 'neutral',
+    sentiment: (sentimentResult?.label?.toLowerCase() as HeadlineScore['sentiment']) || 'neutral',
     sentimentScore: sentimentResult?.confidence || 0,
     entities,
     text,
@@ -280,9 +302,7 @@ export async function scoreHeadlines(texts: string[]): Promise<HeadlineScore[]> 
  * Get sentiment from the sentiment pipeline.
  * Returns null if model not available.
  */
-async function _getSentiment(
-  text: string
-): Promise<{ label: string; confidence: number } | null> {
+async function _getSentiment(text: string): Promise<{ label: string; confidence: number } | null> {
   if (!_sentimentPipeline) {
     try {
       await initBrowserMl();
@@ -311,13 +331,8 @@ async function _getSentiment(
  * Filter and rank headlines by score.
  * Returns headlines sorted by score descending, optionally filtered by threshold.
  */
-export function rankHeadlines(
-  scores: HeadlineScore[],
-  minScore: number = 0
-): HeadlineScore[] {
-  return scores
-    .filter((s) => s.score >= minScore)
-    .sort((a, b) => b.score - a.score);
+export function rankHeadlines(scores: HeadlineScore[], minScore: number = 0): HeadlineScore[] {
+  return scores.filter((s) => s.score >= minScore).sort((a, b) => b.score - a.score);
 }
 
 /**
@@ -325,7 +340,7 @@ export function rankHeadlines(
  * Returns deduplicated entities with frequency count.
  */
 export function aggregateEntities(
-  scores: HeadlineScore[]
+  scores: HeadlineScore[],
 ): Array<NerEntity & { frequency: number }> {
   const entityMap = new Map<string, NerEntity & { frequency: number }>();
 

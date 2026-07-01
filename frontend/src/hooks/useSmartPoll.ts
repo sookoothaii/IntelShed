@@ -43,9 +43,7 @@ export type SmartPollOptions<T> = {
   immediate?: boolean;
 };
 
-export function useSmartPoll<T>(
-  options: SmartPollOptions<T>,
-): SmartPollState<T> & {
+export function useSmartPoll<T>(options: SmartPollOptions<T>): SmartPollState<T> & {
   refetch: () => void;
   reset: () => void;
 } {
@@ -92,9 +90,12 @@ export function useSmartPoll<T>(
   const scheduleNext = useCallback(
     (delayMs: number) => {
       clearTimer();
-      timerRef.current = setTimeout(() => {
-        if (mountedRef.current) doPoll();
-      }, Math.max(1000, delayMs));
+      timerRef.current = setTimeout(
+        () => {
+          if (mountedRef.current) doPoll();
+        },
+        Math.max(1000, delayMs),
+      );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [clearTimer],
@@ -145,10 +146,7 @@ export function useSmartPoll<T>(
         }));
         scheduleNext(breakerCooldownMs);
       } else {
-        const backoff = Math.min(
-          interval * Math.pow(backoffMultiplier, errors),
-          maxInterval,
-        );
+        const backoff = Math.min(interval * Math.pow(backoffMultiplier, errors), maxInterval);
         setState((s) => ({
           ...s,
           error: err instanceof Error ? err : new Error(String(err)),
@@ -161,7 +159,15 @@ export function useSmartPoll<T>(
       pollingRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interval, maxInterval, hiddenInterval, backoffMultiplier, breakerThreshold, breakerCooldownMs, scheduleNext]);
+  }, [
+    interval,
+    maxInterval,
+    hiddenInterval,
+    backoffMultiplier,
+    breakerThreshold,
+    breakerCooldownMs,
+    scheduleNext,
+  ]);
 
   // Handle visibility change — reschedule when tab becomes visible
   useEffect(() => {

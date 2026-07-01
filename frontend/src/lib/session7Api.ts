@@ -58,12 +58,8 @@ export type CredentialDeleteResult = {
 // Entity Timeline
 // ---------------------------------------------------------------------------
 
-export async function getEntityTimeline(
-  entityId: string,
-): Promise<EntityTimelineData> {
-  const r = await fetchApi(
-    `/api/intel/entities/${encodeURIComponent(entityId)}/timeline`,
-  );
+export async function getEntityTimeline(entityId: string): Promise<EntityTimelineData> {
+  const r = await fetchApi(`/api/intel/entities/${encodeURIComponent(entityId)}/timeline`);
   return r.json();
 }
 
@@ -77,10 +73,7 @@ export async function listCredentials(): Promise<CredentialsListResponse> {
   return r.json();
 }
 
-export async function setCredential(
-  envVar: string,
-  value: string,
-): Promise<CredentialSetResult> {
+export async function setCredential(envVar: string, value: string): Promise<CredentialSetResult> {
   const r = await fetchApi('/api/credentials', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -89,12 +82,7 @@ export async function setCredential(
   return r.json();
 }
 
-export async function deleteCredential(
-  envVar: string,
-): Promise<CredentialDeleteResult> {
-  const r = await fetchApi(
-    `/api/credentials/${encodeURIComponent(envVar)}`,
-    { method: 'DELETE' },
-  );
+export async function deleteCredential(envVar: string): Promise<CredentialDeleteResult> {
+  const r = await fetchApi(`/api/credentials/${encodeURIComponent(envVar)}`, { method: 'DELETE' });
   return r.json();
 }

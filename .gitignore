@@ -43,7 +43,8 @@ backend/data/models/
 !.env.example
 !.env.docker.example
 *.local
-credentials/
+# Exclude credential data files, not the backend/credentials/ Python package
+data/credentials.json
 offgrid-raspi/scripts/pi-node-token.conf
 
 # Editor / OS

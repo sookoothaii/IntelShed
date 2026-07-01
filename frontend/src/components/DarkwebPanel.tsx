@@ -940,7 +940,8 @@ export default function DarkwebPanel() {
                           {b.title} ({b.breach_date})
                         </div>
                         <div style={{ fontSize: 10, color: '#b0c4bf' }}>
-                          {b.pwn_count.toLocaleString()} accounts · Classes: {b.data_classes.join(', ')}
+                          {b.pwn_count.toLocaleString()} accounts · Classes:{' '}
+                          {b.data_classes.join(', ')}
                         </div>
                         {b.is_sensitive && (
                           <span style={{ fontSize: 10, color: '#ffd23f' }}> SENSITIVE</span>
@@ -952,9 +953,7 @@ export default function DarkwebPanel() {
                     ))}
                   </div>
                 ) : (
-                  <div style={{ color: '#00e5a0' }}>
-                    {breachResult.email} — No breaches found
-                  </div>
+                  <div style={{ color: '#00e5a0' }}>{breachResult.email} — No breaches found</div>
                 )}
               </div>
             )}
@@ -988,7 +987,8 @@ export default function DarkwebPanel() {
                   <div style={{ color: '#ff4d5e' }}>Error: {breachPasswordResult.error}</div>
                 ) : breachPasswordResult.compromised ? (
                   <div style={{ color: '#ff4d5e' }}>
-                    COMPROMISED — found {breachPasswordResult.count.toLocaleString()} time(s) in breach dumps
+                    COMPROMISED — found {breachPasswordResult.count.toLocaleString()} time(s) in
+                    breach dumps
                   </div>
                 ) : (
                   <div style={{ color: '#00e5a0' }}>Not found in any known breach</div>
@@ -1013,7 +1013,8 @@ export default function DarkwebPanel() {
             </div>
             {breachRefreshResult && (
               <div style={{ fontSize: 11, color: '#b0c4bf', marginBottom: 8 }}>
-                Checked: {breachRefreshResult.checked} · New breaches: {breachRefreshResult.new_breaches}
+                Checked: {breachRefreshResult.checked} · New breaches:{' '}
+                {breachRefreshResult.new_breaches}
               </div>
             )}
             {breachMonitors.length === 0 ? (

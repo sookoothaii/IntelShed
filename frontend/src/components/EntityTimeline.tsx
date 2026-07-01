@@ -68,9 +68,7 @@ export default function EntityTimeline({ entityId }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetchApi(
-        `/api/intel/entities/${encodeURIComponent(entityId)}/timeline`,
-      );
+      const r = await fetchApi(`/api/intel/entities/${encodeURIComponent(entityId)}/timeline`);
       const d: TimelineData = await r.json();
       if (d.error) {
         setError(d.error);
@@ -120,8 +118,7 @@ export default function EntityTimeline({ entityId }: Props) {
       <h3>
         📅 Entity Timeline{' '}
         <span className="stat-meta">
-          {data.caption || data.entity_id.slice(0, 12)} · {data.schema} ·{' '}
-          {data.event_count} events
+          {data.caption || data.entity_id.slice(0, 12)} · {data.schema} · {data.event_count} events
         </span>
       </h3>
 

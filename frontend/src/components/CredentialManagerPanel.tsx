@@ -112,8 +112,7 @@ export default function CredentialManagerPanel() {
     }
   };
 
-  const apiKey =
-    localStorage.getItem('WORLDBASE_API_KEY') || '';
+  const apiKey = localStorage.getItem('WORLDBASE_API_KEY') || '';
 
   return (
     <div className="intel-panel">
@@ -128,7 +127,11 @@ export default function CredentialManagerPanel() {
         </h3>
         {loading && <div className="stat-meta">Loading…</div>}
         {error && <div className="data-error">{error}</div>}
-        {info && <div className="stat-meta" style={{ color: '#5bdc8f' }}>{info}</div>}
+        {info && (
+          <div className="stat-meta" style={{ color: '#5bdc8f' }}>
+            {info}
+          </div>
+        )}
       </div>
 
       {/* Add credential form */}
@@ -163,7 +166,8 @@ export default function CredentialManagerPanel() {
         </div>
         {!apiKey && (
           <div className="stat-meta" style={{ color: '#ffd23f', marginTop: '4px' }}>
-            ⚠ No WORLDBASE_API_KEY set — POST/DELETE require authentication. Set X-API-Key in localStorage.
+            ⚠ No WORLDBASE_API_KEY set — POST/DELETE require authentication. Set X-API-Key in
+            localStorage.
           </div>
         )}
       </div>

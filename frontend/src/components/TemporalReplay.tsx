@@ -44,16 +44,24 @@ function useSnapshotArchiver(maxSnapshots = DEFAULT_MAX_SNAPSHOTS): SnapshotArch
   const capture = useCallback(async (): Promise<ReplaySnapshot | null> => {
     try {
       const [healthR, heatmapR, insightsR] = await Promise.all([
-        fetchApi('/api/health').then((r) => r.ok ? r.json() : null).catch(() => null),
-        fetchApi('/api/fusion/heatmap').then((r) => r.ok ? r.json() : null).catch(() => null),
-        fetchApi('/api/insights?top=50').then((r) => r.ok ? r.json() : null).catch(() => null),
+        fetchApi('/api/health')
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetchApi('/api/fusion/heatmap')
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
+        fetchApi('/api/insights?top=50')
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null),
       ]);
 
       const feeds: ReplaySnapshot['feeds'] = {};
       const totalEntities = 0;
       let totalEvents = 0;
       if (healthR?.feeds) {
-        for (const [name, info] of Object.entries(healthR.feeds as Record<string, { status: string; fresh: boolean; count: number }>)) {
+        for (const [name, info] of Object.entries(
+          healthR.feeds as Record<string, { status: string; fresh: boolean; count: number }>,
+        )) {
           feeds[name] = {
             status: info.status || 'unknown',
             fresh: info.fresh ?? false,
@@ -97,16 +105,19 @@ function useSnapshotArchiver(maxSnapshots = DEFAULT_MAX_SNAPSHOTS): SnapshotArch
     return JSON.stringify(snapshots, null, 2);
   }, [snapshots]);
 
-  const importJson = useCallback((json: string): number => {
-    try {
-      const parsed = JSON.parse(json) as ReplaySnapshot[];
-      if (!Array.isArray(parsed)) return 0;
-      setSnapshots(parsed.slice(-maxSnapshots));
-      return parsed.length;
-    } catch {
-      return 0;
-    }
-  }, [maxSnapshots]);
+  const importJson = useCallback(
+    (json: string): number => {
+      try {
+        const parsed = JSON.parse(json) as ReplaySnapshot[];
+        if (!Array.isArray(parsed)) return 0;
+        setSnapshots(parsed.slice(-maxSnapshots));
+        return parsed.length;
+      } catch {
+        return 0;
+      }
+    },
+    [maxSnapshots],
+  );
 
   return { snapshots, capture, clear, exportJson, importJson, maxSnapshots };
 }
@@ -195,7 +206,12 @@ function ReplayTimeline({
   });
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="replay-timeline-svg" role="img" aria-label="Replay timeline">
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="replay-timeline-svg"
+      role="img"
+      aria-label="Replay timeline"
+    >
       {/* Sparkline */}
       <polyline
         points={points.join(' ')}
@@ -228,7 +244,14 @@ function ReplayTimeline({
       <text x={padX} y={H - 1} fontSize={8} fill="var(--text-dim, #888)" fontFamily="monospace">
         {new Date(minT).toLocaleTimeString()}
       </text>
-      <text x={W - padX} y={H - 1} textAnchor="end" fontSize={8} fill="var(--text-dim, #888)" fontFamily="monospace">
+      <text
+        x={W - padX}
+        y={H - 1}
+        textAnchor="end"
+        fontSize={8}
+        fill="var(--text-dim, #888)"
+        fontFamily="monospace"
+      >
         {new Date(maxT).toLocaleTimeString()}
       </text>
     </svg>
@@ -392,16 +415,31 @@ export default function TemporalReplay({ onClose }: { onClose?: () => void }) {
             <option value={300_000}>5m</option>
           </select>
           <span className="replay-separator">|</span>
-          <button className="replay-btn" onClick={handleManualCapture} type="button" title="Capture now">
+          <button
+            className="replay-btn"
+            onClick={handleManualCapture}
+            type="button"
+            title="Capture now"
+          >
             📸
           </button>
-          <button className="replay-btn" onClick={handleExport} disabled={archiver.snapshots.length === 0} type="button">
+          <button
+            className="replay-btn"
+            onClick={handleExport}
+            disabled={archiver.snapshots.length === 0}
+            type="button"
+          >
             ↓
           </button>
           <button className="replay-btn" onClick={handleImport} type="button">
             ↑
           </button>
-          <button className="replay-btn" onClick={archiver.clear} disabled={archiver.snapshots.length === 0} type="button">
+          <button
+            className="replay-btn"
+            onClick={archiver.clear}
+            disabled={archiver.snapshots.length === 0}
+            type="button"
+          >
             🗑
           </button>
         </div>
@@ -420,7 +458,9 @@ export default function TemporalReplay({ onClose }: { onClose?: () => void }) {
             onSeek={handleSeek}
           />
           <div className="replay-counter">
-            {currentIndex >= 0 ? `${currentIndex + 1} / ${archiver.snapshots.length}` : `${archiver.snapshots.length} snapshots`}
+            {currentIndex >= 0
+              ? `${currentIndex + 1} / ${archiver.snapshots.length}`
+              : `${archiver.snapshots.length} snapshots`}
           </div>
         </div>
 
@@ -439,7 +479,8 @@ export default function TemporalReplay({ onClose }: { onClose?: () => void }) {
 
       <div className="temporal-replay-footer">
         <span className="replay-status">
-          Capture: {capturePoll.status} · Snapshots: {archiver.snapshots.length}/{archiver.maxSnapshots}
+          Capture: {capturePoll.status} · Snapshots: {archiver.snapshots.length}/
+          {archiver.maxSnapshots}
         </span>
       </div>
     </div>

@@ -16,7 +16,10 @@ import type { HeatmapCell } from '../lib/types';
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type FeedHealth = {
-  feeds?: Record<string, { status: string; fresh: boolean; count: number; age_sec: number; error?: boolean }>;
+  feeds?: Record<
+    string,
+    { status: string; fresh: boolean; count: number; age_sec: number; error?: boolean }
+  >;
 };
 
 type InsightItem = {
@@ -79,9 +82,7 @@ function SankeyDiagram({ links, nodes }: { links: SankeyLink[]; nodes: string[] 
   const layoutNode = (nodeList: string[], x: number) => {
     const gap = (H - padY * 2) / Math.max(nodeList.length, 1);
     return nodeList.map((name, i) => {
-      const nodeLinks = links.filter((l) =>
-        x === padL ? l.source === name : l.target === name,
-      );
+      const nodeLinks = links.filter((l) => (x === padL ? l.source === name : l.target === name));
       const nodeValue = nodeLinks.reduce((s, l) => s + l.value, 0) || totalValue / nodeSet.length;
       const barH = Math.max(4, (nodeValue / totalValue) * (H - padY * 2));
       return {
@@ -127,14 +128,7 @@ function SankeyDiagram({ links, nodes }: { links: SankeyLink[]; nodes: string[] 
 
   const renderNode = (n: { name: string; x: number; y: number; h: number; value: number }) => (
     <g key={`node-${n.name}`}>
-      <rect
-        x={n.x - 2}
-        y={n.y}
-        width={4}
-        height={n.h}
-        fill="var(--accent, #0ff)"
-        rx={1}
-      />
+      <rect x={n.x - 2} y={n.y} width={4} height={n.h} fill="var(--accent, #0ff)" rx={1} />
       <text
         x={n.x === padL ? n.x - 8 : n.x + 8}
         y={n.y + n.h / 2}
@@ -150,7 +144,12 @@ function SankeyDiagram({ links, nodes }: { links: SankeyLink[]; nodes: string[] 
   );
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="sankey-svg" role="img" aria-label="Feed flow Sankey diagram">
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="sankey-svg"
+      role="img"
+      aria-label="Feed flow Sankey diagram"
+    >
       {paths}
       {leftLayout.map(renderNode)}
       {rightLayout.map(renderNode)}
@@ -220,11 +219,25 @@ function EventTimeline({ events }: { events: TimelineEvent[] }) {
       ))}
 
       {/* Time axis */}
-      <line x1={padX} y1={H - padY + 4} x2={W - padX} y2={H - padY + 4} stroke="var(--border, #333)" strokeWidth={0.5} />
+      <line
+        x1={padX}
+        y1={H - padY + 4}
+        x2={W - padX}
+        y2={H - padY + 4}
+        stroke="var(--border, #333)"
+        strokeWidth={0.5}
+      />
       <text x={padX} y={H - 4} fontSize={8} fill="var(--text-dim, #888)" fontFamily="monospace">
         {new Date(minT).toLocaleTimeString()}
       </text>
-      <text x={W - padX} y={H - 4} textAnchor="end" fontSize={8} fill="var(--text-dim, #888)" fontFamily="monospace">
+      <text
+        x={W - padX}
+        y={H - 4}
+        textAnchor="end"
+        fontSize={8}
+        fill="var(--text-dim, #888)"
+        fontFamily="monospace"
+      >
         {new Date(maxT).toLocaleTimeString()}
       </text>
 
@@ -282,7 +295,12 @@ function GeoHeatmap({ cells }: { cells: HeatmapCell[] }) {
   };
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="heatmap-svg" role="img" aria-label="Geospatial heatmap">
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="heatmap-svg"
+      role="img"
+      aria-label="Geospatial heatmap"
+    >
       {valid.map((c, i) => {
         const r = 4 + (c.score / maxScore) * 12;
         return (
@@ -302,7 +320,14 @@ function GeoHeatmap({ cells }: { cells: HeatmapCell[] }) {
       <text x={padX} y={H - 4} fontSize={8} fill="var(--text-dim, #888)" fontFamily="monospace">
         {minLon.toFixed(1)}, {minLat.toFixed(1)}
       </text>
-      <text x={W - padX} y={H - 4} textAnchor="end" fontSize={8} fill="var(--text-dim, #888)" fontFamily="monospace">
+      <text
+        x={W - padX}
+        y={H - 4}
+        textAnchor="end"
+        fontSize={8}
+        fill="var(--text-dim, #888)"
+        fontFamily="monospace"
+      >
         {maxLon.toFixed(1)}, {maxLat.toFixed(1)}
       </text>
     </svg>
