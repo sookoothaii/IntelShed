@@ -531,31 +531,35 @@ Widersprüchlicher Status:
 
 ---
 
-## Session 16 — Strategische / Forschungs-Features & finale Aufpolierung
+## Session 16 — Strategische / Forschungs-Features & finale Aufpolierung ✅
 
 **Ziel:** Langfristige Capabilities und Validierung; keine Blocker für Produktivbetrieb.
 
+**Status:** Shipped — 40/40 tests passed.
+
 **V4-Items:**
-- V4-36 ADS-B Aircraft Tracking
-- V4-37 SAR Dark-Vessel Detection
-- V4-50 Dual Map Engine (deck.gl + Cesium)
-- V4-53 Pi Offline PMTiles Basemap
-- V4-62 Proactive Push Delivery
-- V4-66 Subgraph A/B
-- V4-67 vec1 Benchmark
-- V4-68 LLM A/B
-- V4-70 Social OSINT (nur Forschungsprototyp, ToS/Ethik)
+- ✅ V4-36 ADS-B Aircraft Tracking — bereits implementiert (`opensky_client.py`, `adsb_client.py`, `aircraft_provider.py`, `routes/aircraft.py`)
+- ✅ V4-37 SAR Dark-Vessel Detection — `backend/sar_bridge.py` (CA-CFAR detector, Sentinel-1 STAC search, AIS cross-reference)
+- ✅ V4-50 Dual Map Engine — `frontend/src/hooks/useMapEngine.ts` (lazy-loaded deck.gl, Cesium ↔ deck toggle)
+- ✅ V4-53 Pi Offline PMTiles — `docs/PI_PMTILES_BASEMAP.md` (go-pmtiles setup, sync workflow, backend already serves via Range)
+- ✅ V4-62 Proactive Push Delivery — `backend/push_delivery.py` (SSE endpoint, watch-item CRUD, event bus)
+- ✅ V4-66 Subgraph A/B — `backend/subgraph_ab.py` (Jaccard similarity, schema/edge distribution, centrality shift)
+- ✅ V4-67 vec1 Benchmark — `backend/benchmark_vec1.py` (latency p50/p95/p99, throughput, 20 curated queries)
+- ✅ V4-68 LLM A/B — `backend/llm_ab.py` (parallel provider comparison, quality heuristics, winner selection)
+- ✅ V4-70 Social OSINT — `docs/SOCIAL_OSINT_DESIGN.md` (ToS risk assessment, ethical guidelines, no code)
 
 **Deliverables:**
-- ADS-B: `backend/adsb_bridge.py` (OpenSky/ADSBExchange)
-- SAR: `backend/sar_bridge.py` (Sentinel-1 batch processing)
-- Dual Map: `frontend/src/hooks/useMapEngine.ts` + lazy-loaded deck.gl
-- Pi PMTiles: `go-pmtiles` Wrapper + Offline-Basemap
-- Push Delivery: WebSocket/Server-Sent Events für Watch-Items
-- Subgraph A/B: `backend/subgraph_ab.py` — Vergleich zweier Intel-Subgraphen
-- vec1 Benchmark + LLM A/B: `backend/benchmark_vec1.py`, `backend/llm_ab.py`
-- Social OSINT: Design-Doc + ToS-Risiko-Bewertung, kein Code
-- Tests: je nach implementierten Items
+- ADS-B: Already shipped (OpenSky OAuth + adsb.lol/adsb.fi fallback)
+- SAR: `backend/sar_bridge.py` — CFAR detector + Sentinel-1 STAC + AIS cross-ref + dark-vessel detection
+- Dual Map: `frontend/src/hooks/useMapEngine.ts` — lazy deck.gl loader, engine toggle, localStorage persistence
+- Pi PMTiles: `docs/PI_PMTILES_BASEMAP.md` — go-pmtiles systemd setup, tippecanoe/planet-tools generation, sync workflow
+- Push Delivery: `backend/push_delivery.py` — SSE `/api/push/events`, watch-item CRUD, event history, manual trigger
+- Subgraph A/B: `backend/subgraph_ab.py` — `/api/subgraph-ab/compare` with Jaccard, schema delta, edge type delta, centrality
+- vec1 Benchmark: `backend/benchmark_vec1.py` — `/api/benchmark/vec1` with 20 queries, p50/p95/p99, throughput
+- LLM A/B: `backend/llm_ab.py` — `/api/llm-ab/compare` with parallel provider calls, quality heuristics, winner
+- Social OSINT: `docs/SOCIAL_OSINT_DESIGN.md` — ToS risk per platform, ethical guidelines, implementation priority
+- Tests: `backend/test_session16.py` — 40 tests (SAR CFAR, push SSE, subgraph Jaccard, benchmark queries, LLM quality)
+- Config: `WORLDBASE_SAR`, `WORLDBASE_PUSH`, `WORLDBASE_SUBGRAPH_AB`, `WORLDBASE_BENCHMARK`, `WORLDBASE_LLM_AB` (all default off)
 
 **Abhängigkeiten:** diverse, siehe Roadmap
 

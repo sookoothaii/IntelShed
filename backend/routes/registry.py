@@ -99,6 +99,11 @@ def register_routers(app) -> None:
     import retention
     import classification
     import bitemporal
+    import sar_bridge
+    import push_delivery
+    import subgraph_ab
+    import benchmark_vec1
+    import llm_ab
 
     app.include_router(agent_bus.router)
     app.include_router(core_feeds.router)
@@ -186,6 +191,11 @@ def register_routers(app) -> None:
     app.include_router(retention.router)
     app.include_router(classification.router)
     app.include_router(bitemporal.router)
+    app.include_router(sar_bridge.router)
+    app.include_router(push_delivery.router)
+    app.include_router(subgraph_ab.router)
+    app.include_router(benchmark_vec1.router)
+    app.include_router(llm_ab.router)
     from routes import admin as admin_routes
     from routes import duckdb_queue as duckdb_queue_routes
     from routes import metrics as metrics_routes

@@ -169,6 +169,11 @@ class WorldBaseConfig(BaseModel):
     classification_enabled: bool = True
     classification_default: str = "UNCLASSIFIED"
     bitemporal_enabled: bool = True
+    sar_enabled: bool = False
+    push_delivery_enabled: bool = False
+    subgraph_ab_enabled: bool = False
+    benchmark_enabled: bool = False
+    llm_ab_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> Self:
@@ -480,6 +485,11 @@ class WorldBaseConfig(BaseModel):
             .strip()
             .upper(),
             bitemporal_enabled=_truthy(os.getenv("WORLDBASE_BITEMPORAL", "1")),
+            sar_enabled=_truthy(os.getenv("WORLDBASE_SAR", "0")),
+            push_delivery_enabled=_truthy(os.getenv("WORLDBASE_PUSH", "0")),
+            subgraph_ab_enabled=_truthy(os.getenv("WORLDBASE_SUBGRAPH_AB", "0")),
+            benchmark_enabled=_truthy(os.getenv("WORLDBASE_BENCHMARK", "0")),
+            llm_ab_enabled=_truthy(os.getenv("WORLDBASE_LLM_AB", "0")),
         )
 
 
