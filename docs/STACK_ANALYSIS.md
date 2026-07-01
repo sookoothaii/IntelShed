@@ -664,7 +664,7 @@ Additional headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORI
 | Session | Items | Status |
 |---------|-------|--------|
 | E2 | CI workflows + Cache stampede protection | Pending |
-| E3 | Visual regression + MCP quota | Pending |
+| E3 | Visual regression + MCP quota | Shipped |
 
 ---
 
@@ -750,9 +750,9 @@ worldbase/
 5. **DuckDB spatial R-Tree** — Disabled on 1.5.x (duckdb-spatial #769); B-Tree on lat/lon sufficient for <100k entities
 6. **PyICU on Windows** — Requires manual wheel install for `followthemoney`
 7. **`regex` deprecation** — `FastAPIDeprecationWarning` for `regex` → `pattern` in `node_briefing.py`
-8. **Visual regression** — Not yet implemented (Track E3)
+8. **Visual regression** — Shipped (Track E3) — `visual.spec.ts` with golden screenshots for Globe, DataPanel, ChatPanel, SituationBoard, BriefingKanban in dark/light themes
 9. **Cache stampede protection** — Not yet implemented (Track E2)
-10. **MCP quota** — Not yet implemented (Track E3)
+10. **MCP quota** — Shipped (Track E3) — `mcp_quota.py` (per-tool daily/hourly limits), `mcp_conformance.py` (protocol version, tool annotations, output budget), 33 tests passing
 
 ---
 

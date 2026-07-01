@@ -99,11 +99,11 @@ Three synchronized CSP sources:
 **CSP Policy:**
 ```
 default-src 'self';
-script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:;
+script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com;
 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
 font-src 'self' https://fonts.gstatic.com data:;
 img-src 'self' data: blob: https:;
-connect-src 'self' https://api.cesium.com https://*.cesium.com https://dev.virtualearth.net wss: ws:;
+connect-src 'self' https://api.cesium.com https://*.cesium.com https://*.virtualearth.net https://server.arcgisonline.com https://*.arcgisonline.com https://protomaps.github.io https://api.windy.com wss: ws:;
 worker-src 'self' blob:;
 object-src 'none';
 frame-ancestors 'self';
@@ -114,10 +114,16 @@ form-action 'self';
 **Notes:**
 - `'unsafe-inline'` and `'unsafe-eval'` required for Vite dev mode and Cesium web workers
 - `blob:` in `script-src` and `worker-src` for Cesium web workers (blob URL scripts) and terrain tiles
+- `https://unpkg.com` in `script-src` for Leaflet.js loaded dynamically by WindyMapOverlay
 - `frame-ancestors 'self'` omitted from `<meta>` tag (browsers ignore it in meta); kept in HTTP header sources (middleware + Caddyfile)
-- `connect-src` includes `https://*.cesium.com` (assets.ion.cesium.com terrain/imagery) and `https://dev.virtualearth.net` (Bing/Esri fallback tiles)
-- `https://api.cesium.com` in `connect-src` for Cesium Ion token API
-- `wss:` and `ws:` for WebSocket connections (AIS streams, chat SSE fallback)
+- `connect-src` endpoints:
+  - `https://api.cesium.com` — Cesium Ion token API
+  - `https://*.cesium.com` — `assets.ion.cesium.com` terrain/imagery tiles
+  - `https://*.virtualearth.net` — Bing Maps tile servers (Cesium Ion world imagery proxies to these)
+  - `https://server.arcgisonline.com` / `https://*.arcgisonline.com` — Esri basemap tiles (streets, satellite, hillshade, labels)
+  - `https://protomaps.github.io` — Protomaps vector tile glyphs + sprites (MapPanel)
+  - `https://api.windy.com` — Windy weather map API
+  - `wss:` / `ws:` — WebSocket connections (AIS streams, chat SSE fallback)
 
 **Sync verification:** `test_rate_limiter.py::TestCSPHeaders::test_csp_sync_across_sources`
 

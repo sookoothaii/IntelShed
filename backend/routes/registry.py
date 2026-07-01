@@ -208,6 +208,9 @@ def register_routers(app) -> None:
     from routes import quota as quota_routes
 
     app.include_router(quota_routes.router)
+    from routes import mcp_api as mcp_routes
+
+    app.include_router(mcp_routes.router)
     from routes import auth as auth_routes
     from routes import briefing_pipeline as briefing_pipeline_routes
     from routes import config as config_routes

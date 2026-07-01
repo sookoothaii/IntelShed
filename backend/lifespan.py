@@ -727,6 +727,12 @@ def register_lifecycle(app) -> None:
         import quota_monitor
 
         quota_monitor.init_quota_db()
+        try:
+            import mcp_quota
+
+            mcp_quota.init_quota_db()
+        except Exception:
+            pass
         from ollama_config import briefing_autopilot_on
 
         # Initialize task watchdog

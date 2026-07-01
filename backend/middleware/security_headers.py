@@ -16,11 +16,11 @@ class SecurityHeadersMiddleware:
         "Permissions-Policy": "geolocation=(self), microphone=(), camera=()",
         "Content-Security-Policy": (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com data:; "
             "img-src 'self' data: blob: https:; "
-            "connect-src 'self' https://api.cesium.com wss: ws:; "
+            "connect-src 'self' https://api.cesium.com https://*.cesium.com https://*.virtualearth.net https://server.arcgisonline.com https://*.arcgisonline.com https://protomaps.github.io https://api.windy.com wss: ws:; "
             "worker-src 'self' blob:; "
             "object-src 'none'; "
             "frame-ancestors 'self'; "

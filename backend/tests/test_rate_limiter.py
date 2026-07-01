@@ -334,6 +334,14 @@ class TestCSPHeaders:
             ("middleware", middleware_csp),
         ]:
             assert "default-src 'self'" in source_text
-            assert "script-src 'self' 'unsafe-inline' 'unsafe-eval'" in source_text
+            assert (
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com"
+                in source_text
+            )
             assert "worker-src 'self' blob:" in source_text
             assert "object-src 'none'" in source_text
+            assert "https://*.cesium.com" in source_text
+            assert "https://*.virtualearth.net" in source_text
+            assert "https://server.arcgisonline.com" in source_text
+            assert "https://protomaps.github.io" in source_text
+            assert "https://api.windy.com" in source_text

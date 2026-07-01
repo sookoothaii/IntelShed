@@ -1108,12 +1108,23 @@ async def _gate_mcp_tool(
     *,
     write: bool = True,
 ) -> None:
-    """Gate MCP tool call: firewall check (write only) + RBAC per-tool policy.
+    """Gate MCP tool call: quota check + firewall check (write only) + RBAC per-tool policy.
 
+    When WORLDBASE_MCP_QUOTA=1, per-tool daily/hourly limits are enforced.
     When *write* is True, the slim/HAK_GAL firewall scan runs.
     When mcp_policy_enabled is True, the caller's role (from context var)
     is checked against the per-tool policy dict.
     """
+    # E-06: MCP per-tool quota check (fail-soft — never blocks on DB errors)
+    try:
+        from mcp_quota import check_and_record, QuotaExceeded
+
+        await check_and_record(tool_name)
+    except QuotaExceeded:
+        raise
+    except Exception:
+        pass
+
     if write:
         from firewall_bridge import ensure_mcp_tool_allowed
 
