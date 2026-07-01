@@ -82,6 +82,7 @@ docs/**
 !docs/DEPLOYMENT.md
 !docs/DOCKER.md
 !docs/ENGINEERING.md
+!docs/STACK_ANALYSIS.md
 !docs/LINUX_MIGRATION_PLAN.md
 # Local-only operator / agent tooling (not part of the OSS repo)
 .cursor/
