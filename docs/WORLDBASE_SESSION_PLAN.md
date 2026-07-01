@@ -1,7 +1,7 @@
 # WorldBase V4 — Aufgabenplan nach Sessions (~200k Tokens pro Session)
 
 > **Quellen:** `docs/WORLDBASE_ROADMAP_V4.md` + `research/WORLDBASE_RESEARCH_CONSOLIDATED.md` + WorldMonitor-Vergleich (2026-06-30)
-> **Stand:** 2026-06-30  
+> **Stand:** 2026-07-01  
 > **Annahme:** Eine Session = ~200k Token Kontextfenster. Jede Aufgabe ist so geschnitten, dass sie in eine Session passt (Code + Dokumentation + Tests + Review).  
 > **Konventionen:** venv-Python, feature flags default off, fail-soft, Unit-Tests vor Merge, Pi-Sync beachten, Backend-Neustart explizit kommunizieren.
 
@@ -606,23 +606,39 @@ Diese Items sind **nicht** in der V4-Roadmap und werden als paralleler Track E g
 
 Track-E-Sessions können unabhängig von Sessions 4–16 ausgeführt werden. Empfehlung: E-01 bis E-03 frühzeitig (vor Session 4), E-04 bis E-06 mittelfristig (vor Session 10), E-07 jederzeit.
 
-### Session E1 — Pre-push Hooks + Rate Limiting + CSP (Quick Wins)
+### Session E1 — Pre-push Hooks + Rate Limiting + CSP (Quick Wins) ✅ SHIPPED
 
 **Ziel:** Engineering-Hygiene-Basis auf WorldMonitor-Niveau bringen.
 
+**Status:** Shipped — 16 neue Tests (alle grün), 2589 passed insgesamt, ruff clean.
+
 **Items:**
-- E-01 Pre-push Hooks erweitern
-- E-02 Rate Limiting (sliding window)
-- E-07 CSP Hardening
+- ✅ E-01 Pre-push Hooks erweitern
+- ✅ E-02 Rate Limiting (sliding window)
+- ✅ E-07 CSP Hardening
 
 **Deliverables:**
-- `.husky/pre-push` erweitert: `ruff check`, `mypy` (optional), `pytest --collect-only` (Syntax-Check), `npm run typecheck` (Frontend), secret-scan (`.env`-Dateien in staging-area blocken)
-- `backend/rate_limiter.py` — sliding-window per-IP via Redis (oder in-memory fallback), per-endpoint overrides konfigurierbar in `config.py`
-- `WORLDBASE_RATE_LIMIT=1` (default on), `WORLDBASE_RATE_LIMIT_RPM=60` (default)
-- Integration in FastAPI middleware; API-Key-Requests exempt, `/api/health/*` exempt
-- CSP: `index.html` meta-tag + Caddyfile header + Docker Caddyfile synchronisieren
-- Tests: `test_rate_limiter.py`, pre-push hook manual verification
-- Docs: `docs/ENGINEERING.md` (neu) mit Hook-Dokumentation
+- ✅ `.husky/pre-push` erstellt: `ruff check backend/`, `pytest --collect-only` (Syntax-Check), `npx tsc --noEmit` (Frontend), secret guard (`.env`-Dateien in staging-area blocken)
+- ✅ `.pre-commit-config.yaml` erweitert: `pytest-collect` + `secret-guard` hooks mit `stages: [pre-push]`
+- ✅ `backend/middleware/rate_limit.py` — `SlidingWindowLimiter` Klasse: sliding-window per-IP via Redis ZSET (oder in-memory deque fallback), per-endpoint overrides via `WORLDBASE_RATE_LIMIT_OVERRIDES`
+- ✅ `WORLDBASE_RATE_LIMIT=1` (default on), `WORLDBASE_RATE_LIMIT_RPM=60`, `WORLDBASE_RATE_LIMIT_WINDOW_SEC=60`
+- ✅ Integration in FastAPI middleware via `setup_sliding_window_middleware()` (aufgerufen von `setup_rate_limiting()`); API-Key-Requests exempt (`X-API-Key`), Node-Token-Requests exempt (`X-Node-Token`), `/api/health/*` exempt
+- ✅ 429-Response mit `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining` headers
+- ✅ CSP: 3 synchrone Quellen — `frontend/index.html` meta-tag + `Caddyfile` header + `backend/middleware/security_headers.py` (deckt venv dev mode ab)
+- ✅ Tests: `backend/tests/test_rate_limiter.py` — 16 Tests (SlidingWindowLimiter in-memory, health/API-key/node-token exemptions, endpoint overrides, window expiry, different IPs, remaining count, middleware integration, disabled state, CSP header presence + sync)
+- ✅ Docs: `docs/ENGINEERING.md` (neu) mit Hook-Dokumentation, Rate-Limiting-Referenz, CSP-Policy-Dokumentation
+- ✅ Config: `config.py` — `rate_limit_enabled`, `rate_limit_rpm`, `rate_limit_window_sec` in `WorldBaseConfig` + `from_env()`; `.env.example` mit allen neuen Env-Vars
+
+**Umsetzung (Jul 2026):**
+
+- **E-01 Pre-push Hooks ✅** — `.husky/pre-push` Shell-Script (4 Gates: ruff, pytest collect-only, tsc, secret guard). `.pre-commit-config.yaml` erweitert mit `pytest-collect` und `secret-guard` hooks (`stages: [pre-push]`). Fail-fast, `git push --no-verify` als Bypass.
+- **E-02 Rate Limiting ✅** — Zwei-Layer-Architektur: (1) bestehende `slowapi` per-endpoint Decorators (fixed-window, unverändert), (2) neues `SlidingWindowLimiter` global middleware. Redis ZSET (`zremrangebyscore` + `zcard` + `zadd` + `expire` pipeline) mit automatischem in-memory deque Fallback bei Redis-Ausfall. Per-IP key, endpoint-overrides via `WORLDBASE_RATE_LIMIT_OVERRIDES` env var (Format: `/api/chat:30,/api/briefing:10`). Exemptions: `/api/health/*`, `X-API-Key` matching `WORLDBASE_API_KEY`, `X-Node-Token` matching `NODE_INGEST_TOKEN`. 429 JSON-Response mit `error.code`, `error.details.retry_after_seconds`, `error.details.limit`.
+- **E-07 CSP Hardening ✅** — Drei synchrone CSP-Quellen: (1) `<meta http-equiv="Content-Security-Policy">` in `frontend/index.html` (dev mode via Vite :5176), (2) `Content-Security-Policy` header in `Caddyfile` (Docker mode via Caddy proxy), (3) `Content-Security-Policy` in `SecurityHeadersMiddleware._HEADERS` (venv dev mode). Policy: `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.cesium.com wss: ws:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'self'; base-uri 'self'; form-action 'self';`. `'unsafe-inline'`/`'unsafe-eval'` für Vite dev + Cesium web workers, `blob:` für Cesium terrain tiles, `https://api.cesium.com` für Cesium Ion token API.
+
+**Test-Ergebnisse:**
+- `test_rate_limiter.py`: 16 tests ✅ (11 SlidingWindowLimiter unit, 2 middleware integration, 3 CSP header)
+- Full suite: 2589 passed, 3 skipped, 0 failed
+- ruff check: clean
 
 **Abhängigkeiten:** Redis ✅ (für Rate Limiting; in-memory fallback falls Redis nicht verfügbar)
 
@@ -679,7 +695,7 @@ Track-E-Sessions können unabhängig von Sessions 4–16 ausgeführt werden. Emp
 1. Session 1 (Quick Wins) ✅
 2. Session 2 (Regionale Daten) ✅
 3. Session 3 (Anomalie/Graph/Delta) ✅
-4. **Session E1 (Pre-push + Rate Limiting + CSP)** — Engineering-Basis, parallel zu Session 4
+4. **Session E1 (Pre-push + Rate Limiting + CSP)** ✅ shipped — Engineering-Basis, parallel zu Session 4
 5. Session 4 (CII — höchster UX-Win)
 6. Session 5 (Dark Web/Breach) — V4-59 ✅ shipped, V4-58 offen
 7. **Session E2 (CI + Cache Stampede)** — parallel zu Session 5/6
@@ -690,14 +706,14 @@ Track-E-Sessions können unabhängig von Sessions 4–16 ausgeführt werden. Emp
 1. Session 4 (CII)
 2. Session 3 (Graph/Delta) ✅
 3. Session 6+7 (Ontology/Relationship)
-4. **Session E1 (Pre-push + Rate Limiting + CSP)** — frühzeitig, parallel
+4. **Session E1 (Pre-push + Rate Limiting + CSP)** ✅ shipped — frühzeitig, parallel
 5. Session 10 (Visual Intelligence)
 6. Session 11 (ReAct/Temporal)
 7. Session 14 (Analytics)
 8. **Session E3 (Visual Regression + MCP Quota)** — vor oder mit Session 14
 
 **Engineering-Hygiene-Empfehlung (unabhängig von Scenario):**
-- Track E1 so früh wie möglich — Pre-push Hooks und Rate Limiting sind Quick Wins mit hohem ROI
+- Track E1 ✅ shipped — Pre-push Hooks, Rate Limiting (Sliding Window), CSP Hardening alle implementiert und getestet
 - Track E2 vor Session 10 (Cache-Coalescing wird wichtiger sobald mehr Feeds laufen)
 - Track E3 vor Session 14 (Visual Regression braucht stabile UI, MCP Quota wird wichtiger mit mehr Tools)
 

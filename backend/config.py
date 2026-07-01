@@ -174,6 +174,9 @@ class WorldBaseConfig(BaseModel):
     subgraph_ab_enabled: bool = False
     benchmark_enabled: bool = False
     llm_ab_enabled: bool = False
+    rate_limit_enabled: bool = True
+    rate_limit_rpm: int = 60
+    rate_limit_window_sec: float = 60.0
 
     @classmethod
     def from_env(cls) -> Self:
@@ -490,6 +493,11 @@ class WorldBaseConfig(BaseModel):
             subgraph_ab_enabled=_truthy(os.getenv("WORLDBASE_SUBGRAPH_AB", "0")),
             benchmark_enabled=_truthy(os.getenv("WORLDBASE_BENCHMARK", "0")),
             llm_ab_enabled=_truthy(os.getenv("WORLDBASE_LLM_AB", "0")),
+            rate_limit_enabled=_truthy(os.getenv("WORLDBASE_RATE_LIMIT", "1")),
+            rate_limit_rpm=max(1, int(os.getenv("WORLDBASE_RATE_LIMIT_RPM", "60"))),
+            rate_limit_window_sec=max(
+                1.0, float(os.getenv("WORLDBASE_RATE_LIMIT_WINDOW_SEC", "60"))
+            ),
         )
 
 

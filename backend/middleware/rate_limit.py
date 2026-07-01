@@ -1,17 +1,28 @@
 """
-Rate limiting middleware for WorldFastAPI backend using slowapi.
+Rate limiting middleware for WorldBase backend.
 
-This module provides rate limiting functionality with Redis or in-memory backend,
-custom key functions, and decorators for different endpoint categories.
+Two layers:
+1. **slowapi** per-endpoint decorators (fixed-window, Redis or in-memory).
+   Applied via ``@rate_limit_node_ingest()`` etc. on specific routes.
+2. **SlidingWindowLimiter** — global middleware that applies a per-IP sliding
+   window to *all* requests.  API-key requests and ``/api/health/*`` are exempt.
+   Controlled by ``WORLDBASE_RATE_LIMIT=1`` (default on) and
+   ``WORLDBASE_RATE_LIMIT_RPM=60`` (default).
 """
 
+import logging
 import os
+import time
+from collections import defaultdict
 from typing import Callable, Optional
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
+_log = logging.getLogger("worldbase.rate_limit")
 
 
 # =============================================================================
@@ -354,6 +365,9 @@ def setup_rate_limiting(app) -> None:
     # Add custom exception handler for RateLimitExceeded
     app.add_exception_handler(RateLimitExceeded, custom_rate_limit_exceeded_handler)
 
+    # Install global sliding-window middleware (WORLDBASE_RATE_LIMIT=1, default on)
+    setup_sliding_window_middleware(app)
+
     # Add default rate limit headers to all responses (optional)
     @app.middleware("http")
     async def add_rate_limit_headers(request: Request, call_next):
@@ -457,6 +471,238 @@ def check_rate_limit_status(
         "limit": limit,
         "status": "active",
     }
+
+
+# =============================================================================
+# Sliding Window Rate Limiter (global middleware)
+# =============================================================================
+
+
+class SlidingWindowLimiter:
+    """Sliding-window rate limiter with Redis ZSET or in-memory deque fallback.
+
+    Uses a sliding window of *window_seconds* seconds.  Each request appends
+    a timestamp to a sorted set (Redis) or deque (memory).  Before adding,
+    entries older than the window are pruned.  If the remaining count >= limit,
+    the request is rejected with 429.
+
+    Per-endpoint overrides can be configured via the *endpoint_overrides* dict
+    mapping path prefixes to (rpm, window_seconds) tuples.
+    """
+
+    def __init__(
+        self,
+        rpm: int = 60,
+        window_seconds: float = 60.0,
+        endpoint_overrides: dict[str, tuple[int, float]] | None = None,
+    ) -> None:
+        self.rpm = rpm
+        self.window_seconds = window_seconds
+        self.endpoint_overrides = endpoint_overrides or {}
+        self._redis = None
+        self._memory: dict[str, list[float]] = defaultdict(list)
+        self._init_redis()
+
+    def _init_redis(self) -> None:
+        """Try to connect to Redis for distributed sliding window."""
+        if RATE_LIMIT_STORAGE == "redis" and REDIS_URL:
+            try:
+                import redis
+
+                self._redis = redis.from_url(
+                    REDIS_URL,
+                    socket_connect_timeout=RATE_LIMIT_REDIS_CONNECT_TIMEOUT,
+                    socket_timeout=RATE_LIMIT_REDIS_SOCKET_TIMEOUT,
+                    max_connections=RATE_LIMIT_REDIS_MAX_CONNECTIONS,
+                    decode_responses=True,
+                )
+                self._redis.ping()
+                _log.info("sliding_window_redis_connected url=%s", REDIS_URL)
+            except Exception as exc:
+                _log.warning(
+                    "sliding_window_redis_unavailable falling back to memory: %s",
+                    exc,
+                )
+                self._redis = None
+
+    def _get_limit_for_path(self, path: str) -> tuple[int, float]:
+        """Return (rpm, window_seconds) for a given path, checking overrides."""
+        for prefix, (rpm, window) in self.endpoint_overrides.items():
+            if path.startswith(prefix):
+                return rpm, window
+        return self.rpm, self.window_seconds
+
+    def _is_exempt(self, request: Request) -> bool:
+        """Check if request is exempt from sliding-window limiting."""
+        # Health endpoints
+        path = request.url.path
+        if path.startswith("/api/health"):
+            return True
+        # API-key authenticated requests
+        api_key = request.headers.get("X-API-Key", "")
+        if api_key and api_key == os.getenv("WORLDBASE_API_KEY", ""):
+            return True
+        # Node token authenticated requests (Pi sync)
+        node_token = request.headers.get("X-Node-Token", "")
+        if node_token and node_token == os.getenv("NODE_INGEST_TOKEN", ""):
+            return True
+        return False
+
+    def _check_redis(
+        self, key: str, rpm: int, window: float, now: float
+    ) -> tuple[bool, int]:
+        """Redis ZSET sliding window. Returns (allowed, remaining)."""
+        redis_key = f"{RATE_LIMIT_KEY_PREFIX}:sw:{key}"
+        member = f"{now}"
+        pipe = self._redis.pipeline()
+        pipe.zremrangebyscore(redis_key, 0, now - window)
+        pipe.zcard(redis_key)
+        pipe.zadd(redis_key, {member: now})
+        pipe.expire(redis_key, int(window) + 1)
+        results = pipe.execute()
+        count = results[1]
+        if count >= rpm:
+            # Revert the zadd we just did
+            self._redis.zrem(redis_key, member)
+            return False, 0
+        return True, rpm - count - 1
+
+    def _check_memory(
+        self, key: str, rpm: int, window: float, now: float
+    ) -> tuple[bool, int]:
+        """In-memory deque sliding window. Returns (allowed, remaining)."""
+        entries = self._memory[key]
+        cutoff = now - window
+        # Prune old entries
+        while entries and entries[0] < cutoff:
+            entries.pop(0)
+        if len(entries) >= rpm:
+            return False, 0
+        entries.append(now)
+        return True, rpm - len(entries)
+
+    def check(self, request: Request) -> tuple[bool, int, int, int]:
+        """Check if request is allowed.
+
+        Returns:
+            (allowed, remaining, limit, retry_after_seconds)
+        """
+        if self._is_exempt(request):
+            return True, -1, -1, 0
+
+        path = request.url.path
+        rpm, window = self._get_limit_for_path(path)
+        ip = get_ip_with_forwarding(request)
+        key = ip
+        now = time.monotonic()
+
+        if self._redis:
+            try:
+                allowed, remaining = self._check_redis(key, rpm, window, now)
+            except Exception as exc:
+                _log.warning("sliding_window_redis_error falling back: %s", exc)
+                self._redis = None
+                allowed, remaining = self._check_memory(key, rpm, window, now)
+        else:
+            allowed, remaining = self._check_memory(key, rpm, window, now)
+
+        retry_after = int(window) if not allowed else 0
+        return allowed, remaining, rpm, retry_after
+
+
+# =============================================================================
+# Global Sliding Window Middleware
+# =============================================================================
+
+
+def _truthy_env(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
+
+
+# Configurable via env vars
+SLIDING_WINDOW_ENABLED = _truthy_env("WORLDBASE_RATE_LIMIT", "1")
+SLIDING_WINDOW_RPM = int(os.getenv("WORLDBASE_RATE_LIMIT_RPM", "60"))
+SLIDING_WINDOW_WINDOW_SEC = float(os.getenv("WORLDBASE_RATE_LIMIT_WINDOW_SEC", "60"))
+
+
+def _parse_endpoint_overrides() -> dict[str, tuple[int, float]]:
+    """Parse WORLDBASE_RATE_LIMIT_OVERRIDES env var.
+
+    Format: "prefix:rpm,prefix2:rpm2" e.g. "/api/chat:30,/api/briefing:10"
+    Window is always SLIDING_WINDOW_WINDOW_SEC.
+    """
+    raw = os.getenv("WORLDBASE_RATE_LIMIT_OVERRIDES", "")
+    if not raw:
+        return {}
+    overrides: dict[str, tuple[int, float]] = {}
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if ":" not in entry:
+            continue
+        prefix, rpm_str = entry.rsplit(":", 1)
+        try:
+            rpm = int(rpm_str)
+            overrides[prefix.strip()] = (rpm, SLIDING_WINDOW_WINDOW_SEC)
+        except ValueError:
+            continue
+    return overrides
+
+
+# Global instance (created lazily)
+_sliding_window_limiter: SlidingWindowLimiter | None = None
+
+
+def get_sliding_window_limiter() -> SlidingWindowLimiter | None:
+    """Get or create the global sliding window limiter instance."""
+    global _sliding_window_limiter
+    if not SLIDING_WINDOW_ENABLED:
+        return None
+    if _sliding_window_limiter is None:
+        _sliding_window_limiter = SlidingWindowLimiter(
+            rpm=SLIDING_WINDOW_RPM,
+            window_seconds=SLIDING_WINDOW_WINDOW_SEC,
+            endpoint_overrides=_parse_endpoint_overrides(),
+        )
+    return _sliding_window_limiter
+
+
+def setup_sliding_window_middleware(app) -> None:
+    """Install the global sliding-window rate-limit middleware on a FastAPI app.
+
+    This is called automatically by ``setup_rate_limiting`` when
+    ``WORLDBASE_RATE_LIMIT=1`` (default on).
+    """
+    limiter_instance = get_sliding_window_limiter()
+    if limiter_instance is None:
+        return
+
+    @app.middleware("http")
+    async def sliding_window_rate_limit(request: Request, call_next):
+        allowed, remaining, limit, retry_after = limiter_instance.check(request)
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": {
+                        "code": "RATE_LIMIT_EXCEEDED",
+                        "message": "Sliding window rate limit exceeded.",
+                        "details": {
+                            "retry_after_seconds": retry_after,
+                            "limit": f"{limit}/minute",
+                        },
+                    }
+                },
+                headers={
+                    "Retry-After": str(retry_after),
+                    "X-RateLimit-Limit": str(limit),
+                    "X-RateLimit-Remaining": "0",
+                },
+            )
+        response = await call_next(request)
+        if remaining >= 0:
+            response.headers["X-RateLimit-Limit"] = str(limit)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+        return response
 
 
 # =============================================================================

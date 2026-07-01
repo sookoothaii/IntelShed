@@ -21,3 +21,24 @@ repos:
         types_or: [ts, tsx]
         files: ^frontend/
         pass_filenames: false
+
+  # --- Pre-push: pytest collect-only (syntax/import check) ---
+  - repo: local
+    hooks:
+      - id: pytest-collect
+        name: pytest --collect-only (backend syntax check)
+        entry: bash -c 'cd backend && python -m pytest --collect-only -q --tb=short'
+        language: system
+        files: ^backend/.*\.py$
+        pass_filenames: false
+        stages: [pre-push]
+
+  # --- Pre-push: secret guard (block .env files) ---
+  - repo: local
+    hooks:
+      - id: secret-guard
+        name: secret guard (block .env in staging)
+        entry: 'bash -c "git diff --cached --name-only --diff-filter=ACM | grep -iE ''\.env$|\.env\.'' && { echo ''BLOCKED: .env files in staging''; exit 1; } || true"'
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

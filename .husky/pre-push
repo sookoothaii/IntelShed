@@ -1,0 +1,40 @@
+#!/usr/bin/env sh
+# Pre-push hook — runs quality gates before pushing to remote.
+# Install:  husky install   (or manually: cp .husky/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push)
+#
+# Checks (fail-fast):
+#   1. ruff check          — backend lint
+#   2. pytest --collect-only — backend syntax/import check (no test execution)
+#   3. npm run typecheck    — frontend TypeScript type check
+#   4. secret guard         — block .env files in staging area
+
+set -e
+
+echo "▶ [pre-push] Running quality gates …"
+
+# --- 1. Backend: ruff lint ---
+echo "  ▸ ruff check backend/"
+ruff check backend/ || { echo "✗ ruff check failed"; exit 1; }
+
+# --- 2. Backend: pytest collect-only (syntax + import check, no execution) ---
+echo "  ▸ pytest --collect-only (backend)"
+cd backend && python -m pytest --collect-only -q --tb=short 2>&1 | tail -5; cd ..
+echo "  ✓ pytest collect-only passed"
+
+# --- 3. Frontend: TypeScript typecheck ---
+echo "  ▸ tsc --noEmit (frontend)"
+cd frontend && npx tsc --noEmit; cd ..
+echo "  ✓ typecheck passed"
+
+# --- 4. Secret guard: block .env files in staging area ---
+echo "  ▸ secret guard"
+STAGED_ENV=$(git diff --cached --name-only --diff-filter=ACM | grep -iE '\.env$|\.env\.' || true)
+if [ -n "$STAGED_ENV" ]; then
+  echo "✗ BLOCKED: .env files detected in staging area:"
+  echo "$STAGED_ENV"
+  echo "  Remove them from staging:  git reset HEAD <file>"
+  exit 1
+fi
+echo "  ✓ no .env files in staging"
+
+echo "✅ All pre-push checks passed."

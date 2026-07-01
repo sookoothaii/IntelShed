@@ -14,6 +14,19 @@ class SecurityHeadersMiddleware:
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "X-Permitted-Cross-Domain-Policies": "none",
         "Permissions-Policy": "geolocation=(self), microphone=(), camera=()",
+        "Content-Security-Policy": (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
+            "img-src 'self' data: blob: https:; "
+            "connect-src 'self' https://api.cesium.com wss: ws:; "
+            "worker-src 'self' blob:; "
+            "object-src 'none'; "
+            "frame-ancestors 'self'; "
+            "base-uri 'self'; "
+            "form-action 'self';"
+        ),
     }
 
     def __init__(self, app):
