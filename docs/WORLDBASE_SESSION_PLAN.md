@@ -689,6 +689,58 @@ Track-E-Sessions können unabhängig von Sessions 4–16 ausgeführt werden. Emp
 
 ---
 
+### Session E4 — Cesium Memory Cap + CSP SSoT + Golden Queries (Best-Practices Audit)
+
+**Ziel:** Externe Best-Practices-Analyse filtern — nur validierte Lücken schließen.
+
+**Hintergrund:** Eine externe Architektur-Analyse empfahl 7 Maßnahmen. Nach Code-Audit gegen die tatsächliche Codebase wurden 5 davon als **bereits implementiert** identifiziert und verworfen. Nur 3 echte Lücken bleiben.
+
+**Verworfene Empfehlungen (bereits implementiert):**
+- ~~Route-based Code Splitting~~ — `App.tsx` nutzt `lazy()` + `Suspense` für 16 Komponenten (Globe, ChatPanel, DataPanel, FullAnalysisOverlay, etc.); `SidebarRight.tsx` lazy-loads `EntityDetailPanel`
+- ~~`viewer.destroy()` cleanup~~ — bereits in `Globe.tsx:2584-2590` mit `isDestroyed()` guard
+- ~~`requestRenderMode`~~ — bereits enabled (`Globe.tsx:1526`, default ON, env-gated via `VITE_WORLDBASE_GLOBE_CONTINUOUS_RENDER`)
+- ~~Backend DI / Repository-Service Pattern~~ — 87-Module-Refactor mit dubious ROI bei 2.592 grünen Tests; aktuelle flat-structure funktioniert
+- ~~Celery DLQ + Idempotenz~~ — DLQ in `duckdb_queue.py` (`dlq_list/replay/clear`), Retry mit `autoretry_for` + `retry_backoff=60` + `max_retries=5`, 503 circuit-breaker retry, FtM upsert ist natürlich idempotent (deterministische Entity IDs)
+- ~~DuckDB R-Tree Upgrade~~ — version-gated auto-enable in `ftm_schema.py`: `>= 1.6.0` auto-enables R-Tree, `< 1.6.0` hat bug #769, `WORLDBASE_DUCKDB_RTREE=1` force-flag, `requirements.txt` pinned `duckdb>=1.5.4` (pickt 1.6.0 automatisch wenn auf PyPI)
+- ~~Feed-Priorisierung~~ — Beat schedule hat per-feed intervals (`_feed_interval`), nicht alle gleichzeitig
+
+**Items (nur echte Lücken):**
+
+#### E-08 Cesium Memory Cap + Heap Throttling
+- `releaseGeometryInstances = true` auf allen `Primitive`-Erstellungen in `Globe.tsx` und layer hooks — verhindert GPU-Memory-Leak bei wiederholtem layer toggle
+- `maximumMemoryUsage` (z.B. 512 MB) auf 3D-Tilesets (`osmBuildingsRef`, `photorealRef`) — Cesium default ist unlimited
+- Heap-Monitoring: wenn `performance.memory.usedJSHeapSize > 600 MB`, rendering pausieren (layer updates skippen bis Heap fällt). Feature-flag: `VITE_WORLDBASE_HEAP_GUARD=1` (default off)
+- Tests: manuell verifizierbar (Chrome DevTools Memory tab), kein automated test möglich (Chrome `performance.memory` ist nicht in headless)
+
+#### E-09 CSP Single Source of Truth
+- `backend/csp_policy.py` — zentrale CSP-Policy als Python dict/string
+- `SecurityHeadersMiddleware` liest aus `csp_policy.py` statt hardcoded string
+- `Caddyfile` wird via `envsubst` oder Caddy `import` aus generiertem File befüllt
+- `frontend/vite.config.ts` Plugin injiziert CSP `<meta>` tag zur Build-Zeit aus selbiger Quelle
+- Eliminiert Drift zwischen 3 synchronisierten CSP-Quellen (index.html, Caddyfile, middleware)
+- Tests: `test_csp_policy.py` — validiert dass alle 3 Quellen identische Policy produzieren
+
+#### E-10 Golden Queries Expansion
+- `test_chat_report_quality.py` von 15 → 50+ golden queries
+- Coverage: alle 5 query-router routes (vector/graph/spatial/hybrid/live), edge cases (empty results, conflict detection, evidence chain refs)
+- Regressionssicherheit bei Prompt-Changes und LLM-Provider-Switches
+- Tests: erweiterte `test_chat_report_quality.py`
+
+**Deliverables:**
+- `Globe.tsx` + layer hooks: `releaseGeometryInstances` + `maximumMemoryUsage`
+- `frontend/src/lib/heapGuard.ts` — heap monitoring utility
+- `backend/csp_policy.py` — zentrale CSP-Policy
+- `frontend/vite.config.ts` — CSP meta injection plugin
+- `Caddyfile` — CSP aus generiertem File
+- `test_csp_policy.py`, erweiterte `test_chat_report_quality.py`
+- Docs: `docs/ENGINEERING.md` erweitern
+
+**Aufwand:** 2-3 Tage
+
+**Priorität:** P2 — Cesium Memory Cap ist P0-adjacent (UX-Risiko bei langen Sessions), CSP SSoT ist P2 (Drift-Risiko), Golden Queries ist P2 (Regressionssicherheit)
+
+---
+
 ## Priorisierungs-Empfehlung
 
 **Für Citizen-ROI (Scenario B aus Machbarkeitsstudie):**
@@ -716,6 +768,7 @@ Track-E-Sessions können unabhängig von Sessions 4–16 ausgeführt werden. Emp
 - Track E1 ✅ shipped — Pre-push Hooks, Rate Limiting (Sliding Window), CSP Hardening alle implementiert und getestet
 - Track E2 vor Session 10 (Cache-Coalescing wird wichtiger sobald mehr Feeds laufen)
 - Track E3 vor Session 14 (Visual Regression braucht stabile UI, MCP Quota wird wichtiger mit mehr Tools)
+- Track E4 nach E1 (Cesium Memory Cap ist UX-kritisch bei langen Sessions, CSP SSoT und Golden Queries sind Regressionssicherheit)
 
 ---
 
