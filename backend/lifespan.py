@@ -718,6 +718,9 @@ def register_lifecycle(app) -> None:
         import briefing_pipeline
 
         briefing_pipeline.init_pipeline_db()
+        import ckan_harvester
+
+        ckan_harvester.init_harvest_log()
         import features
 
         features.init_feature_flags_db()

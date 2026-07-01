@@ -103,6 +103,16 @@ jobs:
         run: python -m compileall -q .
       - name: Import smoke test
         run: python -c "import main; print('FastAPI app:', main.app.title)"
+      - name: API contract generation (OpenAPI → TS)
+        run: |
+          python -c "
+          import main, api_contracts, json
+          schema = main.app.openapi()
+          ts = api_contracts.generate_ts_client(schema)
+          with open('../frontend/src/lib/apiClient.ts', 'w', encoding='utf-8') as f:
+              f.write(ts)
+          print(f'Generated TS client: {len(schema.get(\"paths\",{}))} paths, {len(schema.get(\"components\",{}).get(\"schemas\",{}))} schemas')
+          "
 
   backend-quality:
     name: Backend (lint + type check)

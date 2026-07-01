@@ -1,0 +1,54 @@
+# CKAN portal sources for the generic harvester.
+# Add portals here; each entry becomes searchable + harvestable via /api/ckan/.
+#
+# Fields:
+#   id           — unique slug (used in API paths)
+#   name         — display name
+#   url          — CKAN base URL (e.g. https://data.go.th)
+#   region       — operator region tag (local / regional / global)
+#   groups       — CKAN group filters for harvest (optional)
+#   ttl_sec      — cache TTL for search results
+#   api_key_env  — env var name for optional API key (never hardcode keys)
+#   ingest_mapping — FtM YAML mapping name for ingest (optional)
+#   enabled      — set false to skip this portal
+
+portals:
+  - id: data_go_th
+    name: "Thailand Open Data (data.go.th)"
+    url: "https://data.go.th"
+    region: local
+    groups: []
+    ttl_sec: 3600
+    enabled: true
+
+  - id: data_gov_sg
+    name: "Singapore Open Data (data.gov.sg)"
+    url: "https://data.gov.sg"
+    region: regional
+    groups: []
+    ttl_sec: 3600
+    enabled: true
+
+  - id: data_gov_uk
+    name: "UK Open Data (data.gov.uk)"
+    url: "https://data.gov.uk"
+    region: global
+    groups: []
+    ttl_sec: 3600
+    enabled: true
+
+  - id: data_gov
+    name: "US Open Data (data.gov)"
+    url: "https://catalog.data.gov"
+    region: global
+    groups: []
+    ttl_sec: 3600
+    enabled: true
+
+  - id: opendata_europa_eu
+    name: "EU Open Data Portal"
+    url: "https://data.europa.eu"
+    region: global
+    groups: []
+    ttl_sec: 3600
+    enabled: true

@@ -656,6 +656,23 @@ CONNECTOR_CATALOG: dict[str, ConnectorManifest] = {
         tier="optional",
         notes="EONET fallback without FIRMS key.",
     ),
+    "ckan_harvester": _c(
+        "ckan_harvester",
+        "CKAN generic harvester (multi-portal)",
+        "government",
+        (
+            "/api/ckan/portals",
+            "/api/ckan/{portal_id}/search",
+            "/api/ckan/{portal_id}/harvest",
+            "/api/ckan/harvest-all",
+            "/api/ckan/harvest/log",
+        ),
+        ttl_sec=3600,
+        region=("local", "regional", "global"),
+        bridge="ckan_harvester.py",
+        cache_key="ckan_harvester",
+        notes="Generic CKAN portal harvester. Portals configured in ingest/ckan_sources.yml. WORLDBASE_CKAN_HARVESTER=1 to enable harvest.",
+    ),
 }
 
 
