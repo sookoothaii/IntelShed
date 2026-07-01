@@ -35,7 +35,7 @@
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "SAMEORIGIN"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.cesium.com https://*.cesium.com https://*.virtualearth.net https://server.arcgisonline.com https://*.arcgisonline.com https://protomaps.github.io https://api.windy.com wss: ws:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://api.cesium.com https://*.cesium.com https://*.virtualearth.net https://server.arcgisonline.com https://*.arcgisonline.com https://protomaps.github.io https://api.windy.com wss: ws:; worker-src 'self' blob:; object-src 'none'; frame-src 'self' http://localhost:5173 http://127.0.0.1:5173; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
 	}
 
 	# --- Optional hard lockdown: only the PC + the Pi may reach /api ---

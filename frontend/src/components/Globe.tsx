@@ -60,6 +60,7 @@ import { GlobeLayerManager } from '../hooks/layers/GlobeLayerManager';
 import { canFetch } from '../lib/networkFetch';
 import { createTerrainWithFallback, attachTerrainFailover } from '../lib/cesiumTerrain';
 import { initCesiumToken } from '../lib/cesiumToken';
+import { createHeapGuard, isHeapGuardEnabled, type HeapGuardHandle } from '../lib/heapGuard';
 
 import type { MapViewMode } from '../lib/mapView';
 import {
@@ -152,6 +153,25 @@ const GLOBE_TILE_CACHE_SIZE = (() => {
   if (raw == null || raw === '') return 100;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 100;
+})();
+
+// E-08: 3D Tileset memory caps — Cesium default is unlimited GPU memory.
+// cacheBytes is in BYTES (not MB). 512 MB = 536_870_912 bytes per tileset.
+// Prevents unbounded GPU growth during long OSINT sessions.
+const TILESET_CACHE_BYTES = (() => {
+  const raw = import.meta.env.VITE_WORLDBASE_TILESET_MAX_MEM;
+  if (raw == null || raw === '') return 512 * 1024 * 1024;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) * 1024 * 1024 : 512 * 1024 * 1024;
+})();
+
+// E-08: Quality/memory tradeoff for 3D tilesets. Higher = fewer tiles loaded.
+// Cesium default is 16; we keep that for buildings, use 24 for photorealistic.
+const TILESET_MAX_SSE = (() => {
+  const raw = import.meta.env.VITE_WORLDBASE_TILESET_SSE;
+  if (raw == null || raw === '') return 16;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 16;
 })();
 
 /** Retina GPU lever: skip browser-recommended supersampling; cap internal render scale. */
@@ -298,6 +318,8 @@ async function applyGlobeMapMode(
       try {
         const tileset = await Cesium3DTileset.fromIonAssetId(ION_PHOTOREALISTIC_ASSET);
         refs.photoreal.current = tileset;
+        tileset.cacheBytes = TILESET_CACHE_BYTES;
+        tileset.maximumScreenSpaceError = TILESET_MAX_SSE;
         scene.primitives.add(tileset);
       } catch (e) {
         console.warn('[Globe] Photorealistic 3D unavailable:', e);
@@ -1341,6 +1363,45 @@ export default function Globe({
   const layersRef = useRef(layers);
   useEffect(() => {
     layersRef.current = layers;
+  }, [layers]);
+
+  // E-08: Heap Guard — monitors JS heap and unloads LRU layers when threshold exceeded
+  const heapGuardRef = useRef<HeapGuardHandle | null>(null);
+  useEffect(() => {
+    if (!isHeapGuardEnabled()) return;
+    heapGuardRef.current = createHeapGuard({
+      onThresholdExceeded: (heapMB) => {
+        console.warn(`[heapGuard] Heap threshold exceeded: ${heapMB.toFixed(0)} MB — unloading idle layers`);
+      },
+      getActiveLayers: () => Object.entries(layersRef.current)
+        .filter(([, v]) => v)
+        .map(([k]) => k),
+      deactivateLayer: (key) => {
+        setLayers((prev) => ({ ...prev, [key]: false }));
+      },
+      flushTileCache: () => {
+        const viewer = viewerRef.current;
+        if (viewer && !viewer.isDestroyed?.()) {
+          // Reduce tile cache to force Cesium to unload tiles
+          const scene = viewer.scene;
+          if (scene.globe) {
+            scene.globe.tileCacheSize = Math.max(20, Math.floor(GLOBE_TILE_CACHE_SIZE * 0.5));
+          }
+        }
+      },
+    });
+    return () => {
+      heapGuardRef.current?.stop();
+      heapGuardRef.current = null;
+    };
+  }, []);
+  // Touch layer access on toggle for LRU tracking
+  useEffect(() => {
+    for (const key of Object.keys(layers)) {
+      if (layers[key as LayerKey]) {
+        heapGuardRef.current?.touchLayer(key);
+      }
+    }
   }, [layers]);
   const powerStateRef = useRef<GlobePowerState>({
     docVisible: typeof document !== 'undefined' ? !document.hidden : true,
@@ -2557,6 +2618,8 @@ export default function Globe({
             if (!cancelled && viewerRef.current === viewer) {
               osmBuildingsRef.current = buildings;
               buildings.show = mapModeRef.current.buildings && !mapModeRef.current.photorealistic;
+              buildings.cacheBytes = TILESET_CACHE_BYTES;
+              buildings.maximumScreenSpaceError = TILESET_MAX_SSE;
               scene.primitives.add(buildings);
             }
           } catch (e) {
@@ -2582,6 +2645,19 @@ export default function Globe({
         clearInterval(id);
       });
       if (viewer && !(viewer as unknown as { isDestroyed?: () => boolean }).isDestroyed?.()) {
+        // E-08: Explicitly remove tilesets before viewer.destroy() to free GPU memory
+        try {
+          if (osmBuildingsRef.current) {
+            viewer.scene.primitives.remove(osmBuildingsRef.current);
+            osmBuildingsRef.current = null;
+          }
+          if (photorealRef.current) {
+            viewer.scene.primitives.remove(photorealRef.current);
+            photorealRef.current = null;
+          }
+        } catch {
+          /* already removed */
+        }
         try {
           viewer.destroy();
         } catch {

@@ -50,6 +50,7 @@ def register_routers(app) -> None:
     import feeds_extra
     import firewall_bridge
     import flowsint_bridge
+    import flowsint_auto_enrich
     import ftm_store
     import fusion_heatmap
     import fusion_delta
@@ -146,6 +147,7 @@ def register_routers(app) -> None:
     app.include_router(telegram_bridge.router)
     app.include_router(pegel_bridge.router)
     app.include_router(flowsint_bridge.router)
+    app.include_router(flowsint_auto_enrich.router)
     app.include_router(gdelt_bridge.router)
     app.include_router(global_search.router)
     app.include_router(cap_bridge.router)

@@ -382,8 +382,51 @@ def _compile_alerts(snap: dict) -> list:
 # ---------------------------------------------------------------------------
 # PC -> Pi : LLM situation briefing
 # ---------------------------------------------------------------------------
+_BRIEFING_PROVIDER = os.getenv("WORLDBASE_BRIEFING_PROVIDER", "nvidia").strip().lower()
+_NVIDIA_BRIEFING_MODEL = os.getenv(
+    "WORLDBASE_NVIDIA_BRIEFING_MODEL", "stepfun-ai/step-3.7-flash"
+).strip()
+_NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+
+
+async def _nvidia_briefing(prompt: str) -> str:
+    """Briefing via NVIDIA NIM (stepfun-ai/step-3.7-flash). Fast, no local VRAM."""
+    if not _NVIDIA_API_KEY:
+        return ""
+    body = {
+        "model": _NVIDIA_BRIEFING_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 420,
+        "temperature": 0.35,
+        "stream": False,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                f"{_NVIDIA_BASE_URL}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {_NVIDIA_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+            if r.status_code == 200:
+                choices = r.json().get("choices", [])
+                if choices:
+                    return choices[0].get("message", {}).get("content", "").strip()
+    except Exception:
+        pass
+    return ""
+
+
 async def _ollama_briefing(prompt: str) -> str:
-    """Single-shot briefing via local Ollama — capped tokens, no Qwen3 thinking."""
+    """Single-shot briefing — NVIDIA NIM (stepfun) primary, local Ollama fallback."""
+    if _BRIEFING_PROVIDER == "nvidia" and _NVIDIA_API_KEY:
+        text = await _nvidia_briefing(prompt)
+        if text:
+            return text
+        # fall through to ollama on failure
     options: dict = {"num_predict": 420, "temperature": 0.35}
     try:
         from ollama_config import context_length_for

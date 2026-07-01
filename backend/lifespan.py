@@ -298,32 +298,48 @@ async def _phase1_background_tasks() -> None:
             try:
                 news = await rag_memory.ingest_news_sources()
                 log.info("rag_news_indexed", chunks=news.get("indexed", 0))
-                await rag_memory.ingest_hazards()
-                await rag_memory.ingest_situations()
-                await rag_memory.ingest_volcanoes()
-                watches = await rag_memory.ingest_prediction_watches()
-                if watches.get("indexed"):
-                    log.info("rag_watches_indexed", indexed=watches.get("indexed"))
+                # Run independent ingest_* concurrently — each uses index_records_batch
+                # internally (concurrent embeddings via Semaphore(8))
+                rag_results = await asyncio.gather(
+                    rag_memory.ingest_hazards(),
+                    rag_memory.ingest_situations(),
+                    rag_memory.ingest_volcanoes(),
+                    rag_memory.ingest_prediction_watches(),
+                    return_exceptions=True,
+                )
+                for r in rag_results:
+                    if isinstance(r, dict) and r.get("indexed"):
+                        log.info("rag_ingest_batch", **r)
             except Exception as e:
                 log.warning("rag_index_failed", error=str(e))
-        try:
-            items = await stac_bridge.fetch_recent_thailand_items(limit=6)
-            await rag_memory.ingest_stac_items(items)
-        except Exception as e:
-            log.warning("stac_ingest_failed", error=str(e))
-        try:
-            screen = await sanctions_bridge.sanctions_screen_vessels(
-                min_score=0.85, limit=200
-            )
-            hits = [
-                m.get("sanction")
-                for m in (screen.get("matches") or [])
-                if m.get("sanction")
-            ]
-            if hits:
-                await rag_memory.ingest_sanctions_hits(hits)
-        except Exception as e:
-            log.warning("sanctions_ingest_failed", error=str(e))
+        # STAC + sanctions can run in parallel (independent data sources)
+        stac_coro = stac_bridge.fetch_recent_thailand_items(limit=6)
+        sanctions_coro = sanctions_bridge.sanctions_screen_vessels(
+            min_score=0.85, limit=200
+        )
+        stac_items, screen = await asyncio.gather(
+            stac_coro, sanctions_coro, return_exceptions=True
+        )
+        if isinstance(stac_items, list):
+            try:
+                await rag_memory.ingest_stac_items(stac_items)
+            except Exception as e:
+                log.warning("stac_ingest_failed", error=str(e))
+        elif isinstance(stac_items, Exception):
+            log.warning("stac_ingest_failed", error=str(stac_items))
+        if isinstance(screen, dict):
+            try:
+                hits = [
+                    m.get("sanction")
+                    for m in (screen.get("matches") or [])
+                    if m.get("sanction")
+                ]
+                if hits:
+                    await rag_memory.ingest_sanctions_hits(hits)
+            except Exception as e:
+                log.warning("sanctions_ingest_failed", error=str(e))
+        elif isinstance(screen, Exception):
+            log.warning("sanctions_ingest_failed", error=str(screen))
         if feed_ingest.autopilot_on() and _cfg().task_queue != "celery":
             try:
                 result = await feed_ingest.run_feed_ingest()
@@ -654,19 +670,31 @@ async def _briefing_autopilot() -> None:
             import ftm_archive
             import sqlite_bootstrap
 
-            # Prune stale feed cache
-            pruned = sqlite_bootstrap.prune_feed_cache()
+            # Prune stale feed cache (sync — offload to thread)
+            pruned = await asyncio.to_thread(sqlite_bootstrap.prune_feed_cache)
             if pruned:
                 log.info("feed_cache_pruned", removed=pruned)
-            # VACUUM SQLite
+            # SQLite maintenance: WAL checkpoint + optimize (fast), VACUUM only when fragmented
             import sqlite3
 
-            conn = sqlite3.connect(sqlite_bootstrap.DB_PATH, timeout=10.0)
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.execute("VACUUM")
-            conn.close()
+            def _sqlite_maintenance():
+                conn = sqlite3.connect(sqlite_bootstrap.DB_PATH, timeout=10.0)
+                conn.execute("PRAGMA busy_timeout=5000")
+                # WAL checkpoint — sub-second, flushes WAL to main DB
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                # Update query planner stats
+                conn.execute("PRAGMA optimize")
+                # Only VACUUM when >10% pages are on freelist
+                freelist = conn.execute("PRAGMA freelist_count").fetchone()[0]
+                page_count = conn.execute("PRAGMA page_count").fetchone()[0]
+                if page_count > 0 and freelist / page_count > 0.1:
+                    conn.execute("VACUUM")
+                    log.info("sqlite_vacuum", freelist=freelist, pages=page_count)
+                conn.close()
+
+            await asyncio.to_thread(_sqlite_maintenance)
             # FtM archival (no-op when WORLDBASE_FTM_ARCHIVE_DAYS=0)
-            result = ftm_archive.archive_stale_entities()
+            result = await asyncio.to_thread(ftm_archive.archive_stale_entities)
             if result.get("enabled") and result.get("archived", 0) > 0:
                 log.info("ftm_archived", **result)
         except Exception as exc:
@@ -777,7 +805,7 @@ def register_lifecycle(app) -> None:
             log.info("entity_resolution_autopilot_disabled")
         import prediction_ledger
 
-        if prediction_ledger.autopilot_on():
+        if prediction_ledger.autopilot_on() and cfg.task_queue != "celery":
             if wd:
                 wd.register(
                     "prediction_ledger",
@@ -787,13 +815,18 @@ def register_lifecycle(app) -> None:
                 wd.start("prediction_ledger")
             else:
                 asyncio.create_task(_prediction_ledger_autopilot())
+        elif prediction_ledger.autopilot_on() and cfg.task_queue == "celery":
+            log.info("prediction_ledger_delegated_to_celery")
         else:
             log.info("prediction_ledger_disabled")
         if wd:
             wd.register("aircraft_warmup", aircraft_routes.aircraft_warmup, 300.0)
             wd.start("aircraft_warmup")
-            wd.register("phase1_background", _phase1_background_tasks, 600.0)
-            wd.start("phase1_background")
+            if cfg.task_queue != "celery":
+                wd.register("phase1_background", _phase1_background_tasks, 600.0)
+                wd.start("phase1_background")
+            else:
+                log.info("phase1_background_delegated_to_celery")
             wd.register("aircraft_trail_loop", _aircraft_trail_loop, 30.0)
             wd.start("aircraft_trail_loop")
             wd.register("situations_prewarm", _situations_prewarm, 600.0)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sqlite3
@@ -152,13 +153,16 @@ def init_memory_db():
         conn.commit()
 
 
-async def embed_text(text: str) -> list[float]:
+async def embed_text(
+    text: str, *, client: httpx.AsyncClient | None = None
+) -> list[float]:
     host = _OLLAMA
     url = f"http://{host}/api/embeddings"
-    async with httpx.AsyncClient(timeout=60.0) as client:
+
+    async def _do_post(c: httpx.AsyncClient) -> list[float]:
         from ollama_config import keep_alive
 
-        r = await client.post(
+        r = await c.post(
             url,
             json={
                 "model": _EMBED_MODEL,
@@ -174,6 +178,11 @@ async def embed_text(text: str) -> list[float]:
                 "Ollama returned no embedding — run: ollama pull nomic-embed-text"
             )
         return [float(x) for x in emb]
+
+    if client is not None:
+        return await _do_post(client)
+    async with httpx.AsyncClient(timeout=60.0) as c:
+        return await _do_post(c)
 
 
 def upsert_chunk(
@@ -239,29 +248,56 @@ def upsert_chunk(
 
 
 async def index_text(
-    source: str, source_id: str, text: str, meta: dict | None = None
+    source: str,
+    source_id: str,
+    text: str,
+    meta: dict | None = None,
+    *,
+    client: httpx.AsyncClient | None = None,
 ) -> dict:
     meta = enrich_meta_spatial(dict(meta or {}))
     embed_text_body = format_embed_text(source, text, meta)
-    emb = await embed_text(embed_text_body)
-    upsert_chunk(source, source_id, embed_text_body, emb, meta)
+    emb = await embed_text(embed_text_body, client=client)
+    await asyncio.to_thread(upsert_chunk, source, source_id, embed_text_body, emb, meta)
     return {"ok": True, "source": source, "source_id": source_id, "dims": len(emb)}
 
 
 async def index_chunk_entries(
     entries: list[tuple[str, str, str, dict]],
 ) -> dict:
-    """Index pre-chunked tuples ``(source, source_id, text, meta)``."""
-    n = 0
-    for source, source_id, text, meta in entries:
-        if not (text or "").strip():
-            continue
-        try:
-            await index_text(source, source_id, text, meta=meta)
-            n += 1
-        except Exception:
-            pass
-    return {"indexed": n}
+    """Index pre-chunked tuples ``(source, source_id, text, meta)``.
+
+    Embeddings are fetched concurrently (up to 8 at once) with a shared
+    httpx client to avoid creating a new connection per chunk.
+    """
+    valid = [
+        (src, sid, text, meta)
+        for src, sid, text, meta in entries
+        if (text or "").strip()
+    ]
+    if not valid:
+        return {"indexed": 0}
+
+    sem = asyncio.Semaphore(8)
+
+    async def _index_one(
+        src: str, sid: str, text: str, meta: dict, client: httpx.AsyncClient
+    ) -> bool:
+        async with sem:
+            try:
+                await index_text(src, sid, text, meta=meta, client=client)
+                return True
+            except Exception:
+                return False
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        results = await asyncio.gather(
+            *[
+                _index_one(src, sid, text, meta, client)
+                for src, sid, text, meta in valid
+            ]
+        )
+    return {"indexed": sum(1 for r in results if r)}
 
 
 async def index_with_profile(
@@ -287,6 +323,30 @@ async def index_with_profile(
     out["source"] = source
     out["chunks"] = len(parts)
     return out
+
+
+async def index_records_batch(
+    records: list[tuple[str, dict, str | None, dict | None, str | None]],
+) -> dict:
+    """Index multiple records in one batch.
+
+    Each item is ``(source, record, preformatted, meta, mapping_name)``.
+    Chunking/profile logic runs per-record (sync, fast), but all embeddings
+    are fetched concurrently via a single ``index_chunk_entries`` call.
+    """
+    all_entries: list[tuple[str, str, str, dict]] = []
+    for source, record, preformatted, meta, mapping_name in records:
+        profile = get_source_profile(source, mapping_name)
+        base_id = resolve_source_id(record, profile, source)
+        parts = chunk_record(record, profile, preformatted=preformatted)
+        if not parts:
+            continue
+        meta_base = enrich_meta_spatial(dict(meta or record))
+        for sid, part in zip(iter_chunk_ids(base_id, len(parts)), parts):
+            all_entries.append((source, sid, part, meta_base))
+    if not all_entries:
+        return {"indexed": 0}
+    return await index_chunk_entries(all_entries)
 
 
 def _search_vector(
@@ -401,8 +461,8 @@ async def _ingest_gdelt_articles(
     *,
     region: str | None = None,
 ) -> int:
-    n = 0
     mapping_name = "gdelt_events"
+    records: list[tuple[str, dict, str | None, dict | None, str | None]] = []
     for i, art in enumerate(articles):
         title = art.get("title") or ""
         if not title:
@@ -421,14 +481,14 @@ async def _ingest_gdelt_articles(
         meta = dict(art)
         if region:
             meta["region"] = region
-        try:
-            out = await index_with_profile(
-                source, record, mapping_name=mapping_name, meta=meta
-            )
-            n += int(out.get("indexed") or 0)
-        except Exception:
-            pass
-    return n
+        records.append((source, record, None, meta, mapping_name))
+    if not records:
+        return 0
+    try:
+        out = await index_records_batch(records)
+        return int(out.get("indexed") or 0)
+    except Exception:
+        return 0
 
 
 async def ingest_pulse() -> dict:
@@ -486,7 +546,7 @@ async def ingest_newsdata_headlines(*, limit: int = 25) -> dict:
     data = await newsdata_bridge.get_newsdata(
         limit=max(1, min(limit, 30)), refresh=False
     )
-    n = 0
+    records: list[tuple[str, dict, str | None, dict | None, str | None]] = []
     for i, art in enumerate(data.get("articles") or []):
         title = (art.get("title") or "").strip()
         if not title:
@@ -505,12 +565,14 @@ async def ingest_newsdata_headlines(*, limit: int = 25) -> dict:
         if isinstance(country, list):
             meta["country"] = ",".join(str(c) for c in country[:4])
             record["country"] = meta["country"]
-        try:
-            out = await index_with_profile("newsdata", record, meta=meta)
-            n += int(out.get("indexed") or 0)
-        except Exception:
-            pass
-    return {"indexed": n, "source": "newsdata"}
+        records.append(("newsdata", record, None, meta, None))
+    if not records:
+        return {"indexed": 0, "source": "newsdata"}
+    try:
+        out = await index_records_batch(records)
+        return {"indexed": int(out.get("indexed") or 0), "source": "newsdata"}
+    except Exception:
+        return {"indexed": 0, "source": "newsdata"}
 
 
 async def ingest_news_sources() -> dict:
@@ -538,7 +600,7 @@ async def ingest_prediction_watches(*, limit: int = 150) -> dict:
     import prediction_ledger
 
     items = prediction_ledger.list_watches_for_rag(limit=limit)
-    n = 0
+    records: list[tuple[str, dict, str | None, dict | None, str | None]] = []
     for item in items:
         watch_id = item.get("watch_id") or ""
         issued_at = item.get("issued_at") or ""
@@ -557,83 +619,95 @@ async def ingest_prediction_watches(*, limit: int = 150) -> dict:
             "bucket": item.get("bucket") or "",
         }
         record = {**item, "watch_id": sid, "status": status}
-        try:
-            out = await index_with_profile(
+        records.append(
+            (
                 "prediction_watch",
                 record,
-                preformatted=format_prediction_watch_text(item),
-                meta=meta,
+                format_prediction_watch_text(item),
+                meta,
+                None,
             )
-            n += int(out.get("indexed") or 0)
-        except Exception:
-            pass
-    return {"indexed": n, "source": "prediction_watch", "pool": len(items)}
+        )
+    if not records:
+        return {"indexed": 0, "source": "prediction_watch", "pool": len(items)}
+    try:
+        out = await index_records_batch(records)
+        return {
+            "indexed": int(out.get("indexed") or 0),
+            "source": "prediction_watch",
+            "pool": len(items),
+        }
+    except Exception:
+        return {"indexed": 0, "source": "prediction_watch", "pool": len(items)}
 
 
 async def ingest_hazards() -> dict:
     import cap_bridge
 
     data = await cap_bridge.hazards_active(limit=120)
-    n = 0
-    for a in data.get("alerts") or []:
-        sid = f"hazard:{a.get('id', '') or n}"
+    records: list[tuple[str, dict, str | None, dict | None, str | None]] = []
+    for i, a in enumerate(data.get("alerts") or []):
+        sid = f"hazard:{a.get('id', '') or i}"
+        text = (
+            f"HAZARD: {a.get('event', '')} in {a.get('area_desc', '')}. "
+            f"{a.get('headline', '')} Severity: {a.get('severity', '')}"
+        )
         record = {
             "id": sid,
             "title": a.get("headline") or a.get("event") or "Hazard alert",
-            "text": (
-                f"HAZARD: {a.get('event', '')} in {a.get('area_desc', '')}. "
-                f"{a.get('headline', '')} Severity: {a.get('severity', '')}"
-            ),
+            "text": text,
         }
-        try:
-            out = await index_with_profile(
-                "hazards", record, preformatted=record["text"], meta=a
-            )
-            n += int(out.get("indexed") or 0)
-        except Exception:
-            pass
-    return {"indexed": n, "source": "hazards"}
+        records.append(("hazards", record, text, a, None))
+    if not records:
+        return {"indexed": 0, "source": "hazards"}
+    try:
+        out = await index_records_batch(records)
+        return {"indexed": int(out.get("indexed") or 0), "source": "hazards"}
+    except Exception:
+        return {"indexed": 0, "source": "hazards"}
 
 
 async def ingest_volcanoes() -> dict:
     import volcano_bridge
 
     data = await volcano_bridge.holocene_volcanoes(active_only=True, limit=300)
-    n = 0
+    records: list[tuple[str, dict, str | None, dict | None, str | None]] = []
     for v in data.get("volcanoes") or []:
         sid = f"volcano:{v.get('id', '') or v.get('name', '')}"
+        text = (
+            f"ACTIVE VOLCANO: {v.get('name', '')} in {v.get('country', '')}. "
+            f"Type: {v.get('type', '')}. Last eruption: {v.get('last_eruption', '')}"
+        )
         record = {
             "id": sid,
             "title": v.get("name") or "Volcano",
-            "text": (
-                f"ACTIVE VOLCANO: {v.get('name', '')} in {v.get('country', '')}. "
-                f"Type: {v.get('type', '')}. Last eruption: {v.get('last_eruption', '')}"
-            ),
+            "text": text,
         }
-        try:
-            out = await index_with_profile(
-                "volcanoes", record, preformatted=record["text"], meta=v
-            )
-            n += int(out.get("indexed") or 0)
-        except Exception:
-            pass
-    return {"indexed": n, "source": "volcanoes"}
+        records.append(("volcanoes", record, text, v, None))
+    if not records:
+        return {"indexed": 0, "source": "volcanoes"}
+    try:
+        out = await index_records_batch(records)
+        return {"indexed": int(out.get("indexed") or 0), "source": "volcanoes"}
+    except Exception:
+        return {"indexed": 0, "source": "volcanoes"}
 
 
 async def ingest_situations() -> dict:
     import situations
 
     data = await situations.unified_situations()
-    n = 0
-    for s in data.get("items") or []:
-        sid = f"situation:{s.get('id', '') or n}"
+    records: list[tuple[str, dict, str | None, dict | None, str | None]] = []
+    for i, s in enumerate(data.get("items") or []):
+        sid = f"situation:{s.get('id', '') or i}"
+        text = (
+            f"SITUATION [{s.get('severity', '')}]: {s.get('title', '')} "
+            f"({s.get('type', '')}). Details: {s.get('details', '')}"
+        )
         record = {
             "id": sid,
             "title": s.get("title") or "Situation",
-            "text": (
-                f"SITUATION [{s.get('severity', '')}]: {s.get('title', '')} "
-                f"({s.get('type', '')}). Details: {s.get('details', '')}"
-            ),
+            "text": text,
         }
         meta = dict(s)
         loc = s.get("location") or {}
@@ -642,78 +716,78 @@ async def ingest_situations() -> dict:
             meta["lon"] = loc["lon"]
             record["lat"] = loc["lat"]
             record["lon"] = loc["lon"]
-        try:
-            out = await index_with_profile(
-                "situations", record, preformatted=record["text"], meta=meta
-            )
-            n += int(out.get("indexed") or 0)
-        except Exception:
-            pass
-    return {"indexed": n, "source": "situations"}
+        records.append(("situations", record, text, meta, None))
+    if not records:
+        return {"indexed": 0, "source": "situations"}
+    try:
+        out = await index_records_batch(records)
+        return {"indexed": int(out.get("indexed") or 0), "source": "situations"}
+    except Exception:
+        return {"indexed": 0, "source": "situations"}
 
 
 async def ingest_sanctions_hits(hits: list[dict]) -> dict:
     """Index sanctions matches (vessels, individuals, entities) for citable recall."""
-    n = 0
+    records: list[tuple[str, dict, str | None, dict | None, str | None]] = []
     for h in hits or []:
         ent_id = h.get("entity_id") or h.get("id") or h.get("caption") or ""
         if not ent_id:
             continue
+        text = (
+            f"SANCTIONED {h.get('schema', 'Entity')}: {h.get('caption', '')} — "
+            f"datasets: {', '.join(h.get('datasets', []) or [])}. "
+            f"Topics: {', '.join(h.get('topics', []) or [])}. Score: {h.get('score', 0):.2f}"
+        )
         record = {
             "entity_id": ent_id,
             "title": h.get("caption") or ent_id,
-            "text": (
-                f"SANCTIONED {h.get('schema', 'Entity')}: {h.get('caption', '')} — "
-                f"datasets: {', '.join(h.get('datasets', []) or [])}. "
-                f"Topics: {', '.join(h.get('topics', []) or [])}. Score: {h.get('score', 0):.2f}"
-            ),
+            "text": text,
         }
-        try:
-            out = await index_with_profile(
-                "sanctions", record, preformatted=record["text"], meta=h
-            )
-            n += int(out.get("indexed") or 0)
-        except Exception:
-            pass
-    return {"indexed": n, "source": "sanctions"}
+        records.append(("sanctions", record, text, h, None))
+    if not records:
+        return {"indexed": 0, "source": "sanctions"}
+    try:
+        out = await index_records_batch(records)
+        return {"indexed": int(out.get("indexed") or 0), "source": "sanctions"}
+    except Exception:
+        return {"indexed": 0, "source": "sanctions"}
 
 
 async def ingest_stac_items(items: list[dict]) -> dict:
     """Index recent STAC/Sentinel-2 scenes so the LLM can cite imagery coverage."""
-    n = 0
+    records: list[tuple[str, dict, str | None, dict | None, str | None]] = []
     for it in items or []:
         if not it.get("id"):
             continue
         bbox = it.get("bbox") or []
+        text = (
+            f"SAT IMAGE: {it.get('collection', '')} {it.get('id', '')} "
+            f"({it.get('datetime', '')}) bbox={bbox} cloud_cover={it.get('cloud_cover', '')}%"
+        )
         record = {
             "id": it.get("id"),
             "title": f"{it.get('collection', '')} {it.get('id', '')}",
-            "text": (
-                f"SAT IMAGE: {it.get('collection', '')} {it.get('id', '')} "
-                f"({it.get('datetime', '')}) bbox={bbox} cloud_cover={it.get('cloud_cover', '')}%"
-            ),
+            "text": text,
         }
-        try:
-            out = await index_with_profile(
-                "stac",
-                record,
-                preformatted=record["text"],
-                meta={
-                    k: it.get(k)
-                    for k in (
-                        "id",
-                        "collection",
-                        "datetime",
-                        "bbox",
-                        "cloud_cover",
-                        "thumbnail",
-                    )
-                },
+        meta = {
+            k: it.get(k)
+            for k in (
+                "id",
+                "collection",
+                "datetime",
+                "bbox",
+                "cloud_cover",
+                "thumbnail",
             )
-            n += int(out.get("indexed") or 0)
-        except Exception:
-            pass
-    return {"indexed": n, "source": "stac"}
+        }
+        records.append(("stac", record, text, meta, None))
+    if not records:
+        return {"indexed": 0, "source": "stac"}
+    try:
+        out = await index_records_batch(records)
+        return {"indexed": int(out.get("indexed") or 0), "source": "stac"}
+    except Exception:
+        return {"indexed": 0, "source": "stac"}
 
 
 async def ingest_briefing(text: str, created_at: str) -> dict:

@@ -83,4 +83,13 @@ beat_schedule["generate-briefing"] = {
     "args": (),
 }
 
+# Flowsint auto-enrichment — runs after briefing generation (10 min delay)
+_flowsint_enrich_interval = int(os.getenv("WORLDBASE_FLOWSINT_AUTO_INTERVAL", "21600"))
+beat_schedule["flowsint-auto-enrich"] = {
+    "task": "tasks.flowsint_auto.auto_enrich_briefing",
+    "schedule": _flowsint_enrich_interval,
+    "args": (),
+    "options": {"countdown": 600},  # 10 min after briefing
+}
+
 celery_app.conf.beat_schedule = beat_schedule

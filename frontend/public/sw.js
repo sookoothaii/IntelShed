@@ -9,7 +9,7 @@
  *  - Cache-first for Cesium terrain/tiles (large, immutable)
  */
 
-const SW_VERSION = 'intelshed-sw-v2';
+const SW_VERSION = 'intelshed-sw-v3';
 const SHELL_CACHE = `${SW_VERSION}-shell`;
 const API_CACHE = `${SW_VERSION}-api`;
 const ASSET_CACHE = `${SW_VERSION}-assets`;
@@ -65,8 +65,9 @@ self.addEventListener('fetch', (event) => {
   }
 
   // API calls: network-first, fall back to cache
+  // 15s timeout — local API endpoints like /api/briefing can take 6-7s
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(networkFirst(request, API_CACHE, 5000));
+    event.respondWith(networkFirst(request, API_CACHE, 15000));
     return;
   }
 

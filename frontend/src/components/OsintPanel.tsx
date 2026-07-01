@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { fetchApi } from '../lib/networkFetch';
 import type { OsintPin } from '../lib/osintPins';
 import type { FocusTarget } from '../lib/focus';
 import { useHudSessionState } from '../lib/hudSessionState';
 import OsintReferencePanel from './OsintReferencePanel';
 
-const OSINT_MODES = ['tools', 'reference', 'flowsint'] as const;
+const FlowsintGraph3D = lazy(() => import('./FlowsintGraph3D'));
+
+const OSINT_MODES = ['tools', 'reference', 'graph3d'] as const;
 type OsintMode = (typeof OSINT_MODES)[number];
 
 const OSINT_TOOLS = ['ip', 'domain', 'username', 'email', 'reverse'] as const;
@@ -62,54 +64,9 @@ export default function OsintPanel({
   const [lonInput, setLonInput] = useState('');
   const [result, setResult] = useState<OsintResult | null>(null);
   const [busy, setBusy] = useState(false);
-  const [importJson, setImportJson] = useState('');
-  const [importMsg, setImportMsg] = useState('');
-
-  async function importFlowsintPins() {
-    setImportMsg('');
-    let body: unknown;
-    try {
-      body = JSON.parse(importJson);
-    } catch {
-      setImportMsg('Invalid JSON');
-      return;
-    }
-    setBusy(true);
-    try {
-      const r = await fetchApi('/api/osint/pins/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.detail || r.statusText);
-      const pins = (d.pins || []) as OsintPin[];
-      onImportPins(pins);
-      setImportMsg(`Imported ${pins.length} pin(s) → globe`);
-      setViewGlobeAfterImport(pins);
-    } catch (e) {
-      setImportMsg(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function setViewGlobeAfterImport(pins: OsintPin[]) {
-    const first = pins[0];
-    if (first) {
-      onFocus({
-        kind: 'osint',
-        lat: first.lat,
-        lon: first.lon,
-        height: 400000,
-        title: first.title,
-        lines: first.lines,
-      });
-    }
-  }
 
   useEffect(() => {
-    if (mode !== 'flowsint') return;
+    if (mode !== 'graph3d') return;
     let cancelled = false;
     const poll = async () => {
       try {
@@ -199,7 +156,7 @@ export default function OsintPanel({
     <div
       className="panel osint"
       style={{
-        padding: mode === 'flowsint' ? 0 : mode === 'reference' ? '0 0 12px' : '0 18px',
+        padding: mode === 'graph3d' ? 0 : mode === 'reference' ? '0 0 12px' : '0 18px',
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
@@ -249,30 +206,30 @@ export default function OsintPanel({
           </button>
           <button
             type="button"
-            className={mode === 'flowsint' ? 'active' : ''}
+            className={mode === 'graph3d' ? 'active' : ''}
             style={{
               padding: '6px 14px',
               fontSize: 11,
               fontFamily: 'monospace',
               cursor: 'pointer',
-              background: mode === 'flowsint' ? 'rgba(79,195,247,0.2)' : 'rgba(79,195,247,0.05)',
-              border: mode === 'flowsint' ? '1px solid #4fc3f7' : '1px solid rgba(79,195,247,0.2)',
-              color: mode === 'flowsint' ? '#4fc3f7' : '#6f8c84',
+              background: mode === 'graph3d' ? 'rgba(79,195,247,0.2)' : 'rgba(79,195,247,0.05)',
+              border: mode === 'graph3d' ? '1px solid #4fc3f7' : '1px solid rgba(79,195,247,0.2)',
+              color: mode === 'graph3d' ? '#4fc3f7' : '#6f8c84',
             }}
-            onClick={() => setMode('flowsint')}
+            onClick={() => setMode('graph3d')}
           >
-            FLOWSINT GRAPH
+            3D GRAPH
             {flowsintOk === true && <span style={{ marginLeft: 6, color: '#00e5a0' }}>●</span>}
             {flowsintOk === false && <span style={{ marginLeft: 6, color: '#ff6b35' }}>○</span>}
           </button>
-          {mode === 'flowsint' && (
+          {mode === 'graph3d' && (
             <a
               href={FLOWSINT_URL}
               target="_blank"
               rel="noreferrer"
               style={{ fontSize: 11, color: '#6f8c84', alignSelf: 'center' }}
             >
-              Open in tab ↗
+              Flowsint UI ↗
             </a>
           )}
         </div>
@@ -284,7 +241,7 @@ export default function OsintPanel({
         </div>
       )}
 
-      {mode === 'flowsint' && (
+      {mode === 'graph3d' && (
         <div
           style={{
             flex: 1,
@@ -294,65 +251,20 @@ export default function OsintPanel({
             padding: '0 12px 12px',
           }}
         >
-          <div style={{ marginBottom: 8, flexShrink: 0 }}>
-            <div style={{ fontSize: 11, color: '#6f8c84', marginBottom: 6 }}>
-              Paste Flowsint export JSON → <code>POST /api/osint/pins/import</code> → globe pins
-            </div>
-            <textarea
-              value={importJson}
-              onChange={(e) => setImportJson(e.target.value)}
-              placeholder='{"pins":[{"lat":52.5,"lon":13.4,"label":"Node A","type":"ip","investigation_id":"inv-1"}]}'
-              style={{
-                width: '100%',
-                minHeight: 56,
-                fontSize: 11,
-                fontFamily: 'monospace',
-                background: 'rgba(0,0,0,0.35)',
-                border: '1px solid #1a2e33',
-                color: '#b0c4b1',
-                borderRadius: 4,
-                padding: 8,
-              }}
-            />
-            <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
-              <button
-                type="button"
-                onClick={importFlowsintPins}
-                disabled={busy || !importJson.trim()}
-              >
-                {busy ? '…' : 'IMPORT TO GLOBE'}
-              </button>
-              {importMsg && (
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: importMsg.startsWith('Imported') ? '#00e5a0' : '#ff6b35',
-                  }}
-                >
-                  {importMsg}
-                </span>
-              )}
-            </div>
-          </div>
           {flowsintOk === false && (
             <div className="data-error" style={{ marginBottom: 8, fontSize: 12 }}>
-              Flowsint not reachable. On PC: <code>.\scripts\setup-flowsint.ps1</code> then{' '}
+              Flowsint API not reachable. On PC: <code>.\scripts\setup-flowsint.ps1</code> then{' '}
               <code>.\scripts\start-flowsint.ps1 -Build</code>
               (Docker). UI: {FLOWSINT_URL}
             </div>
           )}
-          <iframe
-            title="Flowsint OSINT"
-            src={FLOWSINT_URL}
-            style={{
-              flex: 1,
-              width: '100%',
-              minHeight: 480,
-              border: '1px solid #1a2e33',
-              borderRadius: 6,
-              background: '#02060a',
-            }}
-          />
+          <Suspense fallback={<div style={{ padding: 20, color: '#6f8c84', fontSize: 12 }}>Loading 3D graph…</div>}>
+            <FlowsintGraph3D
+              onFocus={onFocus}
+              onAddPin={onAddPin}
+              onImportPins={(pins) => onImportPins(pins)}
+            />
+          </Suspense>
         </div>
       )}
 

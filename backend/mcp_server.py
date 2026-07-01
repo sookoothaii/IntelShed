@@ -1299,6 +1299,253 @@ async def worldbase_list_tools() -> dict[str, Any]:
     }
 
 
+# ---------------------------------------------------------------------------
+# Flowsint OSINT enrichment tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool(name="worldbase_flowsint_health")
+@mcp_jmespath.with_jmespath
+async def worldbase_flowsint_health() -> dict[str, Any]:
+    """Check Flowsint stack health (UI + API reachability)."""
+    await _gate_mcp_tool("worldbase_flowsint_health", {}, write=False)
+    import httpx as _httpx
+    from flowsint_bridge import _FLOWSINT_UI, _FLOWSINT_API
+
+    out: dict[str, Any] = {
+        "ok": False,
+        "frontend_url": _FLOWSINT_UI,
+        "api_url": _FLOWSINT_API,
+    }
+    async with _httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+        try:
+            r = await client.get(f"{_FLOWSINT_UI}/")
+            out["frontend"] = r.status_code < 500
+        except Exception as e:
+            out["frontend_error"] = str(e)[:200]
+        try:
+            r = await client.get(f"{_FLOWSINT_API}/health")
+            out["api"] = r.status_code == 200
+        except Exception as e:
+            out["api_error"] = str(e)[:200]
+    out["ok"] = out.get("frontend", False) and out.get("api", False)
+    return out
+
+
+@mcp.tool(name="worldbase_flowsint_enrichers")
+@mcp_jmespath.with_jmespath
+async def worldbase_flowsint_enrichers() -> dict[str, Any]:
+    """List all available Flowsint OSINT enrichers (47 tools: IP, Domain, Email, Social, Crypto, etc.)."""
+    await _gate_mcp_tool("worldbase_flowsint_enrichers", {}, write=False)
+    import httpx as _httpx
+    from flowsint_bridge import _FLOWSINT_API, _flowsint_headers
+
+    async with _httpx.AsyncClient(timeout=10.0) as client:
+        headers = await _flowsint_headers(client)
+        r = await client.get(f"{_FLOWSINT_API}/api/enrichers", headers=headers)
+        if r.status_code != 200:
+            return {
+                "error": f"Flowsint API error: {r.status_code}",
+                "detail": r.text[:200],
+            }
+        enrichers = r.json()
+        return {
+            "count": len(enrichers),
+            "enrichers": [
+                {
+                    "name": e.get("name"),
+                    "category": e.get("category"),
+                    "input_type": e.get("inputs", {}).get("type"),
+                    "output_type": e.get("outputs", {}).get("type"),
+                    "description": (e.get("description") or "")[:120],
+                    "requires_params": bool(e.get("params_schema")),
+                }
+                for e in enrichers
+            ],
+        }
+
+
+@mcp.tool(name="worldbase_flowsint_enrich")
+@mcp_jmespath.with_jmespath
+async def worldbase_flowsint_enrich(
+    enricher_name: str,
+    entity_type: str,
+    value: str,
+    investigation_name: str | None = None,
+    timeout_seconds: int = 60,
+) -> dict[str, Any]:
+    """Run a Flowsint OSINT enricher on a value (creates investigation + sketch, launches enricher, returns graph).
+
+    Args:
+        enricher_name: Enricher name from worldbase_flowsint_enrichers (e.g. "ip_to_infos", "domain_to_whois", "username_to_socials_maigret")
+        entity_type: One of: ip, domain, email, username, website, phone, organization, cryptowallet
+        value: The target value (IP address, domain, email, username, URL, phone, org name, wallet address)
+        investigation_name: Optional custom investigation name
+        timeout_seconds: Max wait for enricher completion (default 60)
+    """
+    await _gate_mcp_tool(
+        "worldbase_flowsint_enrich",
+        {"enricher_name": enricher_name, "value": value},
+        write=True,
+    )
+    import httpx as _httpx
+    from flowsint_bridge import (
+        _FLOWSINT_API,
+        _FLOWSINT_UI,
+        _flowsint_headers,
+        _TYPE_MAP,
+    )
+    import asyncio as _asyncio
+    import time as _time
+
+    type_info = _TYPE_MAP.get(entity_type.lower())
+    if not type_info:
+        return {
+            "error": f"Unsupported entity_type: {entity_type}. Supported: {list(_TYPE_MAP.keys())}"
+        }
+
+    async with _httpx.AsyncClient(timeout=120.0) as client:
+        headers = await _flowsint_headers(client)
+
+        # Create investigation
+        inv_name = investigation_name or f"intelshed-{entity_type}-{value[:30]}"
+        r = await client.post(
+            f"{_FLOWSINT_API}/api/investigations/create",
+            json={
+                "name": inv_name,
+                "description": f"Auto-created by intelshed MCP for {enricher_name}",
+            },
+            headers=headers,
+        )
+        if r.status_code not in (200, 201):
+            return {
+                "error": f"Create investigation failed: {r.status_code}",
+                "detail": r.text[:200],
+            }
+        inv_id = r.json()["id"]
+
+        # Create sketch
+        r = await client.post(
+            f"{_FLOWSINT_API}/api/sketches/create",
+            json={
+                "title": f"enrich-{enricher_name}",
+                "description": f"Auto sketch for {value}",
+                "investigation_id": inv_id,
+            },
+            headers=headers,
+        )
+        if r.status_code not in (200, 201):
+            return {
+                "error": f"Create sketch failed: {r.status_code}",
+                "detail": r.text[:200],
+            }
+        sketch_id = r.json()["id"]
+
+        # Add node
+        node_payload = {
+            "id": None,
+            "nodeLabel": value,
+            "nodeType": type_info["nodeType"],
+            "nodeIcon": type_info["icon"],
+            "nodeMetadata": {},
+            "nodeProperties": {type_info["nodeLabel"]: value},
+            "x": 100.0,
+            "y": 100.0,
+        }
+        r = await client.post(
+            f"{_FLOWSINT_API}/api/sketches/{sketch_id}/nodes/add",
+            json=node_payload,
+            headers=headers,
+        )
+        if r.status_code not in (200, 201):
+            return {
+                "error": f"Add node failed: {r.status_code}",
+                "detail": r.text[:200],
+            }
+        node_resp = r.json()
+        node = node_resp.get("node") or node_resp
+        node_id = node.get("id")
+        if not node_id:
+            return {
+                "error": "Add node: no node id returned",
+                "detail": str(node_resp)[:200],
+            }
+
+        # Launch enricher
+        r = await client.post(
+            f"{_FLOWSINT_API}/api/enrichers/{enricher_name}/launch",
+            json={"node_ids": [node_id], "sketch_id": sketch_id},
+            headers=headers,
+        )
+        if r.status_code != 200:
+            return {
+                "error": f"Launch enricher failed: {r.status_code}",
+                "detail": r.text[:200],
+            }
+        scan_id = r.json().get("id")
+
+        # Poll for completion
+        deadline = _time.time() + timeout_seconds
+        scan_status = "pending"
+        while _time.time() < deadline:
+            await _asyncio.sleep(2.0)
+            r = await client.get(
+                f"{_FLOWSINT_API}/api/scans/{scan_id}", headers=headers
+            )
+            if r.status_code == 200:
+                scan_status = r.json().get("status", "unknown")
+                if scan_status.lower() in (
+                    "success",
+                    "completed",
+                    "done",
+                    "failed",
+                    "error",
+                ):
+                    break
+
+        # Get graph
+        r = await client.get(
+            f"{_FLOWSINT_API}/api/sketches/{sketch_id}/graph", headers=headers
+        )
+        graph = (
+            r.json()
+            if r.status_code == 200
+            else {"error": f"graph fetch failed: {r.status_code}"}
+        )
+
+        return {
+            "enricher": enricher_name,
+            "entity_type": entity_type,
+            "value": value,
+            "investigation_id": inv_id,
+            "sketch_id": sketch_id,
+            "node_id": node_id,
+            "scan_id": scan_id,
+            "scan_status": scan_status,
+            "flowsint_ui_url": f"{_FLOWSINT_UI}/sketch/{sketch_id}",
+            "graph": graph,
+        }
+
+
+@mcp.tool(name="worldbase_flowsint_investigations")
+@mcp_jmespath.with_jmespath
+async def worldbase_flowsint_investigations() -> dict[str, Any]:
+    """List Flowsint investigations for the configured user."""
+    await _gate_mcp_tool("worldbase_flowsint_investigations", {}, write=False)
+    import httpx as _httpx
+    from flowsint_bridge import _FLOWSINT_API, _flowsint_headers
+
+    async with _httpx.AsyncClient(timeout=10.0) as client:
+        headers = await _flowsint_headers(client)
+        r = await client.get(f"{_FLOWSINT_API}/api/investigations", headers=headers)
+        if r.status_code != 200:
+            return {
+                "error": f"Flowsint API error: {r.status_code}",
+                "detail": r.text[:200],
+            }
+        return {"investigations": r.json()}
+
+
 def _patch_output_schemas() -> None:
     """Patch curated output schemas onto registered FastMCP tools."""
     if not mcp_schema.output_schema_enabled():

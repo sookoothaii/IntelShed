@@ -30,7 +30,9 @@
     "pmtiles": "^4.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "satellite.js": "^5.0.0"
+    "react-force-graph-3d": "^1.29.1",
+    "satellite.js": "^5.0.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -40,6 +42,7 @@
     "@types/node": "^22.20.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.185.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitejs/plugin-react": "^4.3.4",

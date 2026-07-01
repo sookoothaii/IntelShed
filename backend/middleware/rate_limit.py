@@ -538,6 +538,10 @@ class SlidingWindowLimiter:
         path = request.url.path
         if path.startswith("/api/health"):
             return True
+        # PMTiles static tile archives — MapLibre makes many range requests
+        # per pan/zoom; files are content-addressable with immutable caching.
+        if path.startswith("/api/pmtiles"):
+            return True
         # API-key authenticated requests
         api_key = request.headers.get("X-API-Key", "")
         if api_key and api_key == os.getenv("WORLDBASE_API_KEY", ""):

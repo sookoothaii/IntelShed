@@ -19,10 +19,14 @@ import unittest
 from typing import Any
 
 # ---------------------------------------------------------------------------
-# Golden queries — 15 queries covering different route types
+# Golden queries — 50+ queries using Critical Pairs method
+# Covers: all 5 routes, EN+TH languages, agentic off/on, edge cases
+# Critical pairs: Spatial+Live, Temporal+Graph, Multi-Hypothesis+Prognostic,
+#   Agentic+Low-Provenance, Empty-Results
 # ---------------------------------------------------------------------------
 
 GOLDEN_QUERIES: list[dict[str, Any]] = [
+    # === Original 15 queries (now with language + agentic fields) ===
     {
         "query": "Analyze the security situation in Bangkok",
         "route": "vector",
@@ -30,6 +34,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": True,
         "expect_section_headers": True,
         "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "/analyze earthquake near Thailand",
@@ -38,6 +44,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": True,
         "expect_section_headers": True,
         "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "Who is connected to the Bangkok protest movement?",
@@ -46,6 +54,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": False,
         "expect_section_headers": False,
         "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "What is the current maritime situation near Phuket?",
@@ -54,6 +64,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": False,
         "expect_section_headers": False,
         "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "Show me live situations",
@@ -62,6 +74,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": False,
         "expect_section_headers": False,
         "min_block_chars": 0,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "/analyze the threat assessment for ASEAN region",
@@ -70,6 +84,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": True,
         "expect_section_headers": True,
         "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "Assess the haze situation in Northern Thailand",
@@ -78,6 +94,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": False,
         "expect_section_headers": False,
         "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "Investigate connections between maritime vessels and events",
@@ -86,6 +104,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": False,
         "expect_section_headers": False,
         "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "/analyze GDELT events in the last 24 hours",
@@ -94,6 +114,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": True,
         "expect_section_headers": True,
         "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "What humanitarian datasets are available for Myanmar border?",
@@ -102,6 +124,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": False,
         "expect_section_headers": False,
         "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "/analyze the intelligence assessment for South China Sea",
@@ -110,6 +134,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": True,
         "expect_section_headers": True,
         "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "Evaluate the ransomware threat landscape in Southeast Asia",
@@ -118,6 +144,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": False,
         "expect_section_headers": False,
         "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "What are the fusion hotspots near Bangkok?",
@@ -126,6 +154,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": False,
         "expect_section_headers": False,
         "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "/analyze the situation report for Thailand-Myanmar border",
@@ -134,6 +164,8 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": True,
         "expect_section_headers": True,
         "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
     },
     {
         "query": "Assess the energy infrastructure situation in ASEAN",
@@ -142,6 +174,419 @@ GOLDEN_QUERIES: list[dict[str, Any]] = [
         "expect_evidence_refs": False,
         "expect_section_headers": False,
         "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    # === Critical Pair: Spatial + Live ===
+    {
+        "query": "Show me live earthquake events within 500km of Bangkok",
+        "route": "spatial",
+        "expect_keywords": ["earthquake", "Bangkok"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "What live maritime traffic is near the Strait of Malacca?",
+        "route": "spatial",
+        "expect_keywords": ["maritime", "Malacca"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "Live wildfire detection in Southeast Asia",
+        "route": "live",
+        "expect_keywords": ["wildfire"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 0,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "Current volcanic activity near Indonesia",
+        "route": "spatial",
+        "expect_keywords": ["volcanic", "Indonesia"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    # === Critical Pair: Temporal + Graph ===
+    {
+        "query": "Trace the timeline of events connected to the Bangkok protest leader",
+        "route": "graph",
+        "expect_keywords": ["timeline", "Bangkok"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "What events in the last 7 days are linked to maritime incidents near Phuket?",
+        "route": "graph",
+        "expect_keywords": ["events", "Phuket"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "Show the temporal progression of GDELT events involving Thailand",
+        "route": "graph",
+        "expect_keywords": ["temporal", "Thailand"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    # === Critical Pair: Multi-Hypothesis + Prognostic ===
+    {
+        "query": "/analyze competing hypotheses about the South China Sea dispute escalation",
+        "route": "vector",
+        "expect_keywords": ["hypotheses", "South China Sea"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "/analyze the prognostic assessment for ASEAN political stability",
+        "route": "vector",
+        "expect_keywords": ["prognostic", "ASEAN"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "What are the competing scenarios for Myanmar border conflict escalation?",
+        "route": "vector",
+        "expect_keywords": ["scenarios", "Myanmar"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "/analyze forecast for Thai political unrest in the next 30 days",
+        "route": "hybrid",
+        "expect_keywords": ["forecast", "Thai"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
+    },
+    # === Critical Pair: Agentic + Low-Provenance ===
+    {
+        "query": "/analyze the darkweb chatter about Southeast Asian targets",
+        "route": "vector",
+        "expect_keywords": ["darkweb", "Southeast Asian"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": True,
+    },
+    {
+        "query": "/analyze unverified Telegram reports about Bangkok coup rumors",
+        "route": "vector",
+        "expect_keywords": ["Telegram", "Bangkok"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": True,
+    },
+    {
+        "query": "/analyze low-confidence intelligence about cyber threats in Thailand",
+        "route": "vector",
+        "expect_keywords": ["cyber", "Thailand"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": True,
+    },
+    {
+        "query": "/analyze uncorroborated reports of military movement near Cambodian border",
+        "route": "spatial",
+        "expect_keywords": ["military", "Cambodian"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": True,
+    },
+    # === Empty-Results Edge Case ===
+    {
+        "query": "What happened in Antarctica yesterday?",
+        "route": "vector",
+        "expect_keywords": [],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 0,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "Show me intelligence about the moon",
+        "route": "vector",
+        "expect_keywords": [],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 0,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "What maritime incidents occurred in the Sahara desert?",
+        "route": "spatial",
+        "expect_keywords": [],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 0,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "Show me intelligence about mining operations on Mars",
+        "route": "vector",
+        "expect_keywords": [],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 0,
+        "language": "en",
+        "agentic": False,
+    },
+    # === Thai Language Queries (operator region) ===
+    {
+        "query": "วิเคราะห์สถานการณ์ความมั่นคงในกรุงเทพมหานคร",
+        "route": "vector",
+        "expect_keywords": ["กรุงเทพ", "ความมั่นคง"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "th",
+        "agentic": False,
+    },
+    {
+        "query": "/analyze แผ่นดินไหวใกล้ภูเก็ต",
+        "route": "spatial",
+        "expect_keywords": ["แผ่นดินไหว", "ภูเก็ต"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "th",
+        "agentic": False,
+    },
+    {
+        "query": "สถานการณ์ทางทะเลในช่องแคบมะละกา",
+        "route": "hybrid",
+        "expect_keywords": ["ทะเล", "มะละกา"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "th",
+        "agentic": False,
+    },
+    {
+        "query": "ใครเชื่อมโยงกับขบวนการประท้วงในกรุงเทพ?",
+        "route": "graph",
+        "expect_keywords": ["ประท้วง", "กรุงเทพ"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "th",
+        "agentic": False,
+    },
+    {
+        "query": "/analyze ภัยคุกคามทางไซเบอร์ในประเทศไทย",
+        "route": "vector",
+        "expect_keywords": ["ไซเบอร์", "ไทย"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "th",
+        "agentic": True,
+    },
+    {
+        "query": "สถานการณ์หมอกควันในภาคเหนือตอนบน",
+        "route": "spatial",
+        "expect_keywords": ["หมอกควัน", "ภาคเหนือ"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "th",
+        "agentic": False,
+    },
+    {
+        "query": "/analyze สถานการณ์ชายแดนไทย-พม่า",
+        "route": "hybrid",
+        "expect_keywords": ["ชายแดน", "พม่า"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "th",
+        "agentic": False,
+    },
+    # === Additional Route Coverage ===
+    {
+        "query": "What AIS vessel tracks are near the Gulf of Thailand?",
+        "route": "spatial",
+        "expect_keywords": ["AIS", "Thailand"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "Show me ACLED conflict events in Southeast Asia",
+        "route": "live",
+        "expect_keywords": ["ACLED"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 0,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "What power outages are reported in Thailand?",
+        "route": "live",
+        "expect_keywords": ["outage"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 0,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "Map the flood warnings in Central Thailand",
+        "route": "spatial",
+        "expect_keywords": ["flood", "Thailand"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    # === Additional Graph Queries ===
+    {
+        "query": "What organizations are linked to the Myanmar junta?",
+        "route": "graph",
+        "expect_keywords": ["Myanmar", "organization"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "Trace connections between cyber threat actors in Southeast Asia",
+        "route": "graph",
+        "expect_keywords": ["cyber", "threat"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "Who are the key persons associated with Thai energy sector?",
+        "route": "graph",
+        "expect_keywords": ["energy", "Thai"],
+        "expect_evidence_refs": False,
+        "expect_section_headers": False,
+        "min_block_chars": 10,
+        "language": "en",
+        "agentic": False,
+    },
+    # === Additional Hybrid Queries ===
+    {
+        "query": "/analyze the geopolitical implications of Mekong River dam projects",
+        "route": "hybrid",
+        "expect_keywords": ["Mekong", "dam"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "/analyze the impact of Cyclone migration patterns on Bay of Bengal",
+        "route": "hybrid",
+        "expect_keywords": ["Cyclone", "Bengal"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
+    },
+    {
+        "query": "/analyze the drone attack patterns in the Red Sea shipping lane",
+        "route": "hybrid",
+        "expect_keywords": ["drone", "Red Sea"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": False,
+    },
+    # === Additional Agentic Queries (5-Agent mode) ===
+    {
+        "query": "/analyze the full intelligence picture for Hormuz Strait tensions",
+        "route": "hybrid",
+        "expect_keywords": ["Hormuz", "Strait"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": True,
+    },
+    {
+        "query": "/analyze the West Asia geopolitical situation and Iran nuclear posture",
+        "route": "hybrid",
+        "expect_keywords": ["West Asia", "Iran"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": True,
+    },
+    {
+        "query": "/analyze the Persian Gulf naval buildup and escalation risk",
+        "route": "hybrid",
+        "expect_keywords": ["Persian Gulf", "naval"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "en",
+        "agentic": True,
+    },
+    # === Additional Thai Agentic ===
+    {
+        "query": "/analyze สถานการณ์ความขัดแย้งในทะเลจีนใต้",
+        "route": "hybrid",
+        "expect_keywords": ["จีนใต้", "ขัดแย้ง"],
+        "expect_evidence_refs": True,
+        "expect_section_headers": True,
+        "min_block_chars": 50,
+        "language": "th",
+        "agentic": True,
     },
 ]
 
@@ -254,8 +699,8 @@ class TestGoldenQueryDefinitions(unittest.TestCase):
     """Verify golden query definitions are well-formed."""
 
     def test_golden_queries_count(self) -> None:
-        self.assertGreaterEqual(len(GOLDEN_QUERIES), 10)
-        self.assertLessEqual(len(GOLDEN_QUERIES), 20)
+        self.assertGreaterEqual(len(GOLDEN_QUERIES), 50)
+        self.assertLessEqual(len(GOLDEN_QUERIES), 60)
 
     def test_each_golden_has_required_fields(self) -> None:
         for i, gq in enumerate(GOLDEN_QUERIES):
@@ -277,6 +722,8 @@ class TestGoldenQueryDefinitions(unittest.TestCase):
             self.assertIn(
                 "min_block_chars", gq, f"Golden query {i} missing 'min_block_chars'"
             )
+            self.assertIn("language", gq, f"Golden query {i} missing 'language'")
+            self.assertIn("agentic", gq, f"Golden query {i} missing 'agentic'")
 
     def test_routes_are_valid(self) -> None:
         valid_routes = {"vector", "graph", "spatial", "hybrid", "live"}
@@ -286,6 +733,37 @@ class TestGoldenQueryDefinitions(unittest.TestCase):
                 valid_routes,
                 f"Golden query {i} has invalid route: {gq['route']}",
             )
+
+    def test_languages_are_valid(self) -> None:
+        valid_langs = {"en", "th"}
+        for i, gq in enumerate(GOLDEN_QUERIES):
+            self.assertIn(
+                gq["language"],
+                valid_langs,
+                f"Golden query {i} has invalid language: {gq['language']}",
+            )
+
+    def test_each_route_represented(self) -> None:
+        routes_seen = {gq["route"] for gq in GOLDEN_QUERIES}
+        for r in ("vector", "graph", "spatial", "hybrid", "live"):
+            self.assertIn(
+                r, routes_seen, f"Route '{r}' not represented in golden queries"
+            )
+
+    def test_each_language_represented(self) -> None:
+        langs_seen = {gq["language"] for gq in GOLDEN_QUERIES}
+        self.assertIn("en", langs_seen, "English not represented")
+        self.assertIn("th", langs_seen, "Thai not represented")
+
+    def test_agentic_queries_present(self) -> None:
+        agentic_count = sum(1 for gq in GOLDEN_QUERIES if gq["agentic"])
+        self.assertGreaterEqual(agentic_count, 5, "Need at least 5 agentic queries")
+
+    def test_empty_results_edge_cases_present(self) -> None:
+        empty_kw = [gq for gq in GOLDEN_QUERIES if not gq["expect_keywords"]]
+        self.assertGreaterEqual(
+            len(empty_kw), 5, "Need at least 5 empty-results edge cases"
+        )
 
     def test_analyze_queries_expect_evidence(self) -> None:
         for i, gq in enumerate(GOLDEN_QUERIES):

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from csp_policy import CSPPolicy
 from starlette.datastructures import MutableHeaders
 
 
 class SecurityHeadersMiddleware:
-    """Unlike BaseHTTPMiddleware, does not buffer StreamingResponse/SSE (chat)."""
+    """Unlike BaseHTTPMiddleware, does not buffer StreamingResponse/SSE (chat).
+
+    CSP is sourced from CSPPolicy (single source of truth) — see csp_policy.py.
+    """
 
     _HEADERS = {
         "X-Content-Type-Options": "nosniff",
@@ -14,19 +18,7 @@ class SecurityHeadersMiddleware:
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "X-Permitted-Cross-Domain-Policies": "none",
         "Permissions-Policy": "geolocation=(self), microphone=(), camera=()",
-        "Content-Security-Policy": (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://unpkg.com; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com data:; "
-            "img-src 'self' data: blob: https:; "
-            "connect-src 'self' https://api.cesium.com https://*.cesium.com https://*.virtualearth.net https://server.arcgisonline.com https://*.arcgisonline.com https://protomaps.github.io https://api.windy.com wss: ws:; "
-            "worker-src 'self' blob:; "
-            "object-src 'none'; "
-            "frame-ancestors 'self'; "
-            "base-uri 'self'; "
-            "form-action 'self';"
-        ),
+        "Content-Security-Policy": CSPPolicy.to_header(),
     }
 
     def __init__(self, app):
