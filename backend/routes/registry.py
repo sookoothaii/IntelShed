@@ -95,6 +95,10 @@ def register_routers(app) -> None:
     import ckan_harvester
     import colqwen2_service
     import api_contracts
+    import gdpr
+    import retention
+    import classification
+    import bitemporal
 
     app.include_router(agent_bus.router)
     app.include_router(core_feeds.router)
@@ -178,6 +182,10 @@ def register_routers(app) -> None:
     app.include_router(ckan_harvester.router)
     app.include_router(colqwen2_service.router)
     app.include_router(api_contracts.router)
+    app.include_router(gdpr.router)
+    app.include_router(retention.router)
+    app.include_router(classification.router)
+    app.include_router(bitemporal.router)
     from routes import admin as admin_routes
     from routes import duckdb_queue as duckdb_queue_routes
     from routes import metrics as metrics_routes

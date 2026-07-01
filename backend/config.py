@@ -163,6 +163,12 @@ class WorldBaseConfig(BaseModel):
     temporal_engine_enabled: bool = False
     temporal_engine_max_lag: int = 3
     temporal_engine_min_points: int = 5
+    gdpr_enabled: bool = True
+    retention_enabled: bool = True
+    retention_prune_interval: int = 3600
+    classification_enabled: bool = True
+    classification_default: str = "UNCLASSIFIED"
+    bitemporal_enabled: bool = True
 
     @classmethod
     def from_env(cls) -> Self:
@@ -462,6 +468,18 @@ class WorldBaseConfig(BaseModel):
             temporal_engine_min_points=max(
                 3, int(os.getenv("WORLDBASE_TEMPORAL_ENGINE_MIN_POINTS", "5"))
             ),
+            gdpr_enabled=_truthy(os.getenv("WORLDBASE_GDPR", "1")),
+            retention_enabled=_truthy(os.getenv("WORLDBASE_RETENTION", "1")),
+            retention_prune_interval=max(
+                60, int(os.getenv("WORLDBASE_RETENTION_PRUNE_INTERVAL", "3600"))
+            ),
+            classification_enabled=_truthy(os.getenv("WORLDBASE_CLASSIFICATION", "1")),
+            classification_default=os.getenv(
+                "WORLDBASE_DEFAULT_CLASSIFICATION", "UNCLASSIFIED"
+            )
+            .strip()
+            .upper(),
+            bitemporal_enabled=_truthy(os.getenv("WORLDBASE_BITEMPORAL", "1")),
         )
 
 

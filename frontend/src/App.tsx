@@ -36,6 +36,8 @@ const SidebarLeft = lazy(() => import('./components/SidebarLeft'));
 const SidebarRight = lazy(() => import('./components/SidebarRight'));
 const CenterRail = lazy(() => import('./components/CenterRail'));
 const BriefingKanban = lazy(() => import('./components/BriefingKanban'));
+const AnalystDashboard = lazy(() => import('./components/AnalystDashboard'));
+const TemporalReplay = lazy(() => import('./components/TemporalReplay'));
 
 type ViewId = 'globe' | 'map' | 'data' | 'chat' | 'news' | 'osint';
 type LayoutMode = 'full' | '3col';
@@ -227,6 +229,8 @@ export default function App() {
   const [situationOpen, setSituationOpen] = useHudSessionState('situationOpen', false, isBool);
   const [calTrigOpen, setCalTrigOpen] = useState(false);
   const [kanbanOpen, setKanbanOpen] = useState(false);
+  const [analystOpen, setAnalystOpen] = useState(false);
+  const [replayOpen, setReplayOpen] = useState(false);
   const briefingKanbanEnabled = import.meta.env.VITE_BRIEFING_KANBAN === '1';
   const [osintPins, setOsintPins] = useState<OsintPin[]>(() => loadOsintPins());
   const [syncCamera, setSyncCamera] = useState<{
@@ -496,6 +500,20 @@ export default function App() {
           )}
           <button
             className="mega-analysis-btn secondary"
+            onClick={() => setAnalystOpen(true)}
+            title="Analyst dashboard — Sankey, timeline, heatmap"
+          >
+            ANALYST
+          </button>
+          <button
+            className="mega-analysis-btn secondary"
+            onClick={() => setReplayOpen(true)}
+            title="Temporal replay — time-travel through snapshots"
+          >
+            REPLAY
+          </button>
+          <button
+            className="mega-analysis-btn secondary"
             onClick={() => setTheme(toggleTheme(theme))}
             title="Toggle cyber / MSS dark theme"
           >
@@ -538,6 +556,20 @@ export default function App() {
         <Suspense fallback={<TabFallback label="FULL SITUATION" />}>
           <ErrorBoundary name="FullAnalysis">
             <FullAnalysisOverlay onClose={() => setAnalysisOpen(false)} onFocus={focusOnMap} />
+          </ErrorBoundary>
+        </Suspense>
+      )}
+      {analystOpen && (
+        <Suspense fallback={<TabFallback label="ANALYST" />}>
+          <ErrorBoundary name="AnalystDashboard">
+            <AnalystDashboard onClose={() => setAnalystOpen(false)} />
+          </ErrorBoundary>
+        </Suspense>
+      )}
+      {replayOpen && (
+        <Suspense fallback={<TabFallback label="REPLAY" />}>
+          <ErrorBoundary name="TemporalReplay">
+            <TemporalReplay onClose={() => setReplayOpen(false)} />
           </ErrorBoundary>
         </Suspense>
       )}
