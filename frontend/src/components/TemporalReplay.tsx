@@ -50,7 +50,7 @@ function useSnapshotArchiver(maxSnapshots = DEFAULT_MAX_SNAPSHOTS): SnapshotArch
       ]);
 
       const feeds: ReplaySnapshot['feeds'] = {};
-      let totalEntities = 0;
+      const totalEntities = 0;
       let totalEvents = 0;
       if (healthR?.feeds) {
         for (const [name, info] of Object.entries(healthR.feeds as Record<string, { status: string; fresh: boolean; count: number }>)) {

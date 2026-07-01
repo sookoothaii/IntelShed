@@ -386,3 +386,22 @@ def describe_tool(tool_name: str, mcp_instance=None) -> dict[str, Any]:
 def list_tool_names() -> list[str]:
     """Return all known tool names."""
     return sorted(_OUTPUT_SCHEMAS.keys())
+
+
+# ---------------------------------------------------------------------------
+# Tool annotations (E-06) — re-exported from mcp_conformance for convenience
+# ---------------------------------------------------------------------------
+
+
+def get_tool_annotations(tool_name: str) -> dict[str, bool]:
+    """Return MCP spec annotations (readOnlyHint, destructiveHint, idempotentHint)."""
+    from mcp_conformance import get_tool_annotations as _gta
+
+    return _gta(tool_name)
+
+
+def all_tool_annotations() -> dict[str, dict[str, bool]]:
+    """Return the full tool annotation mapping."""
+    from mcp_conformance import all_tool_annotations as _ata
+
+    return _ata()

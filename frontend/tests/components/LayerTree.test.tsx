@@ -72,8 +72,8 @@ describe('LayerTree', () => {
       <LayerTree layers={{}} onToggleLayer={vi.fn()} />,
     )
     const items = container.querySelectorAll('.layer-tree-item')
-    // 6 (Live Tracking) + 6 (Geo Hazards) + 5 (Environment) + 6 (Intelligence) + 5 (Disasters) = 28
-    expect(items.length).toBe(28)
+    // 6 (Live Tracking) + 6 (Geo Hazards) + 5 (Environment) + 7 (Intelligence) + 5 (Disasters) = 29
+    expect(items.length).toBe(29)
   })
 
   it('renders checkbox for each layer item', () => {
@@ -81,7 +81,7 @@ describe('LayerTree', () => {
       <LayerTree layers={{}} onToggleLayer={vi.fn()} />,
     )
     const checkboxes = container.querySelectorAll('.layer-tree-checkbox')
-    expect(checkboxes.length).toBe(28)
+    expect(checkboxes.length).toBe(29)
   })
 
   it('marks active layers with --on class and aria-selected', () => {
@@ -126,14 +126,14 @@ describe('LayerTree', () => {
     // Initially expanded
     expect(firstHeader.getAttribute('aria-expanded')).toBe('true')
     const itemsBefore = container.querySelectorAll('.layer-tree-item')
-    expect(itemsBefore.length).toBe(28)
+    expect(itemsBefore.length).toBe(29)
 
     fireEvent.click(firstHeader)
     // Now collapsed
     expect(firstHeader.getAttribute('aria-expanded')).toBe('false')
     const itemsAfter = container.querySelectorAll('.layer-tree-item')
     // Only items from other groups remain
-    expect(itemsAfter.length).toBe(22) // 28 - 6 (Live Tracking)
+    expect(itemsAfter.length).toBe(23) // 29 - 6 (Live Tracking)
   })
 
   it('collapses group on Enter key', () => {
@@ -293,7 +293,7 @@ describe('LayerTree', () => {
       <LayerTree layers={{}} onToggleLayer={vi.fn()} />,
     )
     const treeItems = container.querySelectorAll('.layer-tree-item[role="treeitem"]')
-    expect(treeItems.length).toBe(28)
+    expect(treeItems.length).toBe(29)
   })
 
   it('renders aria-label on tree', () => {
@@ -311,7 +311,7 @@ describe('LayerTree', () => {
     )
     // Component should still render all items
     const items = container.querySelectorAll('.layer-tree-item')
-    expect(items.length).toBe(28)
+    expect(items.length).toBe(29)
   })
 
   it('handles fetchApi throw gracefully', async () => {
@@ -321,6 +321,6 @@ describe('LayerTree', () => {
     )
     // Component should still render all items
     const items = container.querySelectorAll('.layer-tree-item')
-    expect(items.length).toBe(28)
+    expect(items.length).toBe(29)
   })
 })

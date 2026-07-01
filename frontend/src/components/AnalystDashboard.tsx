@@ -167,6 +167,11 @@ function EventTimeline({ events }: { events: TimelineEvent[] }) {
   const padY = 20;
 
   const sorted = useMemo(() => [...events].sort((a, b) => a.time - b.time), [events]);
+  // Group events by source for swim lanes — must be before any early return (Rules of Hooks)
+  const sources = useMemo(() => {
+    const s = new Set(sorted.map((e) => e.source || 'unknown'));
+    return Array.from(s).slice(0, 6);
+  }, [sorted]);
   if (sorted.length === 0) {
     return <div className="timeline-empty">No events in window</div>;
   }
@@ -182,12 +187,6 @@ function EventTimeline({ events }: { events: TimelineEvent[] }) {
     low: '#0f8',
     info: '#08f',
   };
-
-  // Group events by source for swim lanes
-  const sources = useMemo(() => {
-    const s = new Set(sorted.map((e) => e.source || 'unknown'));
-    return Array.from(s).slice(0, 6);
-  }, [sorted]);
 
   const laneH = (H - padY * 2) / Math.max(sources.length, 1);
   const laneFor = (src: string) => sources.indexOf(src);
