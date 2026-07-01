@@ -24,6 +24,7 @@ export type Stats = {
   pegel: number;
   osint: number;
   intelFt: number;
+  flowsint: number;
   darkweb: number;
   energy: number;
   piAis: number;

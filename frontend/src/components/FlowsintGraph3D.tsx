@@ -42,16 +42,36 @@ interface EnrichedGraphData {
   pin_count: number;
 }
 
+interface EnricherInfo {
+  name: string;
+  category: string;
+  input_type: string;
+  output_type: string;
+  description: string;
+  requires_params: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Node type → color mapping
 // ---------------------------------------------------------------------------
 
 const NODE_COLORS: Record<string, string> = {
   IpAddress: '#ff6b35',
+  Ip: '#ff6b35',
   Domain: '#4fc3f7',
   Organization: '#00e5a0',
   Person: '#ffd23f',
   HyperText: '#e040fb',
+  Username: '#ba68c8',
+  Website: '#e040fb',
+  Email: '#ffd23f',
+  Phone: '#ff8a65',
+  CryptoWallet: '#fbc02d',
+  Whois: '#81d4fa',
+  Port: '#ffab40',
+  ASN: '#aed581',
+  RiskProfile: '#ef5350',
+  SocialAccount: '#ce93d8',
   Thing: '#6f8c84',
 };
 
@@ -85,6 +105,21 @@ export default function FlowsintGraph3D({
   const [enriching, setEnriching] = useState(false);
   const [enrichResult, setEnrichResult] = useState<string | null>(null);
 
+  // Enricher catalog state
+  const [enrichers, setEnrichers] = useState<Record<string, EnricherInfo[]>>({});
+  const [selectedEnricher, setSelectedEnricher] = useState<string>('');
+
+  // Enrich-further state (node-click)
+  const [furtherEnricher, setFurtherEnricher] = useState<string>('');
+  const [enrichingFurther, setEnrichingFurther] = useState(false);
+
+  // Chain state
+  const [chainMode, setChainMode] = useState(false);
+  const [chainSteps, setChainSteps] = useState<string[]>([]);
+
+  // Export state
+  const [exporting, setExporting] = useState(false);
+
   const containerRef = useRef<HTMLDivElement>(null);
 
   // ---------------------------------------------------------------------------
@@ -110,6 +145,16 @@ export default function FlowsintGraph3D({
     fetchGraph();
   }, [fetchGraph]);
 
+  // Fetch enricher catalog
+  useEffect(() => {
+    fetchApi('/api/flowsint/enrichers')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.categories) setEnrichers(d.categories);
+      })
+      .catch(() => {});
+  }, []);
+
   // ---------------------------------------------------------------------------
   // Live enrichment
   // ---------------------------------------------------------------------------
@@ -119,27 +164,135 @@ export default function FlowsintGraph3D({
     setEnriching(true);
     setEnrichResult(null);
     try {
-      const body: Record<string, unknown> = {
-        enricher_name: enrichType === 'ip' ? 'ip_to_infos' : enrichType === 'domain' ? 'domain_to_whois' : 'email_to_gravatar',
-        entity_type: enrichType,
-        value: enrichInput.trim(),
-      };
-      const r = await fetchApi('/api/flowsint/enrich', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const d = await r.json();
-      if (d.error) {
-        setEnrichResult(`Error: ${d.error}`);
+      if (chainMode && chainSteps.length > 0) {
+        // Run chain enrichment
+        const body = {
+          entity_type: enrichType,
+          value: enrichInput.trim(),
+          chain: chainSteps,
+        };
+        const r = await fetchApi('/api/flowsint/auto-chain', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.error) {
+          setEnrichResult(`Error: ${d.error}`);
+        } else {
+          setEnrichResult(`Chain: ${d.total_entities} entities, ${d.total_edges} edges (${d.steps.length} steps)`);
+          fetchGraph();
+        }
       } else {
-        const nodeCount = d.graph?.nds?.length || 0;
-        setEnrichResult(`Enriched: ${nodeCount} nodes, status: ${d.scan_status}`);
-        // Refresh graph data
-        fetchGraph();
+        const body: Record<string, unknown> = {
+          entity_type: enrichType,
+          value: enrichInput.trim(),
+        };
+        if (selectedEnricher) body.enricher_name = selectedEnricher;
+        const r = await fetchApi('/api/flowsint/enrich-and-ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const d = await r.json();
+        if (d.error) {
+          setEnrichResult(`Error: ${d.error}`);
+        } else {
+          let msg = `Enriched: ${d.entities_created} entities, ${d.pins_created} pins`;
+          if (d.chain?.length) msg += ` + chain: ${d.chain.map((c: {enricher: string, entities?: number}) => `${c.enricher}(${c.entities || 0})`).join(', ')}`;
+          setEnrichResult(msg);
+          fetchGraph();
+        }
       }
     } catch (e) {
       setEnrichResult(`Error: ${String(e)}`);
+    } finally {
+      setEnriching(false);
+    }
+  }
+
+  async function runEnrichFurther() {
+    if (!selectedNode || !furtherEnricher) return;
+    setEnrichingFurther(true);
+    try {
+      const nodeValue =
+        (selectedNode.props as Record<string, unknown[]>).address?.[0] as string ||
+        (selectedNode.props as Record<string, unknown[]>).domain?.[0] as string ||
+        (selectedNode.props as Record<string, unknown[]>).email?.[0] as string ||
+        selectedNode.label;
+      const r = await fetchApi('/api/flowsint/enrich-further', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          value: nodeValue,
+          entity_type: enrichType,
+          enricher_name: furtherEnricher,
+        }),
+      });
+      const d = await r.json();
+      if (d.error) {
+        setEnrichResult(`Further error: ${d.error}`);
+      } else {
+        setEnrichResult(`Further: +${d.entities_created} entities, +${d.edges_created} edges`);
+        fetchGraph();
+      }
+    } catch (e) {
+      setEnrichResult(`Further error: ${String(e)}`);
+    } finally {
+      setEnrichingFurther(false);
+    }
+  }
+
+  async function exportToFlowsint() {
+    if (!graphData?.nodes?.length) return;
+    setExporting(true);
+    setEnrichResult(null);
+    try {
+      const entityIds = graphData.nodes.map((n) => n.id);
+      const r = await fetchApi('/api/flowsint/export-investigation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `intelshed-flowsint-${Date.now()}`,
+          entity_ids: entityIds,
+          enrich: true,
+        }),
+      });
+      const d = await r.json();
+      if (d.error) {
+        setEnrichResult(`Export error: ${d.error}`);
+      } else {
+        setEnrichResult(`Exported ${d.nodes_sent} nodes to Flowsint (inv #${d.investigation_id})`);
+      }
+    } catch (e) {
+      setEnrichResult(`Export error: ${String(e)}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function runAutoChainPipeline() {
+    if (!enrichInput.trim()) return;
+    setEnriching(true);
+    setEnrichResult(null);
+    try {
+      const r = await fetchApi('/api/flowsint/auto-chain-pipeline', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          value: enrichInput.trim(),
+          entity_type: enrichType,
+        }),
+      });
+      const d = await r.json();
+      if (d.error) {
+        setEnrichResult(`Pipeline error: ${d.error}`);
+      } else {
+        setEnrichResult(`Pipeline: ${d.total_entities} entities, ${d.total_edges} edges (${d.steps.length} steps)`);
+        fetchGraph();
+      }
+    } catch (e) {
+      setEnrichResult(`Pipeline error: ${String(e)}`);
     } finally {
       setEnriching(false);
     }
@@ -268,48 +421,133 @@ export default function FlowsintGraph3D({
           {loading ? '⟳' : '↻'} REFRESH
         </button>
 
+        {nodeCount > 0 && (
+          <button
+            type="button"
+            onClick={exportToFlowsint}
+            disabled={exporting}
+            style={{
+              fontSize: 10, padding: '4px 10px', fontFamily: 'monospace', cursor: 'pointer',
+              background: 'rgba(0,229,160,0.1)', border: '1px solid rgba(0,229,160,0.3)',
+              color: '#00e5a0', borderRadius: 3,
+            }}
+          >
+            {exporting ? '…' : '⇄ EXPORT TO FLOWSINT'}
+          </button>
+        )}
+
         <div style={{ fontSize: 10, color: '#6f8c84', fontFamily: 'monospace' }}>
           {nodeCount} nodes · {linkCount} links · {pinCount} pins
         </div>
       </div>
 
       {/* Live enrichment bar */}
-      <div style={{ flexShrink: 0, padding: '0 12px 8px', display: 'flex', gap: 6, alignItems: 'center' }}>
-        <select
-          value={enrichType}
-          onChange={(e) => setEnrichType(e.target.value)}
-          style={{
-            fontSize: 10, fontFamily: 'monospace', background: 'rgba(0,0,0,0.35)',
-            border: '1px solid #1a2e33', color: '#b0c4b1', borderRadius: 3, padding: '4px 6px',
-          }}
-        >
-          <option value="ip">IP</option>
-          <option value="domain">DOMAIN</option>
-          <option value="email">EMAIL</option>
-        </select>
-        <input
-          value={enrichInput}
-          onChange={(e) => setEnrichInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && runLiveEnrich()}
-          placeholder="Enrich value…"
-          style={{
-            flex: 1, fontSize: 11, fontFamily: 'monospace', background: 'rgba(0,0,0,0.35)',
-            border: '1px solid #1a2e33', color: '#b0c4b1', borderRadius: 3, padding: '4px 8px',
-          }}
-        />
-        <button
-          type="button"
-          onClick={runLiveEnrich}
-          disabled={enriching || !enrichInput.trim()}
-          style={{ fontSize: 10, padding: '4px 12px' }}
-        >
-          {enriching ? '…' : 'ENRICH →'}
-        </button>
-        {enrichResult && (
-          <span style={{ fontSize: 10, color: enrichResult.startsWith('Error') ? '#ff6b35' : '#00e5a0', fontFamily: 'monospace' }}>
-            {enrichResult}
-          </span>
-        )}
+      <div style={{ flexShrink: 0, padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <select
+            value={enrichType}
+            onChange={(e) => { setEnrichType(e.target.value); setSelectedEnricher(''); }}
+            style={{
+              fontSize: 10, fontFamily: 'monospace', background: 'rgba(0,0,0,0.35)',
+              border: '1px solid #1a2e33', color: '#b0c4b1', borderRadius: 3, padding: '4px 6px',
+            }}
+          >
+            <option value="ip">IP</option>
+            <option value="domain">DOMAIN</option>
+            <option value="email">EMAIL</option>
+            <option value="username">USERNAME</option>
+            <option value="website">WEBSITE</option>
+            <option value="organization">ORG</option>
+            <option value="phone">PHONE</option>
+            <option value="cryptowallet">CRYPTO</option>
+          </select>
+          <select
+            value={selectedEnricher}
+            onChange={(e) => setSelectedEnricher(e.target.value)}
+            style={{
+              fontSize: 10, fontFamily: 'monospace', background: 'rgba(0,0,0,0.35)',
+              border: '1px solid #1a2e33', color: '#b0c4b1', borderRadius: 3, padding: '4px 6px',
+              maxWidth: 200,
+            }}
+          >
+            <option value="">Auto (default)</option>
+            {Object.entries(enrichers).map(([cat, list]) => (
+              <optgroup key={cat} label={cat}>
+                {list.filter((e) => {
+                  const inp = (e.input_type || '').toLowerCase();
+                  return inp === enrichType || (enrichType === 'ip' && inp === 'ip') || inp === 'any';
+                }).map((e) => (
+                  <option key={e.name} value={e.name}>{e.name}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <input
+            value={enrichInput}
+            onChange={(e) => setEnrichInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && runLiveEnrich()}
+            placeholder="Enrich value…"
+            style={{
+              flex: 1, fontSize: 11, fontFamily: 'monospace', background: 'rgba(0,0,0,0.35)',
+              border: '1px solid #1a2e33', color: '#b0c4b1', borderRadius: 3, padding: '4px 8px',
+            }}
+          />
+          <button
+            type="button"
+            onClick={runLiveEnrich}
+            disabled={enriching || !enrichInput.trim()}
+            style={{ fontSize: 10, padding: '4px 12px' }}
+          >
+            {enriching ? '…' : chainMode ? 'CHAIN →' : 'ENRICH →'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => setChainMode(!chainMode)}
+            style={{
+              fontSize: 9, padding: '2px 8px', fontFamily: 'monospace',
+              background: chainMode ? 'rgba(255,210,63,0.15)' : 'rgba(0,0,0,0.3)',
+              border: chainMode ? '1px solid #ffd23f' : '1px solid #1a2e33',
+              color: chainMode ? '#ffd23f' : '#6f8c84', borderRadius: 3, cursor: 'pointer',
+            }}
+          >
+            ⛓ CHAIN
+          </button>
+          <button
+            type="button"
+            onClick={runAutoChainPipeline}
+            disabled={enriching || !enrichInput.trim()}
+            style={{
+              fontSize: 9, padding: '2px 8px', fontFamily: 'monospace',
+              background: 'rgba(255,107,53,0.1)', border: '1px solid rgba(255,107,53,0.3)',
+              color: '#ff6b35', borderRadius: 3, cursor: 'pointer',
+            }}
+          >
+            ⚡ PIPELINE
+          </button>
+          {chainMode && (
+            <select
+              multiple
+              value={chainSteps}
+              onChange={(e) => setChainSteps(Array.from(e.target.selectedOptions).map((o) => o.value))}
+              style={{
+                fontSize: 9, fontFamily: 'monospace', background: 'rgba(0,0,0,0.35)',
+                border: '1px solid #1a2e33', color: '#b0c4b1', borderRadius: 3,
+                minHeight: 40, maxWidth: 300,
+              }}
+            >
+              {Object.values(enrichers).flat().map((e) => (
+                <option key={e.name} value={e.name}>{e.name}</option>
+              ))}
+            </select>
+          )}
+          {enrichResult && (
+            <span style={{ fontSize: 10, color: enrichResult.startsWith('Error') || enrichResult.startsWith('Further error') ? '#ff6b35' : '#00e5a0', fontFamily: 'monospace' }}>
+              {enrichResult}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Main visualization area */}
@@ -449,6 +687,36 @@ export default function FlowsintGraph3D({
           <pre style={{ fontSize: 10, color: '#8fb7a9', margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
             {JSON.stringify(selectedNode.props, null, 2).slice(0, 500)}
           </pre>
+          {/* Enrich Further */}
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 6, paddingTop: 6, borderTop: '1px solid #1a2e33' }}>
+            <span style={{ fontSize: 9, color: '#6f8c84', fontFamily: 'monospace' }}>ENRICH FURTHER:</span>
+            <select
+              value={furtherEnricher}
+              onChange={(e) => setFurtherEnricher(e.target.value)}
+              style={{
+                fontSize: 9, fontFamily: 'monospace', background: 'rgba(0,0,0,0.35)',
+                border: '1px solid #1a2e33', color: '#b0c4b1', borderRadius: 3, padding: '2px 4px',
+                flex: 1,
+              }}
+            >
+              <option value="">Select enricher…</option>
+              {Object.entries(enrichers).map(([cat, list]) => (
+                <optgroup key={cat} label={cat}>
+                  {list.map((e) => (
+                    <option key={e.name} value={e.name}>{e.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={runEnrichFurther}
+              disabled={!furtherEnricher || enrichingFurther}
+              style={{ fontSize: 9, padding: '2px 8px' }}
+            >
+              {enrichingFurther ? '…' : '→'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -469,7 +737,10 @@ export default function FlowsintGraph3D({
             pointerEvents: 'none',
           }}
         >
-          {Object.entries(NODE_COLORS).filter(([k]) => k !== 'Thing').map(([type, color]) => (
+          {Object.entries(NODE_COLORS).filter(([k]) => {
+            if (!graphData) return false;
+            return graphData.nodes.some((n) => n.type === k);
+          }).map(([type, color]) => (
             <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block' }} />
               {type}

@@ -72,15 +72,15 @@ async def flowsint_health():
         "updated": datetime.now(timezone.utc).isoformat(),
         "hint": "Run scripts/setup-flowsint.ps1 then scripts/start-flowsint.ps1 (Docker required)",
     }
-    async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=2.0, follow_redirects=True) as client:
         try:
             r = await client.get(f"{_FLOWSINT_UI}/")
             out["frontend"] = r.status_code < 500
         except Exception as e:
             out["frontend_error"] = str(e)[:200]
         try:
-            r = await client.get(f"{_FLOWSINT_API}/health")
-            out["api"] = r.status_code == 200
+            r = await client.get(f"{_FLOWSINT_API}/docs")
+            out["api"] = r.status_code < 400
         except Exception as e:
             out["api_error"] = str(e)[:200]
     out["ok"] = out["frontend"] and out["api"]
@@ -173,20 +173,26 @@ async def list_enrichers(
         if r.status_code != 200:
             raise HTTPException(502, f"Flowsint API error: {r.status_code}")
         enrichers = r.json()
-        # Compact summary
+        # Compact summary + grouped by category
+        compact = [
+            {
+                "name": e.get("name"),
+                "category": e.get("category"),
+                "input_type": e.get("inputs", {}).get("type"),
+                "output_type": e.get("outputs", {}).get("type"),
+                "description": (e.get("description") or "")[:120],
+                "requires_params": bool(e.get("params_schema")),
+            }
+            for e in enrichers
+        ]
+        by_cat: dict[str, list[dict]] = {}
+        for e in compact:
+            cat = e["category"] or "Other"
+            by_cat.setdefault(cat, []).append(e)
         return {
             "count": len(enrichers),
-            "enrichers": [
-                {
-                    "name": e.get("name"),
-                    "category": e.get("category"),
-                    "input_type": e.get("inputs", {}).get("type"),
-                    "output_type": e.get("outputs", {}).get("type"),
-                    "description": (e.get("description") or "")[:120],
-                    "requires_params": bool(e.get("params_schema")),
-                }
-                for e in enrichers
-            ],
+            "categories": by_cat,
+            "enrichers": compact,
         }
 
 

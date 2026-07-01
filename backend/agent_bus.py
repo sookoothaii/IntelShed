@@ -53,6 +53,7 @@ GLOBE_LAYER_KEYS: frozenset[str] = frozenset(
         "energy",
         "osint",
         "intelFt",
+        "flowsint",
     }
 )
 

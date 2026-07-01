@@ -25,6 +25,7 @@ import { useHeatmapLayer } from './useHeatmapLayer';
 import { useWeatherLayer } from './useWeatherLayer';
 import { useTrafficCamsLayer } from './useTrafficCamsLayer';
 import { useIntelLayer } from './useIntelLayer';
+import { useFlowsintLayer } from './useFlowsintLayer';
 import { useDarkwebLayer } from './useDarkwebLayer';
 import { useSatelliteChangeLayer } from './useSatelliteChangeLayer';
 import { useDetectionBoxes } from './useDetectionBoxes';
@@ -163,6 +164,7 @@ export function GlobeLayerManager({
   });
   useTrafficCamsLayer({ viewer, active: layers.trafficCams, feedActive, canFetch, setStats });
   useIntelLayer({ viewer, active: layers.intelFt, feedActive, canFetch, setStats, theme });
+  useFlowsintLayer({ viewer, active: layers.flowsint ?? false, feedActive, canFetch, setStats });
   useDarkwebLayer({ viewer, active: layers.darkweb, feedActive, canFetch, setStats });
   useHeatmapLayer({ viewer, active: heatmapOn, feedActive, canFetch, setHeatmapMeta });
   useSatelliteChangeLayer({ viewer, active: layers.satelliteChange ?? false });

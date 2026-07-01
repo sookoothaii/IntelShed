@@ -16,6 +16,7 @@ import hashlib
 import asyncio
 import time
 from datetime import datetime, timezone
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Header, Query, Request, Depends
@@ -909,6 +910,38 @@ async def latest_briefing(_auth: str | None = Depends(verify_lan_auth)):
     from operator_briefing import enrich_watch_items_coords
 
     watch_items = enrich_watch_items_coords(sources.get("watch_items") or [])
+
+    # Enriched IOC cards — query flowsint_auto entities from DuckDB
+    enriched_iocs: list[dict[str, Any]] = []
+    try:
+        from ftm_connection import run_query_ro
+
+        rows = run_query_ro(
+            "SELECT id, schema, caption, lat, lon, properties, datasets "
+            "FROM entities WHERE datasets LIKE '%flowsint%' LIMIT 50"
+        )
+        for r in rows:
+            props = {}
+            try:
+                import json as _json
+
+                props = _json.loads(r["properties"]) if r["properties"] else {}
+            except Exception:
+                pass
+            enriched_iocs.append(
+                {
+                    "id": r["id"],
+                    "schema": r["schema"],
+                    "label": r["caption"],
+                    "lat": r["lat"],
+                    "lon": r["lon"],
+                    "props": props,
+                    "dataset": r["datasets"],
+                }
+            )
+    except Exception:
+        pass
+
     return {
         "created_at": row["created_at"],
         "text": row["text"],
@@ -922,6 +955,7 @@ async def latest_briefing(_auth: str | None = Depends(verify_lan_auth)):
         "digest_line_meta": sources.get("digest_line_meta") or [],
         "agentic": sources.get("agentic"),
         "insights": sources.get("insights") or [],
+        "enriched_iocs": enriched_iocs,
     }
 
 

@@ -396,6 +396,7 @@ type Stats = {
   pegel: number;
   osint: number;
   intelFt: number;
+  flowsint: number;
   darkweb: number;
   energy: number;
   piAis: number;
@@ -431,6 +432,7 @@ type GlobeLayers = {
   energy: boolean;
   osint: boolean;
   intelFt: boolean;
+  flowsint: boolean;
   darkweb: boolean;
   satelliteChange: boolean;
   detectionBoxes: boolean;
@@ -832,6 +834,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       energy: false,
       osint: true,
       intelFt: false,
+      flowsint: false,
       darkweb: false,
       satelliteChange: false,
       detectionBoxes: false,
@@ -873,6 +876,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       energy: true,
       osint: false,
       intelFt: false,
+      flowsint: false,
       darkweb: false,
       satelliteChange: false,
       detectionBoxes: false,
@@ -914,6 +918,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       energy: false,
       osint: true,
       intelFt: true,
+      flowsint: true,
       darkweb: true,
       satelliteChange: false,
       detectionBoxes: true,
@@ -955,6 +960,7 @@ const VIEW_PRESETS: Record<ViewPresetId, ViewPreset> = {
       energy: false,
       osint: true,
       intelFt: true,
+      flowsint: true,
       darkweb: true,
       satelliteChange: false,
       detectionBoxes: true,
@@ -1210,6 +1216,7 @@ export default function Globe({
     pegel: 0,
     osint: 0,
     intelFt: 0,
+    flowsint: 0,
     darkweb: 0,
     energy: 0,
     piAis: 0,

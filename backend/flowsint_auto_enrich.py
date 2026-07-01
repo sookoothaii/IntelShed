@@ -34,6 +34,7 @@ log = get_logger(__name__)
 _DB_PATH = os.getenv("WORLDBASE_DB_PATH", "worldbase.db")
 
 _FLOWSINT_API = os.getenv("FLOWSINT_API_URL", "http://127.0.0.1:5001").rstrip("/")
+_FLOWSINT_UI = os.getenv("FLOWSINT_UI_URL", "http://127.0.0.1:5173").rstrip("/")
 _FLOWSINT_EMAIL = os.getenv("FLOWSINT_EMAIL", "")
 _FLOWSINT_PASSWORD = os.getenv("FLOWSINT_PASSWORD", "")
 
@@ -532,6 +533,439 @@ from auth.security import verify_lan_auth  # noqa: E402
 
 router = APIRouter(prefix="/api", tags=["flowsint-auto"])
 
+# ---------------------------------------------------------------------------
+# Enricher catalog (static — mirrors Flowsint's 47 enrichers)
+# ---------------------------------------------------------------------------
+
+_ENRICHER_CATALOG: list[dict[str, Any]] = [
+    # IP
+    {
+        "name": "ip_to_infos",
+        "category": "IP",
+        "input": "ip",
+        "output": "Ip",
+        "desc": "[ip-api.com] Get information data for IP addresses.",
+        "params": False,
+    },
+    {
+        "name": "ip_to_domain",
+        "category": "IP",
+        "input": "ip",
+        "output": "Domain",
+        "desc": "Resolve IP to domain names (PTR, CT logs).",
+        "params": False,
+    },
+    {
+        "name": "ip_to_asn",
+        "category": "IP",
+        "input": "ip",
+        "output": "ASN",
+        "desc": "[ASNMAP] IP to ASN.",
+        "params": True,
+    },
+    {
+        "name": "ip_to_ports",
+        "category": "IP",
+        "input": "ip",
+        "output": "Port",
+        "desc": "[NAABU] Port scan IP addresses.",
+        "params": True,
+    },
+    {
+        "name": "ip_to_fraudscore",
+        "category": "IP",
+        "input": "ip",
+        "output": "RiskProfile",
+        "desc": "[Scamalytics] Fraud score for IP.",
+        "params": True,
+    },
+    {
+        "name": "ip_to_intelligence",
+        "category": "IP",
+        "input": "ip",
+        "output": "Individual",
+        "desc": "[DeHashed] Breach intelligence from IP.",
+        "params": True,
+    },
+    # Domain
+    {
+        "name": "domain_to_whois",
+        "category": "Domain",
+        "input": "domain",
+        "output": "Whois",
+        "desc": "WHOIS information for a domain.",
+        "params": False,
+    },
+    {
+        "name": "domain_to_ip",
+        "category": "Domain",
+        "input": "domain",
+        "output": "Ip",
+        "desc": "Resolve domain to IP addresses.",
+        "params": False,
+    },
+    {
+        "name": "domain_to_subdomains",
+        "category": "Domain",
+        "input": "domain",
+        "output": "Domain",
+        "desc": "Find subdomains for a domain.",
+        "params": False,
+    },
+    {
+        "name": "domain_to_tls",
+        "category": "Domain",
+        "input": "domain",
+        "output": "Website",
+        "desc": "[httpX] TLS information from domain.",
+        "params": False,
+    },
+    {
+        "name": "domain_to_website",
+        "category": "Domain",
+        "input": "domain",
+        "output": "Website",
+        "desc": "From domain to website.",
+        "params": False,
+    },
+    {
+        "name": "domain_to_root_domain",
+        "category": "Domain",
+        "input": "domain",
+        "output": "Domain",
+        "desc": "Subdomain to root domain.",
+        "params": False,
+    },
+    {
+        "name": "domain_to_history",
+        "category": "Domain",
+        "input": "domain",
+        "output": "Domain",
+        "desc": "[WHOXY] Domain history (orgs, owners, emails).",
+        "params": True,
+    },
+    {
+        "name": "domain_to_asn",
+        "category": "Domain",
+        "input": "domain",
+        "output": "ASN",
+        "desc": "[ASNMAP] Domain to ASN.",
+        "params": True,
+    },
+    {
+        "name": "domain_to_dehashed",
+        "category": "Domain",
+        "input": "domain",
+        "output": "Individual",
+        "desc": "[DeHashed] Breach intelligence from domain.",
+        "params": True,
+    },
+    {
+        "name": "domain_to_whois_history",
+        "category": "Domain",
+        "input": "domain",
+        "output": "Whois",
+        "desc": "[WHOISXML] WHOIS history records.",
+        "params": True,
+    },
+    # Email
+    {
+        "name": "email_to_gravatar",
+        "category": "Email",
+        "input": "email",
+        "output": "Gravatar",
+        "desc": "MD5 hash of email to gravatar.",
+        "params": False,
+    },
+    {
+        "name": "email_to_domain",
+        "category": "Email",
+        "input": "email",
+        "output": "Domain",
+        "desc": "From email to domain.",
+        "params": False,
+    },
+    {
+        "name": "email_to_username",
+        "category": "Email",
+        "input": "email",
+        "output": "Username",
+        "desc": "From email to username.",
+        "params": False,
+    },
+    {
+        "name": "email_to_breaches",
+        "category": "Email",
+        "input": "email",
+        "output": "Any",
+        "desc": "[HIBPWNED] Get breaches for email.",
+        "params": True,
+    },
+    {
+        "name": "email_to_intelligence",
+        "category": "Email",
+        "input": "email",
+        "output": "Individual",
+        "desc": "[DeHashed] Breach intelligence from email.",
+        "params": True,
+    },
+    {
+        "name": "email_to_domains",
+        "category": "Email",
+        "input": "email",
+        "output": "Domain",
+        "desc": "[WHOXY] Domains registered by email.",
+        "params": True,
+    },
+    {
+        "name": "email_to_device_hudsonrock",
+        "category": "Email",
+        "input": "email",
+        "output": "Device",
+        "desc": "[HudsonRock] Infostealer device data.",
+        "params": False,
+    },
+    # Social / Username
+    {
+        "name": "username_to_socials_maigret",
+        "category": "Social",
+        "input": "username",
+        "output": "SocialAccount",
+        "desc": "[MAIGRET] Scan username across social platforms.",
+        "params": False,
+    },
+    {
+        "name": "username_to_socials_sherlock",
+        "category": "Social",
+        "input": "username",
+        "output": "SocialAccount",
+        "desc": "[SHERLOCK] Scan username across social platforms.",
+        "params": False,
+    },
+    {
+        "name": "username_to_dehashed",
+        "category": "Social",
+        "input": "username",
+        "output": "Individual",
+        "desc": "[DeHashed] Breach intelligence from username.",
+        "params": True,
+    },
+    {
+        "name": "username_to_device_hudsonrock",
+        "category": "Social",
+        "input": "username",
+        "output": "Device",
+        "desc": "[HudsonRock] Infostealer device data.",
+        "params": False,
+    },
+    # Website
+    {
+        "name": "website_to_links",
+        "category": "Website",
+        "input": "website",
+        "output": "Website",
+        "desc": "Extract internal/external links from website.",
+        "params": False,
+    },
+    {
+        "name": "website_to_text",
+        "category": "Website",
+        "input": "website",
+        "output": "Phrase",
+        "desc": "Extract text from webpage.",
+        "params": False,
+    },
+    {
+        "name": "website_to_domain",
+        "category": "Website",
+        "input": "website",
+        "output": "Domain",
+        "desc": "From website to domain.",
+        "params": False,
+    },
+    {
+        "name": "website_to_crawler",
+        "category": "Website",
+        "input": "website",
+        "output": "ReturnType",
+        "desc": "Crawl website.",
+        "params": False,
+    },
+    {
+        "name": "website_to_webtrackers",
+        "category": "Website",
+        "input": "website",
+        "output": "WebTracker",
+        "desc": "Extract web trackers from website.",
+        "params": False,
+    },
+    {
+        "name": "website_to_subdomains",
+        "category": "Website",
+        "input": "website",
+        "output": "Website",
+        "desc": "[c99.nl] Find subdomains of website.",
+        "params": True,
+    },
+    # Organization
+    {
+        "name": "org_to_infos",
+        "category": "Organization",
+        "input": "organization",
+        "output": "Organization",
+        "desc": "[SIRENE] Organization data (France).",
+        "params": False,
+    },
+    {
+        "name": "org_to_domains",
+        "category": "Organization",
+        "input": "organization",
+        "output": "Domain",
+        "desc": "[WHOXY] Domains registered by org.",
+        "params": True,
+    },
+    {
+        "name": "org_to_asn",
+        "category": "Organization",
+        "input": "organization",
+        "output": "ASN",
+        "desc": "Organization to ASN.",
+        "params": True,
+    },
+    # Phone
+    {
+        "name": "phone_to_infos",
+        "category": "Phone",
+        "input": "phone",
+        "output": "Any",
+        "desc": "Phone number information.",
+        "params": False,
+    },
+    {
+        "name": "phone_to_carrier",
+        "category": "Phone",
+        "input": "phone",
+        "output": "Phone",
+        "desc": "[veriphone] Phone carrier lookup.",
+        "params": True,
+    },
+    {
+        "name": "phone_to_device_hudsonrock",
+        "category": "Phone",
+        "input": "phone",
+        "output": "Device",
+        "desc": "[HudsonRock] Infostealer device data.",
+        "params": False,
+    },
+    # Crypto
+    {
+        "name": "cryptowallet_to_transactions",
+        "category": "Crypto",
+        "input": "cryptowallet",
+        "output": "CryptoWalletTransaction",
+        "desc": "[ETHERSCAN] Wallet transactions (ETH).",
+        "params": True,
+    },
+    {
+        "name": "cryptowallet_to_nfts",
+        "category": "Crypto",
+        "input": "cryptowallet",
+        "output": "CryptoNFT",
+        "desc": "[ETHERSCAN] Wallet NFTs (ETH).",
+        "params": True,
+    },
+    # Individual
+    {
+        "name": "individual_to_domains",
+        "category": "Individual",
+        "input": "individual",
+        "output": "Domain",
+        "desc": "[WHOXY] Domains registered by individual.",
+        "params": True,
+    },
+    {
+        "name": "individual_to_organization",
+        "category": "Individual",
+        "input": "individual",
+        "output": "Organization",
+        "desc": "[SIRENE] Find org from person (France).",
+        "params": False,
+    },
+    # ASN / CIDR
+    {
+        "name": "asn_to_cidrs",
+        "category": "ASN",
+        "input": "asn",
+        "output": "CIDR",
+        "desc": "[ASNMAP] ASN to CIDRs.",
+        "params": True,
+    },
+    {
+        "name": "cidr_to_ips",
+        "category": "CIDR",
+        "input": "cidr",
+        "output": "Ip",
+        "desc": "[MAPCIDR] CIDR to IP addresses.",
+        "params": True,
+    },
+]
+
+# Chain rules: after enricher X on type Y, auto-run enricher Z
+_CHAIN_MAP: dict[str, list[tuple[str, str]]] = {
+    "ip_to_infos": [("ip_to_domain", "ipv4")],
+    "domain_to_whois": [("domain_to_ip", "domain")],
+    "email_to_domain": [("domain_to_whois", "domain")],
+}
+
+# Map enricher input types to internal IOC types
+_ENRICHER_INPUT_MAP: dict[str, str] = {
+    "ip": "ipv4",
+    "domain": "domain",
+    "email": "email",
+    "username": "username",
+    "website": "website",
+    "organization": "organization",
+    "phone": "phone",
+    "cryptowallet": "cryptowallet",
+    "individual": "individual",
+    "asn": "asn",
+    "cidr": "cidr",
+}
+
+# Map enricher input types to _TYPE_MAP keys (extending for new types)
+_TYPE_MAP_EXT: dict[str, dict[str, str]] = {
+    **_TYPE_MAP,
+    "username": {"nodeType": "Username", "nodeLabel": "username", "icon": "user"},
+    "website": {"nodeType": "Website", "nodeLabel": "url", "icon": "globe"},
+    "organization": {
+        "nodeType": "Organization",
+        "nodeLabel": "name",
+        "icon": "building",
+    },
+    "phone": {"nodeType": "Phone", "nodeLabel": "phone", "icon": "phone"},
+    "cryptowallet": {
+        "nodeType": "CryptoWallet",
+        "nodeLabel": "address",
+        "icon": "crypto",
+    },
+}
+
+
+@router.get("/flowsint/enrichers")
+async def list_enrichers(
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Return all available Flowsint enrichers grouped by category."""
+    by_cat: dict[str, list[dict[str, Any]]] = {}
+    for e in _ENRICHER_CATALOG:
+        cat = e["category"]
+        by_cat.setdefault(cat, []).append(e)
+    return {
+        "count": len(_ENRICHER_CATALOG),
+        "categories": by_cat,
+        "enrichers": _ENRICHER_CATALOG,
+    }
+
 
 @router.post("/flowsint/auto-enrich")
 async def trigger_auto_enrich(
@@ -540,6 +974,436 @@ async def trigger_auto_enrich(
     """Manually trigger Flowsint auto-enrichment of the latest briefing."""
     result = await run_auto_enrich()
     return result
+
+
+@router.post("/flowsint/enrich-and-ingest")
+async def enrich_and_ingest(
+    body: dict,
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Enrich a single IOC via Flowsint and ingest into DuckDB + globe pins.
+
+    Body: {"entity_type": "ip|domain|email", "value": "8.8.8.8", "enricher_name": "ip_to_infos"}
+    """
+    entity_type = body.get("entity_type", "ip").strip()
+    # Map frontend-friendly types to internal IOC types
+    if entity_type == "ip":
+        entity_type = "ipv4"
+    value = body.get("value", "").strip()
+    enricher_name = body.get("enricher_name") or _ENRICHER_MAP.get(
+        entity_type, "ip_to_infos"
+    )
+    if not value:
+        return {"error": "value is required"}
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            token = await _get_token(client)
+        except Exception as e:
+            return {"error": f"Flowsint auth failed: {str(e)[:100]}"}
+
+        result = await _enrich_one(client, token, enricher_name, entity_type, value)
+    if "error" in result:
+        return result
+
+    graph = result.get("graph") or {}
+    ingest = _ingest_enriched_nodes(graph, entity_type, value)
+
+    # Auto-chain: run follow-up enrichers on enriched node values
+    chain_results: list[dict[str, Any]] = []
+    chain_enrichers = _CHAIN_MAP.get(enricher_name, [])
+    if chain_enrichers and _truthy(os.getenv("WORLDBASE_FLOWSINT_CHAIN", "1")):
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            for chain_enricher, chain_type in chain_enrichers:
+                # Use the original value for chained enrichment
+                try:
+                    chain_result = await _enrich_one(
+                        client, token, chain_enricher, chain_type, value
+                    )
+                    if "error" not in chain_result:
+                        chain_graph = chain_result.get("graph") or {}
+                        chain_ingest = _ingest_enriched_nodes(
+                            chain_graph, chain_type, value
+                        )
+                        chain_results.append(
+                            {
+                                "enricher": chain_enricher,
+                                "entities": chain_ingest["entities_created"],
+                                "edges": chain_ingest["edges_created"],
+                            }
+                        )
+                except Exception as e:
+                    chain_results.append(
+                        {
+                            "enricher": chain_enricher,
+                            "error": str(e)[:100],
+                        }
+                    )
+
+    return {
+        "value": value,
+        "enricher": enricher_name,
+        "scan_status": result.get("scan_status"),
+        "nodes_in_graph": len(graph.get("nds") or []),
+        "entities_created": ingest["entities_created"],
+        "pins_created": ingest["pins_created"],
+        "edges_created": ingest["edges_created"],
+        "pins": ingest["pins"],
+        "chain": chain_results,
+    }
+
+
+@router.post("/flowsint/enrich-further")
+async def enrich_further(
+    body: dict,
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Enrich an existing graph node further with a specific enricher.
+
+    Body: {"value": "8.8.8.8", "entity_type": "ip", "enricher_name": "ip_to_ports"}
+    """
+    value = body.get("value", "").strip()
+    enricher_name = body.get("enricher_name", "").strip()
+    entity_type = body.get("entity_type", "ip").strip()
+    if entity_type == "ip":
+        entity_type = "ipv4"
+    if not value or not enricher_name:
+        return {"error": "value and enricher_name are required"}
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            token = await _get_token(client)
+        except Exception as e:
+            return {"error": f"Flowsint auth failed: {str(e)[:100]}"}
+
+        result = await _enrich_one(client, token, enricher_name, entity_type, value)
+    if "error" in result:
+        return result
+
+    graph = result.get("graph") or {}
+    ingest = _ingest_enriched_nodes(graph, entity_type, value)
+    return {
+        "value": value,
+        "enricher": enricher_name,
+        "scan_status": result.get("scan_status"),
+        "nodes_in_graph": len(graph.get("nds") or []),
+        "entities_created": ingest["entities_created"],
+        "pins_created": ingest["pins_created"],
+        "edges_created": ingest["edges_created"],
+        "pins": ingest["pins"],
+    }
+
+
+@router.post("/flowsint/auto-chain")
+async def auto_chain(
+    body: dict,
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Run a multi-step enrichment chain on a value.
+
+    Body: {"value": "8.8.8.8", "entity_type": "ip", "chain": ["ip_to_infos", "ip_to_domain", "domain_to_subdomains"]}
+    """
+    value = body.get("value", "").strip()
+    entity_type = body.get("entity_type", "ip").strip()
+    chain = body.get("chain", [])
+    if entity_type == "ip":
+        entity_type = "ipv4"
+    if not value or not chain:
+        return {"error": "value and chain are required"}
+
+    results: list[dict[str, Any]] = []
+    current_value = value
+    current_type = entity_type
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            token = await _get_token(client)
+        except Exception as e:
+            return {"error": f"Flowsint auth failed: {str(e)[:100]}"}
+
+        for enricher_name in chain:
+            try:
+                result = await _enrich_one(
+                    client, token, enricher_name, current_type, current_value
+                )
+                if "error" in result:
+                    results.append(
+                        {
+                            "enricher": enricher_name,
+                            "error": result["error"],
+                        }
+                    )
+                    break
+                graph = result.get("graph") or {}
+                ingest = _ingest_enriched_nodes(graph, current_type, current_value)
+                results.append(
+                    {
+                        "enricher": enricher_name,
+                        "value": current_value,
+                        "entities": ingest["entities_created"],
+                        "edges": ingest["edges_created"],
+                        "pins": ingest["pins_created"],
+                    }
+                )
+                # Extract next value from graph nodes if available
+                nds = graph.get("nds") or []
+                if nds and len(nds) > 1:
+                    # Use the enriched node's value as next input
+                    props = nds[-1].get("nodeProperties") or {}
+                    next_val = (
+                        props.get("domain")
+                        or props.get("address")
+                        or props.get("url")
+                        or props.get("name")
+                    )
+                    if next_val and next_val != current_value:
+                        current_value = next_val
+                        # Update type based on enricher output
+                        for e in _ENRICHER_CATALOG:
+                            if e["name"] == enricher_name:
+                                out = e.get("output", "").lower()
+                                if "domain" in out:
+                                    current_type = "domain"
+                                elif "ip" in out:
+                                    current_type = "ipv4"
+                                elif "website" in out:
+                                    current_type = "website"
+                                break
+            except Exception as e:
+                results.append(
+                    {
+                        "enricher": enricher_name,
+                        "error": str(e)[:100],
+                    }
+                )
+                break
+
+    return {
+        "value": value,
+        "chain": chain,
+        "steps": results,
+        "total_entities": sum(r.get("entities", 0) for r in results),
+        "total_edges": sum(r.get("edges", 0) for r in results),
+    }
+
+
+@router.post("/flowsint/export-investigation")
+async def export_investigation(
+    body: dict,
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Export intelshed entities to Flowsint as a new investigation.
+
+    Body: {"name": "My Investigation", "entity_ids": ["id1", "id2"], "enrich": true}
+    """
+    from ftm_connection import run_query_ro
+
+    name = body.get(
+        "name",
+        f"intelshed-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}",
+    )
+    entity_ids = body.get("entity_ids", [])
+    do_enrich = body.get("enrich", False)
+
+    if not entity_ids:
+        return {"error": "entity_ids is required"}
+
+    # Fetch entities from DuckDB
+    entities: list[dict[str, Any]] = []
+    try:
+        placeholders = ", ".join(f"'{eid}'" for eid in entity_ids[:50])
+        rows = run_query_ro(
+            f"SELECT id, schema, caption, lat, lon, properties, datasets "
+            f"FROM entities WHERE id IN ({placeholders})"
+        )
+        for r in rows:
+            props = {}
+            try:
+                import json as _json
+
+                props = _json.loads(r["properties"]) if r["properties"] else {}
+            except Exception:
+                pass
+            entities.append(
+                {
+                    "id": r["id"],
+                    "schema": r["schema"],
+                    "label": r["caption"],
+                    "lat": r["lat"],
+                    "lon": r["lon"],
+                    "props": props,
+                    "datasets": r["datasets"],
+                }
+            )
+    except Exception as e:
+        return {"error": f"DuckDB query failed: {str(e)[:100]}"}
+
+    if not entities:
+        return {"error": "no entities found for given IDs"}
+
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        try:
+            token = await _get_token(client)
+        except Exception as e:
+            return {"error": f"Flowsint auth failed: {str(e)[:100]}"}
+
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Create investigation
+        r = await client.post(
+            f"{_FLOWSINT_API}/api/investigations/create",
+            json={
+                "name": name,
+                "description": f"Exported from intelshed ({len(entities)} entities)",
+            },
+            headers=headers,
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        inv_id = r.json()["id"]
+
+        # Create sketch
+        r = await client.post(
+            f"{_FLOWSINT_API}/api/sketches/create",
+            json={
+                "title": name,
+                "description": "intelshed export",
+                "investigation_id": inv_id,
+            },
+            headers=headers,
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        sketch_id = r.json()["id"]
+
+        # Add nodes
+        node_ids: list[int] = []
+        for ent in entities:
+            schema = ent["schema"] or "Thing"
+            label = ent["label"] or ent["id"]
+            props = ent["props"] or {}
+
+            # Determine node type and label key
+            node_type = "Thing"
+            node_label_key = "name"
+            if schema == "IpAddress":
+                node_type = "Ip"
+                node_label_key = "ip"
+            elif schema == "Domain":
+                node_type = "Domain"
+                node_label_key = "domain"
+            elif schema == "Organization":
+                node_type = "Organization"
+                node_label_key = "name"
+            elif schema == "Person":
+                node_type = "Person"
+                node_label_key = "name"
+            elif schema == "HyperText":
+                node_type = "Website"
+                node_label_key = "url"
+
+            node_payload = {
+                "id": None,
+                "nodeLabel": label,
+                "nodeType": node_type,
+                "nodeIcon": "default",
+                "nodeMetadata": {},
+                "nodeProperties": {node_label_key: label},
+                "x": 100.0,
+                "y": 100.0,
+            }
+            try:
+                r = await client.post(
+                    f"{_FLOWSINT_API}/api/sketches/{sketch_id}/nodes/add",
+                    json=node_payload,
+                    headers=headers,
+                    timeout=10.0,
+                )
+                r.raise_for_status()
+                node_resp = r.json()
+                node = node_resp.get("node") or node_resp
+                nid = node.get("id")
+                if nid:
+                    node_ids.append(nid)
+            except Exception:
+                pass
+
+        # Optionally enrich all nodes
+        enrich_results: list[dict[str, Any]] = []
+        if do_enrich and node_ids:
+            for ent in entities:
+                schema = ent["schema"] or ""
+                enricher = None
+                if schema == "IpAddress":
+                    enricher = "ip_to_infos"
+                elif schema == "Domain":
+                    enricher = "domain_to_whois"
+                elif schema == "Person":
+                    enricher = "email_to_gravatar"
+                if not enricher:
+                    continue
+                try:
+                    r = await client.post(
+                        f"{_FLOWSINT_API}/api/enrichers/{enricher}/launch",
+                        json={"node_ids": node_ids, "sketch_id": sketch_id},
+                        headers=headers,
+                        timeout=10.0,
+                    )
+                    r.raise_for_status()
+                    enrich_results.append({"enricher": enricher, "status": "launched"})
+                except Exception as e:
+                    enrich_results.append({"enricher": enricher, "error": str(e)[:100]})
+
+    return {
+        "investigation_id": inv_id,
+        "sketch_id": sketch_id,
+        "nodes_sent": len(node_ids),
+        "entities": len(entities),
+        "enrich": enrich_results if do_enrich else None,
+        "flowsint_url": f"{_FLOWSINT_UI}/investigation/{inv_id}",
+    }
+
+
+@router.post("/flowsint/auto-chain-pipeline")
+async def auto_chain_pipeline(
+    body: dict,
+    _auth: str | None = Depends(verify_lan_auth),
+):
+    """Run a full auto-chain pipeline: IP → Domain → Subdomains → Websites.
+
+    Body: {"value": "8.8.8.8", "entity_type": "ip"}
+    """
+    value = body.get("value", "").strip()
+    entity_type = body.get("entity_type", "ip").strip()
+    if entity_type == "ip":
+        entity_type = "ipv4"
+    if not value:
+        return {"error": "value is required"}
+
+    # Default pipeline: IP → Domain → Subdomains → Websites
+    pipeline: list[str] = []
+    if entity_type == "ipv4":
+        pipeline = [
+            "ip_to_infos",
+            "ip_to_domain",
+            "domain_to_subdomains",
+            "domain_to_website",
+        ]
+    elif entity_type == "domain":
+        pipeline = [
+            "domain_to_whois",
+            "domain_to_ip",
+            "ip_to_infos",
+            "domain_to_subdomains",
+        ]
+    elif entity_type == "email":
+        pipeline = ["email_to_domain", "domain_to_whois", "domain_to_ip", "ip_to_infos"]
+    else:
+        return {"error": f"auto-chain pipeline not defined for type: {entity_type}"}
+
+    # Use the auto-chain endpoint logic
+    chain_body = {"value": value, "entity_type": entity_type, "chain": pipeline}
+    return await auto_chain(chain_body, _auth)
 
 
 @router.get("/flowsint/enriched-graph")
@@ -551,68 +1415,61 @@ async def get_enriched_graph(
     Queries DuckDB FtM store for entities with dataset=flowsint_auto
     and SQLite entity_store for globe pins.
     """
-    import ftm_query
     import sqlite3
+    from ftm_connection import run_query_ro
 
     nodes: list[dict[str, Any]] = []
     links: list[dict[str, Any]] = []
     pins: list[dict[str, Any]] = []
 
-    # 1. Fetch flowsint_auto entities from DuckDB FtM store
-    schemas = ["IpAddress", "Domain", "Organization", "Person", "HyperText", "Email"]
-    seen_ids: set[str] = set()
-
-    for schema in schemas:
-        try:
-            result = ftm_query.list_entities_by_schema(
-                schema, limit=100, dataset="flowsint_auto"
+    # 1. Fetch flowsint_auto entities directly from DuckDB (bypass statements JOIN)
+    try:
+        rows = run_query_ro(
+            "SELECT id, schema, caption, lat, lon, properties, datasets "
+            "FROM entities WHERE datasets LIKE '%flowsint%' LIMIT 500"
+        )
+        for r in rows:
+            eid = r[0]
+            props = json.loads(r[5]) if r[5] else {}
+            label = ""
+            if isinstance(props.get("name"), list) and props["name"]:
+                label = props["name"][0]
+            elif isinstance(props.get("name"), str):
+                label = props["name"]
+            nodes.append(
+                {
+                    "id": eid,
+                    "label": label or r[2] or eid[:12],
+                    "type": r[1] or "Thing",
+                    "lat": r[3],
+                    "lon": r[4],
+                    "props": props,
+                    "dataset": "flowsint_auto",
+                }
             )
-            for ent in result.get("entities", []):
-                eid = ent.get("id") or ""
-                if not eid or eid in seen_ids:
-                    continue
-                seen_ids.add(eid)
-                props = ent.get("properties") or {}
-                label = ""
-                if isinstance(props.get("name"), list) and props["name"]:
-                    label = props["name"][0]
-                elif isinstance(props.get("name"), str):
-                    label = props["name"]
-                nodes.append(
+    except Exception as e:
+        log.warning("enriched_graph_entities_failed", error=str(e)[:200])
+
+    seen_ids = {n["id"] for n in nodes}
+
+    # 2. Fetch edges between these entities from DuckDB
+    try:
+        edge_rows = run_query_ro(
+            "SELECT source_id, target_id, kind, confidence, dataset "
+            "FROM intel_edges WHERE dataset LIKE '%flowsint%' LIMIT 500"
+        )
+        for r in edge_rows:
+            if r[0] in seen_ids or r[1] in seen_ids:
+                links.append(
                     {
-                        "id": eid,
-                        "label": label or ent.get("caption") or eid[:12],
-                        "type": ent.get("schema") or "Thing",
-                        "lat": ent.get("lat"),
-                        "lon": ent.get("lon"),
-                        "props": props,
-                        "dataset": "flowsint_auto",
+                        "source": r[0],
+                        "target": r[1],
+                        "type": r[2],
+                        "confidence": r[3] or 0.8,
                     }
                 )
-        except Exception:
-            pass
-
-    # 2. Fetch intel edges between these entities
-    for edge_type in ("linkedTo", "ownsAsset", "mentionedIn", "locatedAt"):
-        try:
-            result = ftm_query.list_edges_by_type(
-                edge_type, limit=200, dataset="flowsint_auto"
-            )
-            edges = result if isinstance(result, list) else result.get("edges", [])
-            for e in edges:
-                src = e.get("source") or e.get("source_id") or ""
-                tgt = e.get("target") or e.get("target_id") or ""
-                if src in seen_ids or tgt in seen_ids:
-                    links.append(
-                        {
-                            "source": src,
-                            "target": tgt,
-                            "type": edge_type,
-                            "confidence": e.get("confidence", 0.8),
-                        }
-                    )
-        except Exception:
-            pass
+    except Exception as e:
+        log.warning("enriched_graph_edges_failed", error=str(e)[:200])
 
     # 3. Fetch globe pins from SQLite entity_store
     try:

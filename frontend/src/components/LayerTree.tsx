@@ -76,6 +76,7 @@ const LAYER_GROUPS: LayerGroup[] = [
     group: 'Intelligence',
     layers: [
       { key: 'intelFt', label: 'Intel Entities', color: '#c084fc', statKey: 'intelFt' },
+      { key: 'flowsint', label: 'Flowsint Pins', color: '#ff6b35', statKey: 'flowsint' },
       { key: 'osint', label: 'OSINT Pins', statKey: 'osint' },
       { key: 'darkweb', label: 'Dark Web', statKey: 'darkweb' },
       {
